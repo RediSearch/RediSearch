@@ -8,6 +8,8 @@
 */
 
 use crate::util::expect_value;
+use ffi::RedisModuleString;
+use libc::{c_char, size_t};
 use std::ffi::c_double;
 use value::RsValue;
 
@@ -93,4 +95,60 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
     } else {
         panic!("Expected a trio value")
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u32) -> *mut c_char {
+    let value = unsafe { expect_value(value) };
+
+    let (ptr, len) = match value {
+        RsValue::String(str) => (str.as_ptr(), str.count_bytes() as u32),
+        RsValue::RmAllocString(str) => str.as_ptr_len(),
+        RsValue::ConstString(str) => str.as_ptr_len(),
+        _ => panic!("unsupported RSValue_String_Get type"),
+    };
+
+    if let Some(lenp) = unsafe { lenp.as_mut() } {
+        *lenp = len;
+    }
+
+    ptr as *mut _
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_RedisString_Get(
+    value: *const RsValue,
+) -> *const RedisModuleString {
+    let value = unsafe { expect_value(value) };
+
+    let RsValue::RedisString(redis_string) = value else {
+        panic!("Expected redis string")
+    };
+
+    redis_string.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_StringPtrLen(
+    value: *const RsValue,
+    len_ptr: *mut size_t,
+) -> *const c_char {
+    let mut value = unsafe { expect_value(value) };
+
+    let (ptr, len) = loop {
+        match value {
+            RsValue::String(str) => break (str.as_ptr(), str.count_bytes() as u32),
+            RsValue::RmAllocString(str) => break str.as_ptr_len(),
+            RsValue::ConstString(str) => break str.as_ptr_len(),
+            RsValue::RedisString(str) => break str.as_ptr_len(),
+            RsValue::Ref(ref_val) => value = ref_val.value(),
+            RsValue::Trio(trio) => value = trio.left().value(),
+            _ => return std::ptr::null(),
+        }
+    };
+
+    if let Some(len_ptr) = unsafe { len_ptr.as_mut() } {
+        *len_ptr = len as usize;
+    }
+    ptr
 }

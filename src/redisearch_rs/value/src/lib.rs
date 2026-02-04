@@ -42,14 +42,14 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
+    /// String value
+    String(Box<CStr>),
     /// String value backed by a rm_alloc'd string
     RmAllocString(RmAllocString),
     /// String value backed by a constant C string
     ConstString(ConstString),
     /// String value backed by a Redis string
     RedisString(RedisString),
-    /// String value
-    String(Box<CStr>),
     /// Array value
     Array(RsValueArray),
     /// Reference value

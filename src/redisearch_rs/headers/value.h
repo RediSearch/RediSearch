@@ -275,6 +275,12 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
  */
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
+char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
+
+const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
+
+const char *RSValue_StringPtrLen(const struct RsValue *value, size_t *len_ptr);
+
 /**
  * Converts an [`RsValue`] to a number type in-place.
  *
