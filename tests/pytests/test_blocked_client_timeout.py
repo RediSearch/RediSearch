@@ -409,6 +409,54 @@ class TestCoordinatorTimeout:
         env.assertEqual(result['warning'], [TIMEOUT_WARNING])
 
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+    def test_no_timeout(self):
+        """
+        Test that using result-strict or fail policies doesn't affect the regular flow
+        when there is no timeout (i.e., FT.SEARCH completes normally and gets all expected
+        replies from shards).
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+
+        # Test with 'fail' policy
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        result = env.cmd('FT.SEARCH', 'idx', '*')
+        env.assertEqual(result['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} total results with 'fail' policy")
+        env.assertEqual(result.get('warning', []), [],
+                        message="Expected no warning with 'fail' policy")
+
+        # Test with 'return-strict' policy
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        result = env.cmd('FT.SEARCH', 'idx', '*')
+        env.assertEqual(result['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} total results with 'return-strict' policy")
+        env.assertEqual(result.get('warning', []), [],
+                        message="Expected no warning with 'return-strict' policy")
+
+        # Test FT.PROFILE with 'fail' policy
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+        env.assertContains('Results', result, message="Expected 'Results' key in FT.PROFILE output")
+        profile_results = result['Results']
+        env.assertEqual(profile_results['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} total results with 'fail' policy (FT.PROFILE)")
+        env.assertEqual(profile_results.get('warning', []), [],
+                        message="Expected no warning with 'fail' policy (FT.PROFILE)")
+
+        # Test FT.PROFILE with 'return-strict' policy
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+        result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+        env.assertContains('Results', result, message="Expected 'Results' key in FT.PROFILE output")
+        profile_results = result['Results']
+        env.assertEqual(profile_results['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} total results with 'return-strict' policy (FT.PROFILE)")
+        env.assertEqual(profile_results.get('warning', []), [],
+                        message="Expected no warning with 'return-strict' policy (FT.PROFILE)")
+
+        # Restore previous policy
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
 
 class TestCoordinatorReducePause:

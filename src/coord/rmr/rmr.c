@@ -86,11 +86,11 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 
   /* State tracking for partial timeout support */
-  atomic_flag timedOut;         // Set by timeout callback to stop accepting replies
-  atomic_flag reducing;         // Set when reducer is claimed, never cleared (prevents double-claim)
-  bool reducerDone;             // Set when reducer completes, for signaling waiters (only accessed with lock)
-  pthread_mutex_t reducingLock; // Mutex for reducingCond
-  pthread_cond_t reducingCond;  // For waiting on reducer completion
+  _Atomic(bool) timedOut;
+  _Atomic(bool) reducing;
+  bool reducerDone;
+  pthread_mutex_t reducingLock;
+  pthread_cond_t reducingCond;
 } MRCtx;
 
 // Data structure to pass iterator and private data to callback
@@ -117,9 +117,8 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->status = QueryError_Default();
 
-  // Initialize state tracking for partial timeout support
-  atomic_flag_clear(&ret->timedOut);
-  atomic_flag_clear(&ret->reducing);
+  atomic_init(&ret->timedOut, false);
+  atomic_init(&ret->reducing, false);
   ret->reducerDone = false;
   pthread_mutex_init(&ret->reducingLock, NULL);
   pthread_cond_init(&ret->reducingCond, NULL);
@@ -189,29 +188,19 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
   ctx->bc = bc;
 }
 
-/* State management for partial timeout support */
-
 void MRCtx_SetTimedOut(struct MRCtx *ctx) {
-  atomic_flag_test_and_set(&ctx->timedOut);
+  atomic_store(&ctx->timedOut, true);
 }
 
 bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
-  // atomic_flag_test_and_set returns the previous value and sets the flag.
-  // Since timedOut is only ever set (never cleared), this is safe - if it was
-  // already set, it stays set; if not set, we set it but that's fine since
-  // we only call this after SetTimedOut or to check if someone else set it.
-  return atomic_flag_test_and_set(&ctx->timedOut);
+  return atomic_load(&ctx->timedOut);
 }
 
-/* Try to claim the reducing state. Returns true if we successfully claimed it,
- * false if reducer already started (someone else claimed it). */
 bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
-  return atomic_flag_test_and_set(&ctx->reducing) == false;
+  bool expected = false;
+  return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
 }
 
-/* Signal that reducer has completed.
- * Sets reducerDone to true (never reset) and broadcasts to waiters.
- * Note: reducing stays true forever once claimed to prevent double-claim. */
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
   ctx->reducerDone = true;
@@ -219,8 +208,6 @@ void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_unlock(&ctx->reducingLock);
 }
 
-/* Wait for reducer to complete if it's currently running.
- * Waits until reducerDone becomes true. */
 void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
   while (!ctx->reducerDone) {
@@ -256,18 +243,16 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
 
-  // Check if timed out - discard reply and return early.
-  // Timeout callback handles the reply, no need to track completion here.
-  if (MRCtx_IsTimedOut(ctx)) {
+  // Check if timed out - discard reply.
+  // Currently, timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
+  bool timedOut = MRCtx_IsTimedOut(ctx);
+  if (timedOut) {
     if (r) {
       MRReply_Free(r);
     }
-    return;
-  }
-
-  if (!r) {
     ctx->numErrored++;
-
+  } else if (!r) {
+    ctx->numErrored++;
   } else {
     /* If needed - double the capacity for replies */
     if (ctx->numReplied == ctx->repliesCap) {
@@ -279,7 +264,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    if (ctx->fn) {
+    if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
