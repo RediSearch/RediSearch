@@ -10,6 +10,7 @@
 #include "tag_index.h"
 #include "triemap.h"
 #include "gtest/gtest.h"
+#include "index_utils.h"
 
 #include <vector>
 #include <string>
@@ -61,7 +62,8 @@ TEST_F(TagIndexTest, testCreate) {
   size_t last_block_size = 24 + 8 + 48 + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
-  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  MockQueryEvalCtx mockQctx(N, N);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
   t_docId n = 1;
 
@@ -87,7 +89,8 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   TagIndex_Index(idx, &v[0], v.size(), docId);
-  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  MockQueryEvalCtx mockQctx(1, 1);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   IteratorStatus rc = it->Read(it);
   ASSERT_EQ(rc, ITERATOR_OK);
   ASSERT_EQ(it->lastDocId, docId);

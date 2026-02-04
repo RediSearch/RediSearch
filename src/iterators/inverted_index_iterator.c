@@ -53,7 +53,9 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
 
 static ValidateStatus TermCheckAbort(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  if (!it->sctx) {
+  // Skip validation if search context is not set up for term lookup.
+  // This happens in tests that don't have a full spec with keysDict.
+  if (!it->sctx || !it->sctx->spec || !it->sctx->spec->keysDict) {
     return VALIDATE_OK;
   }
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
