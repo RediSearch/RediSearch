@@ -23,7 +23,7 @@ use crate::NumericRangeNode;
 ///
 /// Wraps a `slab::Slab` key. This is a lightweight handle (single `u32`)
 /// that is stable across mutations to other slots in the slab.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct NodeIndex(u32);
 
@@ -77,7 +77,6 @@ impl NodeArena {
     /// # Panics
     ///
     /// Panics if the index is invalid.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub fn remove(&mut self, idx: NodeIndex) -> NumericRangeNode {
         self.nodes.remove(idx.key())
     }
@@ -98,11 +97,32 @@ impl NodeArena {
     /// Iterate over all nodes in the arena mutably.
     ///
     /// Yields `(NodeIndex, &mut NumericRangeNode)` pairs.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (NodeIndex, &mut NumericRangeNode)> {
         self.nodes
             .iter_mut()
             .map(|(key, node)| (NodeIndex(key as u32), node))
+    }
+
+    /// Get the number of nodes in the arena.
+    pub fn len(&self) -> u32 {
+        self.nodes.len() as u32
+    }
+
+    /// Get the capacity of the arena.
+    pub fn capacity(&self) -> u32 {
+        self.nodes.capacity() as u32
+    }
+
+    /// Compact the arena, moving nodes to fill gaps.
+    ///
+    /// The callback is called for each moved node with `(from_idx, to_idx)`.
+    /// Return `true` from the callback to proceed with the move.
+    pub fn compact(
+        &mut self,
+        mut callback: impl FnMut(&mut NumericRangeNode, NodeIndex, NodeIndex) -> bool,
+    ) {
+        self.nodes
+            .compact(|node, from, to| callback(node, NodeIndex(from as u32), NodeIndex(to as u32)))
     }
 }
 

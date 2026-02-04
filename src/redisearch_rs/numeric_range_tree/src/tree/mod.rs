@@ -15,11 +15,15 @@
 //! The implementation is split into sub-modules by concern:
 //! - [`insert`]: Write path (add, split, balance)
 //! - [`find`]: Read path (range queries)
+//! - [`gc`][]: Maintenance (garbage collection, trimming, compaction)
 
 mod find;
+mod gc;
 mod insert;
 #[cfg(all(feature = "unittest", not(miri)))]
 mod invariants;
+
+pub use gc::{NodeGcDelta, SingleNodeGcResult};
 
 use ffi::t_docId;
 
