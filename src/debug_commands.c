@@ -34,9 +34,6 @@
 #include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
-#ifdef ENABLE_ASSERT
-#include <unistd.h>  // for usleep
-#endif
 
 DebugCTX globalDebugCtx = {0};
 
@@ -2098,7 +2095,7 @@ DEBUG_COMMAND(getIsCoordReducePaused) {
     return RedisModule_WrongArity(ctx);
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_IsPaused());
+  return RedisModule_ReplyWithBool(ctx, CoordReduceDebugCtx_IsPaused());
 }
 
 /**

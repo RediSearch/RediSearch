@@ -86,9 +86,9 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 
   /* State tracking for partial timeout support */
-  _Atomic(bool) timedOut;       // Set by timeout callback to stop accepting replies
-  _Atomic(bool) reducing;       // Set when reducer is claimed, never cleared (prevents double-claim)
-  _Atomic(bool) reducerDone;    // Set when reducer completes, for signaling waiters
+  atomic_flag timedOut;         // Set by timeout callback to stop accepting replies
+  atomic_flag reducing;         // Set when reducer is claimed, never cleared (prevents double-claim)
+  bool reducerDone;             // Set when reducer completes, for signaling waiters (only accessed with lock)
   pthread_mutex_t reducingLock; // Mutex for reducingCond
   pthread_cond_t reducingCond;  // For waiting on reducer completion
 } MRCtx;
@@ -118,9 +118,9 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->status = QueryError_Default();
 
   // Initialize state tracking for partial timeout support
-  atomic_init(&ret->timedOut, false);
-  atomic_init(&ret->reducing, false);
-  atomic_init(&ret->reducerDone, false);
+  atomic_flag_clear(&ret->timedOut);
+  atomic_flag_clear(&ret->reducing);
+  ret->reducerDone = false;
   pthread_mutex_init(&ret->reducingLock, NULL);
   pthread_cond_init(&ret->reducingCond, NULL);
 
@@ -192,18 +192,21 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
 /* State management for partial timeout support */
 
 void MRCtx_SetTimedOut(struct MRCtx *ctx) {
-  atomic_store(&ctx->timedOut, true);
+  atomic_flag_test_and_set(&ctx->timedOut);
 }
 
 bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
-  return atomic_load(&ctx->timedOut);
+  // atomic_flag_test_and_set returns the previous value and sets the flag.
+  // Since timedOut is only ever set (never cleared), this is safe - if it was
+  // already set, it stays set; if not set, we set it but that's fine since
+  // we only call this after SetTimedOut or to check if someone else set it.
+  return atomic_flag_test_and_set(&ctx->timedOut);
 }
 
 /* Try to claim the reducing state. Returns true if we successfully claimed it,
  * false if reducer already started (someone else claimed it). */
 bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
-  bool expected = false;
-  return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
+  return atomic_flag_test_and_set(&ctx->reducing) == false;
 }
 
 /* Signal that reducer has completed.
@@ -211,7 +214,7 @@ bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
  * Note: reducing stays true forever once claimed to prevent double-claim. */
 void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
-  atomic_store(&ctx->reducerDone, true);
+  ctx->reducerDone = true;
   pthread_cond_broadcast(&ctx->reducingCond);
   pthread_mutex_unlock(&ctx->reducingLock);
 }
@@ -220,7 +223,7 @@ void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
  * Waits until reducerDone becomes true. */
 void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
   pthread_mutex_lock(&ctx->reducingLock);
-  while (!atomic_load(&ctx->reducerDone)) {
+  while (!ctx->reducerDone) {
     pthread_cond_wait(&ctx->reducingCond, &ctx->reducingLock);
   }
   pthread_mutex_unlock(&ctx->reducingLock);

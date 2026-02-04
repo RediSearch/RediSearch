@@ -3266,12 +3266,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   rCtx->mc = mc;  // Store MRCtx reference for debug pause timeout check
 #endif
 
-  // Initialize heap early so it's available even if we bail out
-  // (timeout callback may need to call sendSearchResults with partial/empty results)
-  size_t num = req->requestedResultsCount;
-  rCtx->pq = rm_malloc(heap_sizeof(num));
-  heap_init(rCtx->pq, cmp_results, req, num);
-
   int profile = req->profileArgs > 0;
 
   // got no replies
@@ -3298,6 +3292,11 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
 
   // Get reply offsets
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
+
+  // Init results heap.
+  size_t num = req->requestedResultsCount;
+  rCtx->pq = rm_malloc(heap_sizeof(num));
+  heap_init(rCtx->pq, cmp_results, req, num);
 
   // Default result process and post process operations
   rCtx->processReply = (processReplyCB) processSearchReply;
@@ -3883,9 +3882,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
     MRCommand_Insert(cmd, 3 + req->profileArgs, "WITHSCORES", sizeof("WITHSCORES") - 1);
   }
 
-  if(req->specialCases) {
-    sendRequiredFields(req, cmd);
-  }
+  // Append required fields if any
+  sendRequiredFields(req, cmd);
 
   // Append the prefixes of the index to the command
   StrongRef strong_ref = IndexSpecRef_Promote(spec_ref);
@@ -3933,8 +3931,8 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 
   // Check for timeout before doing any work
   if (MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
-    RedisModule_UnblockClient(MRCtx_GetBlockedClient(mrctx), mrctx);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
@@ -4095,14 +4093,13 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
 
 // Timeout callback for FT.SEARCH in coordinator mode.
 // Called on the main thread when the blocking client times out.
-// For RETURN policy - returns partial results instead of error
+// Used for RETURN-STRICT policy - returns partial results using the blocked client timeout mechanism instead of error
 static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!mrctx) {
     // This shouldn't happen but handle gracefully
-    RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
   }
 
   // Signal timeout to stop accepting new replies in fanoutCallback
@@ -4664,8 +4661,8 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
 
   // Check for timeout before doing any work
   if (MRCtx_IsTimedOut(mrctx)) {
-    RedisModule_BlockedClientMeasureTimeEnd(MRCtx_GetBlockedClient(mrctx));
-    RedisModule_UnblockClient(MRCtx_GetBlockedClient(mrctx), mrctx);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, mrctx);
     return REDISMODULE_OK;
   }
 
