@@ -219,7 +219,7 @@ struct RSValueMap *RSValueMap_AllocUninit(uint32_t len);
  *    obtained from an `RSValue_*` function.
  */
 void RSValueMap_SetEntry(struct RSValueMap *map,
-                         uint32_t index,
+                         size_t index,
                          struct RsValue *key,
                          struct RsValue *value);
 
