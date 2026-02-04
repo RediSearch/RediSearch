@@ -14,6 +14,8 @@ mod proptests {
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
 
+    use crate::helpers::gc_all_ranges;
+
     proptest::proptest! {
         #[test]
         fn prop_add_never_loses_entries(
@@ -145,5 +147,34 @@ mod proptests {
             }
         }
 
+        #[test]
+        fn prop_gc_then_trim_preserves_surviving_docs(
+            num_entries in 10u64..200,
+            delete_ratio in 0.1f64..0.9,
+            max_depth_range in 0usize..3,
+        ) {
+            let mut tree = NumericRangeTree::new(false);
+            for i in 1..=num_entries {
+                // Use varied values to trigger splits.
+                tree.add(i, (i % 50) as f64, false, max_depth_range);
+            }
+
+            let delete_threshold = (num_entries as f64 * delete_ratio) as u64;
+
+            let surviving_count = num_entries - delete_threshold;
+
+            // Apply GC to all ranges (leaves + retained internal ranges).
+            gc_all_ranges(&mut tree, &|doc_id| doc_id > delete_threshold);
+
+            // Trim empty leaves.
+            tree.trim_empty_leaves();
+
+            // num_entries should equal surviving count.
+            assert_eq!(
+                tree.num_entries(),
+                surviving_count as usize,
+                "after GC + trim, num_entries should be {surviving_count}"
+            );
+        }
     }
 }
