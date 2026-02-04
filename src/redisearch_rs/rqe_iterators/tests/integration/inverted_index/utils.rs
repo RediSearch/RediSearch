@@ -12,8 +12,6 @@ use std::ptr;
 use ffi::{
     IndexFlags, IndexSpec, NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId,
 };
-#[cfg(not(miri))]
-use field::FieldMaskOrIndex;
 use inverted_index::{
     Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
 };
@@ -41,15 +39,6 @@ pub(crate) struct MockContext {
 
 impl Drop for MockContext {
     fn drop(&mut self) {
-        // For non-miri builds, clean up ffi-allocated resources first
-        #[cfg(not(miri))]
-        unsafe {
-            ffi::array_free((*self.spec).fieldIdToIndex as _);
-            if !(*self.spec).docs.ttl.is_null() {
-                ffi::TimeToLiveTable_Destroy(&mut (*self.spec).docs.ttl as _);
-            }
-        }
-
         // Deallocate all the structs using the global allocator directly.
         // We can't use Box::from_raw because that would create a Box with a Unique
         // tag, but the memory's borrow stack may have been modified by SharedReadOnly
@@ -123,128 +112,6 @@ impl MockContext {
                 qctx: qctx_ptr,
                 numeric_range_tree: numeric_range_tree_ptr,
             }
-        }
-    }
-
-    #[cfg(not(miri))] // those functions do ffi calls which are not supported by miri
-    /// Mark the given field of the given documents as expired.
-    fn mark_index_expired(&mut self, ids: Vec<t_docId>, field: FieldMaskOrIndex) {
-        use ffi::t_expirationTimePoint;
-
-        // Already expired
-        let expiration = t_expirationTimePoint {
-            tv_nsec: 1,
-            tv_sec: 1,
-        };
-
-        for id in ids {
-            self.ttl_add(id, field, expiration);
-        }
-
-        // Set up the mock current time further in the future than the expiration point.
-        // SAFETY: self.sctx is a valid pointer allocated in new()
-        unsafe {
-            (*self.sctx).time.current = t_expirationTimePoint {
-                tv_sec: 100,
-                tv_nsec: 100,
-            };
-        }
-    }
-
-    #[cfg(not(miri))]
-    /// Add a TTL entry for the given field in the given document.
-    fn ttl_add(
-        &mut self,
-        doc_id: t_docId,
-        field: FieldMaskOrIndex,
-        expiration: ffi::t_expirationTimePoint,
-    ) {
-        use ffi::FieldExpiration;
-
-        self.verify_ttl_init();
-
-        let fe = match field {
-            FieldMaskOrIndex::Index(index) => {
-                let fe_entry = FieldExpiration {
-                    index,
-                    point: expiration,
-                };
-
-                let fe = unsafe {
-                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, 1)
-                };
-                let fe = fe.cast();
-                unsafe {
-                    *fe = fe_entry;
-                };
-
-                fe
-            }
-            FieldMaskOrIndex::Mask(mask) => {
-                let mut entries = vec![];
-                // Add a FieldExpiration for each bit set in the mask
-                let mut value = mask;
-                while value != 0 {
-                    let index = value.trailing_zeros();
-                    let fe_entry = FieldExpiration {
-                        index: index as u16,
-                        point: expiration,
-                    };
-                    entries.push(fe_entry);
-                    value &= value - 1;
-                }
-
-                let fe = unsafe {
-                    ffi::array_new_sz(
-                        std::mem::size_of::<FieldExpiration>() as u16,
-                        0,
-                        entries.len() as u32,
-                    )
-                };
-
-                let fe = fe.cast::<FieldExpiration>();
-                for (i, fe_entry) in entries.into_iter().enumerate() {
-                    unsafe {
-                        *fe.offset(i as isize) = fe_entry;
-                    }
-                }
-
-                fe
-            }
-        };
-
-        let doc_expiration_time = ffi::t_expirationTimePoint {
-            tv_sec: i64::MAX,
-            tv_nsec: i64::MAX,
-        };
-
-        // SAFETY: self.spec is a valid pointer allocated in new()
-        unsafe {
-            ffi::TimeToLiveTable_Add((*self.spec).docs.ttl, doc_id, doc_expiration_time, fe as _);
-        }
-    }
-
-    #[cfg(not(miri))]
-    /// Ensure the spec TTL table is initialized.
-    fn verify_ttl_init(&mut self) {
-        use ffi::t_fieldIndex;
-
-        // SAFETY: self.spec is a valid pointer allocated in new()
-        unsafe {
-            if !(*self.spec).fieldIdToIndex.is_null() {
-                return;
-            }
-
-            // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
-            let arr = ffi::array_new_sz(std::mem::size_of::<t_fieldIndex>() as u16, 0, 128);
-            let arr = arr.cast::<t_fieldIndex>();
-
-            for i in 0..128 as t_fieldIndex {
-                arr.offset(i as isize).write(i);
-            }
-
-            (*self.spec).fieldIdToIndex = arr as _;
-            ffi::TimeToLiveTable_VerifyInit(&mut (*self.spec).docs.ttl);
         }
     }
 
@@ -426,27 +293,60 @@ pub(super) mod not_miri {
     use super::*;
     use ffi::{
         IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-        IndexFlags_Index_StoreTermOffsets, t_docId,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
+        IndexFlags_Index_WideSchema, t_docId,
     };
     use field::FieldMaskOrIndex;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult};
-    use query_error::QueryError;
     use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
-    use std::{ffi::CString, ptr};
+
+    // Re-export TestContext and GlobalGuard from the main library's test_utils module
+    pub use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     /// ---------- Expiration Tests ----------
 
-    /// Test fields expiration.
-    pub struct ExpirationTest<E> {
-        pub(crate) doc_ids: Vec<t_docId>,
-        pub(crate) ii: InvertedIndex<E>,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
-        pub(crate) mock_ctx: MockContext,
+    /// The type of index used in the expiration test.
+    enum ExpirationIndexType {
+        Numeric,
+        Term,
+        TermWide,
     }
 
-    impl<E: Encoder> ExpirationTest<E> {
-        pub(crate) fn new(
+    /// Test fields expiration using TestContext's inverted index.
+    /// Supports both numeric and term index types.
+    pub struct ExpirationTest {
+        pub(crate) doc_ids: Vec<t_docId>,
+        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        pub(crate) context: TestContext,
+        index_type: ExpirationIndexType,
+        _guard: GlobalGuard,
+    }
+
+    impl ExpirationTest {
+        /// Create a new numeric expiration test.
+        pub(crate) fn numeric(
+            expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+            n_docs: u64,
+            multi: bool,
+        ) -> Self {
+            let create_record = &*expected_record;
+            // Generate a set of document IDs for testing.
+            let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
+
+            // Create a TestContext which creates the inverted index via NumericRangeTree
+            let context = TestContext::numeric(doc_ids.iter().map(|id| create_record(*id)), multi);
+
+            Self {
+                doc_ids,
+                expected_record,
+                context,
+                index_type: ExpirationIndexType::Numeric,
+                _guard: GlobalGuard::default(),
+            }
+        }
+
+        /// Create a new term expiration test.
+        pub(crate) fn term(
             ii_flags: IndexFlags,
             expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
             n_docs: u64,
@@ -456,30 +356,71 @@ pub(super) mod not_miri {
             // Generate a set of document IDs for testing.
             let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
 
-            let mut ii = InvertedIndex::<E>::new(ii_flags);
+            // Create a TestContext which creates the inverted index
+            let context =
+                TestContext::term(ii_flags, doc_ids.iter().map(|id| create_record(*id)), multi);
 
-            for doc_id in doc_ids.iter() {
-                let record = create_record(*doc_id);
-                ii.add_record(&record).expect("failed to add record");
-                if multi {
-                    // add each record twice in multi mode
-                    ii.add_record(&record).expect("failed to add record");
-                }
-            }
-
-            let mock_ctx = MockContext::new(0, 0);
+            let index_type = if (ii_flags & IndexFlags_Index_WideSchema) != 0 {
+                ExpirationIndexType::TermWide
+            } else {
+                ExpirationIndexType::Term
+            };
 
             Self {
                 doc_ids,
-                ii,
                 expected_record,
-                mock_ctx,
+                context,
+                index_type,
+                _guard: GlobalGuard::default(),
+            }
+        }
+
+        /// Get the numeric inverted index from the TestContext.
+        /// Panics if this is not a numeric expiration test.
+        pub(crate) fn numeric_inverted_index(
+            &self,
+        ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
+            self.context.numeric_inverted_index().as_numeric()
+        }
+
+        /// Get the term inverted index from the TestContext (non-wide).
+        /// Panics if this is not a term expiration test or if it uses wide schema.
+        pub(crate) fn term_inverted_index(
+            &self,
+        ) -> &inverted_index::FieldMaskTrackingIndex<inverted_index::full::Full> {
+            self.context.term_inverted_index()
+        }
+
+        /// Get the term inverted index from the TestContext (wide schema).
+        /// Panics if this is not a term expiration test or if it doesn't use wide schema.
+        pub(crate) fn term_inverted_index_wide(
+            &self,
+        ) -> &inverted_index::FieldMaskTrackingIndex<inverted_index::full::FullWide> {
+            self.context.term_inverted_index_wide()
+        }
+
+        /// Get the text field bit from the TestContext.
+        pub(crate) fn text_field_bit(&self) -> ffi::t_fieldMask {
+            self.context.text_field_bit()
+        }
+
+        /// Get the search context from the TestContext.
+        pub(crate) fn sctx(&self) -> std::ptr::NonNull<ffi::RedisSearchCtx> {
+            self.context.sctx
+        }
+
+        /// Get the number of unique documents in the index.
+        fn unique_docs(&self) -> u32 {
+            match self.index_type {
+                ExpirationIndexType::Numeric => self.numeric_inverted_index().unique_docs(),
+                ExpirationIndexType::Term => self.term_inverted_index().unique_docs(),
+                ExpirationIndexType::TermWide => self.term_inverted_index_wide().unique_docs(),
             }
         }
 
         /// Mark the index as expired for the given document IDs.
-        pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, index: FieldMaskOrIndex) {
-            self.mock_ctx.mark_index_expired(ids, index);
+        pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, field: FieldMaskOrIndex) {
+            self.context.mark_index_expired(ids, field);
         }
 
         /// test read of expired documents.
@@ -505,7 +446,7 @@ pub(super) mod not_miri {
             assert_eq!(it.read().unwrap(), None);
             assert!(it.at_eof());
             assert_eq!(it.num_estimated(), self.doc_ids.len());
-            assert_eq!(it.num_estimated(), self.ii.unique_docs() as usize);
+            assert_eq!(it.num_estimated(), self.unique_docs() as usize);
 
             // try reading at eof
             assert!(matches!(it.read(), Ok(None)));
@@ -580,261 +521,6 @@ pub(super) mod not_miri {
 
     /// ---------- Revalidate Tests ----------
 
-    /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
-    struct ModuleCtx {
-        ctx: ptr::NonNull<ffi::RedisModuleCtx>,
-    }
-
-    impl ModuleCtx {
-        fn new() -> Self {
-            // The ffi calls we call here relies on the Redis module API being initialized.
-            redis_mock::init_redis_module_mock();
-
-            let ctx = unsafe {
-                let get_thread_safe_context = ffi::RedisModule_GetThreadSafeContext
-                    .expect("RedisModule_GetThreadSafeContext not implemented");
-                get_thread_safe_context(ptr::null_mut())
-            };
-
-            unsafe {
-                // init global variables needed by C code
-                ffi::Indexes_Init(ctx);
-            }
-
-            Self {
-                ctx: ptr::NonNull::new(ctx).expect("Failed to create ModuleCtx"),
-            }
-        }
-
-        fn as_ptr(&self) -> *mut ffi::RedisModuleCtx {
-            self.ctx.as_ptr()
-        }
-    }
-
-    impl Drop for ModuleCtx {
-        fn drop(&mut self) {
-            unsafe {
-                let free_thread_safe_context = ffi::RedisModule_FreeThreadSafeContext
-                    .expect("RedisModule_FreeThreadSafeContext not implemented");
-                free_thread_safe_context(self.ctx.as_ptr());
-            }
-        }
-    }
-
-    /// Search context created using ffi calls to be able to test revalidation.
-    pub struct TestContext {
-        _ctx: ModuleCtx,
-        pub sctx: ptr::NonNull<ffi::RedisSearchCtx>,
-        pub spec: ptr::NonNull<ffi::IndexSpec>,
-
-        inner: TestContextInner,
-    }
-
-    enum TestContextInner {
-        Numeric {
-            field_spec: ptr::NonNull<ffi::FieldSpec>,
-            numeric_range_tree: ptr::NonNull<ffi::NumericRangeTree>,
-        },
-        Term,
-    }
-
-    /// Create a spec and search context from the given schema and index name.
-    fn create_spec_sctx(
-        ctx: &ModuleCtx,
-        schema: &str,
-        index_name: &str,
-    ) -> (
-        ptr::NonNull<ffi::IndexSpec>,
-        ptr::NonNull<ffi::RedisSearchCtx>,
-    ) {
-        let args = schema
-            .split(" ")
-            .map(|s| CString::new(s).expect("Failed to create CString"))
-            .collect::<Vec<_>>();
-        let mut args_ptr = args.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
-
-        let index_name = CString::new(index_name).unwrap();
-        let mut query_error = QueryError::default();
-
-        let spec_ref = unsafe {
-            ffi::IndexSpec_ParseC(
-                index_name.as_ptr(),
-                args_ptr.as_mut_ptr(),
-                args_ptr.len() as i32,
-                &mut query_error as *mut QueryError as _,
-            )
-        };
-        assert!(query_error.is_ok());
-
-        let spec = unsafe { ffi::StrongRef_Get(spec_ref) as *mut ffi::IndexSpec };
-        let spec = ptr::NonNull::new(spec).expect("IndexSpec should not be null");
-
-        // Add the spec to the global dictionary so it can be found by name
-        unsafe {
-            ffi::Spec_AddToDict(spec.as_ref().own_ref.rm);
-        }
-
-        // Create RedisSearchCtx
-        let sctx = unsafe { ffi::NewSearchCtxC(ctx.as_ptr(), index_name.as_ptr(), false) };
-        let sctx = ptr::NonNull::new(sctx).expect("RedisSearchCtx should not be null");
-
-        (spec, sctx)
-    }
-
-    impl TestContext {
-        /// Create a new [`TestContext`] with a numeric inverted index having the given doc IDs
-        /// ands records.
-        fn numeric(
-            expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
-            doc_ids: &[t_docId],
-        ) -> Self {
-            let ctx = ModuleCtx::new();
-            // Create IndexSpec for NUMERIC field
-            let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", "numeric_idx");
-
-            // We need to properly set up the numeric range tree
-            // so that NumericCheckAbort can find it and check revision IDs
-            let field_name = CString::new("num_field").unwrap();
-            let fs = unsafe {
-                ffi::IndexSpec_GetFieldWithLength(
-                    spec.as_ptr(),
-                    field_name.as_ptr(),
-                    field_name.as_bytes().len(),
-                )
-            };
-            let fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
-
-            // Create the numeric range tree through the proper API
-            let numeric_range_tree =
-                unsafe { ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true) };
-            let numeric_range_tree =
-                ptr::NonNull::new(numeric_range_tree).expect("NumericRangeTree should not be null");
-
-            // Add numeric data to the range tree
-            for id in doc_ids.iter().copied() {
-                let record = expected_record(id);
-                let record_val = record.as_numeric().unwrap();
-                unsafe {
-                    ffi::NumericRangeTree_Add(
-                        numeric_range_tree.as_ptr(),
-                        id as t_docId,
-                        record_val,
-                        0,
-                    );
-                }
-            }
-
-            Self {
-                _ctx: ctx,
-                sctx,
-                spec,
-                inner: TestContextInner::Numeric {
-                    field_spec: fs,
-                    numeric_range_tree,
-                },
-            }
-        }
-
-        fn term() -> Self {
-            let ctx = ModuleCtx::new();
-            let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", "term_idx");
-
-            Self {
-                _ctx: ctx,
-                sctx,
-                spec,
-                inner: TestContextInner::Term,
-            }
-        }
-
-        pub fn numeric_range_tree(&self) -> ptr::NonNull<ffi::NumericRangeTree> {
-            match self.inner {
-                TestContextInner::Numeric {
-                    numeric_range_tree, ..
-                } => numeric_range_tree,
-                _ => panic!("TestContext is not a Numeric context"),
-            }
-        }
-
-        pub fn field_spec(&self) -> &ffi::FieldSpec {
-            match self.inner {
-                TestContextInner::Numeric { field_spec, .. } => unsafe { field_spec.as_ref() },
-                _ => panic!("TestContext is not a Numeric context"),
-            }
-        }
-    }
-
-    impl Drop for TestContext {
-        fn drop(&mut self) {
-            unsafe {
-                ffi::SearchCtx_Free(self.sctx.as_ptr());
-            }
-
-            unsafe {
-                // Use the main thread to free resources
-                ffi::RSGlobalConfig.freeResourcesThread = false;
-            }
-
-            // Remove spec from globals (this may free associated indices)
-            unsafe {
-                ffi::IndexSpec_RemoveFromGlobals(self.spec.as_ref().own_ref, false);
-            }
-        }
-    }
-
-    /// Guard object that manages globally allocated resources.
-    /// Uses libc::atexit to register a cleanup function that releases globally allocated resources
-    /// when the process exits, ensuring it's called exactly once after all tests complete.
-    struct GlobalGuard;
-
-    impl GlobalGuard {
-        // atexit() is only available on Linux.
-        // This means means global resources are not cleaned up on non-Linux platforms.
-        // It's not that bad as those are tests and the real goal here is to detect actual memory leaks
-        // using Valgrind which is only available on Linux as well.
-        #[cfg(target_os = "linux")]
-        fn new() -> Self {
-            use std::sync::atomic::{AtomicBool, Ordering};
-
-            static REGISTERED: AtomicBool = AtomicBool::new(false);
-
-            // Register cleanup function exactly once using atexit
-            if !REGISTERED.swap(true, Ordering::SeqCst) {
-                extern "C" fn cleanup() {
-                    unsafe {
-                        // specDict_g is allocated when calling Indexes_Init()
-                        if !ffi::specDict_g.is_null() {
-                            ffi::RS_dictRelease(ffi::specDict_g);
-                        }
-                    }
-
-                    unsafe {
-                        // SchemaPrefixes_g is allocated when calling Indexes_Init()
-                        if !ffi::SchemaPrefixes_g.is_null() {
-                            ffi::SchemaPrefixes_Free(ffi::SchemaPrefixes_g);
-                        }
-                    }
-
-                    unsafe {
-                        // DefaultStopWordList is allocated when calling IndexSpec_ParseC()
-                        ffi::StopWordList_FreeGlobals();
-                    }
-                }
-
-                unsafe {
-                    libc::atexit(cleanup);
-                }
-            }
-
-            Self
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        fn new() -> Self {
-            Self {}
-        }
-    }
-
     pub enum RevalidateIndexType {
         Numeric,
         Term,
@@ -859,24 +545,23 @@ pub(super) mod not_miri {
                 .map(|i| (2 * i + 1) as t_docId)
                 .collect::<Vec<_>>();
 
-            let (_ii_flags, context) = match index_type {
-                RevalidateIndexType::Numeric => (
-                    IndexFlags_Index_StoreNumeric,
-                    TestContext::numeric(expected_record, &doc_ids),
-                ),
-                RevalidateIndexType::Term => (
-                    IndexFlags_Index_StoreFreqs
+            let context = match index_type {
+                RevalidateIndexType::Numeric => {
+                    TestContext::numeric(doc_ids.iter().map(|id| expected_record(*id)), false)
+                }
+                RevalidateIndexType::Term => {
+                    let flags = IndexFlags_Index_StoreFreqs
                         | IndexFlags_Index_StoreTermOffsets
                         | IndexFlags_Index_StoreFieldFlags
-                        | IndexFlags_Index_StoreByteOffsets,
-                    TestContext::term(),
-                ),
+                        | IndexFlags_Index_StoreByteOffsets;
+                    TestContext::term(flags, doc_ids.iter().map(|id| expected_record(*id)), false)
+                }
             };
 
             Self {
                 doc_ids,
                 context,
-                _guard: GlobalGuard::new(),
+                _guard: GlobalGuard::default(),
             }
         }
 

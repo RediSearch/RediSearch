@@ -18,3 +18,6 @@ inverted_index.workspace = true
 rmp-serde.workspace = true
 serde.workspace = true
 workspace_hack.workspace = true
+
+[features]
+test_utils = []

@@ -21,30 +21,31 @@ use crate::{
     inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest},
 };
 
+// # Safety
+// The returned RSIndexResult contains raw pointers to `term` and `offsets`.
+// These pointers are valid for 'static because the data is moved into the closure
+// in test constructors and lives for the entire duration of the test. The raw pointers
+// are only used within the test's lifetime, making this safe despite the 'static claim.
+fn expected_record(
+    doc_id: t_docId,
+    field_mask: t_fieldMask,
+    term: *mut ffi::RSQueryTerm,
+    offsets: &[u8],
+) -> RSIndexResult<'static> {
+    RSIndexResult::term_with_term_ptr(
+        term,
+        RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+        doc_id,
+        field_mask,
+        (doc_id / 2) as u32 + 1,
+    )
+}
+
 struct TermBaseTest {
     test: BaseTest<Full>,
 }
 
 impl TermBaseTest {
-    // # Safety
-    // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
-    // These pointers are valid for 'static because the data is moved into the closure
-    // in `new()` and lives for the entire duration of the test. The raw pointers are
-    // only used within the test's lifetime, making this safe despite the 'static claim.
-    fn expected_record(
-        doc_id: t_docId,
-        term: *mut ffi::RSQueryTerm,
-        offsets: &Vec<u8>,
-    ) -> RSIndexResult<'static> {
-        RSIndexResult::term_with_term_ptr(
-            term,
-            RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
-            doc_id,
-            doc_id as t_fieldMask,
-            (doc_id / 2) as u32 + 1,
-        )
-    }
-
     fn new(n_docs: u64) -> Self {
         let flags = IndexFlags_Index_StoreFreqs
             | IndexFlags_Index_StoreTermOffsets
@@ -67,7 +68,8 @@ impl TermBaseTest {
                         bm25_idf: 10.0,
                     }
                     .allocate();
-                    Self::expected_record(doc_id, term, &offsets)
+                    // Use doc_id as field_mask so we can test FilterMaskReader
+                    expected_record(doc_id, doc_id as t_fieldMask, term, &offsets)
                 }),
                 n_docs,
             ),
@@ -108,52 +110,22 @@ fn term_filter() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::ExpirationTest;
-    use inverted_index::{DecodedBy, Decoder, Encoder, TermDecoder, full::FullWide};
     use rqe_iterators::{RQEIterator, RQEValidateStatus};
 
-    struct TermExpirationTest<E> {
-        test: ExpirationTest<E>,
+    struct TermExpirationTest {
+        test: ExpirationTest,
     }
 
-    impl<E, D> TermExpirationTest<E>
-    where
-        E: Encoder + DecodedBy<Decoder = D>,
-        D: Decoder + TermDecoder,
-    {
-        // # Safety
-        // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
-        // These pointers are valid for 'static because the data is moved into the closure
-        // in `new()` and lives for the entire duration of the test. The raw pointers are
-        // only used within the test's lifetime, making this safe despite the 'static claim.
-        fn expected_record(
-            doc_id: t_docId,
-            term: *mut ffi::RSQueryTerm,
-            offsets: &Vec<u8>,
-        ) -> RSIndexResult<'static> {
-            RSIndexResult::term_with_term_ptr(
-                term,
-                RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
-                doc_id,
-                doc_id as t_fieldMask,
-                (doc_id / 2) as u32 + 1,
-            )
-        }
-
-        fn new(n_docs: u64, multi: bool, wide: bool) -> Self {
-            let mut flags = IndexFlags_Index_StoreFreqs
-                | IndexFlags_Index_StoreTermOffsets
-                | IndexFlags_Index_StoreFieldFlags
-                | IndexFlags_Index_StoreByteOffsets;
-            if wide {
-                flags |= IndexFlags_Index_WideSchema;
-            }
-
+    impl TermExpirationTest {
+        fn with_flags(flags: ffi::IndexFlags, n_docs: u64, multi: bool) -> Self {
             const TEST_STR: &str = "term";
 
-            let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+            // Offsets are delta-varint-encoded when written via ForwardIndexEntry.
+            // Writing values 0, 1, 2, 3... results in stored deltas 0, 1, 1, 1...
+            let offsets = vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
             Self {
-                test: ExpirationTest::new(
+                test: ExpirationTest::term(
                     flags,
                     Box::new(move |doc_id| {
                         let term = QueryTermBuilder {
@@ -164,7 +136,10 @@ mod not_miri {
                             bm25_idf: 10.0,
                         }
                         .allocate();
-                        Self::expected_record(doc_id, term, &offsets)
+                        // Use a field mask with all bits set so all docs match the filter
+                        // and expiration is actually tested (not just field mask filtering).
+                        // Use u32::MAX for non-wide tests to avoid overflow in the encoder.
+                        expected_record(doc_id, u32::MAX as t_fieldMask, term, &offsets)
                     }),
                     n_docs,
                     multi,
@@ -172,9 +147,61 @@ mod not_miri {
             }
         }
 
-        fn test_read_expiration(&mut self) {
-            const FIELD_MASK: t_fieldMask = 42;
-            // Make every even document ID field expired
+        fn new(n_docs: u64, multi: bool) -> Self {
+            let flags = IndexFlags_Index_StoreFreqs
+                | IndexFlags_Index_StoreTermOffsets
+                | IndexFlags_Index_StoreFieldFlags
+                | IndexFlags_Index_StoreByteOffsets;
+            Self::with_flags(flags, n_docs, multi)
+        }
+
+        fn new_wide(n_docs: u64, multi: bool) -> Self {
+            let flags = IndexFlags_Index_StoreFreqs
+                | IndexFlags_Index_StoreTermOffsets
+                | IndexFlags_Index_StoreFieldFlags
+                | IndexFlags_Index_StoreByteOffsets
+                | IndexFlags_Index_WideSchema;
+            Self::with_flags(flags, n_docs, multi)
+        }
+
+        fn create_iterator(
+            &self,
+        ) -> Term<
+            '_,
+            inverted_index::FilterMaskReader<
+                inverted_index::IndexReaderCore<'_, inverted_index::full::Full>,
+            >,
+        > {
+            let field_mask = self.test.text_field_bit();
+            let reader = self.test.term_inverted_index().reader(field_mask);
+            Term::new(
+                reader,
+                self.test.sctx(),
+                field_mask,
+                FieldExpirationPredicate::Default,
+            )
+        }
+
+        fn create_iterator_wide(
+            &self,
+        ) -> Term<
+            '_,
+            inverted_index::FilterMaskReader<
+                inverted_index::IndexReaderCore<'_, inverted_index::full::FullWide>,
+            >,
+        > {
+            let field_mask = self.test.text_field_bit();
+            let reader = self.test.term_inverted_index_wide().reader(field_mask);
+            Term::new(
+                reader,
+                self.test.sctx(),
+                field_mask,
+                FieldExpirationPredicate::Default,
+            )
+        }
+
+        fn mark_even_ids_expired(&mut self) {
+            let field_mask = self.test.text_field_bit();
             let even_ids = self
                 .test
                 .doc_ids
@@ -184,63 +211,46 @@ mod not_miri {
                 .collect();
 
             self.test
-                .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
+                .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(field_mask));
+        }
 
-            let reader = self.test.ii.reader();
-            let mut it = Term::new(
-                reader,
-                self.test.mock_ctx.sctx(),
-                FIELD_MASK,
-                FieldExpirationPredicate::Default,
-            );
+        fn test_read_expiration(&mut self) {
+            self.mark_even_ids_expired();
+            let mut it = self.create_iterator();
+            self.test.read(&mut it);
+        }
 
+        fn test_read_expiration_wide(&mut self) {
+            self.mark_even_ids_expired();
+            let mut it = self.create_iterator_wide();
             self.test.read(&mut it);
         }
 
         fn test_skip_to_expiration(&mut self) {
-            const FIELD_MASK: t_fieldMask = 42;
-            // Make every even document ID field expired
-            let even_ids = self
-                .test
-                .doc_ids
-                .iter()
-                .filter(|id| **id % 2 == 0)
-                .copied()
-                .collect();
-
-            self.test
-                .mark_index_expired(even_ids, FieldMaskOrIndex::Mask(FIELD_MASK));
-
-            let reader = self.test.ii.reader();
-            let mut it = Term::new(
-                reader,
-                self.test.mock_ctx.sctx(),
-                FIELD_MASK,
-                FieldExpirationPredicate::Default,
-            );
-
+            self.mark_even_ids_expired();
+            let mut it = self.create_iterator();
             self.test.skip_to(&mut it);
         }
     }
 
     #[test]
     fn term_read_expiration() {
-        TermExpirationTest::<Full>::new(100, false, false).test_read_expiration();
+        TermExpirationTest::new(100, false).test_read_expiration();
     }
 
     #[test]
     fn term_read_expiration_wide() {
-        TermExpirationTest::<FullWide>::new(100, false, true).test_read_expiration();
+        TermExpirationTest::new_wide(100, false).test_read_expiration_wide();
     }
 
     #[test]
     fn term_read_skip_multi_expiration() {
-        TermExpirationTest::<Full>::new(100, true, false).test_read_expiration();
+        TermExpirationTest::new(100, true).test_read_expiration();
     }
 
     #[test]
     fn term_skip_to_expiration() {
-        TermExpirationTest::<Full>::new(100, false, false).test_skip_to_expiration();
+        TermExpirationTest::new(100, false).test_skip_to_expiration();
     }
 
     struct TermRevalidateTest {
@@ -248,29 +258,12 @@ mod not_miri {
     }
 
     impl TermRevalidateTest {
-        // # Safety
-        // The returned RSIndexResult contains raw pointers to `term` and `offsets`.
-        // These pointers are valid for 'static because the data is moved into the closure
-        // in `new()` and lives for the entire duration of the test. The raw pointers are
-        // only used within the test's lifetime, making this safe despite the 'static claim.
-        fn expected_record(
-            doc_id: t_docId,
-            term: *mut ffi::RSQueryTerm,
-            offsets: &Vec<u8>,
-        ) -> RSIndexResult<'static> {
-            RSIndexResult::term_with_term_ptr(
-                term,
-                RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
-                doc_id,
-                doc_id as t_fieldMask,
-                (doc_id / 2) as u32 + 1,
-            )
-        }
-
         fn new(n_docs: u64) -> Self {
             const TEST_STR: &str = "term";
 
-            let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+            // Offsets are delta-varint-encoded when written via ForwardIndexEntry.
+            // Writing values 0, 1, 2, 3... results in stored deltas 0, 1, 1, 1...
+            let offsets = vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
             Self {
                 test: RevalidateTest::new(
@@ -284,30 +277,34 @@ mod not_miri {
                             bm25_idf: 10.0,
                         }
                         .allocate();
-                        Self::expected_record(doc_id, term, &offsets)
+                        // Use a field mask with all bits set so all docs match the filter.
+                        expected_record(doc_id, u32::MAX as t_fieldMask, term, &offsets)
                     }),
                     n_docs,
                 ),
             }
         }
 
-        pub fn inverted_index(
-            &self,
-        ) -> &mut inverted_index::InvertedIndex<inverted_index::full::Full> {
-            todo!()
-        }
-
         fn create_iterator(
             &self,
-        ) -> Term<'_, inverted_index::IndexReaderCore<'_, inverted_index::full::Full>> {
-            let ii = self.inverted_index();
-
-            rqe_iterators::Term::new_simple(ii.reader())
+        ) -> Term<
+            '_,
+            inverted_index::FilterMaskReader<
+                inverted_index::IndexReaderCore<'_, inverted_index::full::Full>,
+            >,
+        > {
+            let field_mask = self.test.context.text_field_bit();
+            let reader = self.test.context.term_inverted_index().reader(field_mask);
+            Term::new(
+                reader,
+                self.test.context.sctx,
+                field_mask,
+                FieldExpirationPredicate::Default,
+            )
         }
     }
 
     #[test]
-    #[ignore] //TODO
     fn term_revalidate_basic() {
         let test = TermRevalidateTest::new(10);
         let mut it = test.create_iterator();
@@ -315,7 +312,6 @@ mod not_miri {
     }
 
     #[test]
-    #[ignore] //TODO
     fn term_revalidate_at_eof() {
         let test = TermRevalidateTest::new(10);
         let mut it = test.create_iterator();
@@ -323,7 +319,6 @@ mod not_miri {
     }
 
     #[test]
-    #[ignore] //TODO
     fn term_revalidate_after_index_disappears() {
         let test = TermRevalidateTest::new(10);
         let mut it = test.create_iterator();
@@ -345,10 +340,8 @@ mod not_miri {
     #[test]
     #[ignore] //TODO
     fn term_revalidate_after_document_deleted() {
-        let test = TermRevalidateTest::new(10);
-        let mut it = test.create_iterator();
-        let ii = test.inverted_index();
-
-        test.test.revalidate_after_document_deleted(&mut it, ii);
+        // TODO: Implement once FieldMaskTrackingIndex exposes mutable access to inner index
+        // for document deletion in tests.
+        todo!()
     }
 }
