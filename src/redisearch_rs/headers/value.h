@@ -315,6 +315,10 @@ void RSValue_SetNumber(struct RsValue *value, double n);
  */
 void RSValue_SetNull(struct RsValue *value);
 
+void RSValue_SetString(const struct RsValue *value, char *str, size_t len);
+
+void RSValue_SetConstString(const struct RsValue *value, const char *str, size_t len);
+
 /**
  * Creates a heap-allocated `RsValue` by parsing a string as a number.
  * Returns an undefined value if the string cannot be parsed as a valid number.
