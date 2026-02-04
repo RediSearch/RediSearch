@@ -137,6 +137,9 @@ parse_arguments() {
       QUICK=*)
         QUICK="${arg#*=}"
         ;;
+      TEST_TIMEOUT=*)
+        TEST_TIMEOUT="${arg#*=}"
+        ;;
       SA=*)
         SA="${arg#*=}"
         ;;

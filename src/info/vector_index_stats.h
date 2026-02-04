@@ -18,6 +18,8 @@
 typedef struct VectorIndexStats {
   size_t memory;
   size_t marked_deleted;
+  size_t direct_hnsw_insertions;  // Vectors inserted directly to HNSW (bypassing flat buffer)
+  size_t flat_buffer_size;        // Current flat buffer size (tiered indexes only)
 } VectorIndexStats;
 
 typedef void (*VectorIndexStats_Setter)(VectorIndexStats*, size_t);
@@ -42,13 +44,19 @@ VectorIndexStats_Getter VectorIndexStats_GetGetter(const char *name);
 //Metrics getters setters
 size_t VectorIndexStats_GetMemory(const VectorIndexStats *stats);
 size_t VectorIndexStats_GetMarkedDeleted(const VectorIndexStats *stats);
+size_t VectorIndexStats_GetDirectHNSWInsertions(const VectorIndexStats *stats);
+size_t VectorIndexStats_GetFlatBufferSize(const VectorIndexStats *stats);
 void VectorIndexStats_SetMemory(VectorIndexStats *stats, size_t memory);
 void VectorIndexStats_SetMarkedDeleted(VectorIndexStats *stats, size_t marked_deleted);
+void VectorIndexStats_SetDirectHNSWInsertions(VectorIndexStats *stats, size_t direct_hnsw_insertions);
+void VectorIndexStats_SetFlatBufferSize(VectorIndexStats *stats, size_t flat_buffer_size);
 
 // metrics display strings:
 static char* const VectorIndexStats_Metrics[] = {
     "memory",
     "marked_deleted",
+    "direct_hnsw_insertions",
+    "flat_buffer_size",
     NULL
 };
 

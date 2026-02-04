@@ -572,7 +572,7 @@ class TestEarlyBailoutEmptyResultsCoord_Resp3:
             res = self.env.cmd('FT.SEARCH', 'not_empty', *query_params)
             empty = empty_results[' '.join(query_params)]
             # Assert res has OOM warning
-            self.env.assertEqual(res['warning'], COORD_OOM_WARNING)
+            self.env.assertEqual(res['warning'], [COORD_OOM_WARNING])
             self.env.assertEqual(empty['warning'], [])
             # Clear warnings from res
             del res['warning']

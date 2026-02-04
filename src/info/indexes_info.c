@@ -42,6 +42,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
     info.fields_stats.total_vector_idx_mem += vec_info.memory;
     info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
+    info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
+    info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
     size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0, vec_info.memory);
     size_t prev_total_mem = info.total_mem;
