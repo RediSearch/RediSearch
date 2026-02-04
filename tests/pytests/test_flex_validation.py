@@ -174,25 +174,25 @@ def test_default_on_hash(env):
 
 @skip(cluster=True)
 def test_flex_workers_minimum(env):
-    """Test that WORKERS cannot be set to 0 when search-_simulate-in-flex is true"""
+    """Test WORKERS validation in Flex mode: CONFIG SET silently corrects, FT.CONFIG fails"""
     # First set workers to a non-zero value (to ensure we test the validation,
     # since Redis config API may not call the setter if value is unchanged)
-    env.expect('CONFIG', 'SET', 'search-workers', '1').ok()
+    env.expect('CONFIG', 'SET', 'search-workers', '2').ok()
 
     # Set the simulate-in-flex configuration to true
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
 
-    # Verify that setting WORKERS to 0 fails via CONFIG SET
-    env.expect('CONFIG', 'SET', 'search-workers', '0') \
-        .error().contains('WORKERS must be at least 1 in Flex mode')
-
-    # Verify that setting WORKERS to 0 fails via FT.CONFIG SET
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0') \
-        .error().contains('WORKERS must be at least 1 in Flex mode')
-
-    # Verify that setting WORKERS to 1 or more succeeds
-    env.expect('CONFIG', 'SET', 'search-workers', '1').ok()
+    # Verify that setting WORKERS to 0 silently sets it to 1 via CONFIG SET
+    env.expect('CONFIG', 'SET', 'search-workers', '0').ok()
     env.expect('CONFIG', 'GET', 'search-workers').equal(['search-workers', '1'])
 
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', '2').ok()
-    env.expect('FT.CONFIG', 'GET', 'WORKERS').equal([['WORKERS', '2']])
+    # Verify that setting WORKERS to 0 fails via the deprecated FT.CONFIG SET
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0').ok()
+    env.expect('FT.CONFIG', 'GET', 'WORKERS').equal([['WORKERS', '1']])
+
+    # Verify that setting WORKERS to higher values still works
+    env.expect('CONFIG', 'SET', 'search-workers', '2').ok()
+    env.expect('CONFIG', 'GET', 'search-workers').equal(['search-workers', '2'])
+
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '3').ok()
+    env.expect('FT.CONFIG', 'GET', 'WORKERS').equal([['WORKERS', '3']])

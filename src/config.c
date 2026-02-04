@@ -454,9 +454,9 @@ CONFIG_SETTER(setWorkThreads) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
-  if (newNumThreads == 0 && SearchDisk_IsEnabledForValidation()) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "WORKERS must be at least 1 in Flex mode");
-    return REDISMODULE_ERR;
+  if (newNumThreads < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
+    RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
+    newNumThreads = MIN_WORKER_THREADS_FLEX;
   }
   config->numWorkerThreads = newNumThreads;
 
@@ -476,11 +476,10 @@ CONFIG_GETTER(getWorkThreads) {
 int set_workers(const char *name, long long val, void *privdata,
 RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  if (val == 0 && SearchDisk_IsEnabledForValidation()) {
-    if (err) {
-      *err = RedisModule_CreateStringPrintf(NULL, "WORKERS must be at least 1 in Flex mode");
-    }
-    return REDISMODULE_ERR;
+  REDISMODULE_NOT_USED(err);
+  if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
+    RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
+    val = MIN_WORKER_THREADS_FLEX;
   }
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
