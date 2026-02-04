@@ -23,6 +23,7 @@
 #include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
+#include "search_disk.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -453,6 +454,10 @@ CONFIG_SETTER(setWorkThreads) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
+  if (newNumThreads == 0 && SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "WORKERS must be at least 1 in Flex mode");
+    return REDISMODULE_ERR;
+  }
   config->numWorkerThreads = newNumThreads;
 
   workersThreadPool_SetNumWorkers();
@@ -470,7 +475,13 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 int set_workers(const char *name, long long val, void *privdata,
 RedisModuleString **err) {
-  uint32_t externalTriggerId = 0;
+  REDISMODULE_NOT_USED(name);
+  if (val == 0 && SearchDisk_IsEnabledForValidation()) {
+    if (err) {
+      *err = RedisModule_CreateStringPrintf(NULL, "WORKERS must be at least 1 in Flex mode");
+    }
+    return REDISMODULE_ERR;
+  }
   RSConfig *config = (RSConfig *)privdata;
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();

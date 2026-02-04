@@ -1663,6 +1663,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     // Disable GC when running in Flex mode
     RSGlobalConfig.gcConfigParams.enableGC = false;
     RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
+
+    // Set default WORKERS to 1 in Flex mode if not explicitly configured
+    if (RSGlobalConfig.numWorkerThreads == 0) {
+      RSGlobalConfig.numWorkerThreads = 1;
+      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
+    }
   }
 
   // register trie-dictionary type

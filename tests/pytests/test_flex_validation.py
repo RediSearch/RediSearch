@@ -171,3 +171,24 @@ def test_default_on_hash(env):
             break
 
     env.assertEqual(key_type, 'HASH')
+
+@skip(cluster=True)
+def test_flex_workers_minimum(env):
+    """Test that WORKERS cannot be set to 0 when search-_simulate-in-flex is true"""
+    # Set the simulate-in-flex configuration to true
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+
+    # Verify that setting WORKERS to 0 fails via CONFIG SET
+    env.expect('CONFIG', 'SET', 'search-workers', '0') \
+        .error().contains('WORKERS must be at least 1 in Flex mode')
+
+    # Verify that setting WORKERS to 0 fails via FT.CONFIG SET
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '0') \
+        .error().contains('WORKERS must be at least 1 in Flex mode')
+
+    # Verify that setting WORKERS to 1 or more succeeds
+    env.expect('CONFIG', 'SET', 'search-workers', '1').ok()
+    env.expect('CONFIG', 'GET', 'search-workers').equal([['search-workers', '1']])
+
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', '2').ok()
+    env.expect('FT.CONFIG', 'GET', 'WORKERS').equal([['WORKERS', '2']])
