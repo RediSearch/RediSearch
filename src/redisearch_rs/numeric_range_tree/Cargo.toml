@@ -1,0 +1,38 @@
+[package]
+name = "numeric_range_tree"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[features]
+# feature enabled when building tests so they can link the C code in build.rs
+# see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[lints]
+workspace = true
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
+[dependencies]
+ffi.workspace = true
+hyperloglog.workspace = true
+inverted_index.workspace = true
+slab.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+numeric_range_tree = { path = ".", features = ["unittest"] }
+pretty_assertions.workspace = true
+proptest = { workspace = true, features = ["std"] }
+rstest.workspace = true
+
+# Crate required to invoke C symbols
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+redis_mock.workspace = true
