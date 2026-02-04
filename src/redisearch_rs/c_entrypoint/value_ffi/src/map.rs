@@ -112,7 +112,7 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RsValue) -> u32 {
         map.len_u32()
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
-        panic!("Expected a map value")
+        panic!("Expected 'Map' type, got '{}'", map.variant_name())
     }
 }
 
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn RSValue_Map_GetEntry(
         // Safety: ensured by caller (3.)
         unsafe { value.write(shared_value.as_ptr() as *mut _) };
     } else {
-        panic!("Expected a map value")
+        panic!("Expected 'Map' type, got '{}'", map.variant_name())
     }
 }
 
