@@ -68,6 +68,7 @@
 //! to detect modifications and abort gracefully.
 
 mod arena;
+pub mod debug;
 mod index;
 mod iter;
 mod node;

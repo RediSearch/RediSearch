@@ -15,6 +15,7 @@
 use ffi::IndexFlags_Index_StoreNumeric;
 use inverted_index::{
     EntriesTrackingIndex, IndexReader, IndexReaderCore, RSIndexResult,
+    debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
 
@@ -101,6 +102,14 @@ impl NumericIndex {
         match self {
             NumericIndex::Uncompressed(idx) => idx.memory_usage(),
             NumericIndex::Compressed(idx) => idx.memory_usage(),
+        }
+    }
+
+    /// Get the summary of this index.
+    pub fn summary(&self) -> Summary {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.summary(),
+            NumericIndex::Compressed(idx) => idx.summary(),
         }
     }
 }
