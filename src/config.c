@@ -482,6 +482,7 @@ RedisModuleString **err) {
     }
     return REDISMODULE_ERR;
   }
+  uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();

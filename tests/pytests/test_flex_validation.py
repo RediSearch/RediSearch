@@ -175,6 +175,10 @@ def test_default_on_hash(env):
 @skip(cluster=True)
 def test_flex_workers_minimum(env):
     """Test that WORKERS cannot be set to 0 when search-_simulate-in-flex is true"""
+    # First set workers to a non-zero value (to ensure we test the validation,
+    # since Redis config API may not call the setter if value is unchanged)
+    env.expect('CONFIG', 'SET', 'search-workers', '1').ok()
+
     # Set the simulate-in-flex configuration to true
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
 
@@ -188,7 +192,7 @@ def test_flex_workers_minimum(env):
 
     # Verify that setting WORKERS to 1 or more succeeds
     env.expect('CONFIG', 'SET', 'search-workers', '1').ok()
-    env.expect('CONFIG', 'GET', 'search-workers').equal([['search-workers', '1']])
+    env.expect('CONFIG', 'GET', 'search-workers').equal(['search-workers', '1'])
 
     env.expect('FT.CONFIG', 'SET', 'WORKERS', '2').ok()
     env.expect('FT.CONFIG', 'GET', 'WORKERS').equal([['WORKERS', '2']])
