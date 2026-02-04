@@ -17,7 +17,7 @@
 
 #define CURSOR_EOF 0
 
-
+bool isShardTimeout = false;
 static RSValue *MRReply_ToValue(MRReply *r) {
   if (!r) return RSValue_NullStatic();
   RSValue *v = NULL;
@@ -488,7 +488,7 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.rows = NULL;
     nc->current.meta = NULL;
 }
-
+#include <unistd.h>
 int rpnetNext(ResultProcessor *self, SearchResult *r) {
   RPNet *nc = (RPNet *)self;
   MRReply *root = nc->current.root, *rows = nc->current.rows;
@@ -525,6 +525,11 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
+    RedisModule_Log(RSDummyContext, "notice", "rpnetNext: waiting for shard timeout at %p", (void*)&isShardTimeout);
+    while (!__atomic_load_n(&isShardTimeout, __ATOMIC_ACQUIRE)) {
+      usleep(100);
+    }
+    RedisModule_Log(RSDummyContext, "notice", "isShardTimeout: %d", __atomic_load_n(&isShardTimeout, __ATOMIC_ACQUIRE));
     if (TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
@@ -532,9 +537,13 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
       return RS_RESULT_TIMEDOUT;
-    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+    } else{
+      bool timedout = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it));
+      RedisModule_Log(RSDummyContext, "notice", "rpnetNext: timedout: %d", timedout);
       // if timeout was set in previous reads, reset it
-      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+      if (timedout) MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+      timedout = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it));
+      RedisModule_Log(RSDummyContext, "notice", "rpnetNext: after reseting timedout: %d", timedout);
     }
 
     int ret = getNextReply(nc);

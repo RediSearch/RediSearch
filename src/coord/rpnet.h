@@ -15,11 +15,11 @@
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
 #include "hybrid/hybrid_cursor_mappings.h"
-
+#include <stdatomic.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+extern bool isShardTimeout;
 // Forward declaration
 struct ShardResponseBarrier;
 

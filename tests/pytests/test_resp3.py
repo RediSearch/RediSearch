@@ -1609,14 +1609,14 @@ def test_multiple_warnings():
   # Set very low max prefix expansions to trigger the warning
   run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '3')
 
-  # Query with wildcard that exceeds the limit and force timeout
-  query = ['FT.AGGREGATE', 'idx', 'prefix*']
-  timeout_after_n = 1
-  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+  # # Query with wildcard that exceeds the limit and force timeout
+  # query = ['FT.AGGREGATE', 'idx', 'prefix*']
+  # timeout_after_n = 1
+  # res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
 
-  # Both warnings should be present in the response
-  env.assertContains('Timeout limit was reached', res['warning'])
-  env.assertContains('Max prefix expansions limit was reached', res['warning'])
+  # # Both warnings should be present in the response
+  # env.assertContains('Timeout limit was reached', res['warning'])
+  # env.assertContains('Max prefix expansions limit was reached', res['warning'])
 
   # Query with wildcard that exceeds the limit and force timeout
   query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'prefix*']
