@@ -14,6 +14,7 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, IndexReaderCore, NumericFilter,
     NumericReader, RSIndexResult, t_docId,
 };
+use numeric_range_tree::NumericRangeTree;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -286,7 +287,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
     sctx: *const ffi::RedisSearchCtx,
     field_ctx: *const FieldFilterContext,
     flt: *const NumericFilter,
-    rt: *const ffi::NumericRangeTree,
+    rt: *const NumericRangeTree,
     range_min: f64,
     range_max: f64,
 ) -> *mut ffi::QueryIterator {
@@ -313,7 +314,9 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
     // SAFETY: 3.
     let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
     let filter = NonNull::new(flt as *mut NumericFilter);
-    let range_tree = NonNull::new(rt as *mut _);
+    let range_tree = NonNull::new(rt as *mut _).map(|t|
+        // SAFETY: 8.
+        unsafe { t.as_ref() });
 
     let reader = match ii_ref {
         inverted_index_ffi::InvertedIndex::Numeric(entries_tracking_index) => {

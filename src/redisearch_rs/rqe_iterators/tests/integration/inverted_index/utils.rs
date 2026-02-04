@@ -9,12 +9,11 @@
 
 use std::ptr;
 
-use ffi::{
-    IndexFlags, IndexSpec, NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId,
-};
+use ffi::{IndexFlags, IndexSpec, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
 use inverted_index::{
     Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
 };
+use numeric_range_tree::NumericRangeTree;
 use rqe_iterators::{RQEIterator, SkipToOutcome};
 
 /// Mock search context creating fake objects for testing.
@@ -57,10 +56,7 @@ impl Drop for MockContext {
                 self.qctx as *mut u8,
                 std::alloc::Layout::new::<QueryEvalCtx>(),
             );
-            std::alloc::dealloc(
-                self.numeric_range_tree as *mut u8,
-                std::alloc::Layout::new::<NumericRangeTree>(),
-            );
+            let _ = Box::from_raw(self.numeric_range_tree);
         }
     }
 }
@@ -77,8 +73,7 @@ impl MockContext {
         let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<IndexSpec>() }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
-        let numeric_range_tree_ptr =
-            Box::into_raw(Box::new(unsafe { std::mem::zeroed::<NumericRangeTree>() }));
+        let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
 
         // Initialize all structs through raw pointers
         unsafe {
@@ -288,7 +283,7 @@ impl<E: Encoder> BaseTest<E> {
     }
 }
 
-#[cfg(not(miri))]
+// #[cfg(not(miri))]
 // Those tests rely on ffi calls which are not supported in miri.
 pub(super) mod not_miri {
     use super::*;
@@ -299,6 +294,7 @@ pub(super) mod not_miri {
     };
     use field::FieldMaskOrIndex;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult};
+    use numeric_range_tree::NumericIndex;
     use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
     use std::collections::HashSet;
 
@@ -413,11 +409,8 @@ pub(super) mod not_miri {
 
         /// Get the numeric inverted index from the TestContext.
         /// Panics if this is not a numeric expiration test.
-        pub(crate) fn numeric_inverted_index(
-            &self,
-        ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
-            use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
-            Numeric::from_mut_opaque(self.context.numeric_inverted_index()).inner_mut()
+        pub(crate) fn numeric_inverted_index(&self) -> &mut NumericIndex {
+            self.context.numeric_inverted_index()
         }
 
         /// Get the term inverted index from the TestContext (non-wide).
@@ -653,6 +646,32 @@ pub(super) mod not_miri {
                 .expect("no GC scan delta");
             let info = ii.apply_gc(scan_delta);
             assert_eq!(info.entries_removed, 1);
+        }
+
+        /// Remove the document with the given id from a numeric inverted index.
+        pub fn remove_document_numeric(&self, ii: &mut NumericIndex, doc_id: t_docId) {
+            match ii {
+                NumericIndex::Uncompressed(ii) => self.remove_document(ii.inner_mut(), doc_id),
+                NumericIndex::Compressed(ii) => self.remove_document(ii.inner_mut(), doc_id),
+            }
+        }
+
+        /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
+        pub fn revalidate_numeric_after_document_deleted<'index, I>(
+            &self,
+            it: &mut I,
+            ii: &mut NumericIndex,
+        ) where
+            I: for<'iterator> RQEIterator<'index>,
+        {
+            match ii {
+                NumericIndex::Uncompressed(ii) => {
+                    self.revalidate_after_document_deleted(it, ii.inner_mut())
+                }
+                NumericIndex::Compressed(ii) => {
+                    self.revalidate_after_document_deleted(it, ii.inner_mut())
+                }
+            }
         }
 
         /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.

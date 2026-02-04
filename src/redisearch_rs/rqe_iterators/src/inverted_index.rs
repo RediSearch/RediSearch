@@ -11,11 +11,12 @@
 
 use std::{f64, ptr::NonNull};
 
-use ffi::{NumericRangeTree, RedisSearchCtx, t_docId};
+use ffi::{RedisSearchCtx, t_docId};
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
     TermReader, opaque::OpaqueEncoding,
 };
+use numeric_range_tree::NumericRangeTree;
 
 use crate::expiration_checker::{ExpirationChecker, NoOpChecker};
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -342,7 +343,7 @@ pub struct Numeric<'index, R, E = NoOpChecker> {
 /// Information about the numeric range tree backing a [`Numeric`] iterator.
 struct RangeTreeInfo {
     /// Pointer to the numeric range tree.
-    tree: NonNull<ffi::NumericRangeTree>,
+    tree: NonNull<NumericRangeTree>,
     /// The revision ID at the time the iterator was created.
     /// Used to detect if the tree has been modified.
     revision_id: u32,
@@ -374,16 +375,18 @@ where
     pub fn new(
         reader: R,
         expiration_checker: E,
-        range_tree: Option<NonNull<NumericRangeTree>>,
+        range_tree: Option<&NumericRangeTree>,
         range_min: Option<f64>,
         range_max: Option<f64>,
     ) -> Self {
         let result = RSIndexResult::numeric(0.0);
 
-        let range_tree_info = range_tree.map(|tree| RangeTreeInfo {
-            tree,
-            // SAFETY: 1.
-            revision_id: unsafe { tree.as_ref().revisionId },
+        let range_tree_info = range_tree.map(|tree| {
+            let revision_id = tree.revision_id();
+            RangeTreeInfo {
+                tree: NonNull::from_ref(tree),
+                revision_id,
+            }
         });
 
         let range_min = range_min.unwrap_or(f64::NEG_INFINITY);
@@ -404,11 +407,14 @@ where
             return false;
         };
 
-        // SAFETY: 5. from [`Self::new`]
-        let rt = unsafe { info.tree.as_ref() };
+        let current_revision_id = {
+            // SAFETY: 5. from [`Self::new`]
+            let tree = unsafe { info.tree.as_ref() };
+            tree.revision_id()
+        };
         // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
         // The cursor is invalidated so we cannot revalidate the iterator.
-        rt.revisionId != info.revision_id
+        current_revision_id != info.revision_id
     }
 
     pub const fn range_min(&self) -> f64 {
