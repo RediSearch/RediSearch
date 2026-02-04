@@ -303,27 +303,8 @@ DEBUG_COMMAND(NumericIndexSummary) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree rt_info = {0};
-  int root_max_depth = 0;
-
   NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
-  // If we failed to open the numeric index, it was not initialized yet.
-  // Else, we copy the data to a local variable.
-  if (rt) {
-    rt_info = *rt;
-    root_max_depth = rt->root->maxDepth;
-  }
-
-  START_POSTPONED_LEN_ARRAY(numIdxSum);
-  REPLY_WITH_LONG_LONG("numRanges", rt_info.numRanges, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("numLeaves", rt_info.numLeaves, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("numEntries", rt_info.numEntries, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("lastDocId", rt_info.lastDocId, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("revisionId", rt_info.revisionId, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("emptyLeaves", rt_info.emptyLeaves, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("RootMaxDepth", root_max_depth, ARRAY_LEN_VAR(numIdxSum));
-  REPLY_WITH_LONG_LONG("MemoryUsage", rt ? NumericIndexType_MemUsage(rt) : 0, ARRAY_LEN_VAR(numIdxSum));
-  END_POSTPONED_LEN_ARRAY(numIdxSum);
+  NumericRangeTree_DebugSummary(sctx->redisCtx, rt);  // rt may be NULL
 
 end:
   SearchCtx_Free(sctx);
@@ -346,38 +327,11 @@ DEBUG_COMMAND(DumpNumericIndex) {
   }
 
   // It's a debug command... lets not waste time on string comparison.
-  int with_headers = argc == 5 ? true : false;
+  bool with_headers = argc == 5 ? true : false;
 
   NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
-  // If we failed to open the numeric index, it was not initialized yet.
-  if (!rt) {
-    RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
-    goto end;
-  }
+  NumericRangeTree_DebugDumpIndex(sctx->redisCtx, rt, with_headers);  // rt may be NULL
 
-  NumericRangeNode *currNode;
-  NumericRangeTreeIterator *iter = NumericRangeTreeIterator_New(rt);
-  size_t InvertedIndexNumber = 0;
-  START_POSTPONED_LEN_ARRAY(numericInvertedIndex);
-  while ((currNode = NumericRangeTreeIterator_Next(iter))) {
-    NumericRange *range = currNode->range;
-    if (range) {
-      if (with_headers) {
-        RedisModule_ReplyWithArray(sctx->redisCtx, 2); // start 1) Header 2)entries
-
-        START_POSTPONED_LEN_ARRAY(numericHeader); // Header array
-        InvertedIndex* invidx = range->entries;
-        ARRAY_LEN_VAR(numericHeader) += InvertedIndexSummaryHeader(sctx->redisCtx, invidx);
-        END_POSTPONED_LEN_ARRAY(numericHeader);
-      }
-      FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-      QueryIterator *iter = NewInvIndIterator_NumericQuery(range->entries, sctx, &fieldCtx, NULL, NULL, range->minVal, range->maxVal);
-      ReplyIteratorResultsIDs(iter, sctx->redisCtx);
-      ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
-    }
-  }
-  END_POSTPONED_LEN_ARRAY(numericInvertedIndex); // end InvIdx array
-  NumericRangeTreeIterator_Free(iter);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -458,102 +412,6 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   return indexStats;
 }
 
-InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r) {
-  InvertedIndexStats ret = {0};
-  START_POSTPONED_LEN_ARRAY(numericRangeInfo);
-  if (r) {
-    REPLY_WITH_DOUBLE("minVal", r->minVal, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_DOUBLE("maxVal", r->maxVal, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_DOUBLE("invertedIndexSize [bytes]", r->invertedIndexSize, ARRAY_LEN_VAR(numericRangeInfo));
-    REPLY_WITH_LONG_LONG("card", NumericRange_GetCardinality(r), ARRAY_LEN_VAR(numericRangeInfo));
-
-    REPLY_WITH_STR("entries", ARRAY_LEN_VAR(numericRangeInfo))
-    ret = InvertedIndex_DebugReply(ctx, r->entries);
-    ++ARRAY_LEN_VAR(numericRangeInfo);
-  }
-
-  END_POSTPONED_LEN_ARRAY(numericRangeInfo);
-  return ret;
-}
-
-/**
- * It is safe to use @param n equals to NULL.
- */
-static InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n, bool minimal) {
-  InvertedIndexStats invIdxStats = {0};
-  if (!n) {
-    RedisModule_ReplyWithMap(ctx, 0);
-    return invIdxStats;
-  }
-  size_t len = 0;
-  RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_LEN);
-
-  if (n->range) {
-    RedisModule_ReplyWithLiteral(ctx, "range");
-    if (minimal) {
-      RedisModule_ReplyWithEmptyArray(ctx);
-    } else {
-      invIdxStats.blocks_efficiency += NumericRange_DebugReply(ctx, n->range).blocks_efficiency;
-    }
-    len++;
-  }
-  if (!NumericRangeNode_IsLeaf(n)) {
-    RedisModule_ReplyWithLiteral(ctx, "value");
-    RedisModule_ReplyWithDouble(ctx, n->value);
-    len++;
-    RedisModule_ReplyWithLiteral(ctx, "maxDepth");
-    RedisModule_ReplyWithLongLong(ctx, n->maxDepth);
-    len++;
-
-    RedisModule_ReplyWithLiteral(ctx, "left");
-    invIdxStats.blocks_efficiency += NumericRangeNode_DebugReply(ctx, n->left, minimal).blocks_efficiency;
-    len++;
-
-    RedisModule_ReplyWithLiteral(ctx, "right");
-    invIdxStats.blocks_efficiency += NumericRangeNode_DebugReply(ctx, n->right, minimal).blocks_efficiency;
-    len++;
-  }
-
-  RedisModule_ReplySetMapLength(ctx, len);
-
-  return invIdxStats;
-}
-
-/**
- * It is safe to use @param rt with all fields initialized to 0, including a NULL root.
- */
-void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt, bool minimal) {
-
-  RedisModule_ReplyWithMap(ctx, 8);
-
-  RedisModule_ReplyWithLiteral(ctx, "numRanges");
-  RedisModule_ReplyWithLongLong(ctx, rt->numRanges);
-
-  RedisModule_ReplyWithLiteral(ctx, "numEntries");
-  RedisModule_ReplyWithLongLong(ctx, rt->numEntries);
-
-  RedisModule_ReplyWithLiteral(ctx, "lastDocId");
-  RedisModule_ReplyWithLongLong(ctx, rt->lastDocId);
-
-  RedisModule_ReplyWithLiteral(ctx, "revisionId");
-  RedisModule_ReplyWithLongLong(ctx, rt->revisionId);
-
-  RedisModule_ReplyWithLiteral(ctx, "uniqueId");
-  RedisModule_ReplyWithLongLong(ctx, rt->uniqueId);
-
-  RedisModule_ReplyWithLiteral(ctx, "emptyLeaves");
-  RedisModule_ReplyWithLongLong(ctx, rt->emptyLeaves);
-
-  RedisModule_ReplyWithLiteral(ctx, "root");
-  InvertedIndexStats invIndexStats = NumericRangeNode_DebugReply(ctx, rt->root, minimal);
-
-  RedisModule_ReplyWithLiteral(ctx, "Tree stats");
-  RedisModule_ReplyWithMap(ctx, 1);
-  RedisModule_ReplyWithLiteral(ctx, "Average memory efficiency (numEntries/size)/numRanges");
-  RedisModule_ReplyWithDouble(ctx, (invIndexStats.blocks_efficiency)/rt->numRanges);
-
-}
-
 // FT.DEBUG DUMP_NUMIDXTREE INDEX_NAME NUMERIC_FIELD_NAME [MINIMAL]
 DEBUG_COMMAND(DumpNumericIndexTree) {
   if (!debugCommandsEnabled(ctx)) {
@@ -568,18 +426,11 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree dummy_rt = {0};
   NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
-  // If we failed to open the numeric index, it was not initialized yet,
-  // reply as if the tree is empty.
-  if (!rt) {
-    rt = &dummy_rt;
-  }
   bool minimal = argc > 4 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "minimal");
+  NumericRangeTree_DebugDumpTree(sctx->redisCtx, rt, minimal);  // rt may be NULL
 
-  NumericRangeTree_DebugReply(sctx->redisCtx, rt, minimal);
-
-  end:
+end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

@@ -18,6 +18,7 @@ fnv.workspace = true
 hash32.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
+wyhash.workspace = true
 
 [dev-dependencies]
 ahash.workspace = true
@@ -25,7 +26,6 @@ criterion.workspace = true
 insta.workspace = true
 rustc-hash.workspace = true
 proptest = { workspace = true, features = ["std"] }
-wyhash.workspace = true
 xxhash-rust = { workspace = true, features = ["xxh32"] }
 
 [[bench]]

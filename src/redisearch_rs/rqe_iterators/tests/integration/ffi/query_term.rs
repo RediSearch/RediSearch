@@ -6,7 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-
+#![allow(dead_code)]
 use ffi::{NewQueryTerm, RSQueryTerm, RSToken};
 
 /// A builder for creating `QueryTerm` instances.

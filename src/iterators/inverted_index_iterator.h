@@ -47,6 +47,13 @@ typedef struct {
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax);
 
+// Returns an iterator for a numeric index from a pre-created IndexReader.
+// This is used when the IndexReader is created from a Rust numeric range tree.
+// The reader must be created via NumericRange_NewIndexReader() from numeric_range_tree_ffi.
+// The iterator takes ownership of the reader and will free it when done.
+QueryIterator *NewInvIndIterator_NumericQueryFromReader(IndexReader *reader, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
+                                                        const NumericRangeTree *rt, double rangeMin, double rangeMax);
+
 // Returns an iterator for a term index, suitable for queries
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight);
