@@ -40,6 +40,10 @@ fn unique_index_name(prefix: &str) -> String {
 }
 use field::FieldMaskOrIndex;
 use inverted_index::{NumericFilter, RSIndexResult};
+use numeric_range_tree::NumericIndex;
+use numeric_range_tree_ffi::{
+    NumericRangeTree_Add, NumericRangeTree_Find, NumericRangeTreeFindResult_Free,
+};
 use query_error::QueryError;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
@@ -96,7 +100,7 @@ pub struct TestContext {
 enum TestContextInner {
     Numeric {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
-        numeric_range_tree: ptr::NonNull<ffi::NumericRangeTree>,
+        numeric_range_tree: ptr::NonNull<numeric_range_tree_ffi::NumericRangeTree>,
     },
     Term {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
@@ -178,8 +182,10 @@ impl TestContext {
         let fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
         // Create the numeric range tree through the proper API
-        let numeric_range_tree =
-            unsafe { ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true) };
+        let numeric_range_tree = unsafe {
+            ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true)
+                as *mut numeric_range_tree_ffi::NumericRangeTree
+        };
         let numeric_range_tree =
             ptr::NonNull::new(numeric_range_tree).expect("NumericRangeTree should not be null");
 
@@ -187,21 +193,23 @@ impl TestContext {
         for record in records {
             let record_val = record.as_numeric().unwrap();
             unsafe {
-                ffi::NumericRangeTree_Add(
+                NumericRangeTree_Add(
                     numeric_range_tree.as_ptr(),
                     record.doc_id as t_docId,
                     record_val,
+                    0,
                     0,
                 );
             }
 
             if multi {
                 unsafe {
-                    ffi::NumericRangeTree_Add(
+                    NumericRangeTree_Add(
                         numeric_range_tree.as_ptr(),
                         record.doc_id as t_docId,
                         record_val,
                         1,
+                        0,
                     );
                 }
             }
@@ -327,7 +335,7 @@ impl TestContext {
 
     /// Get the numeric range tree for this context.
     /// Panics if this is not a numeric context.
-    pub fn numeric_range_tree(&self) -> ptr::NonNull<ffi::NumericRangeTree> {
+    pub fn numeric_range_tree(&self) -> ptr::NonNull<numeric_range_tree_ffi::NumericRangeTree> {
         match self.inner {
             TestContextInner::Numeric {
                 numeric_range_tree, ..
@@ -386,7 +394,7 @@ impl TestContext {
 
     /// Get the ffi inverted index for this context.
     #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
-    pub fn numeric_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
+    pub fn numeric_inverted_index(&self) -> &mut NumericIndex {
         // Create a numeric filter to find ranges
         let filter = NumericFilter {
             ascending: false,
@@ -396,30 +404,19 @@ impl TestContext {
 
         // Find a range that covers our data to get the inverted index
         let ranges = unsafe {
-            ffi::NumericRangeTree_Find(
-                self.numeric_range_tree().as_ptr(),
-                // cast inverted_index::NumericFilter to ffi::NumericFilter
-                &filter as *const _ as *const ffi::NumericFilter,
-            )
+            NumericRangeTree_Find(self.numeric_range_tree().as_ptr(), &filter as *const _)
         };
-        assert!(!ranges.is_null());
-        unsafe {
-            assert!(ffi::Vector_Size(ranges) > 0);
-        }
-        let mut range: *mut ffi::NumericRange = std::ptr::null_mut();
-        unsafe {
-            let range_out = &mut range as *mut *mut ffi::NumericRange;
-            assert!(ffi::Vector_Get(ranges, 0, range_out.cast()) == 1);
-        }
+        assert!(!ranges.ranges.is_null());
+        assert!(ranges.len > 0);
+        let range: *mut numeric_range_tree::NumericRange =
+            unsafe { ranges.ranges.offset(0).read() } as *mut _;
         assert!(!range.is_null());
-        let range = unsafe { &*range };
-        let ii = range.entries;
-        assert!(!ii.is_null());
-        let ii: *mut inverted_index_ffi::InvertedIndex = ii.cast();
-        let ii = unsafe { &mut *ii };
+        // TODO: This is wildly unsound, since `Find` gives a read-only reference, not a mutable one.
+        let range = unsafe { range.as_mut().unwrap() };
+        let ii = range.entries_mut();
 
         unsafe {
-            ffi::Vector_Free(ranges);
+            NumericRangeTreeFindResult_Free(ranges);
         }
 
         ii
