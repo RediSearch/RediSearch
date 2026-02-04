@@ -66,6 +66,22 @@ impl RsValue {
             self
         }
     }
+
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            RsValue::Undefined => "Undefined",
+            RsValue::Null => "Null",
+            RsValue::Number(_) => "Number",
+            RsValue::RmAllocString(_) => "RmAllocString",
+            RsValue::ConstString(_) => "ConstString",
+            RsValue::RedisString(_) => "RedisString",
+            RsValue::String(_) => "String",
+            RsValue::Array(_) => "Array",
+            RsValue::Ref(_) => "Ref",
+            RsValue::Trio(_) => "Trio",
+            RsValue::Map(_) => "Map",
+        }
+    }
 }
 
 #[cfg(test)]
