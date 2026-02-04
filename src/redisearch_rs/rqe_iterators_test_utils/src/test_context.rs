@@ -11,7 +11,7 @@
 
 use std::{
     ffi::CString,
-    ptr,
+    ptr::{self, NonNull},
     sync::{
         Mutex, Once,
         atomic::{AtomicU64, Ordering},
@@ -39,7 +39,8 @@ fn unique_index_name(prefix: &str) -> String {
     format!("{prefix}_{id}")
 }
 use field::FieldMaskOrIndex;
-use inverted_index::{NumericFilter, RSIndexResult};
+use inverted_index::RSIndexResult;
+use numeric_range_tree::{NumericIndex, NumericRangeTree};
 use query_error::QueryError;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
@@ -96,7 +97,7 @@ pub struct TestContext {
 enum TestContextInner {
     Numeric {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
-        numeric_range_tree: ptr::NonNull<ffi::NumericRangeTree>,
+        numeric_range_tree: ptr::NonNull<NumericRangeTree>,
     },
     Term {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
@@ -181,32 +182,23 @@ impl TestContext {
         let fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
         // Create the numeric range tree through the proper API
-        let numeric_range_tree =
-            unsafe { ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true) };
-        let numeric_range_tree =
-            ptr::NonNull::new(numeric_range_tree).expect("NumericRangeTree should not be null");
+        let numeric_range_tree = unsafe {
+            ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true)
+                as *mut numeric_range_tree::NumericRangeTree
+        };
+        let numeric_range_tree = unsafe {
+            ptr::NonNull::new(numeric_range_tree)
+                .expect("NumericRangeTree should not be null")
+                .as_mut()
+        };
 
         // Add numeric data to the range tree
         for record in records {
             let record_val = record.as_numeric().unwrap();
-            unsafe {
-                ffi::NumericRangeTree_Add(
-                    numeric_range_tree.as_ptr(),
-                    record.doc_id as t_docId,
-                    record_val,
-                    0,
-                );
-            }
+            numeric_range_tree.add(record.doc_id as t_docId, record_val, false, 0);
 
             if multi {
-                unsafe {
-                    ffi::NumericRangeTree_Add(
-                        numeric_range_tree.as_ptr(),
-                        record.doc_id as t_docId,
-                        record_val,
-                        1,
-                    );
-                }
+                numeric_range_tree.add(record.doc_id as t_docId, record_val, true, 0);
             }
         }
 
@@ -216,7 +208,7 @@ impl TestContext {
             spec,
             inner: TestContextInner::Numeric {
                 field_spec: fs,
-                numeric_range_tree,
+                numeric_range_tree: NonNull::from_mut(numeric_range_tree),
             },
         }
     }
@@ -381,13 +373,26 @@ impl TestContext {
 
     /// Get the numeric range tree for this context.
     /// Panics if this is not a numeric context.
-    pub fn numeric_range_tree(&self) -> ptr::NonNull<ffi::NumericRangeTree> {
+    pub fn numeric_range_tree(&self) -> ptr::NonNull<numeric_range_tree::NumericRangeTree> {
         match self.inner {
             TestContextInner::Numeric {
                 numeric_range_tree, ..
             } => numeric_range_tree,
             _ => panic!("TestContext is not a Numeric context"),
         }
+    }
+
+    /// Get a reference to the numeric range tree for this context.
+    /// Panics if this is not a numeric context.
+    pub fn numeric_range_tree_ref(&self) -> &numeric_range_tree::NumericRangeTree {
+        unsafe { self.numeric_range_tree().as_ref() }
+    }
+
+    /// Get a mutable reference to the numeric range tree for this context.
+    /// Panics if this is not a numeric context.
+    #[allow(clippy::mut_from_ref)]
+    pub fn numeric_range_tree_mut(&self) -> &mut numeric_range_tree::NumericRangeTree {
+        unsafe { self.numeric_range_tree().as_mut() }
     }
 
     /// Get the field spec for this context.
@@ -483,43 +488,19 @@ impl TestContext {
 
     /// Get the ffi inverted index for this context.
     #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
-    pub fn numeric_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
-        // Create a numeric filter to find ranges
-        let filter = NumericFilter {
-            ascending: false,
-            field_spec: self.field_spec(),
-            ..Default::default()
-        };
-
-        // Find a range that covers our data to get the inverted index
-        let ranges = unsafe {
-            ffi::NumericRangeTree_Find(
-                self.numeric_range_tree().as_ptr(),
-                // cast inverted_index::NumericFilter to ffi::NumericFilter
-                &filter as *const _ as *const ffi::NumericFilter,
-            )
-        };
-        assert!(!ranges.is_null());
-        unsafe {
-            assert!(ffi::Vector_Size(ranges) > 0);
-        }
-        let mut range: *mut ffi::NumericRange = std::ptr::null_mut();
-        unsafe {
-            let range_out = &mut range as *mut *mut ffi::NumericRange;
-            assert!(ffi::Vector_Get(ranges, 0, range_out.cast()) == 1);
-        }
-        assert!(!range.is_null());
-        let range = unsafe { &*range };
-        let ii = range.entries;
-        assert!(!ii.is_null());
-        let ii: *mut inverted_index_ffi::InvertedIndex = ii.cast();
-        let ii = unsafe { &mut *ii };
-
-        unsafe {
-            ffi::Vector_Free(ranges);
-        }
-
-        ii
+    pub fn numeric_inverted_index(&self) -> &mut NumericIndex {
+        let tree = self.numeric_range_tree_mut();
+        let index = tree
+            .indexed_iter()
+            .find_map(|(index, node)| {
+                if node.has_range() && node.is_leaf() {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+            .expect("There must be at least one leaf!");
+        tree.node_mut(index).range_mut().unwrap().entries_mut()
     }
 
     /// Initialize the TTL table if not already initialized.

@@ -107,6 +107,7 @@ fn term_read() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 /// test skipping from Term iterator
 fn term_skip_to() {
     let test = TermBaseTest::new(100);

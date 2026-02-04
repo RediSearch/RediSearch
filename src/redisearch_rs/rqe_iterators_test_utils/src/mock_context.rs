@@ -7,13 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr;
+use std::ptr::NonNull;
 
-use ffi::{IndexSpec, NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
+use ffi::{IndexSpec, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId};
+use numeric_range_tree::NumericRangeTree;
 
 /// Mock search context creating fake objects for testing.
 /// It can be used to test expiration but not validation.
-/// Use [`crate::TestContext`] instead to test revalidation.
+/// Use [`TestContext`](crate::TestContext) instead to test revalidation.
 ///
 /// Uses raw pointers for storage to avoid Stacked Borrows violations.
 /// Box would claim Unique ownership which gets invalidated when the library
@@ -27,7 +28,6 @@ pub struct MockContext {
     sctx: *mut RedisSearchCtx,
     #[allow(dead_code)]
     qctx: *mut QueryEvalCtx,
-    /// fake NumericRangeTree, cannot be used but those tests do not call revalidate()
     numeric_range_tree: *mut NumericRangeTree,
 }
 
@@ -51,10 +51,7 @@ impl Drop for MockContext {
                 self.qctx as *mut u8,
                 std::alloc::Layout::new::<QueryEvalCtx>(),
             );
-            std::alloc::dealloc(
-                self.numeric_range_tree as *mut u8,
-                std::alloc::Layout::new::<NumericRangeTree>(),
-            );
+            let _ = Box::from_raw(self.numeric_range_tree);
         }
     }
 }
@@ -71,8 +68,7 @@ impl MockContext {
         let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<IndexSpec>() }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
-        let numeric_range_tree_ptr =
-            Box::into_raw(Box::new(unsafe { std::mem::zeroed::<NumericRangeTree>() }));
+        let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
 
         // Initialize all structs through raw pointers
         unsafe {
@@ -96,7 +92,7 @@ impl MockContext {
 
             // Initialize QueryEvalCtx
             (*qctx_ptr).sctx = sctx_ptr;
-            (*qctx_ptr).docTable = ptr::addr_of_mut!((*spec_ptr).docs);
+            (*qctx_ptr).docTable = std::ptr::addr_of_mut!((*spec_ptr).docs);
 
             // Store raw pointers directly (don't convert back to Box)
             Self {
@@ -109,12 +105,12 @@ impl MockContext {
         }
     }
 
-    pub const fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
-        ptr::NonNull::new(self.numeric_range_tree).expect("NumericRangeTree should not be null")
+    pub const fn numeric_range_tree(&self) -> NonNull<NumericRangeTree> {
+        NonNull::new(self.numeric_range_tree).expect("NumericRangeTree should not be null")
     }
 
     /// Get the search context from the TestContext.
-    pub const fn sctx(&self) -> ptr::NonNull<ffi::RedisSearchCtx> {
-        ptr::NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
+    pub const fn sctx(&self) -> NonNull<ffi::RedisSearchCtx> {
+        NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
     }
 }

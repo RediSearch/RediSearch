@@ -88,5 +88,5 @@ pub use tree::{
 };
 pub use unique_id::TreeUniqueId;
 
-#[cfg(feature = "test_utils")]
+#[cfg(feature = "test-utils")]
 pub mod test_utils;

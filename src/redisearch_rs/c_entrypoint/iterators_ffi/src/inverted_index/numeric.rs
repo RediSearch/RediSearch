@@ -10,98 +10,10 @@
 use std::ptr::NonNull;
 
 use field::{FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{
-    FilterGeoReader, FilterNumericReader, IndexReader, IndexReaderCore, NumericFilter,
-    NumericReader, RSIndexResult, t_docId,
-};
+use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
+use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
 use rqe_iterators_interop::RQEIteratorWrapper;
-
-/// Wrapper around different numeric reader types to avoid generics in FFI code.
-enum NumericIndexReader<'index> {
-    Uncompressed(IndexReaderCore<'index, inverted_index::numeric::Numeric>),
-    Compressed(IndexReaderCore<'index, inverted_index::numeric::NumericFloatCompression>),
-}
-
-impl<'index> IndexReader<'index> for NumericIndexReader<'index> {
-    #[inline(always)]
-    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.next_record(result),
-            NumericIndexReader::Compressed(reader) => reader.next_record(result),
-        }
-    }
-
-    #[inline(always)]
-    fn seek_record(
-        &mut self,
-        doc_id: t_docId,
-        result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.seek_record(doc_id, result),
-            NumericIndexReader::Compressed(reader) => reader.seek_record(doc_id, result),
-        }
-    }
-
-    #[inline(always)]
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.skip_to(doc_id),
-            NumericIndexReader::Compressed(reader) => reader.skip_to(doc_id),
-        }
-    }
-
-    #[inline(always)]
-    fn reset(&mut self) {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.reset(),
-            NumericIndexReader::Compressed(reader) => reader.reset(),
-        }
-    }
-
-    #[inline(always)]
-    fn unique_docs(&self) -> u64 {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.unique_docs(),
-            NumericIndexReader::Compressed(reader) => reader.unique_docs(),
-        }
-    }
-
-    #[inline(always)]
-    fn has_duplicates(&self) -> bool {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.has_duplicates(),
-            NumericIndexReader::Compressed(reader) => reader.has_duplicates(),
-        }
-    }
-
-    #[inline(always)]
-    fn flags(&self) -> ffi::IndexFlags {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.flags(),
-            NumericIndexReader::Compressed(reader) => reader.flags(),
-        }
-    }
-
-    #[inline(always)]
-    fn needs_revalidation(&self) -> bool {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.needs_revalidation(),
-            NumericIndexReader::Compressed(reader) => reader.needs_revalidation(),
-        }
-    }
-
-    #[inline(always)]
-    fn refresh_buffer_pointers(&mut self) {
-        match self {
-            NumericIndexReader::Uncompressed(reader) => reader.refresh_buffer_pointers(),
-            NumericIndexReader::Compressed(reader) => reader.refresh_buffer_pointers(),
-        }
-    }
-}
-
-impl<'index> NumericReader<'index> for NumericIndexReader<'index> {}
 
 /// Enum holding either a numeric or geo iterator variant.
 /// This allows all iterator types to share the same iterator wrapper structure.
@@ -282,11 +194,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
 ///    remain valid for the lifetime of the returned iterator.
 /// 9. `range_min` is smaller or equal to `range_max`.
 pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
-    idx: *const ffi::InvertedIndex,
+    idx: *const NumericIndex,
     sctx: *const ffi::RedisSearchCtx,
     field_ctx: *const FieldFilterContext,
     flt: *const NumericFilter,
-    rt: *const ffi::NumericRangeTree,
+    rt: *const NumericRangeTree,
     range_min: f64,
     range_max: f64,
 ) -> *mut ffi::QueryIterator {
@@ -294,7 +206,6 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
     debug_assert!(!sctx.is_null(), "sctx must not be null");
     debug_assert!(!field_ctx.is_null(), "field_ctx must not be null");
 
-    let idx: *const inverted_index_ffi::InvertedIndex = idx.cast();
     // SAFETY: 1. guarantees idx is valid and non-null
     let ii_ref = unsafe { &*idx };
 
@@ -313,18 +224,11 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
     // SAFETY: 3.
     let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
     let filter = NonNull::new(flt as *mut NumericFilter);
-    let range_tree = NonNull::new(rt as *mut _);
+    let range_tree = NonNull::new(rt as *mut _).map(|t|
+            // SAFETY: 8.
+            unsafe { t.as_ref() });
 
-    let reader = match ii_ref {
-        inverted_index_ffi::InvertedIndex::Numeric(entries_tracking_index) => {
-            NumericIndexReader::Uncompressed(entries_tracking_index.reader())
-        }
-        inverted_index_ffi::InvertedIndex::NumericFloatCompression(entries_tracking_index) => {
-            NumericIndexReader::Compressed(entries_tracking_index.reader())
-        }
-        // SAFETY: 1. guarantees that the inverted index is numeric.
-        _ => panic!("Unsupported inverted index type"),
-    };
+    let reader = ii_ref.reader();
 
     // Create the expiration checker
     // Note: The caller guarantees sctx is valid and non-null (see safety contract in new())
@@ -468,4 +372,130 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
     let wrapper =
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
     wrapper.inner.range_max()
+}
+
+/// Result of creating numeric range iterators for all matching ranges.
+///
+/// The `iterators` array is allocated with `RedisModule_Calloc`, so it can be
+/// passed directly to `NewUnionIterator` (which takes ownership and frees with
+/// `rm_free`). For the 0-range or 1-range cases, the caller must `rm_free`
+/// the array themselves.
+#[repr(C)]
+pub struct NumericRangeIteratorsResult {
+    /// Array of iterators. NULL when `len == 0`.
+    pub iterators: *mut *mut ffi::QueryIterator,
+    /// Number of iterators in the array.
+    pub len: usize,
+}
+
+/// Creates numeric range iterators for all ranges in the tree matching the filter.
+///
+/// This combines the tree lookup and per-range iterator creation into a single
+/// call, eliminating the need for C-side loops over intermediate `Vector` results.
+///
+/// # Returns
+///
+/// A [`NumericRangeIteratorsResult`] containing the array of iterators and its length.
+/// The array is allocated with `RedisModule_Calloc`. When `len == 0`, `iterators` is NULL.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+///
+/// 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`].
+/// 2. `t` must remain valid for the lifetime of all returned iterators.
+/// 3. `sctx` must be a valid non-NULL pointer to a `RedisSearchCtx`.
+/// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
+/// 5. `f` must be a valid non-NULL pointer to a [`NumericFilter`].
+/// 6. `f` must remain valid for the lifetime of all returned iterators.
+/// 7. `field_ctx` must be a valid non-NULL pointer to a `FieldFilterContext`.
+/// 8. `field_ctx.field` must be a field index (tag == FieldMaskOrIndex_Index), not a field mask.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CreateNumericRangeIterators(
+    t: *const NumericRangeTree,
+    sctx: *const ffi::RedisSearchCtx,
+    f: *const NumericFilter,
+    field_ctx: *const FieldFilterContext,
+) -> NumericRangeIteratorsResult {
+    debug_assert!(!t.is_null(), "t must not be null");
+    debug_assert!(!sctx.is_null(), "sctx must not be null");
+    debug_assert!(!f.is_null(), "f must not be null");
+    debug_assert!(!field_ctx.is_null(), "field_ctx must not be null");
+
+    // SAFETY: 1. guarantees t is valid and non-null
+    let tree = unsafe { &*t };
+    // SAFETY: 5. guarantees f is valid and non-null
+    let filter = unsafe { &*f };
+
+    let ranges: Vec<&NumericRange> = tree.find(filter);
+
+    if ranges.is_empty() {
+        return NumericRangeIteratorsResult {
+            iterators: std::ptr::null_mut(),
+            len: 0,
+        };
+    }
+
+    // Allocate the output array with RedisModule_Calloc so C can free it with rm_free.
+    // SAFETY: RedisModule_Calloc is always initialized when the module is loaded.
+    let calloc = unsafe { ffi::RedisModule_Calloc.unwrap() };
+    // SAFETY: the length of the array is guaranteed to be non-zero, and
+    // the size of each element is guaranteed to be non-zero.
+    let iterators = unsafe {
+        calloc(ranges.len(), std::mem::size_of::<*mut ffi::QueryIterator>())
+            as *mut *mut ffi::QueryIterator
+    };
+
+    // Pass the tree as the revalidation tree only when field_spec is non-null,
+    // matching the existing C behavior in NewNumericRangeIterator.
+    let rt: *const NumericRangeTree = if filter.field_spec.is_null() {
+        std::ptr::null()
+    } else {
+        t
+    };
+
+    for (i, range) in ranges.iter().enumerate() {
+        let min_val = range.min_val();
+        let max_val = range.max_val();
+
+        // Determine if we can skip the filter: if the filter is numeric (not geo)
+        // and both the range min and max are within the filter bounds, the reader
+        // doesn't need to check the filter for each record.
+        let reader_filter: *const NumericFilter = if filter.is_numeric_filter()
+            && filter.value_in_range(min_val)
+            && filter.value_in_range(max_val)
+        {
+            std::ptr::null()
+        } else {
+            f
+        };
+
+        let entries: *const NumericIndex = range.entries();
+
+        // SAFETY: All pointer requirements are upheld by the caller's contract
+        // (safety requirements 1-8) and our own invariants above.
+        let it = unsafe {
+            NewInvIndIterator_NumericQuery(
+                entries,
+                sctx,
+                field_ctx,
+                reader_filter,
+                rt,
+                min_val,
+                max_val,
+            )
+        };
+
+        // SAFETY: iterators was allocated with enough space for ranges.len() elements,
+        // and i < ranges.len().
+        let ith_slot = unsafe { iterators.add(i) };
+        // SAFETY: ith_slot is a valid pointer to a slot in iterators, and we've exclusive
+        // access to it.
+        unsafe { ith_slot.write(it) };
+    }
+
+    NumericRangeIteratorsResult {
+        iterators,
+        len: ranges.len(),
+    }
 }

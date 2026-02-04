@@ -7,9 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 mod numeric;
-// These tests rely on an FFI call to create `RSQueryTerm` instances,
-// thus falling outside of the scope that `miri` can examine.
-#[cfg(not(miri))]
 mod term;
 mod utils;
 mod wildcard;
