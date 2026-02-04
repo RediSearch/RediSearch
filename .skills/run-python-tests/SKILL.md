@@ -17,50 +17,63 @@ Arguments provided: `$ARGUMENTS`
 
 ## Instructions
 
+### Test Timeout
+
+Some tests take longer to run than others. The `TEST_TIMEOUT` parameter controls how long each test is allowed to run before being terminated.
+
+- **Quick verification (preferred)**: Pass `TEST_TIMEOUT=20` to get fast feedback. Tests that exceed this timeout will be terminated.
+- **Full test run**: Omit `TEST_TIMEOUT` to let tests run with the default timeout (300 seconds).
+
+**Always start with a quick verification, using `TEST_TIMEOUT=20`**. Faster feedback loops lead to faster iteration.
+
+If there are timeouts during a quick verification run, check if the timed-out tests are relevant to the current task:
+- If you can determine relevance autonomously (e.g., the test name clearly relates to the code you changed), re-run those specific tests without a timeout.
+- If you cannot determine relevance, ask the user whether the timed-out tests should be re-run without a timeout.
+
 ### All Tests
 
 ```bash
-TEST_TIMEOUT=20 ./build.sh RUN_PYTEST ENABLE_ASSERT=1
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20
 ```
 
 ### All Tests From A Specific File
 
 ```bash
-source .venv/bin/activate && TEST_TIMEOUT=20 ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST="<filename without extension>"
+source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename without extension>"
 ```
 
 For example:
 
 ```bash
-source .venv/bin/activate && TEST_TIMEOUT=20 ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST="test_crash"
-``` 
+source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash"
+```
 
 for running tests from `tests/pytests/test_crash.py`.
 
 ### All Tests From Multiple Files
 
 ```bash
-source .venv/bin/activate && TEST_TIMEOUT=20 ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST="<filename 1> <filename 2>"
+source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename 1> <filename 2>"
 ```
 
 For example:
 
 ```bash
-source .venv/bin/activate && TEST_TIMEOUT=20 ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST="test_crash test_gc"
-``` 
+source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash test_gc"
+```
 
 for running tests from `tests/pytests/test_crash.py` and `tests/pytests/test_gc.py`.
 
 ### Specific Test From A Specific File
 
 ```bash
-source .venv/bin/activate && TEST_TIMEOUT=20 ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST="<filename without extension>:<test_name>"
+source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename without extension>:<test_name>"
 ```
 
 For example:
 
 ```bash
-source .venv/bin/activate && TEST_TIMEOUT=20 ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST="test_crash:test_query_thread_crash"
+source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash:test_query_thread_crash"
 ```
 
 for running the `test_query_thread_crash` test from `tests/pytests/test_crash.py`.
