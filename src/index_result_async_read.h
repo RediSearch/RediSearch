@@ -112,7 +112,7 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
  * @param timeout_ms Timeout in milliseconds for the poll operation
  * @return Number of pending async reads still in progress
  */
-size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_ms);
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms);
 
 /**
  * Pop a ready result from the completed async reads
@@ -133,15 +133,6 @@ size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, int timeout_m
 RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *state);
 
 /**
- * Clean up nodes for failed async reads
- *
- * Frees IndexResults and nodes for async reads that failed (not found/error).
- *
- * @param state Async read state structure
- */
-void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state);
-
-/**
  * Check if async iteration is complete
  *
  * Returns true if the iterator is at EOF and all async operations are complete
@@ -153,7 +144,7 @@ void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state);
  * @return true if iteration is complete, false otherwise
  */
 bool IndexResultAsyncRead_IsIterationComplete(const IndexResultAsyncReadState *state,
-                                     bool iteratorAtEOF, 
+                                     bool iteratorAtEOF,
                                      size_t pendingCount);
 
 #ifdef __cplusplus

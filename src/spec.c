@@ -96,6 +96,9 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
                              DebugIndexesScanner *dScanner);
 static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
+// Forward declaration for disk validation
+inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
+
 //---------------------------------------------------------------------------------------------
 
 // This function should be called after the first background scan OOM error
@@ -746,79 +749,91 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
 
 #define VECSIM_ALGO_PARAM_MSG(algo, param) "vector similarity " algo " index `" param "`"
 
-static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status, bool *rerank) {
   int rc;
 
   // HNSW mandatory params.
   bool mandtype = false;
   bool mandsize = false;
   bool mandmetric = false;
+  // Disk-mode mandatory params (tracked here, validated later in parseVectorField)
+  bool mandM = false;
+  bool mandEfConstruction = false;
+  bool mandEfRuntime = false;
+  *rerank = false;
 
-  // Get number of parameters
-  size_t expNumParam, numParam = 0;
+  // Get number of parameters and create a sub-cursor for them
+  size_t expNumParam;
   if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity number of parameters: %s", AC_Strerror(rc));
     return 0;
-  } else if (expNumParam % 2) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad number of arguments for vector similarity index: got %d but expected even number (as algorithm parameters should be submitted as named arguments)", expNumParam);
+  }
+  // Create a sub-cursor with exactly expNumParam arguments
+  ArgsCursor subAc;
+  if ((rc = AC_GetSlice(ac, &subAc, expNumParam)) != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for vector similarity: not enough arguments");
     return 0;
-  } else {
-    expNumParam /= 2;
   }
 
-  while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
-      if ((rc = parseVectorField_GetType(ac, &params->algoParams.hnswParams.type)) != AC_OK) {
+  while (!AC_IsAtEnd(&subAc)) {
+    if (AC_AdvanceIfMatch(&subAc, VECSIM_TYPE)) {
+      if ((rc = parseVectorField_GetType(&subAc, &params->algoParams.hnswParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_TYPE), rc);
         return 0;
       }
       mandtype = true;
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DIM)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.dim, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DIM), rc);
         return 0;
       }
       mandsize = true;
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
-      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.hnswParams.metric)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_DISTANCE_METRIC)) {
+      if ((rc = parseVectorField_GetMetric(&subAc, &params->algoParams.hnswParams.metric)) != AC_OK) {
         QERR_MKBADARGS_AC(status,  VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC), rc);
         return 0;
       }
       mandmetric = true;
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_INITIAL_CAP)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_INITIAL_CAP)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.initialCapacity, 0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_INITIAL_CAP), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_M)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_M)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.M, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_M), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EFCONSTRUCTION)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
+      mandM = true;
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFCONSTRUCTION)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efConstruction, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFCONSTRUCTION), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+      mandEfConstruction = true;
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EFRUNTIME)) {
+      if ((rc = AC_GetSize(&subAc, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(ac, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+      mandEfRuntime = true;
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(&subAc, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
+      // RERANK is a boolean flag (no value)
+      if (*rerank) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+          "Duplicate RERANK parameter");
+        return 0;
+      }
+      *rerank = true;
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(&subAc, NULL));
       return 0;
     }
-    numParam++;
-  }
-  if (expNumParam > numParam) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
-    return 0;
   }
   if (!mandtype) {
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_TYPE);
@@ -832,6 +847,42 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_HNSW, VECSIM_DISTANCE_METRIC);
     return 0;
   }
+
+  // Disk-mode validation: enforce mandatory parameters
+  if (isSpecOnDiskForValidation(sp)) {
+    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32) {
+      const char *typeName = VecSimType_ToString(params->algoParams.hnswParams.type);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support %s vector type", typeName);
+      return 0;
+    }
+    if (params->algoParams.hnswParams.multi) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support multi-value vectors");
+      return 0;
+    }
+    if (!mandM) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires M parameter");
+      return 0;
+    }
+    if (!mandEfConstruction) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires EF_CONSTRUCTION parameter");
+      return 0;
+    }
+    if (!mandEfRuntime) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires EF_RUNTIME parameter");
+      return 0;
+    }
+    if (!*rerank) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk HNSW index requires RERANK parameter");
+      return 0;
+    }
+  }
+
   // Calculating expected blob size of a vector in bytes.
   fs->vectorOpts.expBlobSize = params->algoParams.hnswParams.dim * VecSimType_sizeof(params->algoParams.hnswParams.type);
 
@@ -1165,6 +1216,14 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
 
   if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
+    // Disk mode does not support FLAT algorithm
+    if (isSpecOnDiskForValidation(sp)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support FLAT algorithm");
+      rm_free(logCtx);
+      fs->vectorOpts.vecSimParams.logCtx = NULL;  // Prevent double-free in cleanup
+      return 0;
+    }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
@@ -1185,7 +1244,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->algoParams.hnswParams.multi = multi;
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
-    result = parseVectorField_hnsw(fs, params, ac, status);
+    bool rerank = false;
+    result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
     // Build disk params if disk mode is enabled
     if (result && sp->diskSpec) {
       size_t nameLen;
@@ -1194,9 +1254,18 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
         .storage = sp->diskSpec,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
+        .rerank = rerank,
       };
     }
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
+    // Disk mode does not support SVS algorithm
+    if (isSpecOnDiskForValidation(sp)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+        "Disk index does not support SVS algorithm");
+      rm_free(logCtx);
+      fs->vectorOpts.vecSimParams.logCtx = NULL;  // Prevent double-free in cleanup
+      return 0;
+    }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
 
@@ -1596,10 +1665,12 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
       rm_free((void*)fs->vectorOpts.diskCtx.indexName);
     }
 
+    // TODO: rerank is not persisted in RDB, defaulting to true on load.
     fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
+      .rerank = true,
     };
   }
 }
@@ -3148,7 +3219,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (sp->diskSpec && useSst) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
@@ -3258,7 +3329,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // sst-files, even if this is a duplicate.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
   // On the disk side (RDB is depleted, without updating index fields).
-  bool useSst = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB;
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {

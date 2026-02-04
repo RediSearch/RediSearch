@@ -2175,17 +2175,17 @@ DEBUG_COMMAND(DiskIOControl) {
 
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
-  if (!strcmp("enable", op)) {
+  if (!strcasecmp("enable", op)) {
     // Check if disk is available first
     if (!SearchDisk_IsAsyncIOSupported()) {
       return RedisModule_ReplyWithError(ctx, "Async I/O is not supported (disk API not available or disk doesn't support async I/O)");
     }
     SearchDisk_SetAsyncIOEnabled(true);
     return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O enabled");
-  } else if (!strcmp("disable", op)) {
+  } else if (!strcasecmp("disable", op)) {
     SearchDisk_SetAsyncIOEnabled(false);
     return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O disabled");
-  } else if (!strcmp("status", op)) {
+  } else if (!strcasecmp("status", op)) {
     bool flagEnabled = SearchDisk_GetAsyncIOEnabled();
     bool diskSupported = SearchDisk_IsAsyncIOSupported();
 

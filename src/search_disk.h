@@ -110,18 +110,19 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @brief Create an IndexIterator for a term in the inverted index
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
- * in RediSearch query execution pipelines.
+ * in RediSearch query execution pipelines. It allocates the RSQueryTerm internally
+ * and handles cleanup on failure.
  *
  * @param index Pointer to the index
- * @param term Term to iterate over
- * @param termLen Length of the term
+ * @param tok Pointer to the token (contains term string) (token information is copied into the term, caller keeps ownership of the token)
+ * @param tokenId Token ID for the term
  * @param fieldMask Field mask indicating which fields are present
  * @param weight Weight for the term (used in scoring)
- * @param idf IDF for the term (used in scoring)
- * @param bm25_idf BM25 IDF for the term (used in scoring)
+ * @param idf Inverse document frequency for the term
+ * @param bm25_idf BM25 inverse document frequency for the term
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
 
 /**
  * @brief Create an IndexIterator for all the existing documents
@@ -160,9 +161,10 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @param handle Handle to the document table
  * @param docId Document ID
  * @param dmd Pointer to the document metadata structure to populate
- * @return true if found, false if not found or on error
+ * @param current_time Current time for expiration check.
+ * @return true if found and not expired, false if not found, expired, or on error
  */
-bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd);
+bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time);
 
 /**
  * @brief Check if a document ID is deleted
@@ -211,7 +213,7 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
  * @param max_concurrent Maximum number of concurrent pending reads
  * @return Opaque handle to the pool, or NULL on error
  */
-RedisSearchDiskAsyncReadPool *SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent);
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent);
 
 /**
  * @brief Add an async read request to the pool

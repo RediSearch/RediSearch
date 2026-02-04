@@ -46,7 +46,7 @@ typedef struct AsyncReadResult {
 } AsyncReadResult;
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const char *path);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
   void (*close)(RedisSearchDisk *disk);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
@@ -99,15 +99,12 @@ typedef struct IndexDiskAPI {
    * @brief Creates a new iterator for the inverted index
    *
    * @param index Pointer to the index
-   * @param term Term to associate the document with
-   * @param termLen Length of the term
+   * @param term Pointer to the query term (contains term string, idf, bm25_idf)
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
-   * @param idf IDF for the term (used in scoring)
-   * @param bm25_idf BM25 IDF for the term (used in scoring)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight);
 
   /**
    * @brief Returns the number of documents in the index
@@ -147,7 +144,17 @@ typedef struct DocTableDiskAPI {
    */
   bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
+  /**
+   * @brief Gets document metadata by document ID
+   *
+   * @param handle Handle to the document table
+   * @param docId Document ID
+   * @param dmd Pointer to the document metadata structure to populate
+   * @param allocateKey Callback to allocate memory for the key
+   * @param current_time Current time for expiration check.
+   * @return true if found and not expired, false if not found, expired, or on error
+   */
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey, struct timespec current_time);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -188,7 +195,7 @@ typedef struct DocTableDiskAPI {
    * @param max_concurrent Maximum number of concurrent pending reads
    * @return Opaque handle to the pool, or NULL on error. Must be freed with freeAsyncReadPool.
    */
-  RedisSearchDiskAsyncReadPool *(*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID
@@ -207,12 +214,15 @@ typedef struct DocTableDiskAPI {
    * - results: successful reads with valid DMDs
    * - failed_user_data: user_data pointers for reads that failed or found no document
    *
+   * Both buffers are required and must have capacity > 0. Polling stops when either buffer
+   * is full, so callers should size buffers appropriately for their use case.
+   *
    * @param pool Pool handle from createAsyncReadPool
    * @param timeout_ms 0 for non-blocking, >0 to wait up to that many milliseconds
    * @param results Buffer to fill with successful AsyncReadResult structures (DMD + user_data)
-   * @param results_capacity Size of the results buffer
+   * @param results_capacity Size of the results buffer (must be > 0)
    * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
-   * @param failed_capacity Size of the failed_user_data buffer
+   * @param failed_capacity Size of the failed_user_data buffer (must be > 0)
    * @param allocateDMD Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
    * @return AsyncPollResult with counts of ready, failed, and pending reads
    */

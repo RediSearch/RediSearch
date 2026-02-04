@@ -16,7 +16,7 @@
 #include "util/timeout.h"
 #include "util/workers.h"
 #include "score_explain.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "query_error.h"
@@ -29,15 +29,8 @@
 #include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "result_processor.h"
+#include "profile/options.h"
 #include "reply_empty.h"
-
-
-typedef enum {
-  EXEC_NO_FLAGS = 0x00,
-  EXEC_WITH_PROFILE = 0x01,
-  EXEC_WITH_PROFILE_LIMITED = 0x02,
-  EXEC_DEBUG = 0x04,
-} ExecOptions;
 
 // Multi threading data structure
 typedef struct {
@@ -47,12 +40,7 @@ typedef struct {
 } blockedClientReqCtx;
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
-static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, int execOptions);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
-
-typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, int execOptions);
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -385,10 +373,10 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
-  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->profileClocks.initClock);
   // Accumulate profile time for intermediate cursor reads (final read is added in Profile_Print)
   if (IsProfile(req) && !cursor_done && (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR)) {
-    req->profileTotalTime += duration;
+    req->profileClocks.profileTotalTime += duration;
   }
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
@@ -892,6 +880,11 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+
+  if (IsProfile(req)) {
+    req->profileClocks.profileQueueTime = rs_wall_clock_elapsed_ns(&req->profileClocks.initClock);
+  }
+
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = QueryError_Default();
 
@@ -984,13 +977,14 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   if (is_profile) {
     rs_wall_clock_init(&parseClock);
     // Calculate the time elapsed for profileParseTime by using the initialized parseClock
-    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
+    // Subtract queue time since initClock includes time spent waiting in the queue
+    req->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&req->profileClocks.initClock, &parseClock) - req->profileClocks.profileQueueTime;
   }
 
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
-    req->profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+    req->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
   }
 
   if (IsDebug(req)) {
@@ -1060,19 +1054,7 @@ done:
   return rc;
 }
 
-void parseProfileExecOptions(AREQ *r, int execOptions) {
-  if (execOptions & EXEC_WITH_PROFILE) {
-    AREQ_QueryProcessingCtx(r)->isProfile = true;
-    AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
-    if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
-      AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
-    }
-  } else {
-    AREQ_QueryProcessingCtx(r)->isProfile = false;
-  }
-}
-
-int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status) {
+static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions, QueryError *status) {
   AREQ *r = *r_ptr;
   // If we got here, we know `argv[0]` is a valid registered command name.
   // If it starts with an underscore, it is an internal command.
@@ -1080,11 +1062,11 @@ int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, 
     AREQ_AddRequestFlags(r, QEXEC_F_INTERNAL);
   }
 
-  parseProfileExecOptions(r, execOptions);
+  ApplyProfileOptions(AREQ_QueryProcessingCtx(r), &r->reqflags, profileOptions);
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
-    rs_wall_clock_init(&r->initClock);
+    rs_wall_clock_init(&r->profileClocks.initClock);
     rs_wall_clock_init(&AREQ_QueryProcessingCtx(r)->initTime);
   }
 
@@ -1146,10 +1128,10 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 }
 
 /**
- * @param execOptions is a bitmask of EXEC_* flags defined in ExecOptions enum.
+ * @param profileOptions is a bitmask of EXEC_* flags defined in ProfileOptions enum.
  */
-static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, int execOptions) {
+int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, ProfileOptions profileOptions) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -1165,12 +1147,12 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
     // Assuming OOM policy is return since we didn't ignore the memory guardrail
     RS_ASSERT(RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return);
-    return single_shard_common_query_reply_empty(ctx, argv, argc, execOptions, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    return single_shard_common_query_reply_empty(ctx, argv, argc, profileOptions, QUERY_ERROR_CODE_OUT_OF_MEMORY);
   }
 
   AREQ *r = AREQ_New();
 
-  if (prepareRequest(&r, ctx, argv, argc, type, execOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, argv, argc, type, profileOptions, &status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1192,75 +1174,8 @@ error:
   return QueryError_ReplyAndClear(ctx, &status);
 }
 
-int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, EXEC_NO_FLAGS);
-}
-
-int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_NO_FLAGS);
-}
-
-#define PROFILE_1ST_PARAM 2
-
-RedisModuleString **_profileArgsDup(RedisModuleString **argv, int argc, int params) {
-  RedisModuleString **newArgv = rm_malloc(sizeof(*newArgv) * (argc- params));
-  // copy cmd & index
-  memcpy(newArgv, argv, PROFILE_1ST_PARAM * sizeof(*newArgv));
-  // copy non-profile commands
-  memcpy(newArgv + PROFILE_1ST_PARAM, argv + PROFILE_1ST_PARAM + params,
-         (argc - PROFILE_1ST_PARAM - params) * sizeof(*newArgv));
-  return newArgv;
-}
-
-int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RSProfileCommandImp(ctx, argv, argc, false);
-}
-
-int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
-  if (argc < 5) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  CommandType cmdType;
-  int curArg = PROFILE_1ST_PARAM;
-  int withProfile = EXEC_WITH_PROFILE;
-  execCommandCommonHandler execCommandHandlerFunc = execCommandCommon;
-
-  // Check if this is a debug command
-  if (isDebug) {
-    execCommandHandlerFunc = DEBUG_execCommandCommon;
-    withProfile |= EXEC_DEBUG;
-  }
-
-  // Check the command type
-  const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
-  if (strcasecmp(cmd, "SEARCH") == 0) {
-    cmdType = COMMAND_SEARCH;
-  } else if (strcasecmp(cmd, "AGGREGATE") == 0) {
-    cmdType = COMMAND_AGGREGATE;
-  } else {
-    RedisModule_ReplyWithError(ctx, "No `SEARCH` or `AGGREGATE` provided");
-    return REDISMODULE_OK;
-  }
-
-  cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
-  if (strcasecmp(cmd, "LIMITED") == 0) {
-    withProfile |= EXEC_WITH_PROFILE_LIMITED;
-    cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
-  }
-
-  if (strcasecmp(cmd, "QUERY") != 0) {
-    RedisModule_ReplyWithError(ctx, "The QUERY keyword is expected");
-    return REDISMODULE_OK;
-  }
-
-  int newArgc = argc - curArg + PROFILE_1ST_PARAM;
-  RedisModuleString **newArgv = _profileArgsDup(argv, argc, curArg - PROFILE_1ST_PARAM);
-
-  execCommandHandlerFunc(ctx, newArgv, newArgc, cmdType, withProfile);
-
-  rm_free(newArgv);
-  return REDISMODULE_OK;
+int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions) {
+  return execCommandCommon(ctx, argv, argc, type, profileOptions);
 }
 
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -1378,7 +1293,7 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (initClock) {
-    rs_wall_clock_init(&req->initClock); // Reset the clock for the current cursor read
+    rs_wall_clock_init(&req->profileClocks.initClock); // Reset the clock for the current cursor read
   }
 
   if (req) {
@@ -1556,8 +1471,8 @@ int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 // FT.DEBUG FT.AGGREGATE idx * <DEBUG_TYPE> <DEBUG_TYPE_ARGS> <DEBUG_TYPE> <DEBUG_TYPE_ARGS> ... DEBUG_PARAMS_COUNT 2
 // Example:
 // FT.AGGREGATE idx * TIMEOUT_AFTER_N 3 DEBUG_PARAMS_COUNT 2
-static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, int execOptions) {
+int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, ProfileOptions profileOptions) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -1577,7 +1492,7 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   // Parse the query, not including debug params
 
-  if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1596,9 +1511,11 @@ error:
 
 /**DEBUG COMMANDS - not for production! */
 int DEBUG_RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, EXEC_DEBUG);
+  ProfileOptions profileOptions = EXEC_DEBUG;
+  return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, profileOptions);
 }
 
 int DEBUG_RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_DEBUG);
+  ProfileOptions profileOptions = EXEC_DEBUG;
+  return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, profileOptions);
 }

@@ -281,7 +281,11 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
 
         // Small range correction using linear counting.
         if estimate <= 2.5 * (SIZE as f64) {
+            #[cfg(not(miri))]
             let zeros = bytecount::count(self.registers.as_slice(), 0);
+            #[cfg(miri)]
+            let zeros = self.registers.iter().filter(|&&reg| reg == 0).count();
+
             if zeros > 0 {
                 estimate = (SIZE as f64) * ((SIZE as f64) / (zeros as f64)).ln();
             }

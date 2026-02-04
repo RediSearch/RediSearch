@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull};
+use std::{ffi::c_char, ptr::NonNull};
 
 use c_ffi_utils::expect_unchecked;
 use ffi::RedisModuleString;
@@ -16,7 +16,6 @@ use value::{
     collection::{RsValueArray, RsValueMap},
     shared::SharedRsValue,
     strings::{ConstString, RedisString, RmAllocString},
-    trio::RsValueTrio,
 };
 
 /// Creates a heap-allocated `RsValue` wrapping a string.
@@ -173,16 +172,6 @@ pub unsafe extern "C" fn SharedRsValue_NewParsedNumber(
     shared_value.into_raw()
 }
 
-/// Creates a heap-allocated `RsValue` containing a number.
-///
-/// @param n The numeric value to wrap
-/// @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
-#[unsafe(no_mangle)]
-pub extern "C" fn SharedRsValue_NewNumber(n: f64) -> *const RsValue {
-    let shared_value = SharedRsValue::new(RsValue::Number(n));
-    shared_value.into_raw()
-}
-
 /// Creates a heap-allocated `RsValue` containing a number from an int64.
 /// This operation casts the passed `i64` to an `f64`, possibly losing information.
 ///
@@ -215,51 +204,4 @@ pub extern "C" fn SharedRsValue_NewArray(vals: RsValueArray) -> *const RsValue {
 pub extern "C" fn SharedRsValue_NewMap(map: RsValueMap) -> *const RsValue {
     let shared_value = SharedRsValue::new(RsValue::Map(map));
     shared_value.into_raw()
-}
-
-/// Creates a heap-allocated RsValue Trio from three RsValues.
-/// Takes ownership of all three values.
-///
-/// # Safety
-///
-/// - (1) `left`, `middle`, and `right` must be valid pointers to [`RsValue`]
-///   obtained from [`SharedRsValue::into_raw`].
-///
-/// @param left The left value (ownership is transferred)
-/// @param middle The middle value (ownership is transferred)
-/// @param right The right value (ownership is transferred)
-/// @return A pointer to a heap-allocated RsValue of type RsValueType_Trio
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_NewTrio(
-    left: *const RsValue,
-    middle: *const RsValue,
-    right: *const RsValue,
-) -> *const RsValue {
-    // Safety: caller must ensure (1).
-    let left = unsafe { SharedRsValue::from_raw(left) };
-    // Safety: caller must ensure (1).
-    let middle = unsafe { SharedRsValue::from_raw(middle) };
-    // Safety: caller must ensure (1).
-    let right = unsafe { SharedRsValue::from_raw(right) };
-
-    let shared_value = SharedRsValue::new(RsValue::Trio(RsValueTrio::new(left, middle, right)));
-    shared_value.into_raw()
-}
-
-/// Gets the `f64` wrapped by the `SharedRsValue`
-///
-/// # Safety
-/// - (1) `v` must be a valid pointer to [`RsValue`] obtained from [`SharedRsValue::into_raw`].
-/// - (2) `v` must be a number value.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn SharedRsValue_Number_Get(v: *const RsValue) -> f64 {
-    // Safety: caller must ensure (1).
-    let v = unsafe { SharedRsValue::from_raw(v) };
-    let v = ManuallyDrop::new(v);
-    // Safety: caller must ensure (2).
-    if let RsValue::Number(num) = v.value() {
-        *num
-    } else {
-        panic!("v must be of type 'Number'");
-    }
 }
