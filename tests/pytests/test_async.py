@@ -49,20 +49,20 @@ def test_yield_while_bg_indexing_mod4745(env):
         res = conn.execute_command('hset', f'doc:{i}', 'name', f'hello world')
         env.assertEqual(res, 1)
 
-    # Baseline - zero yields before index has created.
-    env.assertEqual(run_command_on_all_shards(env, debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
+    # Baseline - zero sleeps before index has created.
+    env.assertEqual(run_command_on_all_shards(env, debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX_SLEEP'),
                     [0]*env.shardsCount)
     env.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
     allShards_waitForIndexFinishScan(env)
-    # Validate that we yielded at least once (we should after every 100 bg indexing iterations).
+    # Validate that we slept at least once (we should after every 100 bg indexing iterations).
     # The background scan in Redis may scan keys more than once (see RM_Scan() docs), so we assert that each shard
-    # yields *at least* once for each 100 documents.
+    # sleeps *at least* once for each 100 documents.
     for shard in env.getOSSMasterNodesConnectionList():
-        env.assertGreaterEqual(shard.execute_command(debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
+        env.assertGreaterEqual(shard.execute_command(debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX_SLEEP'),
                                int((n/env.shardsCount) // 100))
-    # The yield mechanism was introduced is to make sure cluster will not mark itself as fail since the server is not
-    # responsive and fail to send cluster PING on time before we reach cluster-node-timeout. Every time we yield, we
-    # give the main thread a chance to reply to PINGs.
+    # The sleep mechanism releases the GIL to allow Redis to process commands.
+    # Additionally, RedisModule_Yield is called periodically to ensure critical commands (e.g., PING)
+    # are processed, preventing watchdog from killing unresponsive shards.
 
 def test_eval_node_errors_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 ON_TIMEOUT FAIL')

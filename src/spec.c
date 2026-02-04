@@ -2838,6 +2838,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
       usleep(1);
+      IncrementBgIndexSleepCounter();
     } else {
       sched_yield();
     }

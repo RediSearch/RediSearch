@@ -1913,6 +1913,7 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
 typedef struct {
   size_t yieldOnLoadCounter;
   size_t yieldOnBgIndexCounter;
+  size_t sleepOnBgIndexCounter;
   size_t indexerSleepBeforeYieldMicros;
 } YieldCallHandler;
 
@@ -1928,10 +1929,16 @@ void IncrementBgIndexYieldCounter(void) {
   g_yieldCallHandler.yieldOnBgIndexCounter++;
 }
 
+// Function to increment the sleep counter upon bg indexing
+void IncrementBgIndexSleepCounter(void) {
+  g_yieldCallHandler.sleepOnBgIndexCounter++;
+}
+
 // Reset the yield counter
 void ResetYieldCounters(void) {
   g_yieldCallHandler.yieldOnLoadCounter = 0;
   g_yieldCallHandler.yieldOnBgIndexCounter = 0;
+  g_yieldCallHandler.sleepOnBgIndexCounter = 0;
 }
 
 // Get the current sleep time before yielding (in microseconds)
@@ -1940,7 +1947,7 @@ unsigned int GetIndexerSleepBeforeYieldMicros(void) {
 }
 
 /**
- * FT.DEBUG YIELDS_COUNTER LOAD/BG_INDEX/RESET
+ * FT.DEBUG YIELDS_COUNTER LOAD/BG_INDEX/BG_INDEX_SLEEP/RESET
  * Get or reset the counter for yields indexing / loading operations
  */
 DEBUG_COMMAND(YieldCounter) {
@@ -1960,6 +1967,9 @@ DEBUG_COMMAND(YieldCounter) {
   }
   if (STR_EQCASE(subCmd, len, "BG_INDEX")) {
     return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnBgIndexCounter);
+  }
+  if (STR_EQCASE(subCmd, len, "BG_INDEX_SLEEP")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.sleepOnBgIndexCounter);
   }
   if (STR_EQCASE(subCmd, len, "LOAD")) {
     return RedisModule_ReplyWithLongLong(ctx, (long long)g_yieldCallHandler.yieldOnLoadCounter);
