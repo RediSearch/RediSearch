@@ -16,7 +16,7 @@ use value::{Map, RsValue, SharedRsValue};
 /// Holds uninitialized entries that are populated via [`RSValueMap_SetEntry`]
 /// before being finalized into an [`RsValue::Map`] via [`RSValue_NewMap`].
 pub struct RSValueMap {
-    entries: Vec<MaybeUninit<(*mut RsValue, *mut RsValue)>>,
+    entries: Box<[MaybeUninit<(*mut RsValue, *mut RsValue)>]>,
 }
 
 /// Allocates a new, uninitialized [`RSValueMap`] with space for `len` entries.
@@ -32,7 +32,9 @@ pub struct RSValueMap {
 pub unsafe extern "C" fn RSValueMap_AllocUninit(len: u32) -> *mut RSValueMap {
     let entries = vec![MaybeUninit::uninit(); len as usize];
 
-    Box::into_raw(Box::new(RSValueMap { entries }))
+    Box::into_raw(Box::new(RSValueMap {
+        entries: entries.into(),
+    }))
 }
 
 /// Sets a key-value pair at a specific index in the map.
