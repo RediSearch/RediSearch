@@ -437,6 +437,56 @@ void RSValue_SetNumber(struct RsValue *value, double n);
 void RSValue_SetNull(struct RsValue *value);
 
 /**
+ * Converts an [`RsValue`] to a string type in-place, taking ownership of the given
+ * `RedisModule_Alloc`-allocated buffer.
+ *
+ * This clears the existing value and sets it to an [`RsString`] of kind `RmAlloc`
+ * with the given buffer.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ * 2. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
+ * 3. `str` must be [valid] for reads of `len` bytes.
+ * 4. `str` **must not** be used or freed after this function is called, as this function
+ *    takes ownership of the allocation.
+ * 5. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ */
+void RSValue_SetString(struct RsValue *value, char *str, size_t len);
+
+/**
+ * Converts an [`RsValue`] to a string type in-place, borrowing the given string buffer
+ * without taking ownership.
+ *
+ * This clears the existing value and sets it to an [`RsString`] of kind `Const`
+ * with the given buffer.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ * 2. `str` must be a [valid], non-null pointer to a string buffer.
+ * 3. `str` must be [valid] for reads of `len` bytes.
+ * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ *    lifetime of the [`RsValue`] and any clones of it.
+ * 5. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ */
+void RSValue_SetConstString(struct RsValue *value, const char *str, size_t len);
+
+/**
  * Creates a heap-allocated `RsValue` by parsing a string as a number.
  * Returns an undefined value if the string cannot be parsed as a valid number.
  *
