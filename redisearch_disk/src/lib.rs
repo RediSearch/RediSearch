@@ -18,9 +18,9 @@ use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DiskColumnFamilyMetrics, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_TERM_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR, MetricsDiskAPI,
-    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RedisModuleCtx,
-    RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec, VecSimDiskContext,
-    VecSimParamsDisk, VectorDiskAPI, t_docId, t_fieldMask,
+    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RSQueryTerm,
+    RedisModuleCtx, RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec,
+    VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -396,7 +396,7 @@ extern "C" fn index_spec_index_doc(
     term_len: usize,
     doc_id: t_docId,
     field_mask: t_fieldMask,
-    _frequency: u32,
+    frequency: u32,
 ) -> bool {
     // Safety: see safety point 2 above.
     let term = unsafe {
@@ -420,7 +420,10 @@ extern "C" fn index_spec_index_doc(
 
     debug!(term, doc_id, field_mask, "index_spec_index_doc");
 
-    match index.inverted_index().insert(term, doc_id, field_mask, 0) {
+    match index
+        .inverted_index()
+        .insert(term, doc_id, field_mask, frequency)
+    {
         Ok(()) => true,
         Err(error) => {
             error!(
@@ -559,36 +562,38 @@ extern "C" fn index_spec_put_doc(
 ///
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
-/// 2. `term` must be a valid pointer to an `RSQueryTerm`.
-unsafe extern "C" fn index_spec_new_term_iterator(
+/// 2. `query_term` must be a valid pointer to an `RSQueryTerm` created by `NewQueryTerm`.
+///    The `RSQueryTerm` is owned by the iterator and will be freed when the iterator is freed.
+extern "C" fn index_spec_new_term_iterator(
     index: *mut RedisSearchDiskIndexSpec,
-    term: *mut ffi::RSQueryTerm,
+    query_term: *mut RSQueryTerm,
     field_mask: t_fieldMask,
     weight: f64,
 ) -> *mut QueryIterator {
-    // Safety: see safety point 2 above.
-    let Some(query_term) = (unsafe { term.as_ref() }) else {
-        error!("term pointer is null");
+    if query_term.is_null() {
+        error!("query_term pointer is null");
         return std::ptr::null_mut();
-    };
+    }
 
-    // Extract term string from RSQueryTerm
-    // Safety: RSQueryTerm.str is valid for RSQueryTerm.len bytes per the C API contract
-    let term_str = unsafe {
-        let slice = std::slice::from_raw_parts(query_term.str_.cast::<u8>(), query_term.len);
-        match std::str::from_utf8(slice) {
-            Ok(s) => s,
-            Err(error) => {
-                error!(
-                    error = &error as &dyn std::error::Error,
-                    "term is not valid UTF-8"
-                );
-                return std::ptr::null_mut();
-            }
+    // SAFETY: query_term is guaranteed to be valid by safety point 2.
+    let qt = unsafe { &*query_term };
+    // SAFETY: qt.str_ and qt.len are valid as query_term is guaranteed valid by safety point 2.
+    let slice = unsafe { std::slice::from_raw_parts(qt.str_ as *const u8, qt.len) };
+    let term_str = match std::str::from_utf8(slice) {
+        Ok(s) => s,
+        Err(error) => {
+            error!(
+                error = &error as &dyn std::error::Error,
+                "term is not valid UTF-8"
+            );
+            return std::ptr::null_mut();
         }
     };
 
-    debug!(term_str, field_mask, weight, "index_spec_new_term_iterator");
+    debug!(
+        term_str,
+        field_mask, weight, qt.idf, qt.bm25_idf, "index_spec_new_term_iterator"
+    );
 
     // Safety: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
@@ -596,10 +601,12 @@ unsafe extern "C" fn index_spec_new_term_iterator(
         return std::ptr::null_mut();
     };
 
-    match index
-        .inverted_index()
-        .term_iterator(term_str, field_mask, weight)
-    {
+    // SAFETY: query_term is guaranteed to be valid by safety point 2.
+    match unsafe {
+        index
+            .inverted_index()
+            .term_iterator(query_term, field_mask, weight)
+    } {
         Ok(iterator) => RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_TERM_ITERATOR, iterator),
         Err(error) => {
             error!(

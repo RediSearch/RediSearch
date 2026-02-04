@@ -1,5 +1,5 @@
-use ffi::{t_docId, t_fieldMask};
-use inverted_index::{FilterMaskReader, RSIndexResult};
+use ffi::{RSQueryTerm, t_docId, t_fieldMask};
+use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector};
 use rqe_iterators::inverted_index::InvIndIterator;
 use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
@@ -31,13 +31,13 @@ pub struct Document {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Metadata {
     pub field_mask: u128,
-    pub frequency: u64,
+    pub frequency: u32,
 }
 
 impl Metadata {
-    pub const SIZE: usize = Self::FIELD_MASK_SIZE + Self::FREQUENCY_SIZE;
     pub const FIELD_MASK_SIZE: usize = size_of::<u128>();
-    pub const FREQUENCY_SIZE: usize = size_of::<u64>();
+    pub const FREQUENCY_SIZE: usize = size_of::<u32>();
+    pub const SIZE: usize = Self::FIELD_MASK_SIZE + Self::FREQUENCY_SIZE;
 }
 
 /// Configuration for term-based inverted indexes.
@@ -120,7 +120,7 @@ impl InvertedIndex {
         term: String,
         doc_id: t_docId,
         field_mask: t_fieldMask,
-        frequency: u64,
+        frequency: u32,
     ) -> Result<(), speedb::Error> {
         let doc = Document {
             doc_id,
@@ -133,17 +133,33 @@ impl InvertedIndex {
     }
 
     /// Returns an iterator over the document IDs for the given term.
-    pub fn term_iterator(
+    ///
+    /// # Safety
+    /// The caller must ensure that `query_term` is a valid pointer to an `RSQueryTerm`
+    /// created by `NewQueryTerm` on the C side. The `RSQueryTerm` is owned by the iterator
+    /// and will be freed when the iterator is freed.
+    ///
+    /// # Safety
+    /// `query_term` must be a valid pointer to an `RSQueryTerm` created by `NewQueryTerm`.
+    pub unsafe fn term_iterator(
         &self,
-        term: &str,
+        query_term: *mut RSQueryTerm,
         field_mask: t_fieldMask,
         weight: f64,
     ) -> Result<
         InvIndIterator<'_, FilterMaskReader<PostingsListReader<'_, Speedb>>>,
         generic_reader::ReaderCreateError,
     > {
+        // SAFETY: query_term is guaranteed valid by the caller.
+        let qt = unsafe { &*query_term };
+        // SAFETY: qt.str_ and qt.len are valid as query_term is guaranteed valid by the caller.
+        let term = unsafe { std::slice::from_raw_parts(qt.str_ as *const u8, qt.len) };
+        // SAFETY: The caller in lib.rs already validated this is valid UTF-8
+        let term_str =
+            std::str::from_utf8(term).expect("term should be valid UTF-8, validated by caller");
+
         let key = InvertedIndexKey {
-            prefix: term,
+            prefix: term_str,
             last_doc_id: None,
         }
         .as_key();
@@ -152,11 +168,14 @@ impl InvertedIndex {
             &self.inner.cf_handle(),
             speedb::IteratorMode::From(&key, speedb::Direction::Forward),
         );
-        let reader = PostingsListReader::new(iterator, term.to_string())?;
+        let reader = PostingsListReader::new(iterator, term_str.to_string())?;
         let reader = FilterMaskReader::new(field_mask, reader);
 
-        let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), None);
+        let result =
+            RSIndexResult::term_with_term_ptr(query_term, RSOffsetVector::empty(), 0, 0, 0)
+                .weight(weight);
 
+        let iter = InvIndIterator::new(reader, result, None);
         Ok(iter)
     }
 

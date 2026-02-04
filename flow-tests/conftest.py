@@ -93,7 +93,7 @@ def redis_env(request):
     test_name = request.node.name
 
     # Sanitize test name for use as directory name (replace invalid chars)
-    safe_test_name = test_name.replace('::', '_').replace('/', '_').replace('[', '_').replace(']', '_')
+    safe_test_name = test_name.replace('::', '_').replace('/', '_').replace('[', '_').replace(']', '_').replace(' ', '_')
 
     # Create test-specific directory inside the logs folder
     base_log_dir = os.getenv('RLTEST_LOG_DIR', './logs')
@@ -181,4 +181,3 @@ def pytest_bdd_step_error(request, feature, scenario, step, step_func, step_func
     print(f"\nStep failed: {step.keyword} {step.name}")
     print(f"Feature: {feature.name}")
     print(f"Scenario: {scenario.name}")
-

@@ -17,7 +17,7 @@ fn create_test_block(doc_ids: &[u64]) -> ArchivedBlock {
     // Write metadata for each doc
     for (i, _) in doc_ids.iter().enumerate() {
         bytes.extend_from_slice(&((i + 1) as u128).to_le_bytes()); // field_mask
-        bytes.extend_from_slice(&((i + 1) as u64).to_le_bytes()); // frequency
+        bytes.extend_from_slice(&((i + 1) as u32).to_le_bytes()); // frequency
     }
 
     ArchivedBlock::from_bytes(bytes.into())
@@ -38,11 +38,11 @@ fn deserialize_version_0() {
 
     // Doc 1 Metadata
     bytes.extend_from_slice(&0x10000000000000000000000000000001u128.to_le_bytes()); // field_mask
-    bytes.extend_from_slice(&5u64.to_le_bytes()); // frequency = 5
+    bytes.extend_from_slice(&5u32.to_le_bytes()); // frequency = 5
 
     // Doc 2 Metadata
     bytes.extend_from_slice(&0xFFFFu128.to_le_bytes()); // field_mask
-    bytes.extend_from_slice(&10u64.to_le_bytes()); // frequency = 10
+    bytes.extend_from_slice(&10u32.to_le_bytes()); // frequency = 10
 
     let archived_block = ArchivedBlock::from_bytes(bytes.into());
     assert_eq!(archived_block.version(), 0);

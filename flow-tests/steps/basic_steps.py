@@ -13,6 +13,7 @@ def redis_module_loaded(redis_env):
 
 
 # When steps
+@given(parsers.parse('I create an index "{index_name}" with schema field "{field_name}" as {field_type}'))
 @when(parsers.parse('I create an index "{index_name}" with schema field "{field_name}" as {field_type}'))
 def create_index_single_field(redis_env, index_name, field_name, field_type):
     """Create an index with a single field."""
@@ -42,6 +43,35 @@ def create_index_multiple_fields(redis_env, index_name, datatable):
 def add_document_single_field(redis_env, doc_id, field_name, field_value):
     """Add a document with a single field."""
     redis_env.expect('HSET', doc_id, field_name, field_value).equal(1)
+
+
+# Usage example:
+#    Given I add documents to index "idx":
+#      | id   | field   | value                  |
+#      | doc1 | content | hello world            |
+#      | doc2 | content | hello world again      |
+#      | doc3 | content | hello world again more |
+@given(parsers.parse('I add documents to index "{index_name}":'))
+@when(parsers.parse('I add documents to index "{index_name}":'))
+def add_documents_from_table(redis_env, index_name, datatable):
+    """Add multiple documents from a data table.
+
+    The table must have columns: id, field, value
+    Multiple rows with the same id will set multiple fields on the same document.
+    """
+    # datatable is a list of lists: [['id', 'field', 'value'], ['doc1', 'content', 'hello'], ...]
+    # First row is the header
+    headers = datatable[0]
+    id_idx = headers.index('id')
+    field_idx = headers.index('field')
+    value_idx = headers.index('value')
+
+    for row in datatable[1:]:  # Skip header row
+        doc_id = row[id_idx]
+        field_name = row[field_idx]
+        field_value = row[value_idx]
+        # Use cmd instead of expect to allow for both new docs (returns 1) and updates (returns 0)
+        redis_env.cmd('HSET', doc_id, field_name, field_value)
 
 
 # Usage example:

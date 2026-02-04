@@ -11,6 +11,7 @@ fn main() {
             ("src/util/arr", "arr"),
             ("src/util/dict", "dict"),
             ("src/ttl_table", "ttl_table"),
+            ("src/index_result/query_term", "query_term"),
         ];
 
         for (subdir, lib_name) in libs {

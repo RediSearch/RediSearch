@@ -9,7 +9,7 @@ use crate::index_spec::inverted_index::block_traits;
 pub struct ArchivedDocument<'archive> {
     doc_id: &'archive [u8; size_of::<t_docId>()],
     field_mask: &'archive [u8; size_of::<u128>()],
-    frequency: &'archive [u8; size_of::<u64>()],
+    frequency: &'archive [u8; size_of::<u32>()],
 }
 
 impl<'archive> ArchivedDocument<'archive> {
@@ -46,7 +46,7 @@ impl<'archive> ArchivedDocument<'archive> {
 
         // Check that there are enough bytes to read the metadata
         // - 16 bytes for field_mask
-        // - 8 bytes for frequency
+        // - 4 bytes for frequency
         assert!(
             bytes.len() >= frequency_end,
             "Insufficient bytes to read Metadata"
@@ -84,8 +84,8 @@ impl<'archive> ArchivedDocument<'archive> {
     }
 
     #[inline(always)]
-    pub fn frequency(&self) -> u64 {
-        u64::from_le_bytes(*self.frequency)
+    pub fn frequency(&self) -> u32 {
+        u32::from_le_bytes(*self.frequency)
     }
 }
 
@@ -186,6 +186,7 @@ impl<'archive> block_traits::ArchivedDocument for ArchivedDocument<'archive> {
     fn populate_result<'index>(&self, result: &mut inverted_index::RSIndexResult<'index>) {
         result.doc_id = self.doc_id();
         result.field_mask = self.field_mask();
+        result.freq = self.frequency();
     }
 }
 
@@ -213,7 +214,7 @@ impl block_traits::ArchivedBlock for ArchivedBlock {
                 // - num_docs * 32 bytes for docs
                 //   - 8 bytes for doc_id
                 //   - 16 bytes for field_mask
-                //   - 8 bytes for frequency
+                //   - 4 bytes for frequency
                 let expected_size = (num_docs as usize)
                     .saturating_mul(size_of::<t_docId>() + Metadata::SIZE)
                     .saturating_add(Self::BASE_OFFSET);

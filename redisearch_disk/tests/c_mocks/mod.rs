@@ -99,7 +99,6 @@ stub_c_fn! {
     RedisModule_SwapPrefetchKey,
     RedisModule_UnsubscribeFromKeyspaceEvents,
     ResultMetrics_Free,
-    Term_Free,
     TimeToLiveTable_VerifyDocAndField,
     TimeToLiveTable_VerifyDocAndFieldMask,
     TimeToLiveTable_VerifyDocAndWideFieldMask,
