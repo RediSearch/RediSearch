@@ -144,7 +144,7 @@ RSIndexResult* IndexResultAsyncRead_PopReadyResult(IndexResultAsyncReadState *st
  * @return true if iteration is complete, false otherwise
  */
 bool IndexResultAsyncRead_IsIterationComplete(const IndexResultAsyncReadState *state,
-                                     bool iteratorAtEOF, 
+                                     bool iteratorAtEOF,
                                      size_t pendingCount);
 
 #ifdef __cplusplus

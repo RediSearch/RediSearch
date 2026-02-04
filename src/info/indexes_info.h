@@ -49,10 +49,6 @@ typedef struct {
   // of threads)
   size_t total_num_docs_in_indexes;      // Total number of documents in all indexes
   size_t total_active_queries;         // Total number of active queries (reads)
-
-  // Disk metrics
-  DiskColumnFamilyMetrics disk_doc_table;      // Aggregated doc_table metrics
-  DiskColumnFamilyMetrics disk_inverted_index; // Aggregated inverted_index metrics
 } TotalIndexesInfo;
 
 // Returns an aggregated statistics of all the currently existing indexes

@@ -65,8 +65,8 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
 }
 
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(index);
-    disk->basic.closeIndexSpec(index);
+    RS_ASSERT(disk_db && index);
+    disk->basic.closeIndexSpec(disk_db, index);
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
@@ -221,12 +221,12 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
-bool SearchDisk_CollectDocTableMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics) {
-  RS_ASSERT(disk && index && metrics);
-  return disk->metrics.collectDocTableMetrics(index, metrics);
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && disk_db && index);
+  return disk->metrics.collectIndexMetrics(disk_db, index);
 }
 
-bool SearchDisk_CollectTextInvertedIndexMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics) {
-  RS_ASSERT(index && metrics);
-  return disk->metrics.collectTextInvertedIndexMetrics(index, metrics);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
+  RS_ASSERT(disk && disk_db && ctx);
+  disk->metrics.outputInfoMetrics(disk_db, ctx);
 }
