@@ -91,7 +91,7 @@ pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RsValue, index: u32) ->
         shared.as_ptr() as *mut _
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
-        panic!("Expected an array value")
+        panic!("Expected 'Array' type, got '{}'", value.variant_name())
     }
 }
 
