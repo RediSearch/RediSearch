@@ -90,9 +90,13 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
  * @param docId Document ID to index
  * @param fieldMask Field mask indicating which fields are present
  * @param freq Frequency of the term in the document
+ * @param offsets Pointer to varint-encoded term offset data (can be NULL)
+ * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen,
+                              t_docId docId, t_fieldMask fieldMask, uint32_t freq,
+                              const uint8_t *offsets, size_t offsetsLen);
 
 /**
  * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
