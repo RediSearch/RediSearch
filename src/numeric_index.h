@@ -19,106 +19,24 @@
 #include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
-#include "hll/hll.h"
 #include "config.h"
 #include "iterators/iterator_api.h"
+
+// Include Rust-generated types for NumericRangeTree, NumericRange, NumericRangeNode, etc.
+#include "numeric_range_tree.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define NR_BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
-#define NR_REG_SIZE (1 << NR_BIT_PRECISION)
-
-/* A numeric range is a node in a numeric range tree, representing a range of
- * values bunched together.
- * Since we do not know the distribution of scores ahead, we use a splitting
- * approach - we start with single value nodes, and when a node passes some
- * cardinality we split it.
- * We save the minimum and maximum values inside the node, and when we split we
- * split by finding the median value.
- */
-typedef struct {
-  double minVal;
-  double maxVal;
-  struct HLL hll;
-
-  size_t invertedIndexSize;
-  InvertedIndex *entries;
-} NumericRange;
-
-/* NumericRangeNode is a node in the range tree that can have a range in it or not, and can be a
- * leaf or not */
-typedef struct rtNode {
-  double value;
-  int maxDepth;
-  struct rtNode *left;
-  struct rtNode *right;
-
-  NumericRange *range;
-} NumericRangeNode;
-
-typedef struct {
-  int sz;
-  int numRecords;
-  int changed;
-  int numRanges;
-  int numLeaves;
-} NRN_AddRv;
-
-typedef struct {
-  NumericRangeNode **nodesStack;
-} NumericRangeTreeIterator;
-
-/* The root tree and its metadata */
-typedef struct NumericRangeTree {
-  NumericRangeNode *root;
-  size_t numRanges;
-  size_t numLeaves;
-  size_t numEntries;
-  size_t invertedIndexesSize;
-
-  t_docId lastDocId;
-
-  uint32_t revisionId;
-
-  uint32_t uniqueId;
-
-  size_t emptyLeaves;
-
-} NumericRangeTree;
-
-#define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
-
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt, FieldType forType,
                                         IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
-/* Recursively trim empty nodes from tree  */
-NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
-
-/* Create a new tree */
-NumericRangeTree *NewNumericRangeTree();
-
-/* Add a value to a tree. Returns 0 if no nodes were split, 1 if we split nodes */
-NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
-
-/* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
- * Returns a vector with range node pointers. */
-Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
-
-/* Free the tree and all nodes */
-void NumericRangeTree_Free(NumericRangeTree *t);
-
-/* Return the estimated cardinality of the numeric range */
-size_t NumericRange_GetCardinality(const NumericRange *nr);
-
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec* spec, FieldSpec* fs, bool create_if_missing);
 
-unsigned long NumericIndexType_MemUsage(const NumericRangeTree *tree);
-
-NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
-NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
-void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
+// Passes RSGlobalConfig.numericTreeMaxDepthRange automatically
+#define NumericRangeTree_Add(t, docId, value, isMulti) \
+    _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 #ifdef __cplusplus
 }
