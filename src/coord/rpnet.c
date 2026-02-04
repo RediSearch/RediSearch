@@ -537,13 +537,6 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
       return RS_RESULT_TIMEDOUT;
-    } else{
-      bool timedout = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it));
-      RedisModule_Log(RSDummyContext, "notice", "rpnetNext: timedout: %d", timedout);
-      // if timeout was set in previous reads, reset it
-      if (timedout) MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
-      timedout = MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it));
-      RedisModule_Log(RSDummyContext, "notice", "rpnetNext: after reseting timedout: %d", timedout);
     }
 
     int ret = getNextReply(nc);

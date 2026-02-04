@@ -258,11 +258,5 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
     }
   }
 
-  if (timedout && cmd->forCursor) {
-    // Reset the `timedOut` value in case it was set (for next iterations, as
-    // we're in cursor mode)
-    MRIteratorCallback_ResetTimedOut(ctx);
-  }
-
   return true;
 }

@@ -746,6 +746,10 @@ void iterCursorMappingCb(void *p) {
 void iterManualNextCb(void *p) {
   MRIterator *it = p;
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
+  // Reset the timedOut flag before sending the next batch of cursor commands.
+  // This must be done here (on the IO thread, after all callbacks have finished)
+  // to avoid a race condition with the coordinator thread that reads this flag.
+  MRIteratorCallback_ResetTimedOut(&it->ctx);
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
       if (MRCluster_SendCommand(io_runtime_ctx, &it->cbxs[i].cmd,
