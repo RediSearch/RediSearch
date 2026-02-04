@@ -1667,6 +1667,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
     if (RSGlobalConfig.numWorkerThreads == 0) {
       RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+      workersThreadPool_SetNumWorkers();
       RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
     }
   }

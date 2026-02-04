@@ -462,7 +462,7 @@ CONFIG_SETTER(setWorkThreads) {
 
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
-  // It is safe to set it even if change in worker threads is asynchronous, only the ration Connections/real threads may be not real for a transitional time
+  // It is safe to set it even if change in worker threads is asynchronous, only the ratio Connections/real threads may be not real for a transitional time
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
@@ -487,7 +487,7 @@ RedisModuleString **err) {
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
-  // It is safe to set it even if change in worker threads is asynchronous, only the ration Connections/real threads may be not real for a transitional time
+  // It is safe to set it even if change in worker threads is asynchronous, only the ratio Connections/real threads may be not real for a transitional time
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
