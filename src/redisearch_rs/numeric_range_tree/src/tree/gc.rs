@@ -206,15 +206,9 @@ impl NumericRangeTree {
             self.stats.num_entries = self.stats.num_entries.saturating_sub(info.entries_removed);
         }
         if info.bytes_freed > info.bytes_allocated {
-            self.stats.inverted_indexes_size = self
-                .stats
-                .inverted_indexes_size
-                .saturating_sub(info.bytes_freed - info.bytes_allocated);
+            self.stats.inverted_indexes_size -= info.bytes_freed - info.bytes_allocated;
         } else {
-            self.stats.inverted_indexes_size = self
-                .stats
-                .inverted_indexes_size
-                .saturating_add(info.bytes_allocated - info.bytes_freed);
+            self.stats.inverted_indexes_size += info.bytes_allocated - info.bytes_freed;
         }
 
         #[cfg(all(feature = "unittest", not(miri)))]
@@ -239,7 +233,7 @@ impl NumericRangeTree {
     /// Conditionally trim empty leaves and compact the node slab.
     ///
     /// Checks if the number of empty leaves exceeds half the total number of
-    /// leaves. If so, trims empty leaves, compacts the slab to reclaim freed
+    /// leaves. If so, trims empty leaves and compacts the slab to reclaim freed
     /// slots, and returns the number of bytes freed. Returns 0 if no trimming
     /// was needed.
     pub fn compact_if_sparse(&mut self) -> CompactIfSparseResult {
