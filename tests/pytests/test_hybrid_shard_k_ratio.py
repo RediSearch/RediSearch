@@ -12,6 +12,35 @@ Default ratio: 1.0 (no optimization - each shard returns full K results)
 from common import *
 
 
+def _validate_individual_shard_results(env, profile_response, k, expected_effective_k):
+    """Validate that each shard processed the expected number of results.
+
+    For FT.HYBRID profile, the structure is:
+    - profile_response[8] = ['Shards', [shard_profiles...], 'Coordinator', coordinator_profile]
+    - Each shard_profile = ['Shard ID', id, 'SEARCH', [...], 'VSIM', vsim_profile]
+    - vsim_profile contains 'Result processors profile' with Index RP first
+    """
+    shard_profiles = profile_response[8][1]
+
+    env.assertEqual(len(shard_profiles), env.shardsCount, depth=1,
+                   message=f"Validate shards count in profile")
+
+    # Parse each shard's results
+    for i, shard_profile in enumerate(shard_profiles):
+        # shard_profile = ['Shard ID', id, 'SEARCH', [...], 'VSIM', vsim_profile]
+        vsim_profile = shard_profile[5]  # VSIM profile is at index 5
+        result_processors_profile = vsim_profile[7]
+
+        # Index RP is always first
+        index_rp_profile = result_processors_profile[0]
+        # Result processors profile has the following structure:
+        # ['Type', 'Index', 'Results processed', 5]
+        shard_result_count = index_rp_profile[3]
+        env.assertEqual(
+            shard_result_count, expected_effective_k, depth=1,
+            message=f"Shard {i} expected {expected_effective_k} results, got {shard_result_count}")
+
+
 def ValidateHybridError(env, res, expected_error_message, message="", depth=1):
     """Helper to validate error response from FT.HYBRID command"""
     env.assertTrue(res.errorRaised, message=message, depth=depth + 1)
@@ -165,110 +194,6 @@ def test_shard_k_ratio_duplicate():
         message="FT.HYBRID expected error for duplicate SHARD_K_RATIO")
 
 
-def test_shard_k_ratio_valid_values():
-    """Test SHARD_K_RATIO with valid values for FT.HYBRID."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    dim = 2
-    k = 15
-    query_vec = create_np_array_typed([5.0] * dim)
-
-    for uniform_vectors in [True, False] if CLUSTER else [True]:
-        if CLUSTER:
-            # ensure we have enough results in each shard
-            setup_basic_index(env, dim, [k + 20] * env.shardsCount,
-                              uniform_vectors)
-        else:
-            setup_basic_index(env, dim)
-            conn = getConnectionByEnv(env)
-            for i in range(k + 5):
-                vec = create_np_array_typed([float(i)] * dim)
-                conn.execute_command(
-                    'HSET', f'doc:{i}', 'v', vec.tobytes(), 't', f'hello {i}')
-
-        # Test valid ratio values - should all succeed
-        valid_ratios = [0.1, 0.5, 0.9, 1.0]
-        for ratio in valid_ratios:
-            res = env.cmd(
-                'FT.HYBRID', 'idx', '2', 'SEARCH', 'unexistent_term_xyz',
-                'VSIM', '@v', '$BLOB',
-                    'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
-                'GROUPBY', '1', '@shard_tag',
-                'REDUCE', 'COUNT', '0', 'AS', 'count',
-                'SORTBY', '2', '@shard_tag', 'ASC',
-                'PARAMS', '2', 'BLOB', query_vec.tobytes())
-
-            # Response format: ['total_results', N, 'results', [...], ...]
-            results = res[3]
-
-            if uniform_vectors and env.shardsCount == 3:
-                # With uniform vectors, each shard should have the same number
-                # of results
-                expected_results = [
-                    ['shard_tag', 'shard:0', 'count', '5'],
-                    ['shard_tag', 'shard:1', 'count', '5'],
-                    ['shard_tag', 'shard:3', 'count', '5']
-                ]
-                env.assertEqual(results, expected_results)
-
-            expected_result_count = k
-            total_count = sum(int(row[3]) for row in results)
-            env.assertEqual(
-                total_count, expected_result_count,
-                message=f"FT.HYBRID with SHARD_K_RATIO: expected {expected_result_count} results, got {total_count}")
-        env.flush()
-
-
-def test_shard_k_ratio_result_count():
-    """Test that SHARD_K_RATIO returns the expected number of results.
-
-    Similar to test_query in test_shard_window_ratio.py - verifies that
-    we get K results with various ratio values. This doesn't verify
-    the internal effectiveK calculation (requires FT.PROFILE), but ensures
-    SHARD_K_RATIO doesn't break query execution.
-
-    By using a SEARCH query that matches zero documents, only the VSIM
-    subquery results are returned, so K directly controls the output count.
-    """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-
-    dim = 2
-    k = 100
-    if CLUSTER:
-        # ensure we have enough results in each shard
-        setup_basic_index(env, dim, [k + 20] * env.shardsCount)
-    else:
-        setup_basic_index(env, dim)
-        conn = getConnectionByEnv(env)
-        for i in range(k + 20):
-            vec = create_np_array_typed([float(i)] * dim)
-            conn.execute_command(
-                'HSET', f'doc:{i}', 'v', vec.tobytes(), 't', f'hello world {i}')
-
-    query_vec = create_random_np_array_typed(dim, 'FLOAT32')
-
-    min_shard_ratio = 1 / float(max(env.shardsCount, 1))
-    ratios = [min_shard_ratio, 0.01, 0.5, 0.9, 1.0]
-
-    for ratio in ratios:
-        # Test FT.HYBRID with SHARD_K_RATIO
-        # Use a SEARCH query that matches zero docs, so only VSIM results are returned
-        # Use LIMIT and WINDOW to ensure we can get K results (defaults are 10 and 20)
-        res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                      'VSIM', '@v', '$BLOB',
-                        'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
-                      'COMBINE', 'RRF', '2', 'WINDOW', k,
-                      'LIMIT', '0', k,
-                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-
-        # Response format: ['total_results', N, 'results', [...], ...]
-        # Results are in res[3]
-        actual_result_count = len(res[3])
-
-        env.assertEqual(
-            actual_result_count, k,
-            message=f"FT.HYBRID with K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
-
-
 def test_shard_k_ratio_small_k():
     """Test SHARD_K_RATIO with small K values (1, 2, 3).
 
@@ -303,21 +228,14 @@ def test_shard_k_ratio_small_k():
 
 
 @skip(cluster=False)  # Only relevant for cluster mode
-def test_shard_k_ratio_per_shard_verification():
-    """Test that SHARD_K_RATIO actually limits results per shard.
+def test_shard_k_ratio_profile_verification():
+    """Test SHARD_K_RATIO using FT.PROFILE to verify effectiveK per shard.
 
-    This test verifies the SHARD_K_RATIO behavior by:
-    1. Creating documents with hash tags to control shard distribution
-       ({shard:0}, {shard:1}, {shard:3} go to different shards)
-    2. Adding a TAG field that identifies which shard the document belongs to
-    3. Running FT.HYBRID with SHARD_K_RATIO that limits effectiveK per shard
-    4. Counting results by shard_tag to verify each shard only returned the
-       limited number
-
-    Without FT.PROFILE for FT.HYBRID, this is a way to verify that
-    SHARD_K_RATIO is actually affecting per-shard behavior.
+    This test uses FT.PROFILE HYBRID to verify that SHARD_K_RATIO actually
+    limits the number of documents processed per shard according to the formula:
+        effectiveK = max(K/#shards, ceil(K × ratio))
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
 
     # This test requires exactly 3 shards due to hardcoded hash tags
     num_shards = 3
@@ -325,61 +243,33 @@ def test_shard_k_ratio_per_shard_verification():
         env.skip()
 
     dim = 2
+    k = 15  # Request 15 results total
+    query_vec = create_np_array_typed([5.0] * dim)
 
-    # We want enough docs per shard to verify limiting works
-    # With 5 docs per shard and effectiveK = 3, we can verify limiting
-    docs_per_shard = 5
-    effective_k_per_shard = 3
-
-    # Calculate K and ratio to achieve effectiveK = 3 per shard
+    # Test different ratio values and verify effectiveK per shard
     # effectiveK = max(K/#shards, ceil(K × ratio))
-    # With ratio = 1/num_shards and K = 3 * num_shards:
-    # effectiveK = max(3, ceil(3)) = 3
-    k = effective_k_per_shard * num_shards  # K = 9
-    ratio = effective_k_per_shard / k  # ratio = 3/9 = 1/3
+    test_cases = [
+        # (ratio, expected_effectiveK)
+        (1.0, k),              # ratio=1.0: effectiveK = max(15/3, ceil(15*1.0)) = max(5, 15) = 15
+        (0.5, 8),              # ratio=0.5: effectiveK = max(15/3, ceil(15*0.5)) = max(5, 8) = 8
+        (0.2, 5),              # ratio=0.2: effectiveK = max(15/3, ceil(15*0.2)) = max(5, 3) = 5
+        (1.0 / num_shards, 5), # ratio=1/3: effectiveK = max(15/3, ceil(15*0.33)) = max(5, 5) = 5
+    ]
 
-    # Set up index and documents: 5 docs per shard (equal distribution)
-    target_docs_per_shard = [docs_per_shard] * num_shards
-    setup_basic_index(env, dim, target_docs_per_shard)
-
-    query_vec = create_random_np_array_typed(dim, 'FLOAT32')
-
-    # Run FT.HYBRID with SHARD_K_RATIO
-    # Use non-matching SEARCH query so only VSIM results are returned
-    # Use GROUPBY @shard_tag with REDUCE COUNT to count results per shard
-    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'nonexistent_term_xyz',
-                  'VSIM', '@v', '$BLOB',
+    for uniform_vectors in [True, False]:
+        # Set up index with enough docs per shard
+        setup_basic_index(env, dim, [k] * num_shards, uniform_vectors)
+        for ratio, expected_effective_k in test_cases:
+            # Run FT.PROFILE HYBRID with SHARD_K_RATIO
+            res = env.cmd(
+                'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+                'SEARCH', 'nonexistent_term_xyz',
+                'VSIM', '@v', '$BLOB',
                     'KNN', '4', 'K', k, 'SHARD_K_RATIO', ratio,
-                  'COMBINE', 'RRF', '2', 'WINDOW', k,
-                  'LOAD', '1', '@shard_tag',
-                  'GROUPBY', '1', '@shard_tag',
-                  'REDUCE', 'COUNT', '0', 'AS', 'count',
-                  'SORTBY', '2', '@shard_tag', 'ASC',
-                  'PARAMS', '2', 'BLOB', query_vec.tobytes())
+                'PARAMS', '2', 'BLOB', query_vec.tobytes())
 
-    # Response format: ['total_results', N, 'results', [...], ...]
-    # With GROUPBY, results are grouped rows like:
-    #                   [{'shard_tag': 'shard:0', 'count': '1'}, ...]
-    results = res[3]
-
-    # Parse GROUPBY results into shard_counts dict
-    shard_counts = {}
-    for result in results:
-        # result is a list like ['shard_tag', 'shard:0', 'count', '3']
-        result_dict = {result[i]: result[i + 1] for i in range(0, len(result), 2)}
-        shard_tag = result_dict.get('shard_tag')
-        count = int(result_dict.get('count', 0))
-        if shard_tag:
-            shard_counts[shard_tag] = count
-
-    # Verify each shard returned at most effective_k_per_shard results
-    for shard_tag, count in shard_counts.items():
-        env.assertLessEqual(count, effective_k_per_shard,
-                           message=f"Shard {shard_tag} returned {count} results, expected at most {effective_k_per_shard}")
-
-    # Verify we got results from all 3 shards
-    env.assertEqual(len(shard_counts), num_shards,
-                   message=f"Should have results from all {num_shards} shards, got {len(shard_counts)}")
+            _validate_individual_shard_results(env, res, k, expected_effective_k)
+        env.flush()
 
 
 @skip(cluster=False)  # Only relevant for cluster mode
