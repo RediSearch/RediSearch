@@ -55,6 +55,91 @@ def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs
 def field_info_to_dict(info):
   return {key: value for field in info.split(',') for key, value in [field.split('=')]}
 
+@skip(redis_less_than='7.9.227')
+def testInfoModulesInfoOnZeroIndexesConfig(env):
+  conns = env.getOSSMasterNodesConnectionList() if env.isCluster() else [env.getConnection()]
+
+  # Expected INFO MODULES output shape (minimal vs full):
+  #
+  # +---------------------------------+----------------------+----------------------+
+  # | search-info-on-zero-indexes     | number of indices: 0 | number of indices: >0|
+  # +---------------------------------+----------------------+----------------------+
+  # | ON                              | full                 | full                 |
+  # | OFF                             | minimal              | full                 |
+  # +---------------------------------+----------------------+----------------------+
+  #
+  # minimal = only version/indexes/runtime_configurations sections (metrics suppressed)
+  # full    = metrics sections are present (see _FULL_METRICS_SECTIONS), even if values are 0
+  
+  # Sections emitted by INFO MODULES when metrics are not in "minimal" suppression mode.
+  _FULL_METRICS_SECTIONS = [
+    'search_fields_statistics',
+    'search_memory',
+    'search_vector_index',
+    'search_cursors',
+    'search_garbage_collector',
+    'search_queries',
+    'search_warnings_and_errors',
+    'search_coordinator_warnings_and_errors',
+    'search_multi_threading',
+    'search_dialect_statistics',
+  ]
+
+  def _assert_minimal_info_on_zero_indexes(info):
+    env.assertTrue('search_version' in info, message="version section should always exist")
+    env.assertTrue('search_indexes' in info, message="indexes section should always exist")
+    env.assertEqual(info['search_indexes']['search_number_of_indexes'], '0')
+    env.assertTrue('search_runtime_configurations' in info, message="runtime_configurations section should always exist")
+    env.assertEqual(info['search_runtime_configurations']['search_info_on_zero_indexes'], 'OFF')
+    for section in _FULL_METRICS_SECTIONS:
+      env.assertFalse(section in info, message=f"{section} should be suppressed when there are zero indexes and config is OFF")
+
+  def _assert_full_info(info, expected_info_on_zero_indexes):
+    env.assertTrue('search_version' in info, message="version section should always exist")
+    env.assertTrue('search_indexes' in info, message="indexes section should always exist")
+    env.assertTrue('search_runtime_configurations' in info, message="runtime_configurations section should always exist")
+    env.assertEqual(info['search_runtime_configurations']['search_info_on_zero_indexes'], expected_info_on_zero_indexes)
+    # Prove we are not in the "minimal" suppression mode.
+    for section in _FULL_METRICS_SECTIONS:
+      env.assertTrue(section in info, message=f"{section} should be emitted when full info is expected")
+
+  # When `search-info-on-zero-indexes` is disabled (default), and there are no indexes, RediSearch
+  # should emit only the version/indexes/runtime_configurations sections (index metrics sections
+  # like fields_statistics/memory/etc are suppressed).
+  run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-info-on-zero-indexes', 'no')
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    _assert_minimal_info_on_zero_indexes(info)
+
+  # With an index, INFO MODULES should include the metrics sections even if the config is OFF.
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  waitForIndex(env, 'idx')
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    env.assertEqual(info['search_indexes']['search_number_of_indexes'], '1')
+    _assert_full_info(info, 'OFF')
+
+  # Drop the index - should go back to suppression.
+  env.expect('FT.DROPINDEX', 'idx').ok()
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    _assert_minimal_info_on_zero_indexes(info)
+
+  # When enabled, metrics should be emitted even when there are no indexes (and runtime_configurations
+  # should reflect that this is ON).
+  run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-info-on-zero-indexes', 'yes')
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    _assert_full_info(info, 'ON')
+
+  # With an index, metrics should still be emitted.
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  waitForIndex(env, 'idx')
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    env.assertEqual(info['search_indexes']['search_number_of_indexes'], '1')
+    _assert_full_info(info, 'ON')
+
 def testInfoModulesBasic(env):
   conn = env.getConnection()
 

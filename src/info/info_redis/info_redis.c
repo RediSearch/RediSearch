@@ -18,6 +18,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
+#include "spec.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -25,6 +26,7 @@ static inline void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsI
 
 // General sections info
 static inline void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Cursors(RedisModuleInfoCtx *ctx);
@@ -54,6 +56,17 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (IsEnterprise()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
+  }
+
+  // On normal INFO runs, optionally suppress RediSearch metrics when there are no indexes.
+  // (We never suppress crash-report info.)
+  if (!for_crash_report && !RSGlobalConfig.infoEmitOnZeroIndexes && Indexes_Count() == 0) {
+    // Still emit the number of indexes and runtime configuration so operators can understand
+    // why metrics are suppressed.
+    AddToInfo_IndexesEmpty(ctx);
+    // Still emit runtime configuration so operators can understand why metrics are suppressed.
+    AddToInfo_RSConfig(ctx);
+    return;
   }
 
   TotalIndexesInfo total_info = IndexesInfo_TotalInfo();
@@ -219,13 +232,24 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "indexes");
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", Indexes_Count());
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", (float)total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
   RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", total_info->total_num_docs_in_indexes);
+}
+
+static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "indexes");
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", 0);
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", 0);
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -373,6 +397,9 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.minPhoneticTermLen);
   RedisModule_InfoAddFieldLongLong(ctx, "bm25std_tanh_factor",
                                    RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
+
+  RedisModule_InfoAddFieldCString(ctx, "info_on_zero_indexes",
+                                  RSGlobalConfig.infoEmitOnZeroIndexes ? "ON" : "OFF");
 }
 
 // IF the crashing thread worked on a spec, output the spec name and info
