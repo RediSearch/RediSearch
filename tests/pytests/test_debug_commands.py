@@ -377,8 +377,9 @@ def testCoordThreadsStats(env: Env):
 
     # Get initial stats
     orig_stats = getCoordThpoolStats(env)
-    env.assertGreaterEqual(orig_stats['totalJobsDone'], 0)
-    env.assertGreaterEqual(orig_stats['totalPendingJobs'], 0)
+
+    env.assertEqual(orig_stats['totalJobsDone'], 0)
+    env.assertEqual(orig_stats['totalPendingJobs'], 0)
 
     # Pause coordinator thread pool
     env.expect(debug_cmd(), 'COORD_THREADS', 'pause').ok()
@@ -396,13 +397,12 @@ def testCoordThreadsStats(env: Env):
     t.start()
 
 
-    # Wait for pending jobs to increase
+    # Wait for pending jobs to increase by 1
     wait_for_condition(
-        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] > orig_stats['totalPendingJobs'], {}),
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == orig_stats['totalPendingJobs'] + 1, {}),
         'Timeout waiting for pending jobs to increase')
 
     # Resume and wait for job to complete
-    orig_stats = getCoordThpoolStats(env)
     env.expect(debug_cmd(), 'COORD_THREADS', 'resume').ok()
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
@@ -410,11 +410,12 @@ def testCoordThreadsStats(env: Env):
     t.join(timeout=10)
 
     # Wait for totalJobsDone to increase and totalPendingJobs to decrease
+    # Total jobs done should increase by 2 (fanout to shards + reduce)
     wait_for_condition(
-        lambda: (getCoordThpoolStats(env)['totalJobsDone'] > orig_stats['totalJobsDone'], {}),
+        lambda: (getCoordThpoolStats(env)['totalJobsDone'] == orig_stats['totalJobsDone'] + 2, {}),
         'Timeout waiting for totalJobsDone to increase')
     wait_for_condition(
-        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] < orig_stats['totalPendingJobs'], {}),
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == 0, {}),
         'Timeout waiting for totalPendingJobs to decrease')
 
 @skip(cluster=True)

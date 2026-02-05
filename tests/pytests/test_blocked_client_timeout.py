@@ -227,9 +227,9 @@ class TestCoordinatorTimeout:
         )
         t_query.start()
 
-        # Verify coordinator fanned out to all shards (jobs done should increase on coordinator)
+        # Verify coordinator fanned out to all shards (jobs done should increase on coordinator by 1)
         wait_for_condition(
-            lambda: (getCoordThpoolStats(env)['totalJobsDone'] > coord_initial_jobs_done, {'totalJobsDone': getCoordThpoolStats(env)['totalJobsDone']}),
+            lambda: (getCoordThpoolStats(env)['totalJobsDone'] == coord_initial_jobs_done + 1, {'totalJobsDone': getCoordThpoolStats(env)['totalJobsDone']}),
             'Timeout while waiting for coordinator to dispatch query'
         )
 
