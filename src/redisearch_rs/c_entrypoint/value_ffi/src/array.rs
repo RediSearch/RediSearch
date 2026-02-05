@@ -12,14 +12,14 @@ use value::{Array, RsValue, shared::SharedRsValue};
 
 /// Allocates an array of null pointers with space for `len` [`RsValue`] pointers.
 ///
-/// The returned buffer must be populated and then passed to [`RSValue_NewArray`]
+/// The returned buffer must be populated and then passed to [`RSValue_NewArrayFromBuilder`]
 /// to produce an array value.
 ///
 /// # Safety
 ///
-/// 1. The caller must eventually pass the returned pointer to [`RSValue_NewArray`].
+/// 1. The caller must eventually pass the returned pointer to [`RSValue_NewArrayFromBuilder`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_AllocateArray(len: u32) -> *mut *mut RsValue {
+pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut RsValue {
     let array: Vec<*mut RsValue> = vec![std::ptr::null_mut(); len as usize];
 
     Box::into_raw(array.into_boxed_slice()) as *mut _
@@ -32,11 +32,14 @@ pub unsafe extern "C" fn RSValue_AllocateArray(len: u32) -> *mut *mut RsValue {
 ///
 /// # Safety
 ///
-/// 1. `values` must have been allocated via [`RSValue_AllocateArray`] with
+/// 1. `values` must have been allocated via [`RSValue_NewArrayBuilder`] with
 ///    a capacity equal to `len`.
 /// 2. All `len` entries in `values` must have been filled with valid [`RsValue`] pointers.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewArray(values: *mut *mut RsValue, len: u32) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
+    values: *mut *mut RsValue,
+    len: u32,
+) -> *mut RsValue {
     // Safety: ensured by caller (1.)
     let array = unsafe { Vec::from_raw_parts(values, len as usize, len as usize) };
 
@@ -121,7 +124,7 @@ mod test {
     #[test]
     fn test_array() {
         unsafe {
-            let array = RSValue_AllocateArray(3);
+            let array = RSValue_NewArrayBuilder(3);
             let one = RSValue_NewNumber(1.0);
             let two = RSValue_NewNumber(2.0);
             let three = RSValue_NewNumber(3.0);
@@ -129,7 +132,7 @@ mod test {
             array.add(1).write(two);
             array.add(2).write(three);
 
-            let array = RSValue_NewArray(array, 3);
+            let array = RSValue_NewArrayFromBuilder(array, 3);
 
             assert_eq!(RSValue_ArrayLen(array), 3);
 

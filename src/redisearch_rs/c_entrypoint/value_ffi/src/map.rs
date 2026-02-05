@@ -13,26 +13,26 @@ use std::mem::MaybeUninit;
 use value::{Map, RsValue, SharedRsValue};
 
 /// Opaque map structure used during map construction.
-/// Holds uninitialized entries that are populated via [`RSValueMap_SetEntry`]
-/// before being finalized into an [`RsValue::Map`] via [`RSValue_NewMap`].
-pub struct RSValueMap {
+/// Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
+/// before being finalized into an [`RsValue::Map`] via [`RSValue_NewMapFromBuilder`].
+pub struct RSValueMapBuilder {
     entries: Box<[MaybeUninit<(*mut RsValue, *mut RsValue)>]>,
 }
 
-/// Allocates a new, uninitialized [`RSValueMap`] with space for `len` entries.
+/// Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
 ///
-/// The map entries are uninitialized and must be set using [`RSValueMap_SetEntry`]
-/// before being finalized into an [`RsValue`] via [`RSValue_NewMap`].
+/// The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]
+/// before being finalized into an [`RsValue`] via [`RSValue_NewMapFromBuilder`].
 ///
 /// # Safety
 ///
-/// 1. All entries must be initialized via [`RSValueMap_SetEntry`] before
-///    passing the map to [`RSValue_NewMap`].
+/// 1. All entries must be initialized via [`RSValue_MapBuilderSetEntry`] before
+///    passing the map to [`RSValue_NewMapFromBuilder`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValueMap_AllocUninit(len: u32) -> *mut RSValueMap {
+pub unsafe extern "C" fn RSValue_NewMapBuilder(len: u32) -> *mut RSValueMapBuilder {
     let entries = vec![MaybeUninit::uninit(); len as usize];
 
-    Box::into_raw(Box::new(RSValueMap {
+    Box::into_raw(Box::new(RSValueMapBuilder {
         entries: entries.into(),
     }))
 }
@@ -43,17 +43,16 @@ pub unsafe extern "C" fn RSValueMap_AllocUninit(len: u32) -> *mut RSValueMap {
 ///
 /// # Safety
 ///
-/// 1. `map` must be a valid pointer to an [`RSValueMap`] created by
-///    [`RSValueMap_AllocUninit`].
+/// 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+///    [`RSValue_NewMapBuilder`].
 /// 2. `key` and `value` must be valid pointers to [`RsValue`]
-///    obtained from an `RSValue_*` function.
 ///
 /// # Panics
 ///
 /// Panics if `index` is greater than or equal to the map length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValueMap_SetEntry(
-    map: *mut RSValueMap,
+pub unsafe extern "C" fn RSValue_MapBuilderSetEntry(
+    map: *mut RSValueMapBuilder,
     index: size_t,
     key: *mut RsValue,
     value: *mut RsValue,
@@ -65,18 +64,18 @@ pub unsafe extern "C" fn RSValueMap_SetEntry(
     map.entries[index] = MaybeUninit::new((key, value));
 }
 
-/// Creates a heap-allocated map [`RsValue`] from an [`RSValueMap`].
+/// Creates a heap-allocated map [`RsValue`] from an [`RSValueMapBuilder`].
 ///
-/// Takes ownership of the map structure and all its entries. The [`RSValueMap`]
+/// Takes ownership of the map structure and all its entries. The [`RSValueMapBuilder`]
 /// pointer is consumed and must not be used after this call.
 ///
 /// # Safety
 ///
-/// 1. `map` must be a valid pointer to an [`RSValueMap`] created by
-///    [`RSValueMap_AllocUninit`].
-/// 2. All entries in the map must have been initialized via [`RSValueMap_SetEntry`].
+/// 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+///    [`RSValue_NewMapBuilder`].
+/// 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewMap(map: *mut RSValueMap) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) -> *mut RsValue {
     // Safety: ensured by caller (1.)
     let map = unsafe { Box::from_raw(map) };
 
@@ -168,15 +167,15 @@ mod test {
     #[test]
     fn test_map() {
         unsafe {
-            let map = RSValueMap_AllocUninit(2);
+            let map = RSValue_NewMapBuilder(2);
             let key_one = RSValue_NewNumber(1.0);
             let value_one = RSValue_NewNumber(2.0);
             let key_two = RSValue_NewNumber(3.0);
             let value_two = RSValue_NewNumber(4.0);
-            RSValueMap_SetEntry(map, 0, key_one, value_one);
-            RSValueMap_SetEntry(map, 1, key_two, value_two);
+            RSValue_MapBuilderSetEntry(map, 0, key_one, value_one);
+            RSValue_MapBuilderSetEntry(map, 1, key_two, value_two);
 
-            let map = RSValue_NewMap(map);
+            let map = RSValue_NewMapFromBuilder(map);
 
             assert_eq!(RSValue_Map_Len(map), 2);
 
