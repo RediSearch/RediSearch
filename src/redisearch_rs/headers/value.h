@@ -249,6 +249,8 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
+struct RsValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
+
 struct RsValue *RSValue_NewConstString(const char *str, uint32_t len);
 
 /**
