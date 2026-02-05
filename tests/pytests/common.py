@@ -459,6 +459,10 @@ MAX_DIALECT = 0
 def set_max_dialect(env):
     global MAX_DIALECT
     if MAX_DIALECT == 0:
+        # Ensure INFO MODULES is not in minimal suppression mode when there are zero indexes.
+        # This keeps dialect discovery simple and consistent across tests.
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-info-on-zero-indexes', 'yes')
+
         info = env.cmd('INFO', 'MODULES')
         prefix = 'search_dialect_'
         MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])
