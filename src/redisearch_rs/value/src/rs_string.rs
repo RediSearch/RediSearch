@@ -74,6 +74,23 @@ impl RsString {
         }
     }
 
+    /// Create an [`RsString`] from a constant string without a nul terminator.
+    /// This breaks the guarantees of the struct, but some legacy code needs this to work.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
+    pub unsafe fn rm_alloc_string_without_nul_terminator(ptr: *const c_char, len: u32) -> Self {
+        // Safety: ensured by caller (1.)
+        debug_assert!(ptr != std::ptr::null());
+
+        Self {
+            ptr,
+            len,
+            kind: RsStringKind::RmAlloc,
+        }
+    }
+
     /// Create an [`RsString`] from a constant string.
     ///
     /// # Safety
