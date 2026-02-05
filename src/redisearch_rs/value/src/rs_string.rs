@@ -49,6 +49,11 @@ impl RsString {
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
     /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
     pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
+        // Safety: ensured by caller (1.)
+        debug_assert!(ptr != std::ptr::null());
+        // Safety: ensured by caller (2.)
+        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
+
         Self {
             ptr,
             len,
@@ -63,6 +68,11 @@ impl RsString {
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
     /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
     pub unsafe fn const_string(ptr: *const c_char, len: u32) -> Self {
+        // Safety: ensured by caller (1.)
+        debug_assert!(ptr != std::ptr::null());
+        // Safety: ensured by caller (2.)
+        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
+
         Self {
             ptr,
             len,
