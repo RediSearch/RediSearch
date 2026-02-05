@@ -102,7 +102,15 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     if (spec->diskSpec) {
-      SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq);
+      // Get offset data if available (when Index_StoreTermOffsets flag is set)
+      const uint8_t *offsets = NULL;
+      size_t offsetsLen = 0;
+      if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
+        offsets = VVW_GetByteData(entry->vw);
+        offsetsLen = VVW_GetByteLength(entry->vw);
+      }
+      SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId,
+                              entry->fieldMask, entry->freq, offsets, offsetsLen);
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     } else {
       bool isNew;
