@@ -11,6 +11,7 @@
 
 pub mod collection;
 pub mod constructors;
+pub mod conversions;
 pub mod getters;
 pub mod setters;
 pub mod shared;
