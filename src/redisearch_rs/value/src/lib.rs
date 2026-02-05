@@ -9,9 +9,9 @@
 
 pub use crate::{
     collection::{Array, Map},
+    redis_string::RedisString,
     rs_string::RsString,
     shared::SharedRsValue,
-    strings::RedisString,
     trio::RsValueTrio,
 };
 use std::fmt::Debug;
@@ -24,9 +24,9 @@ mod rs_value_ffi;
 pub use rs_value_ffi::*;
 
 pub mod collection;
+pub mod redis_string;
 pub mod rs_string;
 pub mod shared;
-pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object
