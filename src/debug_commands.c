@@ -34,6 +34,7 @@
 #include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
+#include "vector_index.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -1488,6 +1489,9 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
     // After we drained the thread pool and there are no more jobs in the queue, we wait until all
     // threads are idle, so we can be sure that all jobs were executed.
     workersThreadPool_wait();
+    // Call GC on all tiered vector indexes to flush pending vectors from flat buffers to HNSW.
+    // This is needed for the Rust VecSim implementation which doesn't use async jobs.
+    VecSim_CallAllTieredIndexesGC();
   } else if (!strcasecmp(op, "stats")) {
     thpool_stats stats = workersThreadPool_getStats();
     START_POSTPONED_LEN_ARRAY(num_stats_fields);

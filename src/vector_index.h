@@ -185,6 +185,7 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
 
 int VecSim_CallTieredIndexesGC(WeakRef spRef);
+void VecSim_CallAllTieredIndexesGC(void);
 
 #ifdef __cplusplus
 extern "C" {

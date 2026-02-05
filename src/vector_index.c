@@ -724,3 +724,14 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
       RS_ABORT("Unknown algorithm in vector index");
   }
 }
+
+void VecSim_CallAllTieredIndexesGC(void) {
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    WeakRef weak_ref = StrongRef_Demote(spec_ref);
+    VecSim_CallTieredIndexesGC(weak_ref);
+  }
+  dictReleaseIterator(iter);
+}
