@@ -1370,6 +1370,14 @@ booleanConfigs = [
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
 ]
 
+# CONFIG-only boolean parameters (no corresponding FT.CONFIG parameter / module argument)
+# These should be validated via CONFIG GET/SET only.
+configOnlyBooleanConfigs = [
+    # configName, defaultValue
+    ('search-_simulate-in-flex', 'no'),
+    ('search-_info-on-zero-indexes', 'no'),
+]
+
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeBooleanParams():
     env = Env(noDefaultModuleArgs=True)
@@ -1417,40 +1425,25 @@ def testConfigAPIRunTimeBooleanParams():
             _testBooleanConfig(env, configName, ftConfigName, defaultValue)
 
 @skip(redis_less_than='7.9.227')
-def testConfigAPIInfoOnZeroIndexes():
+def testConfigAPIConfigOnlyBooleanParams():
     env = Env(noDefaultModuleArgs=True)
-    if env.env == 'existing-env':
-        env.skip()
 
-    configName = 'search-info-on-zero-indexes'
-
-    def _config_get_all():
-        if env.isCluster():
-            return run_command_on_all_shards(env, 'CONFIG', 'GET', configName)
-        return [env.cmd('CONFIG', 'GET', configName)]
-
-    def _config_set_all(val):
-        if env.isCluster():
-            return run_command_on_all_shards(env, 'CONFIG', 'SET', configName, val)
-        return [env.cmd('CONFIG', 'SET', configName, val)]
-
-    # Default should be disabled (no) on all nodes
-    env.assertTrue(all(r == [configName, 'no'] for r in _config_get_all()))
-
-    # Toggle ON and verify
-    env.assertTrue(all(r == 'OK' for r in _config_set_all('yes')))
-    env.assertTrue(all(r == [configName, 'yes'] for r in _config_get_all()))
-
-    # Toggle OFF and verify
-    env.assertTrue(all(r == 'OK' for r in _config_set_all('no')))
-    env.assertTrue(all(r == [configName, 'no'] for r in _config_get_all()))
-
-    # Invalid values should fail
     if env.isCluster():
-        # In cluster mode, assert at least one node returns an error reply.
-        res = run_command_on_all_shards(env, 'CONFIG', 'SET', configName, 'invalid_boolean')
-        env.assertTrue(any(isinstance(r, Exception) for r in res) or any("ERR" in str(r) for r in res))
+        conn = env.getOSSMasterNodesConnectionList()[0]
+        cmd = conn.execute_command
     else:
+        cmd = env.cmd
+
+    for configName, defaultValue in configOnlyBooleanConfigs:
+        # Default value
+        env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, defaultValue])
+
+        # Toggle ON/OFF
+        for val in ['yes', 'no']:
+            env.assertEqual(cmd('CONFIG', 'SET', configName, val), 'OK')
+            env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, val])
+
+        # Invalid values should fail
         env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
             .contains('CONFIG SET failed')
 

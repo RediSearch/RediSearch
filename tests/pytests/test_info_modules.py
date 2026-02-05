@@ -62,7 +62,7 @@ def testInfoModulesInfoOnZeroIndexesConfig(env):
   # Expected INFO MODULES output shape (minimal vs full):
   #
   # +---------------------------------+----------------------+----------------------+
-  # | search-info-on-zero-indexes     | number of indices: 0 | number of indices: >0|
+  # | search-_info-on-zero-indexes    | number of indices: 0 | number of indices: >0|
   # +---------------------------------+----------------------+----------------------+
   # | ON                              | full                 | full                 |
   # | OFF                             | minimal              | full                 |
@@ -103,10 +103,10 @@ def testInfoModulesInfoOnZeroIndexesConfig(env):
     for section in _FULL_METRICS_SECTIONS:
       env.assertTrue(section in info, message=f"{section} should be emitted when full info is expected")
 
-  # When `search-info-on-zero-indexes` is disabled (default), and there are no indexes, RediSearch
+  # When `search-_info-on-zero-indexes` is disabled (default), and there are no indexes, RediSearch
   # should emit only the version/indexes/runtime_configurations sections (index metrics sections
   # like fields_statistics/memory/etc are suppressed).
-  run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-info-on-zero-indexes', 'no')
+  allShards_set_info_on_zero_indexes(env, False)
   for conn in conns:
     info = info_modules_to_dict(conn)
     _assert_minimal_info_on_zero_indexes(info)
@@ -127,7 +127,7 @@ def testInfoModulesInfoOnZeroIndexesConfig(env):
 
   # When enabled, metrics should be emitted even when there are no indexes (and runtime_configurations
   # should reflect that this is ON).
-  run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-info-on-zero-indexes', 'yes')
+  allShards_set_info_on_zero_indexes(env, True)
   for conn in conns:
     info = info_modules_to_dict(conn)
     _assert_full_info(info, 'ON')
@@ -653,6 +653,9 @@ def test_redis_info_modules_vecsim():
 
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
+
   # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run interval
   # is > 8h (5 minutes is the hard limit for a test).
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
@@ -1596,6 +1599,9 @@ class testWarningsAndErrorsCluster:
                            message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error hybrid query")
 
 def test_errors_and_warnings_init(env):
+  # This test validates INFO MODULES metrics initialization with zero indexes.
+  allShards_set_info_on_zero_indexes(env, True)
+
   # Verify fields in metric are initialized properly
   info_dict = info_modules_to_dict(env)
   for metric in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
@@ -1870,6 +1876,8 @@ def _test_pending_jobs_metrics(env, command_type):
     # --- STEP 1: SETUP ---
     # Configure WORKERS (we just need workers enabled, e.g., 2)
     run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '2')
+    # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+    allShards_set_info_on_zero_indexes(env, True)
 
     # Define variables
     num_vectors = 10 * env.shardsCount  # Number of vectors to index (creates low priority jobs)
@@ -2191,6 +2199,8 @@ def test_total_docs_indexed_metric_SA(env):
 @skip(cluster=True)
 def test_total_docs_indexed_by_field_type_SA(env):
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   # Helper to get all field-type metrics
   def get_field_metrics():
@@ -2333,6 +2343,8 @@ def test_total_docs_indexed_by_field_type_SA(env):
 def test_total_terms_indexed_text_fields(env):
   """Test that TEXT field metric counts unique terms indexed per document, not total documents."""
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   def get_text_metric():
     info = conn.execute_command('INFO', 'MODULES')
@@ -2406,6 +2418,8 @@ def test_total_terms_indexed_text_fields(env):
 def test_total_indexing_ops_multi_value_json(env):
   """Test that multi-value JSON indexing properly increments field metrics."""
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   def get_field_metrics():
     info = conn.execute_command('INFO', 'MODULES')
@@ -2469,6 +2483,8 @@ def test_total_indexing_ops_multi_value_json(env):
 def test_json_null_fields(env):
   """Test that JSON NULL fields do not increment field indexing statistics."""
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   def get_field_metrics():
     info = conn.execute_command('INFO', 'MODULES')
