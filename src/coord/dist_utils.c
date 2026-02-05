@@ -200,7 +200,7 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bo
   RS_LOG_ASSERT(cmd->num >= 2, "Invalid command?!");
 
   // Check if the coordinator experienced a timeout or not
-  bool timedout = MRIteratorCallback_GetTimedOut(ctx) | shardTimedOut;
+  bool timedout = MRIteratorCallback_GetTimedOut(ctx) || shardTimedOut;
 
   if (cmd->rootCommand == C_AGG) {
     MRCommand newCmd;
