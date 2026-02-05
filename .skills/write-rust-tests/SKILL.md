@@ -22,3 +22,14 @@ The generated tests must follow the guidelines outlined in [/rust-tests-guidelin
 
 Ensure that all public APIs are tested thoroughly, including edge cases, error conditions and branches.
 Use [`/check-rust-coverage`](../check-rust-coverage/SKILL.md) to determine which lines are not covered by tests.
+
+## Avoiding redundant tests
+
+Before writing each test, explicitly identify which branch or code path it will cover that no existing test already covers. An uncovered line is not sufficient justification — ask *why* it is uncovered and whether it is reachable through an already-tested entry point.
+
+Two tests are redundant if they exercise the same set of branches in the code under test. Differing only in input values that don't change control flow is not a distinct scenario.
+
+Do not write standalone tests for:
+- **Trivial trait delegations** — `Default`, `From`, or similar trait impls that are single-line delegations to an already-tested constructor are covered transitively.
+
+After adding tests, double check that every new test covers at least one branch that no other test (existing or new) covers. Remove any that don't.
