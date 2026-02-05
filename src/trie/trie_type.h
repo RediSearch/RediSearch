@@ -62,6 +62,28 @@ void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);
 int Trie_Delete(Trie *t, const char *s, size_t len);
 int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
 
+/* Result codes for Trie_DecrementNumDocs */
+typedef enum {
+  TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */
+  TRIE_DECR_UPDATED = 1,     /* numDocs decremented, still > 0 */
+  TRIE_DECR_DELETED = 2,     /* numDocs reached 0, node deleted */
+} TrieDecrResult;
+
+/* Decrement the numDocs count for a term in the trie.
+ * If numDocs reaches 0, the node is marked as deleted.
+ * Parameters:
+ *   t     - the trie
+ *   s     - UTF-8 encoded term string
+ *   len   - length of the string in bytes
+ *   delta - amount to decrement numDocs by
+ * Returns:
+ *   TRIE_DECR_NOT_FOUND - term not found
+ *   TRIE_DECR_UPDATED   - numDocs decremented but still > 0
+ *   TRIE_DECR_DELETED   - numDocs reached 0, node deleted
+ */
+TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta);
+TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta);
+
 void TrieSearchResult_Free(TrieSearchResult *e);
 Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
                     int trim, int optimize);
