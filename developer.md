@@ -1,18 +1,270 @@
-# Developer notes
+# Developer Getting Started Guide
 
-## Cloning the project
+## Cloning the Project
+
+Clone RediSearch with all its git submodule dependencies:
 
 ```bash
 git clone --recursive https://github.com/RediSearch/RediSearch.git
+cd RediSearch
 ```
 
-## Dev container
-We have provided a dev container based on `ubuntu:latest` docker image with all the dependencies (Redis, build systems, rust, Python virtual environment) installed. Just clone the repo and open it in the dev container. It will take a few minutes for the first time to download and install the dependencies.
-If you would like to build it on your machine without a docker, proceed to the next sections.
-## Installing prerequisites
+If you already cloned without `--recursive`, initialize the submodules:
 
-### Build dependencies
-To build and test RediSearch you need to install several packages, depending on the underlying OS. The following OSes are supported and tested in our CI:
+```bash
+git submodule update --init --recursive
+```
+
+## Installing Dependencies
+
+Building and testing RediSearch requires the following dependencies:
+
+- `rust` (latest stable version)
+- `cmake >= 3.25.1`
+- `boost == 1.88.0` (optional — CMake will fetch it automatically, but with a build time penalty)
+- `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
+- `python3` and `python3-pip` (for running tests)
+- `openssl-devel` / `libssl-dev` (for secure connections)
+
+### Using Installation Scripts
+
+Install all required build tools using the provided scripts:
+
+```bash
+cd .install
+./install_script.sh
+cd ..
+```
+
+This uses your system's native package manager (apt, yum, homebrew, etc.).
+
+### Alternative: Dev Container
+
+A dev container based on `ubuntu:latest` is available with all dependencies pre-installed. Open the repository in VS Code with the Dev Containers extension, and it will set up the environment automatically.
+
+### Alternative: Nix
+
+If you prefer Nix, skip the install scripts and start a development environment:
+
+```bash
+nix develop github:chesedo/redisearch-nix-env
+```
+
+This also builds Redis from source and includes Python test dependencies.
+
+To run the coverage tests, you’ll need nightly Rust. You can get that here
+
+```bash
+nix develop github:chesedo/redisearch-nix-env#nightly
+```
+
+### Installing Redis
+
+RediSearch requires `redis-server` in your PATH. We recommend building Redis from source since RediSearch `master` often requires unreleased features:
+
+```bash
+git clone https://github.com/redis/redis.git
+cd redis
+make
+sudo make install
+cd ..
+```
+
+## Building the Project
+
+RediSearch has two main CLIs at the moment the (old, legacy) `MAKEFILE` and the new preferred `build.sh` file. You will sometimes see the redis team share commands using old CLI for particular things that the new CLI might not be capable of yet. We will however only use the new CLI in this guide.
+
+```bash
+# Build with release optimizations
+./build.sh
+
+# Build in debug mode
+./build.sh DEBUG
+
+# Force a fresh rebuild (useful after switching branches)
+./build.sh FORCE
+
+# Build including test binaries
+./build.sh TESTS
+```
+
+The compiled module is located at:
+```
+bin/<target>-<release|debug>/search-community/redisearch.so
+```
+
+## Running Tests
+
+### Unit Tests (C/C++)
+
+Build and run C/C++ unit tests:
+
+```bash
+./build.sh RUN_UNIT_TESTS
+```
+
+### Rust Tests
+
+Build and run Rust tests:
+
+```bash
+./build.sh RUN_RUST_TESTS
+```
+
+For Rust coverage tests, install the nightly toolchain first:
+
+```bash
+rustup toolchain install nightly \
+    --allow-downgrade \
+    --component llvm-tools-preview \
+    --component miri
+
+# Tool required to compute test coverage for Rust code
+cargo install cargo-llvm-cov --locked
+
+# Make sure `miri` is fully operational before running tests with it.
+# See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
+# for more details.
+cargo +nightly miri setup
+```
+
+### Python Tests
+
+#### Setting Up the Python Environment
+
+Install `uv` (a fast Python package manager):
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or via pip
+pip install uv
+```
+
+Create and activate a virtual environment:
+
+```bash
+uv venv --seed
+source .venv/bin/activate
+```
+
+Install test dependencies:
+
+```bash
+uv sync --locked --all-packages
+```
+
+#### Running Python Tests
+
+With the virtual environment activated:
+
+```bash
+# Run all Python tests
+./build.sh RUN_PYTEST
+
+# Run a specific test file
+./build.sh RUN_PYTEST TEST=<test_file_name>
+
+# Run a specific test function
+./build.sh RUN_PYTEST TEST=<test_file_name>:<test_function_name>
+```
+
+#### Skipping RedisJSON Tests
+
+Some tests require RedisJSON. To skip them:
+
+```bash
+./build.sh RUN_PYTEST REJSON=0
+```
+
+Or specify a path to an existing RedisJSON module:
+
+```bash
+./build.sh RUN_PYTEST REJSON_PATH=/path/to/redisjson.so
+```
+
+### Running All Tests
+
+To build and run all tests (unit, Rust, and integration):
+
+```bash
+./build.sh RUN_TESTS
+```
+
+### Sanitizers
+
+Currently address sanitizer is supported (Linux only). To run the tests with address sanitizer you can use the following command:
+
+```bash
+./build.sh RUN_TESTS SAN=address
+```
+
+## Debugging Tests
+
+### C/C++ Unit Tests
+
+Unit tests are compiled into standalone binaries that can be loaded into `lldb` or `gdb` as-is. 
+
+C unit test artifacts can be found in this folder: `bin/<your target>-<release or debug>/search-community/tests/ctests/`.
+
+C++ Unit tests use the [Google Test Framework](https://github.com/google/googletest) and are compiled into this binary `bin/<your target>-<release or debug>/search-community/tests/cpptests/rstest`.
+
+Run a specific C++ test:
+
+```bash
+bin/<your target>-<release or debug>/search-community/tests/cpptests/rstest --gtest_filter <test name>
+```
+
+### Rust Unit Tests
+
+Rust Unit tests can be found in the appropriate target folder (which for RediSearch is here `bin/redisearch_rs/`).
+
+### Debugging Integration Tests
+
+By default the Python test runner will spin up redis-server instances under the hood. Pass `EXT=1` to instruct the runner to connect to an existing external instance. You may optionally use `EXT_HOST=<ip addr>` and `EXT_PORT=<port>` to connect to a non-local or non-standard-port instance.
+
+To start the external redis-server instance:
+
+1. Create a `redis.conf` config file in your project root:
+   
+   ```
+   loadmodule bin/<your target>-<release or debug>/search-community/redisearch.so
+   enable-debug-command yes
+   ```
+
+2. Start redis using this configuration under lldb/gdb:
+   
+   ```bash
+   lldb redis-server redis.conf
+   # or
+   gdb redis-server redis.conf
+   ```
+
+3. Set up your breakpoints/watchpoints and run the binary.
+
+4. Run the integration tests:
+   
+   ```bash
+   ./build.sh RUN_PYTEST EXT=1 TEST=<name of the test>
+   ```
+
+## Benchmarking RediSearch
+
+```bash
+PATH=$PATH:~/GitHub/RediSearch/bench_tools redisbench-admin run-local \
+    --module_path ~/GitHub/RediSearch/bin/macos-aarch64-debug/search-community/redisearch.so \
+    --required-module search \
+    --allowed-setups oss-standalone \
+    --allowed-envs oss-standalone \
+    --test search-ftsb-10K-enwiki_abstract-hashes-term-wildcard.yml
+```
+
+Use `--skip-redis-spin True` to skip spinning up a Redis instance.
+
+## Supported Platforms
+
+The following operating systems are supported and tested in CI:
 
 * Ubuntu 18.04
 * Ubuntu 20.04
@@ -29,186 +281,19 @@ To build and test RediSearch you need to install several packages, depending on 
 * MacOS
 * Alpine linux 3
 
-For installing the prerequisites you can take the following approaches:
-1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. In general, the common installations are:
-   - `rust` (latest stable version)
-   - `cmake >= 3.25.1`
-   - `boost == 1.88.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
-   - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
-   - `python3` and `python3-pip` (for running tests)
-   - `openssl-devel` / `libssl-dev` (for secure connections)
+### Platform-specific compiler requirements
 
-   - Ubuntu 18.04: GCC 10 (not default, installed via PPA)
-   - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
-   - Ubuntu 22.04: GCC 12 (not default, PPA not required)
-   - Ubuntu 24.04: Default GCC is sufficient
-   - Debian 11: Default GCC is sufficient
-   - Debian 12: Default GCC is sufficient
-   - Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
-   - Rocky Linux 9: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
-   - Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
-   - Amazon Linux 2023: Default GCC is sufficient
-   - Mariner 2.0: Default GCC is sufficient
-    - Azure Linux 3: Default GCC is sufficient
-   - MacOS: Install clang-18 via brew
-   - Alpine Linux 3: Default GCC is sufficient
-
-- you can find the dependencies in each OS script under the [`.install`](.install) directory.
- 
-2. Use our CI installation scripts to install the dependencies - you can find the scripts under the [`.install`](.install) directory.
-
-    ```bash
-    cd .install
-    ./install_script.sh sudo  
-    ```
-    Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment and the script will fail calling it so). 
-
-### Redis
-You will not be able to run and test your code without Redis, since you need to load the module. You can build it from source and install it as described in [redis GitHub page](https://github.com/redis/redis).
-
-### RedisJSON
-Some of our behavioral tests require RedisJSON to be present. Our testing framework will clone and build RedisJSON for you.
-
-
-
-## Building from source
-To build RediSearch from source, you need to run the following commands:
-
-```bash
-make build
-```
-
-### Running Redis with RediSearch
-To run Redis with RediSearch, you need to load the module. You can do this by running the following command:
-
-```bash
-make run
-```
-
-## Testing
-
-### Running the tests
-To run the tests, you need to execute the following commands:
-
-```bash
-make test
-```
-For running specific tests you can use the following commands:
-* C tests, located in tests/ctests, run by `make c-tests`.
-* C++ tests (enabled by GTest), located in tests/cpptests, run by `make cpp-tests`.
-* Python behavioral tests (enabled by [RLTest](https://github.com/RedisLabsModules/RLTest)), located in tests/pytests, run by `make pytest`.
-
-### Test prerequisites
-To run the python behavioral tests you need to install the following dependencies:
-* python test requirements listed in [pyproject.toml](tests/pytests/pyproject.toml)
-* If you want to execute RediSearch+RedisJSON behavioral tests you need to install [rust](https://www.rust-lang.org/tools/install), which is required to compile the RedisJSON module 
-
-if you don't want to install those manually, you can use the CI installation scripts to install the dependencies.
-
-```bash
-.install/test_deps/common_installations.sh
-```
-Note those scripts will create a python virtual environment called `venv` and install the required dependencies in it.
-
-### RedisJSON
-Some of our behavioral tests require RedisJSON to be present. You can skip the RedisJSON tests by setting the `REJSON=0` in the command
-```bash
-make pytest REJSON=0
-```
-If you have RedisJSON module already built on your machine you can specify the path to it by setting the `REJSON_PATH` variable.
-```bash
-make pytest REJSON_PATH=/path/to/redisjson.so
-```
-If the module does not exist in the specified path, our testing framework will clone and build RedisJSON for you. You can specify the branch of RedisJSON you want to use by setting the `REJSON_BRANCH` variable.
-
-```bash
-make pytest REJSON_BRANCH=branch
-```
-
-### Sanitizers
-Currently address sanitizer is supported. To run the tests with address sanitizer you can use the following command:
-
-```bash
-make build test SAN=address
-```
-
-## Debug
-To build the code with debug symbols, you can use the following commands:
-
-```bash
-make DEBUG=1
-```
-
-## Logging
-
-C code uses [`RedisModule_Log`](https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_log) to log messages
-while the Rust side uses the standard [`tracing`](https://docs.rs/tracing/latest/tracing/) crate, see below.
-
-The [`tracing_redismodule`](src/redisearch_rs/tracing_redismodule) crate provides a bridge between the two logging systems.
-It implements a tracing subscriber emitting traces and logs to the RedisModule logging system.
-This subscriber is automatically registered when the RediSearch module is loaded by the Redis server.
-
-### Logging from Rust
-
-The recommended way for Rust code to emit logs is through [`tracing`](https://docs.rs/tracing/latest/tracing/) since it allows us to produce structured logging output, but also generate performance data through spans.
- To record events to the redis log you can use the macros provided by [`tracing`]:
- ```rust
- tracing::trace!("This is the most verbose");
- tracing::debug!("This is the second most verbose");
- tracing::info!("This is the third most verbose");
- tracing::warn!("This is the fourth most verbose");
- tracing::error!("This is the fifth most verbose");
- ```
-
-By default, only `error`, `warn`, and `info` events are emitted but you can set the `RUST_LOG` environment variable to customize the behaviour of the system:
-
-```bash
-# enables all verbositity levels from all sources
-RUST_LOG=trace 
-# enables all verbositity levels from all sources EXCEPT the result_processor crate which is fully disabled.
-RUST_LOG=trace,result_processor=off 
-```
-
-These directives can be chained and support quite deep configuration. For details, see the [`tracing_subscriber`](https://docs.rs/tracing-subscriber/0.3.20/tracing_subscriber/filter/struct.EnvFilter.html#directives) documentation.
-
-> Note, the verbosity levels defined by `tracing` are NOT the same as the ones used by redis. The mapping is like so:
-> - `trace` => `LOGLEVEL_DEBUG`
-> - `debug` => `LOGLEVEL_VERBOSE`
-> - `info` => `LOGLEVEL_VERBOSE`
-> - `warn` and `error` => `LOGLEVEL_WARNING`
-
-By default the log output will be colored to help with reading. The system already attempts to be smart about turning it off (e.g. in CI) but if you manually need to disable/enable output coloring set the `RUST_LOG_STYLE` environment variable. It supports the following values:
-- `RUST_LOG_STYLE=never` never print color codes
-- `RUST_LOG_STYLE=always` always print color codes
-- `RUST_LOG_STYLE=auto` automatically detect when to enable or disable color codes (default)
-
-
-### Rust Tests
-
-[`tracing_redismodule`](src/redisearch_rs/tracing_redismodule) is not meant to be used in Rust tests.
-Instead, the [`redis_mock`](src/redisearch_rs/redis_mock) crate re-implements the `RedisModule_Log` so logs from C
-are emitted using `tracing`.
-
-Tests can then use the [`test-log`](https://docs.rs/test-log/latest/test_log/) crate to easily initialize `tracing`
-and receive logs from both C and Rust.
-
-```rust
-#[test_log::test]
-fn some_test() {
-}
-```
-
-The log level can be configured by setting the `RUST_LOG` environment variable when running the tests:
-
-```
-$ RUST_LOG=debug cargo test some_test -- --nocapture
-```
-
-By default, `test-log` sets this level to `info`, but this can be overridden in the test itself if its output is too verbose.
-
-```rust
-#[test_log::test]
-#[test_log(default_log_filter = "error")]
-fn some_test() {
-}
-```
+- Ubuntu 18.04: GCC 10 (not default, installed via PPA)
+- Ubuntu 20.04: GCC 10 (not default, installed via PPA)
+- Ubuntu 22.04: GCC 12 (not default, PPA not required)
+- Ubuntu 24.04: Default GCC is sufficient
+- Debian 11: Default GCC is sufficient
+- Debian 12: Default GCC is sufficient
+- Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
+- Rocky Linux 9: GCC 14 (not default, installed via gcc-toolset-14-gcc and gcc-toolset-14-gcc-c++)
+- Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
+- Amazon Linux 2023: Default GCC is sufficient
+- Mariner 2.0: Default GCC is sufficient
+- Azure Linux 3: Default GCC is sufficient
+- MacOS: Install clang-18 via brew
+- Alpine Linux 3: Default GCC is sufficient
