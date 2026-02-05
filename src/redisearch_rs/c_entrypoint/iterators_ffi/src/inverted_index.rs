@@ -483,3 +483,35 @@ pub unsafe extern "C" fn NumericInvIndIterator_Rs_GetProfileRangeMax(
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
     wrapper.inner.range_max()
 }
+
+/// Swap the inverted index of an inverted index iterator. This is only used by C tests
+/// to trigger revalidation on the iterator's underlying reader.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
+/// 2. If `it` is a C iterator, its `reader` field must be a valid non-NULL
+///    pointer to an `IndexReader`.
+/// 3. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
+///    iterator's underlying index type.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
+    it: *mut ffi::InvIndIterator,
+    ii: *const ffi::InvertedIndex,
+) {
+    debug_assert!(!it.is_null());
+    debug_assert!(!ii.is_null());
+
+    // SAFETY: 1.
+    let it_ref = unsafe { &*it };
+
+    // TODO: check for Rust iterators once we swap the implementation
+    // C iterator
+    let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
+    // SAFETY: 2. guarantees reader is valid.
+    let reader_ref = unsafe { &mut *reader };
+    let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
+    // SAFETY: 3. guarantees ii is valid and matching.
+    let ii_ref = unsafe { &*ii };
+    reader_ref.swap_index(ii_ref);
+}

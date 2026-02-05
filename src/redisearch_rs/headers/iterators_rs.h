@@ -150,6 +150,20 @@ double NumericInvIndIterator_Rs_GetProfileRangeMin(const NumericInvIndIterator *
 double NumericInvIndIterator_Rs_GetProfileRangeMax(const NumericInvIndIterator *it);
 
 /**
+ * Swap the inverted index of an inverted index iterator. This is only used by C tests
+ * to trigger revalidation on the iterator's underlying reader.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
+ * 2. If `it` is a C iterator, its `reader` field must be a valid non-NULL
+ *    pointer to an `IndexReader`.
+ * 3. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
+ *    iterator's underlying index type.
+ */
+void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
+
+/**
  * Creates a new metric iterator sorted by ID.
  *
  * # Safety
