@@ -340,7 +340,7 @@ void RSValue_Map_GetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue
  */
 void RSValue_MapBuilderSetEntry(RSValueMapBuilder *map, size_t i, RSValue *key, RSValue *value);
 
-// Trio gettersRSValueMap
+// Trio getters
 /**
  * Get the left value of a Trio value.
  * The passed RSValue must be of type RSValueType_Trio.
