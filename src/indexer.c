@@ -29,21 +29,20 @@ extern RedisModuleCtx *RSDummyContext;
 
 static bool writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
   size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
-  if (sz > 0) {
-    // Update index statistics:
-    // Number of additional bytes
-    spec->stats.invertedSize += sz;
-    // Number of records
-    spec->stats.numRecords++;
 
-    /* Record the space saved for offset vectors */
-    if (spec->flags & Index_StoreTermOffsets) {
-      spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
-      spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
-    }
-    return true;
+  // Update index statistics:
+
+  // Number of additional bytes
+  spec->stats.invertedSize += sz;
+  // Number of records
+  spec->stats.numRecords++;
+
+  /* Record the space saved for offset vectors */
+  if (spec->flags & Index_StoreTermOffsets) {
+    spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
+    spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
-  return false;
+  return sz > 0;
 }
 
 // Number of terms for each block-allocator block
