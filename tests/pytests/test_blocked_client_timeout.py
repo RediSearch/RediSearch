@@ -218,12 +218,20 @@ class TestCoordinatorTimeout:
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 
+        coord_initial_jobs_done = getCoordThpoolStats(env)['totalJobsDone']
+
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
             args=(env, ['FT.SEARCH', 'idx', '*']),
             daemon=True
         )
         t_query.start()
+
+        # Verify coordinator fanned out to all shards (jobs done should increase on coordinator by 1)
+        wait_for_condition(
+            lambda: (getCoordThpoolStats(env)['totalJobsDone'] == coord_initial_jobs_done + 1, {'totalJobsDone': getCoordThpoolStats(env)['totalJobsDone']}),
+            'Timeout while waiting for coordinator to dispatch query'
+        )
 
         # Pause coordinator thread pool
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()

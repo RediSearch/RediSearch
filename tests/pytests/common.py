@@ -296,6 +296,9 @@ def getWorkersThpoolNumThreads(env):
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
+def getCoordThpoolStats(env):
+    return to_dict(env.cmd(debug_cmd(), "COORD_THREADS", "stats"))
+
 def getWorkersThpoolStatsFromAllShards(env):
     return [getWorkersThpoolStatsFromShard(shard_conn) for shard_conn in env.getOSSMasterNodesConnectionList()]
 
