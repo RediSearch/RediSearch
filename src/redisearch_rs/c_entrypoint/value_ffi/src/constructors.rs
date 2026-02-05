@@ -8,6 +8,8 @@
 */
 
 use std::ffi::c_double;
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use value::trio::RsValueTrio;
 use value::{RsValue, shared::SharedRsValue};
 
@@ -74,4 +76,12 @@ pub unsafe extern "C" fn RSValue_NewTrio(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
     SharedRsValue::null_static().into_raw() as *mut _
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewReference(src: *const RsValue) -> *mut RsValue {
+    let shared_src = unsafe { SharedRsValue::from_raw(src) };
+    let shared_src = ManuallyDrop::new(shared_src);
+    let ref_value = RsValue::Ref(shared_src.deref().clone());
+    SharedRsValue::new(ref_value).into_raw() as *mut _
 }
