@@ -11,6 +11,7 @@
 
 pub mod array;
 pub mod constructors;
+pub mod conversions;
 pub mod getters;
 pub mod map;
 pub mod setters;
