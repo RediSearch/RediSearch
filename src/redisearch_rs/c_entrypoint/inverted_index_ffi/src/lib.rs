@@ -132,6 +132,20 @@ impl InvertedIndex {
             _ => panic!("Unexpected inverted index type, expected DocumentIdOnly"),
         }
     }
+
+    /// Returns a mutable reference to the DocIdsOnly inverted index.
+    ///
+    /// Only meant to be used internally by tests.
+    ///
+    /// # Panic
+    /// Will panic if the inverted index is not of type `DocumentIdOnly`.
+    #[cfg(feature = "test_utils")]
+    pub fn as_doc_ids_only_mut(&mut self) -> &mut inverted_index::InvertedIndex<DocIdsOnly> {
+        match self {
+            Self::DocumentIdOnly(ii) => ii,
+            _ => panic!("Unexpected inverted index type, expected DocumentIdOnly"),
+        }
+    }
 }
 
 impl Debug for InvertedIndex {

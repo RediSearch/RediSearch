@@ -314,7 +314,7 @@ impl TestContext {
         let ctx = ModuleCtx::new();
         // Create IndexSpec with unique name to avoid parallel test conflicts
         let index_name = unique_index_name("wildcard_idx");
-        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", &index_name);
+        let (mut spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", &index_name);
 
         // Create the DocIdsOnly inverted index via C FFI for compatibility with both
         // Rust and C iterators
@@ -337,6 +337,12 @@ impl TestContext {
                     &record as *const _ as *mut _,
                 );
             }
+        }
+
+        // Set spec.existingDocs so Wildcard::should_abort() can find the index
+        // during revalidation (it compares spec.existingDocs with the reader's index).
+        unsafe {
+            spec.as_mut().existingDocs = ii_ptr.cast();
         }
 
         Self {
@@ -446,12 +452,13 @@ impl TestContext {
     /// Get the wildcard (doc-ids-only) inverted index for this context.
     /// Returns a reference to the FFI inverted index wrapper.
     /// Panics if this is not a wildcard context.
-    pub fn wildcard_inverted_index(&self) -> &inverted_index_ffi::InvertedIndex {
+    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    pub fn wildcard_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
         match &self.inner {
             TestContextInner::Wildcard { inverted_index } => {
                 // SAFETY: inverted_index is a valid pointer created via NewInvertedIndex_Ex
-                let ii: *const inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
-                unsafe { &*ii }
+                let ii: *mut inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
+                unsafe { &mut *ii }
             }
             _ => panic!("TestContext is not a Wildcard context"),
         }
@@ -620,13 +627,8 @@ impl Drop for TestContext {
         // This matches the lock acquired during creation.
         let _lock = CONTEXT_MUTEX.lock().unwrap();
 
-        // Free the wildcard inverted index if this is a wildcard context
-        if let TestContextInner::Wildcard { inverted_index } = &self.inner {
-            // SAFETY: inverted_index is a valid pointer created via NewInvertedIndex_Ex
-            unsafe {
-                inverted_index_ffi::InvertedIndex_Free(inverted_index.as_ptr().cast());
-            }
-        }
+        // Note: the wildcard inverted index is freed by IndexSpec_RemoveFromGlobals
+        // below, via spec->existingDocs. No explicit free needed here.
 
         unsafe {
             ffi::SearchCtx_Free(self.sctx.as_ptr());

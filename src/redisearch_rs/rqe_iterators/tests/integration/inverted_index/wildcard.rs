@@ -71,3 +71,118 @@ fn wildcard_empty_index() {
     assert!(it.read().expect("read failed").is_none());
     assert!(it.at_eof());
 }
+
+#[cfg(not(miri))]
+mod not_miri {
+    use super::*;
+    use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
+    use rqe_iterators::RQEValidateStatus;
+
+    struct WildcardRevalidateTest {
+        test: RevalidateTest,
+    }
+
+    impl WildcardRevalidateTest {
+        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+            RSIndexResult::virt()
+                .doc_id(doc_id)
+                .field_mask(RS_FIELDMASK_ALL)
+                .frequency(1)
+                .weight(1.0)
+        }
+
+        fn new(n_docs: u64) -> Self {
+            Self {
+                test: RevalidateTest::new(
+                    RevalidateIndexType::Wildcard,
+                    Box::new(Self::expected_record),
+                    n_docs,
+                ),
+            }
+        }
+
+        fn create_iterator(&self) -> Wildcard<'_> {
+            let ii = self
+                .test
+                .context
+                .wildcard_inverted_index()
+                .as_doc_ids_only();
+            Wildcard::new(ii.reader(), self.test.context.sctx, 1.0)
+        }
+    }
+
+    #[test]
+    fn wildcard_revalidate_basic() {
+        let test = WildcardRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        test.test.revalidate_basic(&mut it);
+    }
+
+    #[test]
+    fn wildcard_revalidate_at_eof() {
+        let test = WildcardRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        test.test.revalidate_at_eof(&mut it);
+    }
+
+    #[test]
+    fn wildcard_revalidate_after_index_disappears() {
+        let test = WildcardRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+
+        // Verify the iterator works normally and read at least one document
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+        assert!(it.read().expect("failed to read").is_some());
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+
+        // Simulate existingDocs being garbage collected and recreated by
+        // pointing spec.existingDocs to a different inverted index.
+        let mut memsize = 0;
+        let new_ii = inverted_index_ffi::NewInvertedIndex_Ex(
+            ffi::IndexFlags_Index_DocIdsOnly,
+            false,
+            false,
+            &mut memsize,
+        );
+        let old_existing_docs;
+        unsafe {
+            let spec = test.test.context.spec.as_ptr();
+            old_existing_docs = (*spec).existingDocs;
+            (*spec).existingDocs = new_ii.cast();
+        }
+
+        // Revalidate should return Aborted because existingDocs no longer
+        // points to the same index the reader was created from.
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Aborted
+        );
+
+        // Restore original existingDocs and free the temporary index for
+        // proper cleanup.
+        unsafe {
+            let spec = test.test.context.spec.as_ptr();
+            (*spec).existingDocs = old_existing_docs;
+            inverted_index_ffi::InvertedIndex_Free(new_ii);
+        }
+    }
+
+    #[test]
+    fn wildcard_revalidate_after_document_deleted() {
+        let test = WildcardRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        let ii = test
+            .test
+            .context
+            .wildcard_inverted_index()
+            .as_doc_ids_only_mut();
+
+        test.test.revalidate_after_document_deleted(&mut it, ii);
+    }
+}

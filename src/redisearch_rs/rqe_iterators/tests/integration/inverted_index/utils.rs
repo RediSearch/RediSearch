@@ -524,6 +524,7 @@ pub(super) mod not_miri {
     pub enum RevalidateIndexType {
         Numeric,
         Term,
+        Wildcard,
     }
 
     /// Test the revalidation of the iterator.
@@ -556,6 +557,7 @@ pub(super) mod not_miri {
                         | IndexFlags_Index_StoreByteOffsets;
                     TestContext::term(flags, doc_ids.iter().map(|id| expected_record(*id)), false)
                 }
+                RevalidateIndexType::Wildcard => TestContext::wildcard(doc_ids.iter().copied()),
             };
 
             Self {
