@@ -9,6 +9,7 @@
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use super::{DocTable, DocumentMetadata};
+use crate::metrics::AsyncReadMetrics;
 
 /// Executes an async document metadata read and sends the outcome through the channel.
 ///
@@ -44,7 +45,7 @@ async fn read_and_send_outcome(
 /// Returns true if processing should continue, false if stop was requested.
 fn process_outcome_static<F, G>(
     outcome: ReadOutcome,
-    metrics: &mut AsyncReadPoolMetrics,
+    metrics: &mut AsyncReadMetrics,
     success_callback: &mut F,
     failure_callback: &mut G,
     results_processed: &mut u16,
@@ -83,7 +84,7 @@ where
 {
     receiver: &'a mut UnboundedReceiver<ReadOutcome>,
     pending_count: &'a mut u16,
-    metrics: &'a mut AsyncReadPoolMetrics,
+    metrics: &'a mut AsyncReadMetrics,
     success_callback: &'a mut F,
     failure_callback: &'a mut G,
     results_processed: u16,
@@ -218,19 +219,6 @@ enum ReadOutcome {
     Error { user_data: u64 },
 }
 
-/// Metrics collected during async read pool operation.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AsyncReadPoolMetrics {
-    /// Total number of read requests added to the pool.
-    pub total_reads_requested: u64,
-    /// Number of reads that completed successfully with a document found.
-    pub reads_found: u64,
-    /// Number of reads that completed but document was not found.
-    pub reads_not_found: u64,
-    /// Number of reads that failed with an error.
-    pub reads_errors: u64,
-}
-
 /// A pool for managing concurrent async document metadata reads.
 ///
 /// Uses a tokio runtime to spawn async tasks and an mpsc channel to collect results.
@@ -245,7 +233,7 @@ pub struct AsyncReadPool<'a> {
     max_concurrent: u16,
     /// Number of tasks currently spawned that haven't been received yet.
     pending_count: u16,
-    metrics: AsyncReadPoolMetrics,
+    metrics: AsyncReadMetrics,
 }
 
 impl<'a> AsyncReadPool<'a> {
@@ -271,7 +259,7 @@ impl<'a> AsyncReadPool<'a> {
             receiver,
             max_concurrent,
             pending_count: 0,
-            metrics: AsyncReadPoolMetrics::default(),
+            metrics: AsyncReadMetrics::default(),
         })
     }
 
@@ -339,5 +327,12 @@ impl<'a> AsyncReadPool<'a> {
         ));
 
         *ctx.pending_count
+    }
+}
+
+impl Drop for AsyncReadPool<'_> {
+    fn drop(&mut self) {
+        // Accumulate this pool's metrics into the doc table's totals
+        self.doc_table.accumulate_async_read_metrics(&self.metrics);
     }
 }

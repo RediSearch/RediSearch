@@ -2,12 +2,15 @@ pub mod database;
 pub mod disk_context;
 pub mod document_id_key;
 pub mod index_spec;
+pub mod info_sink;
 pub mod key_traits;
 pub mod merge_op;
 pub mod metrics;
 pub mod utils;
 pub mod value_traits;
 pub mod vecsim_disk;
+
+pub use info_sink::InfoSink;
 
 use crate::disk_context::DiskContext;
 use crate::index_spec::IndexSpec;
@@ -16,11 +19,12 @@ use crate::index_spec::doc_table::{DocumentFlag, flags_from_oss, flags_to_oss};
 use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
 use ffi::{
-    AllocateKeyCallback, BasicDiskAPI, DiskColumnFamilyMetrics, DocTableDiskAPI, IndexDiskAPI,
+    AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_TERM_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR, MetricsDiskAPI,
     QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RSQueryTerm,
-    RedisModuleCtx, RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec,
-    VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId, t_fieldMask,
+    RedisModuleCtx, RedisModuleInfoCtx, RedisSearchDisk, RedisSearchDiskAPI,
+    RedisSearchDiskIndexSpec, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId,
+    t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -109,8 +113,8 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             freeVectorIndex: Some(vector_free_index),
         },
         metrics: MetricsDiskAPI {
-            collectDocTableMetrics: Some(collect_doc_table_metrics),
-            collectTextInvertedIndexMetrics: Some(collect_inverted_index_metrics),
+            collectIndexMetrics: Some(collect_index_metrics),
+            outputInfoMetrics: Some(output_info_metrics),
         },
     };
 
@@ -245,22 +249,30 @@ extern "C" fn index_spec_open(
     }
 }
 
-/// Closes an index.
+/// Closes an index and removes its metrics from the disk context.
 ///
 /// # Safety
-/// 1. `index` must have been returned from [`index_spec_open`].
-/// 2. If `index` is null (because [`index_spec_open`] failed), this function is a no-op.
-extern "C" fn index_spec_close(index: *mut RedisSearchDiskIndexSpec) {
+/// 1. `disk` must have been returned from [`open`].
+/// 2. `index` must have been returned from [`index_spec_open`].
+/// 3. If `index` is null (because [`index_spec_open`] failed), this function is a no-op.
+extern "C" fn index_spec_close(disk: *mut RedisSearchDisk, index: *mut RedisSearchDiskIndexSpec) {
     // Handle null pointer case (when index_spec_open failed)
     if index.is_null() {
-        warn!("index_spec_close called with null pointer, skipping");
+        warn!("index_spec_close called with null index pointer, skipping");
         return;
     }
 
-    // Safety: See safety point 1 above.
+    // Safety: See safety point 2 above.
     let index = unsafe { IndexSpec::from_ptr(index) };
 
     debug!(index_name = index.name(), "closing index spec");
+
+    // Remove the index's metrics from the disk context
+    if !disk.is_null() {
+        // SAFETY: Caller guarantees disk is a valid DiskContext pointer
+        let disk_ctx = unsafe { &mut *(disk as *mut DiskContext) };
+        disk_ctx.remove_index_metrics(index.name());
+    }
 
     // Drop the index. If it was marked for deletion, the database's Drop implementation
     // will automatically destroy the database files.
@@ -1258,68 +1270,49 @@ extern "C" fn vector_free_index(vec_index: *mut c_void) {
     unsafe { vecsim_disk::VecSimDisk_FreeIndex(vec_index) };
 }
 
-/// Collects metrics for the doc_table column family.
+/// Collects metrics for an index and stores them in the disk context.
+///
+/// Returns the total memory used by this index's disk components.
 ///
 /// # Safety
-/// 1. `index` must be a valid pointer to an IndexSpec
-/// 2. `metrics` must be a valid pointer to a DiskColumnFamilyMetrics struct
-unsafe extern "C" fn collect_doc_table_metrics(
+/// 1. `disk` must be a valid pointer to a DiskContext
+/// 2. `index` must be a valid pointer to an IndexSpec
+unsafe extern "C" fn collect_index_metrics(
+    disk: *mut RedisSearchDisk,
     index: *mut RedisSearchDiskIndexSpec,
-    metrics: *mut DiskColumnFamilyMetrics,
-) -> bool {
-    if index.is_null() || metrics.is_null() {
-        error!("collect_doc_table_metrics: null pointer passed");
-        return false;
+) -> u64 {
+    if disk.is_null() || index.is_null() {
+        error!("collect_index_metrics: null pointer passed");
+        return 0;
     }
+
+    // SAFETY: Caller guarantees disk is a valid DiskContext pointer
+    let disk_ctx = unsafe { &mut *(disk as *mut DiskContext) };
 
     // SAFETY: Caller guarantees index is a valid IndexSpec pointer
     let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        error!("collect_doc_table_metrics: failed to convert index pointer");
-        return false;
+        error!("collect_index_metrics: failed to convert index pointer");
+        return 0;
     };
 
-    // SAFETY: `metrics` was checked for null above, and the caller guarantees
-    // it points to a valid `DiskColumnFamilyMetrics` instance with the expected
-    // layout for the duration of this call.
-    let metrics_ref: &mut DiskColumnFamilyMetrics = unsafe { &mut *metrics };
-
-    index_spec
-        .doc_table()
-        .collect_metrics()
-        .populate_metrics(metrics_ref);
-
-    true
+    disk_ctx.collect_index_metrics(index_spec)
 }
 
-/// Collects metrics for the inverted_index (fulltext) column family.
+/// Outputs aggregated disk metrics to Redis INFO.
 ///
 /// # Safety
-/// 1. `index` must be a valid pointer to an IndexSpec
-/// 2. `metrics` must be a valid pointer to a DiskColumnFamilyMetrics struct
-unsafe extern "C" fn collect_inverted_index_metrics(
-    index: *mut RedisSearchDiskIndexSpec,
-    metrics: *mut DiskColumnFamilyMetrics,
-) -> bool {
-    if index.is_null() || metrics.is_null() {
-        error!("collect_inverted_index_metrics: null pointer passed");
-        return false;
+/// 1. `disk` must be a valid pointer to a DiskContext
+/// 2. `ctx` must be a valid pointer to a RedisModuleInfoCtx
+unsafe extern "C" fn output_info_metrics(disk: *mut RedisSearchDisk, ctx: *mut RedisModuleInfoCtx) {
+    if disk.is_null() || ctx.is_null() {
+        error!("output_info_metrics: null pointer passed");
+        return;
     }
 
-    // SAFETY: Caller guarantees index is a valid IndexSpec pointer
-    let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
-        error!("collect_inverted_index_metrics: failed to convert index pointer");
-        return false;
-    };
+    // SAFETY: Caller guarantees disk is a valid DiskContext pointer
+    let disk_ctx = unsafe { &*(disk as *const DiskContext) };
 
-    // SAFETY: `metrics` was checked for null above, and the caller guarantees
-    // it points to a valid `DiskColumnFamilyMetrics` instance with the expected
-    // layout for the duration of this call.
-    let metrics_ref: &mut DiskColumnFamilyMetrics = unsafe { &mut *metrics };
-
-    index_spec
-        .inverted_index()
-        .collect_metrics()
-        .populate_metrics(metrics_ref);
-
-    true
+    // SAFETY: Caller guarantees ctx is a valid RedisModuleInfoCtx pointer
+    let mut ctx_ref = unsafe { &mut *ctx };
+    disk_ctx.output_info_metrics(&mut ctx_ref);
 }

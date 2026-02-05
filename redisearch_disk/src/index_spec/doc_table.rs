@@ -3,6 +3,7 @@ mod doc_table_reader;
 mod document_flags;
 mod document_metadata;
 
+pub use crate::metrics::AsyncReadMetrics;
 pub use async_read_pool::AsyncReadPool;
 use doc_table_reader::DocTableReader;
 pub use doc_table_reader::ReaderCreateError as DocTableReaderCreateError;
@@ -33,7 +34,7 @@ use redis_module::raw::{RedisModuleIO, load_unsigned, save_unsigned};
 
 use super::RDBVersion;
 
-use crate::metrics::CFMetrics;
+use crate::metrics::{AtomicAsyncReadMetrics, ColumnFamilyMetrics};
 
 /// The DocTable struct represents a mapping from document IDs to the Redis key and document
 /// metadata. It is used to look up documents by their IDs and to generate new document IDs
@@ -58,6 +59,9 @@ pub struct DocTable {
 
     /// Set of deleted document IDs tracked using a roaring bitmap
     deleted_ids: DeletedIdsStore,
+
+    /// Accumulated async read metrics from all pools that have been freed.
+    async_read_metrics: AtomicAsyncReadMetrics,
 
     /// The Speedb database instance used for storage.
     /// It needs to be declared last so it's dropped after CF handles
@@ -91,8 +95,22 @@ impl DocTable {
             document_type,
             write_options,
             deleted_ids,
+            async_read_metrics: AtomicAsyncReadMetrics::default(),
             database,
         })
+    }
+
+    /// Accumulates async read metrics from a pool into the doc table's totals.
+    ///
+    /// This should be called when an async read pool is freed to preserve
+    /// the metrics for reporting.
+    pub fn accumulate_async_read_metrics(&self, pool_metrics: &AsyncReadMetrics) {
+        self.async_read_metrics.accumulate(pool_metrics);
+    }
+
+    /// Returns a copy of the accumulated async read metrics.
+    pub fn get_async_read_metrics(&self) -> AsyncReadMetrics {
+        self.async_read_metrics.load()
     }
 
     /// Returns the column family descriptor for the document table.
@@ -422,7 +440,7 @@ impl DocTable {
     }
 
     /// Collect metrics for the document table column family.
-    pub fn collect_metrics(&self) -> crate::metrics::CFMetrics {
-        CFMetrics::collect(&self.database, &self.cf)
+    pub fn collect_metrics(&self) -> ColumnFamilyMetrics {
+        ColumnFamilyMetrics::collect(&self.database, &self.cf)
     }
 }

@@ -1,0 +1,62 @@
+//! Async read pool metrics.
+
+use std::ops::AddAssign;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Metrics collected during async read pool operation.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Metrics {
+    /// Total number of read requests added to the pool.
+    pub total_reads_requested: u64,
+    /// Number of reads that completed successfully with a document found.
+    pub reads_found: u64,
+    /// Number of reads that completed but document was not found.
+    pub reads_not_found: u64,
+    /// Number of reads that failed with an error.
+    pub reads_errors: u64,
+}
+
+impl AddAssign for Metrics {
+    fn add_assign(&mut self, other: Self) {
+        self.total_reads_requested += other.total_reads_requested;
+        self.reads_found += other.reads_found;
+        self.reads_not_found += other.reads_not_found;
+        self.reads_errors += other.reads_errors;
+    }
+}
+
+/// Atomic version of async read metrics for lock-free accumulation.
+///
+/// Used by `DocTable` to accumulate metrics from multiple `AsyncReadPool` instances
+/// without requiring a mutex.
+#[derive(Debug, Default)]
+pub struct AtomicMetrics {
+    total_reads_requested: AtomicU64,
+    reads_found: AtomicU64,
+    reads_not_found: AtomicU64,
+    reads_errors: AtomicU64,
+}
+
+impl AtomicMetrics {
+    /// Atomically accumulates metrics from a `Metrics` instance.
+    pub fn accumulate(&self, other: &Metrics) {
+        self.total_reads_requested
+            .fetch_add(other.total_reads_requested, Ordering::Relaxed);
+        self.reads_found
+            .fetch_add(other.reads_found, Ordering::Relaxed);
+        self.reads_not_found
+            .fetch_add(other.reads_not_found, Ordering::Relaxed);
+        self.reads_errors
+            .fetch_add(other.reads_errors, Ordering::Relaxed);
+    }
+
+    /// Loads the current metrics as a `Metrics` snapshot.
+    pub fn load(&self) -> Metrics {
+        Metrics {
+            total_reads_requested: self.total_reads_requested.load(Ordering::Relaxed),
+            reads_found: self.reads_found.load(Ordering::Relaxed),
+            reads_not_found: self.reads_not_found.load(Ordering::Relaxed),
+            reads_errors: self.reads_errors.load(Ordering::Relaxed),
+        }
+    }
+}

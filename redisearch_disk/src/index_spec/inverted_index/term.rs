@@ -183,8 +183,8 @@ impl InvertedIndex {
     }
 
     /// Collect metrics for the text inverted index column family.
-    pub fn collect_metrics(&self) -> crate::metrics::CFMetrics {
+    pub fn collect_metrics(&self) -> crate::metrics::ColumnFamilyMetrics {
         let cf = self.inner.cf_handle();
-        crate::metrics::CFMetrics::collect(self.inner.database(), &cf)
+        crate::metrics::ColumnFamilyMetrics::collect(self.inner.database(), &cf)
     }
 }

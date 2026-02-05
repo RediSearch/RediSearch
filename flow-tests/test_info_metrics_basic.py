@@ -14,7 +14,7 @@ def test_info_search_basic(redis_env):
 
     # Test before creating any indexes.
     info_before = redis_env.cmd('INFO', 'search')
-    expected_both = {
+    expected_cf_metrics = {
         'num_immutable_memtables': 0,
         'num_immutable_memtables_flushed': 0,
         'mem_table_flush_pending': 0,
@@ -34,8 +34,16 @@ def test_info_search_basic(redis_env):
         'num_live_versions': 0,
         'estimate_table_readers_mem': 0
     }
-    redis_env.assertEqual(info_before['search_disk_doc_table'], expected_both)
-    redis_env.assertEqual(info_before['search_disk_text_inverted_index'], expected_both)
+    # Doc table has additional async read metrics
+    expected_doc_table = {
+        **expected_cf_metrics,
+        'async_total_reads_requested': 0,
+        'async_reads_found': 0,
+        'async_reads_not_found': 0,
+        'async_reads_errors': 0
+    }
+    redis_env.assertEqual(info_before['search_disk_doc_table'], expected_doc_table)
+    redis_env.assertEqual(info_before['search_disk_text_inverted_index'], expected_cf_metrics)
 
     # --------------------------- Create an index ------------------------------
     redis_env.cmd("FT.CREATE", "idx", "SKIPINITIALSCAN", "SCHEMA", "t", "TEXT")
@@ -71,7 +79,11 @@ def test_info_search_basic(redis_env):
         'estimate_live_data_size': 0,
         'live_sst_files_size': 0,
         'num_live_versions': 1,
-        'estimate_table_readers_mem': 0
+        'estimate_table_readers_mem': 0,
+        'async_total_reads_requested': 0,
+        'async_reads_found': 0,
+        'async_reads_not_found': 0,
+        'async_reads_errors': 0
     }
     redis_env.assertEqual(disk_doc_after_create, expected_dt)
 
@@ -140,7 +152,11 @@ def test_info_search_basic(redis_env):
         'estimate_live_data_size': 0,
         'live_sst_files_size': 0,
         'num_live_versions': 1,
-        'estimate_table_readers_mem': 0
+        'estimate_table_readers_mem': 0,
+        'async_total_reads_requested': 0,
+        'async_reads_found': 0,
+        'async_reads_not_found': 0,
+        'async_reads_errors': 0
     }
     redis_env.assertEqual(disk_doc_after_pop, expected_dt)
 
