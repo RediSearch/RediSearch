@@ -27,7 +27,7 @@ extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
+static bool writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
   size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
   // Update index statistics:
@@ -42,6 +42,7 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
+  return sz > 0;
 }
 
 // Number of terms for each block-allocator block
@@ -108,13 +109,13 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     } else {
       bool isNew;
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
-      if (isNew && strlen(entry->term) != 0) {
-        IndexSpec_AddTerm(spec, entry->term, entry->len);
-      }
       if (invidx) {
         entry->docId = aCtx->doc->docId;
         RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-        writeIndexEntry(spec, invidx, entry);
+        bool isIndexed = writeIndexEntry(spec, invidx, entry);
+        if (isIndexed && isNew && strlen(entry->term) != 0) {
+          IndexSpec_AddTerm(spec, entry->term, entry->len);
+        }
       }
     }
 
