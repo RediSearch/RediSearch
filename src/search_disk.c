@@ -54,13 +54,13 @@ void SearchDisk_Close() {
 }
 
 void SearchDisk_StartGC() {
-  if (disk){
+  if (disk) {
     disk->basic.startGC();
   }
 }
 
 void SearchDisk_StopGC() {
-  if (disk){
+  if (disk) {
     disk->basic.stopGC();
   }
 }
