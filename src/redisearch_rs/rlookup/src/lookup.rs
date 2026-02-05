@@ -524,8 +524,11 @@ mod tests {
 
     use crate::mock::{array_free, array_new};
 
-    use std::ptr::{self, NonNull};
     use std::{ffi::CString, mem::MaybeUninit};
+    use std::{
+        ffi::c_char,
+        ptr::{self, NonNull},
+    };
 
     use enumflags2::make_bitflags;
     use pretty_assertions::assert_eq;
@@ -1457,7 +1460,7 @@ mod tests {
         }
     }
 
-    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut i8 {
+    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut c_char {
         let temp = filter_fields
             .iter()
             .map(|ff| ff.as_ptr().cast_mut())
