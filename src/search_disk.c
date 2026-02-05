@@ -54,13 +54,15 @@ void SearchDisk_Close() {
 }
 
 void SearchDisk_StartGC() {
-  RS_ASSERT(disk);
-  disk->basic.startGC();
+  if (disk){
+    disk->basic.startGC();
+  }
 }
 
 void SearchDisk_StopGC() {
-  RS_ASSERT(disk);
-  disk->basic.stopGC();
+  if (disk){
+    disk->basic.stopGC();
+  }
 }
 
 // Basic API wrappers
