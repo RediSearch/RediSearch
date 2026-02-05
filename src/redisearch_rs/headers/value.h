@@ -145,6 +145,8 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
 
 struct RsValue *RSValue_NullStatic(void);
 
+struct RsValue *RSValue_NewReference(const struct RsValue *src);
+
 /**
  * Gets the numeric value from an [`RsValue`].
  *
@@ -403,6 +405,20 @@ const struct RsValue *SharedRsValue_NewNumberFromInt64(int64_t dd);
  *    `RSValue_*` function returning an owned [`RsValue`] object.
  */
 void RSValue_DecrRef(const struct RsValue *value);
+
+struct RsValue *RSValue_Dereference(const struct RsValue *value);
+
+void RSValue_Clear(const struct RsValue *value);
+
+struct RsValue *RSValue_IncrRef(const struct RsValue *value);
+
+void RSValue_MakeReference(const struct RsValue *dst, const struct RsValue *src);
+
+void RSValue_MakeOwnReference(const struct RsValue *dst, const struct RsValue *src);
+
+void RSValue_Replace(struct RsValue **dstpp, const struct RsValue *src);
+
+uint16_t RSValue_Refcount(const struct RsValue *value);
 
 /**
  * Returns the type of the given [`RsValue`].
