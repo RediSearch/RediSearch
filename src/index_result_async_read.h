@@ -110,9 +110,10 @@ void IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
  *
  * @param state Async read state structure
  * @param timeout_ms Timeout in milliseconds for the poll operation
+ * @param expiration_point Current time for expiration check.
  * @return Number of pending async reads still in progress
  */
-size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms);
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms, const t_expirationTimePoint *expiration_point);
 
 /**
  * Pop a ready result from the completed async reads

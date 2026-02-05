@@ -150,11 +150,11 @@ typedef struct DocTableDiskAPI {
    * @param handle Handle to the document table
    * @param docId Document ID
    * @param dmd Pointer to the document metadata structure to populate
-   * @param allocateKey Callback to allocate memory for the key
-   * @param current_time Current time for expiration check.
+   * @param allocate_key Callback to allocate memory for the key
+   * @param expiration_point Current time for expiration check.
    * @return true if found and not expired, false if not found, expired, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey, struct timespec current_time);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, t_expirationTimePoint expiration_point);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -223,13 +223,15 @@ typedef struct DocTableDiskAPI {
    * @param results_capacity Size of the results buffer (must be > 0)
    * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
    * @param failed_capacity Size of the failed_user_data buffer (must be > 0)
-   * @param allocateDMD Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
+   * @param expiration_point Current time for expiration check.
+   * @param allocate_dmd Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
    * @return AsyncPollResult with counts of ready, failed, and pending reads
    */
   AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
                                     AsyncReadResult* results, uint16_t results_capacity,
                                     uint64_t* failed_user_data, uint16_t failed_capacity,
-                                    AllocateDMDCallback allocateDMD);
+                                    t_expirationTimePoint expiration_point,
+                                    AllocateDMDCallback allocate_dmd);
 
   /**
    * @brief Frees the async read pool and cancels any pending reads

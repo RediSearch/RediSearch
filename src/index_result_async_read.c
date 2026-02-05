@@ -131,11 +131,11 @@ static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *s
   }
 }
 
-size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms) {
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms, const t_expirationTimePoint *expiration_point) {
   // Poll writes directly to the arrays (capacity is poolSize)
   const size_t pendingCount = SearchDisk_PollAsyncReads(
       state->asyncPool, timeout_ms,
-      state->readyResults, state->failedUserData);
+      state->readyResults, state->failedUserData, expiration_point);
 
   // Reset index to start consuming from the beginning of readyResults
   state->readyResultsIndex = 0;
