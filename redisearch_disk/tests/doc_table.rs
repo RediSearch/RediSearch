@@ -333,11 +333,54 @@ fn iterator() {
     let result = iter.read().unwrap().unwrap();
     assert_eq!(result.doc_id, 1);
 
+    // Insert a few more docs
+    for i in 5..=7 {
+        let key = format!("doc{}", i);
+        let (_, old_len) = doc_table
+            .insert_document(
+                key.as_bytes(),
+                i as f32,
+                DocumentFlag::HasPayload.into(),
+                i * 100,
+                i * 1000,
+                None,
+            )
+            .unwrap();
+        assert_eq!(old_len, 0, "old_len should be 0 for new documents");
+    }
+
+    // Delete a document to create a gap in the document IDs
+    doc_table.delete_document(5).unwrap();
+
+    let mut iter = doc_table.wildcard_iterator(5.0).unwrap();
+
     // Skip to a specific document
     let SkipToOutcome::Found(result) = iter.skip_to(3).unwrap().unwrap() else {
         panic!("Expected Found outcome");
     };
     assert_eq!(result.doc_id, 3);
+
+    // Skip to a document that does not exist
+    let SkipToOutcome::NotFound(result) = iter.skip_to(5).unwrap().unwrap() else {
+        panic!("Expected NotFound outcome");
+    };
+
+    assert_eq!(
+        result.doc_id, 6,
+        "Since doc ID 5 does not exist, the next_doc_id should be 6"
+    );
+
+    // Skip to the document past the end
+    let SkipToOutcome::Found(result) = iter.skip_to(7).unwrap().unwrap() else {
+        panic!("Expected Found outcome");
+    };
+
+    assert_eq!(result.doc_id, 7);
+
+    // Skip to a document ID that is greater than any existing document
+    if iter.skip_to(8).unwrap() != None {
+        panic!("Expected None when skipping past the end of the document IDs");
+    };
 }
 
 #[test]

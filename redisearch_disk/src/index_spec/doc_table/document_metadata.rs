@@ -9,7 +9,7 @@ const EXPIRATION_SIZE: usize = size_of::<u64>() + size_of::<u32>();
 
 /// The DocumentMetadata struct represents the metadata associated with a document in the index,
 /// including its Redis key.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct DocumentMetadata {
     /// The Redis key of the document
     pub key: Key,

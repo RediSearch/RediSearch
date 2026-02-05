@@ -12,6 +12,11 @@ pub struct DocTableReader<'iterator, DBAccess: speedb::DBAccess> {
 
     /// Estimated number of unique documents
     estimate: u64,
+
+    /// The last read key from the iterator. This is only needed to be able to implement the
+    /// `skip_to` method of the `IndexReader` trait, which requires us to be able to return
+    /// whether the seek was successful without advancing the iterator.
+    last_read: Option<Result<Box<[u8]>, speedb::Error>>,
 }
 
 #[derive(Debug, Error)]
@@ -33,7 +38,20 @@ impl<'iterator, DBAccess: speedb::DBAccess> DocTableReader<'iterator, DBAccess> 
 
         iterator.set_mode(IteratorMode::Start);
 
-        Ok(Self { iterator, estimate })
+        let mut this = Self {
+            iterator,
+            estimate,
+            last_read: None,
+        };
+
+        this.get_next();
+
+        Ok(this)
+    }
+
+    /// Get the next key from the iterator
+    fn get_next(&mut self) {
+        self.last_read = self.iterator.next().map(|res| res.map(|(key, _value)| key));
     }
 
     /// Get an estimate of the number of unique documents in the iterator
@@ -77,8 +95,8 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
         &mut self,
         result: &mut inverted_index::RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
-        let key = match self.iterator.next() {
-            Some(Ok((key_bytes, _value_bytes))) => key_bytes,
+        let key = match self.last_read.take() {
+            Some(Ok(key_bytes)) => key_bytes,
             Some(Err(e)) => return Err(std::io::Error::other(e)),
             None => return Ok(false),
         };
@@ -92,6 +110,8 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
 
         result.doc_id = doc_id;
 
+        self.get_next();
+
         Ok(true)
     }
 
@@ -100,21 +120,41 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
         doc_id: t_docId,
         result: &mut inverted_index::RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
-        self.iterator.set_mode(IteratorMode::From(
-            &doc_id.as_key(),
-            speedb::Direction::Forward,
-        ));
+        if !self.skip_to(doc_id) {
+            return Ok(false);
+        }
 
         self.next_record(result)
     }
 
-    fn skip_to(&mut self, _doc_id: t_docId) -> bool {
-        // There are no blocks so we are already in the correct "block"
-        true
+    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        let Some(Ok(current_key)) = &self.last_read else {
+            // We are already at the end of the iterator
+            return false;
+        };
+
+        let Ok(current_doc_id) = t_docId::from_key(current_key) else {
+            // Current key is invalid, cannot skip
+            return false;
+        };
+
+        if doc_id <= current_doc_id {
+            // We cannot skip backwards so continue from the current position
+            return true;
+        }
+
+        self.iterator.set_mode(IteratorMode::From(
+            &doc_id.as_key(),
+            speedb::Direction::Forward,
+        ));
+        self.get_next();
+
+        self.last_read.as_ref().is_some()
     }
 
     fn reset(&mut self) {
         self.iterator.set_mode(IteratorMode::Start);
+        self.get_next()
     }
 
     fn unique_docs(&self) -> u64 {
@@ -137,5 +177,102 @@ impl<'index, 'iterator, DBAccess: speedb::DBAccess> IndexReader<'index>
 
     fn refresh_buffer_pointers(&mut self) {
         // We don't have any buffers to refresh
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use crate::{
+        database::SpeedbMultithreadedDatabase, index_spec::doc_table::DocumentMetadata,
+        value_traits::ValueExt,
+    };
+
+    use super::*;
+
+    /// Test to make sure skipping backwards is not possible for the reader. This test is here
+    /// because it can't be trigger from the higher level doc reader integration tests.
+    /// This test is skipped when running under Miri because it will invoke C code which Miri
+    /// cannot handle.
+    #[cfg(not(miri))]
+    #[test]
+    fn do_not_skip_backwards() {
+        let path = TempDir::new().unwrap();
+        let mut opts = speedb::Options::default();
+        opts.create_if_missing(true);
+
+        let db = SpeedbMultithreadedDatabase::open(&opts, path).unwrap();
+
+        // Insert multiple documents
+        db.put(1.as_key(), DocumentMetadata::default().as_speedb_value())
+            .unwrap();
+        db.put(3.as_key(), DocumentMetadata::default().as_speedb_value())
+            .unwrap();
+        db.put(5.as_key(), DocumentMetadata::default().as_speedb_value())
+            .unwrap();
+
+        let iter = db.iterator(IteratorMode::Start);
+        let mut reader = DocTableReader::new(iter).unwrap();
+
+        // Skip to doc ID 3
+        assert!(reader.skip_to(3));
+        assert_eq!(
+            &reader
+                .last_read
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .to_vec(),
+            &3u64.as_key()
+        );
+
+        // Skipping to doc ID 4 should move the iterator to doc ID 5, since there is no doc ID 4
+        assert!(reader.skip_to(4));
+        assert_eq!(
+            &reader
+                .last_read
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .to_vec(),
+            &5u64.as_key()
+        );
+
+        // Skipping to the current doc ID 5 should keep the iterator at doc ID 5
+        assert!(reader.skip_to(5));
+        assert_eq!(
+            &reader
+                .last_read
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .to_vec(),
+            &5u64.as_key()
+        );
+
+        // Skip to doc ID 1, which is before the current position. This should not move the iterator backwards, so it should still be at doc ID 5.
+        assert!(reader.skip_to(1));
+        assert_eq!(
+            &reader
+                .last_read
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .to_vec(),
+            &5u64.as_key()
+        );
+
+        // Read past the iterator to make sure it still works after trying to skip backwards
+        assert!(!reader.skip_to(10));
+        assert_eq!(&reader.last_read, &None);
+
+        // Skip backwards again which should fails since we reached the end of the iterator
+        assert!(!reader.skip_to(1));
+        assert_eq!(&reader.last_read, &None);
     }
 }
