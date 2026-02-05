@@ -180,3 +180,38 @@ fn revalidate_not_empty() {
     let mut it = MaybeEmpty::new(Infinite::default());
     assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
+
+#[test]
+fn current_empty_returns_none() {
+    let mut it = MaybeEmpty::<Infinite>::new_empty();
+    assert!(it.current().is_none());
+}
+
+#[test]
+fn current_not_empty_returns_some() {
+    let mut it = MaybeEmpty::new(Infinite::default());
+    let current = it.current().unwrap();
+    assert_eq!(current.doc_id, 0);
+}
+
+#[test]
+fn take_iterator_from_some_returns_inner() {
+    let mut it = MaybeEmpty::new(Infinite::default());
+    let inner = it.take_iterator();
+    assert!(inner.is_some());
+
+    // After taking, the MaybeEmpty should behave as empty
+    assert!(it.at_eof());
+    assert!(matches!(it.read(), Ok(None)));
+}
+
+#[test]
+fn take_iterator_from_empty_returns_none() {
+    let mut it = MaybeEmpty::<Infinite>::new_empty();
+    let inner = it.take_iterator();
+    assert!(inner.is_none());
+
+    // Still behaves as empty
+    assert!(it.at_eof());
+    assert!(matches!(it.read(), Ok(None)));
+}
