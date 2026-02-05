@@ -424,7 +424,7 @@ impl<'a> RLookup<'a> {
 
     pub fn load_rule_fields(
         &mut self,
-        module_ctx: &mut ffi::RedisModuleCtx,
+        search_ctx: &mut ffi::RedisSearchCtx,
         dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
         index_spec: &'a IndexSpec,
         key: &CStr,
@@ -434,7 +434,7 @@ impl<'a> RLookup<'a> {
         let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
         load_specific_keys(
             self,
-            module_ctx,
+            search_ctx,
             dst_row,
             index_spec,
             key,
@@ -481,7 +481,7 @@ fn create_key_from_data<'a>(
 
 fn load_specific_keys<'a>(
     lookup: &mut RLookup<'a>,
-    module_ctx: &mut ffi::RedisModuleCtx,
+    search_ctx: &mut ffi::RedisSearchCtx,
     dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
     index_spec: &IndexSpec,
     key: &CStr,
@@ -500,12 +500,10 @@ fn load_specific_keys<'a>(
         })
         .collect::<Vec<_>>();
 
-    let mut sctx = create_redis_search_ctx(module_ctx);
-
     let mut options = ffi::RLookupLoadOptions {
         keys: keys.as_mut_ptr(),
         nkeys: keys.len(),
-        sctx: ptr::from_mut(&mut sctx),
+        sctx: ptr::from_mut(search_ctx),
         keyPtr: key.as_ptr(),
         type_: index_spec.rule().type_(),
         status: ptr::from_mut(status),
@@ -517,27 +515,6 @@ fn load_specific_keys<'a>(
 
     // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.
     unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
-}
-
-const fn create_redis_search_ctx(module_ctx: *mut ffi::RedisModuleCtx) -> ffi::RedisSearchCtx {
-    ffi::RedisSearchCtx {
-        redisCtx: module_ctx,
-        spec: ptr::null_mut(),
-        key_: ptr::null_mut(),
-        time: ffi::SearchTime {
-            current: ffi::timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
-            timeout: ffi::timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
-        },
-        apiVersion: 0,
-        expanded: 0,
-        flags: 0,
-    }
 }
 
 #[cfg(test)]

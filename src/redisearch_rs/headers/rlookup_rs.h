@@ -433,7 +433,7 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *
  * # Safety
  *
- * 1. `module_ctx` must be a [valid], non-null pointer to an `ffi::RedisModuleCtx` that is properly initialized.
+ * 1. `search_ctx` must be a [valid], non-null pointer to an `ffi::RedisSearchCtx` that is properly initialized.
  * 2. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
  * 3. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
  * 4. `index_spec` must be a [valid], non-null pointer to an `ffi::IndexSpec` that is properly initialized.
@@ -449,7 +449,7 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int32_t RLookup_LoadRuleFields(RedisModuleCtx *module_ctx,
+int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                struct RLookup *lookup,
                                RLookupRow *dst_row,
                                IndexSpec *index_spec,

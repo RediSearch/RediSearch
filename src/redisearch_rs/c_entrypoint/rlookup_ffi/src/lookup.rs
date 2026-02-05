@@ -454,7 +454,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 ///
 /// # Safety
 ///
-/// 1. `module_ctx` must be a [valid], non-null pointer to an `ffi::RedisModuleCtx` that is properly initialized.
+/// 1. `search_ctx` must be a [valid], non-null pointer to an `ffi::RedisSearchCtx` that is properly initialized.
 /// 2. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
 /// 3. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
 /// 4. `index_spec` must be a [valid], non-null pointer to an `ffi::IndexSpec` that is properly initialized.
@@ -471,7 +471,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
-    module_ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
     lookup: Option<NonNull<RLookup<'a>>>,
     dst_row: Option<NonNull<RLookupRow<'a>>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
@@ -479,7 +479,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     status: Option<NonNull<ffi::QueryError>>,
 ) -> i32 {
     // Safety: ensured by caller (1.)
-    let ctx = unsafe { module_ctx.unwrap().as_mut() };
+    let search_ctx = unsafe { search_ctx.unwrap().as_mut() };
 
     // Safety: ensured by caller (2.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
@@ -498,7 +498,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     // Safety: ensured by caller (8.)
     let status = unsafe { status.unwrap().as_mut() };
 
-    lookup.load_rule_fields(ctx, dst_row, index_spec, key, status)
+    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
