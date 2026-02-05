@@ -57,7 +57,7 @@ impl<'a> KeyList<'a> {
     ///
     /// The key will be owned by the list and freed when dropping the list.
     //
-    // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code.
+    // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
     pub(crate) fn push<'b>(&mut self, mut key: RLookupKey<'a>) -> Pin<&'b mut RLookupKey<'a>>
     where
         'a: 'b,
