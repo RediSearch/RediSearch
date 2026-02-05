@@ -12,9 +12,9 @@ use std::ptr::NonNull;
 use ffi::{IndexFlags_Index_StoreNumeric, RS_INVALID_FIELD_INDEX, t_docId, t_fieldIndex};
 use field::FieldExpirationPredicate;
 use inverted_index::{
-    FilterNumericReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
+    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
 };
-use rqe_iterators::{RQEIterator, inverted_index::Numeric};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index::Numeric};
 
 use crate::inverted_index::utils::{BaseTest, MockContext};
 
@@ -312,6 +312,83 @@ fn numeric_range() {
         .build();
     assert_eq!(it.range_min(), 1.0);
     assert_eq!(it.range_max(), 10.0);
+
+    // Default range values when not explicitly set.
+    let it = NumericBuilder::new(ii.reader(), context.sctx()).build();
+    assert_eq!(it.range_min(), f64::NEG_INFINITY);
+    assert_eq!(it.range_max(), f64::INFINITY);
+}
+
+/// Test that read correctly skips remaining duplicates after skip_to lands
+/// on a doc with multiple entries in a multi-value index.
+#[test]
+fn skip_to_then_read_with_duplicates() {
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    // Add multiple entries with the same docId (triggers HasMultiValue flag).
+    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(10.0).doc_id(5));
+
+    let context = MockContext::new(0, 0);
+    let mut it = NumericBuilder::new(ii.reader(), context.sctx())
+        .range_tree(context.numeric_range_tree())
+        .build();
+
+    // Skip to doc 1 — should find it.
+    let res = it.skip_to(1).expect("skip_to failed");
+    let Some(SkipToOutcome::Found(record)) = res else {
+        panic!("expected Found for doc 1, got {res:?}");
+    };
+    assert_eq!(record.doc_id, 1);
+
+    // Read should skip the remaining duplicate entries for doc 1 and return doc 5.
+    let record = it.read().expect("read failed").expect("expected a result");
+    assert_eq!(record.doc_id, 5);
+
+    // No more docs.
+    assert_eq!(it.read().expect("read failed"), None);
+    assert!(it.at_eof());
+}
+
+/// Test the `reader()` accessor on the Numeric iterator.
+#[test]
+fn numeric_reader_accessor() {
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(3));
+
+    let context = MockContext::new(0, 0);
+    let it = NumericBuilder::new(ii.reader(), context.sctx())
+        .range_tree(context.numeric_range_tree())
+        .build();
+
+    // Verify the reader is accessible and reports correct unique doc count.
+    assert_eq!(it.reader().unique_docs(), 2);
+}
+
+/// Test `should_abort` returns false when no range tree is provided.
+#[test]
+fn numeric_no_range_tree_revalidate() {
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(3));
+
+    let context = MockContext::new(0, 0);
+    // Build without a range tree — should_abort will return false.
+    let mut it = NumericBuilder::new(ii.reader(), context.sctx()).build();
+
+    // Read one doc to advance the iterator.
+    let record = it.read().expect("read failed").expect("expected a result");
+    assert_eq!(record.doc_id, 1);
+
+    // Revalidate should succeed (not abort) even though there is no range tree.
+    assert_eq!(
+        it.revalidate().expect("revalidate failed"),
+        RQEValidateStatus::Ok
+    );
 }
 
 #[cfg(not(miri))]
@@ -404,6 +481,107 @@ mod not_miri {
     #[test]
     fn numeric_skip_to_expiration_multi() {
         NumericExpirationTest::new(10, true).test_skip_to_expiration();
+    }
+
+    /// Test that skip_to on a non-existent doc ID where the next doc found is
+    /// NOT expired returns NotFound via the `skip_to_check_expiration` path.
+    /// Exercises the NotFound branch when the seeked doc is not expired.
+    #[test]
+    fn numeric_skip_to_non_existent_with_expiration() {
+        use rqe_iterators_test_utils::{GlobalGuard, TestContext};
+
+        let _guard = GlobalGuard::default();
+
+        // Create docs with IDs 1, 3, 5, 7 (gaps at 2, 4, 6).
+        let records = [1u64, 3, 5, 7]
+            .into_iter()
+            .map(|id| RSIndexResult::numeric(id as f64 * 2.0).doc_id(id));
+        let mut context = TestContext::numeric(records, false);
+        let field_index = context.field_spec().index;
+
+        // Expire doc 1 so that has_expiration is enabled
+        // (TTL table gets populated, monitorFieldExpiration is true).
+        context.mark_index_expired(vec![1], field::FieldMaskOrIndex::Index(field_index));
+
+        let ii = context.numeric_inverted_index().as_numeric();
+        let reader = ii.reader();
+
+        let mut it = NumericBuilder::new(reader, context.sctx)
+            .field_index(field_index)
+            .range_tree(context.numeric_range_tree())
+            .build();
+
+        // Skip to doc 2, which doesn't exist. The seeker finds doc 3
+        // (the next available), which is NOT expired.
+        // This exercises skip_to_check_expiration's NotFound branch for non-expired docs.
+        let res = it.skip_to(2).expect("skip_to failed");
+        let Some(SkipToOutcome::NotFound(record)) = res else {
+            panic!("expected NotFound for doc 2, got {res:?}");
+        };
+        assert_eq!(record.doc_id, 3);
+        assert_eq!(it.last_doc_id(), 3);
+    }
+
+    /// Test that `has_expiration` returns false when using `RS_INVALID_FIELD_INDEX`
+    /// even though TTL is enabled. This exercises the fallback branch in `has_expiration`.
+    #[test]
+    fn numeric_no_expiration_with_invalid_field_index() {
+        use rqe_iterators_test_utils::{GlobalGuard, TestContext};
+
+        let _guard = GlobalGuard::default();
+
+        // Create a context with TTL enabled (docs exist).
+        let records = [1u64, 2, 3]
+            .into_iter()
+            .map(|id| RSIndexResult::numeric(id as f64 * 2.0).doc_id(id));
+        let mut context = TestContext::numeric(records, false);
+        let field_index = context.field_spec().index;
+
+        // Mark one doc as expired so the TTL table is populated.
+        context.mark_index_expired(vec![1], field::FieldMaskOrIndex::Index(field_index));
+
+        let ii = context.numeric_inverted_index().as_numeric();
+        let reader = ii.reader();
+
+        // Build with RS_INVALID_FIELD_INDEX — has_expiration should return false
+        // because the field index is invalid, even though TTL is set up.
+        let mut it = NumericBuilder::new(reader, context.sctx)
+            .range_tree(context.numeric_range_tree())
+            .build();
+
+        // Doc 1 has an expired field, but since we're using RS_INVALID_FIELD_INDEX,
+        // expiration checking is disabled. We should see all docs including doc 1.
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 1);
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 2);
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 3);
+        assert_eq!(it.read().expect("read failed"), None);
+    }
+
+    /// Test that revalidation with `last_doc_id == 0` returns Ok even when
+    /// the underlying index has been modified (needs_revalidation is true).
+    /// Exercises the `last_doc_id == 0` early return in `revalidate`.
+    #[test]
+    fn numeric_revalidate_needs_revalidation_before_reads() {
+        let test = NumericRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        let ii = test.test.context.numeric_inverted_index().as_numeric();
+
+        // Trigger GC on the index so needs_revalidation() returns true.
+        test.test.remove_document(ii, 1);
+
+        // Revalidate before any reads. last_doc_id is 0, so even though
+        // needs_revalidation is true, we should get Ok.
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+
+        // The iterator should still work — doc 1 was removed, so first doc is 3.
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 3);
     }
 
     struct NumericRevalidateTest {
