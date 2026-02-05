@@ -53,6 +53,16 @@ void SearchDisk_Close() {
   }
 }
 
+void SearchDisk_StartGC() {
+  RS_ASSERT(disk);
+  disk->basic.startGC();
+}
+
+void SearchDisk_StopGC() {
+  RS_ASSERT(disk);
+  disk->basic.stopGC();
+}
+
 // Basic API wrappers
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type) {
     RS_ASSERT(disk_db);

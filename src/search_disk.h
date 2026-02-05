@@ -36,6 +36,22 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx);
  */
 void SearchDisk_Close();
 
+/**
+ * @brief Start the GC scheduler
+ *
+ * Should be called after SearchDisk_Initialize() succeeds.
+ * Spawns a background thread that periodically runs GC on inverted indexes.
+ */
+void SearchDisk_StartGC(void);
+
+/**
+ * @brief Stop the GC scheduler
+ *
+ * Should be called before SearchDisk_Close().
+ * Stops the background thread and waits for it to finish.
+ */
+void SearchDisk_StopGC(void);
+
 // Basic API wrappers
 
 /**

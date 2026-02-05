@@ -1664,6 +1664,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
       return REDISMODULE_ERR;
     }
+    SearchDisk_StartGC();
     // Disable GC when running in Flex mode
     RSGlobalConfig.gcConfigParams.enableGC = false;
     RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
@@ -4654,6 +4655,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RSGlobalConfig.defaultScorer = NULL;
   }
 
+  SearchDisk_StopGC();
   SearchDisk_Close();
 
   return REDISMODULE_OK;
