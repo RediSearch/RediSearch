@@ -11,6 +11,8 @@ use ffi::RedisModuleString;
 use std::ffi::{CString, c_char, c_double};
 use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 
+use crate::util::rsvalue_str_to_float;
+
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -198,4 +200,20 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw().cast_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32) -> *mut RsValue {
+    // C uses fast_float_strtod
+    let slice = unsafe { std::slice::from_raw_parts(value as *const u8, len as usize) };
+    let Some(number) = rsvalue_str_to_float(slice) else {
+        return std::ptr::null_mut();
+    };
+
+    SharedRsValue::new(RsValue::Number(number)).into_raw() as *mut _
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
+    SharedRsValue::new(RsValue::Number(number as f64)).into_raw() as *mut _
 }
