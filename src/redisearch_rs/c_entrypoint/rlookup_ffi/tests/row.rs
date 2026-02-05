@@ -9,13 +9,10 @@
 
 #![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 
-use std::mem::{self, offset_of};
-use std::ptr;
 use std::ptr::NonNull;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use std::{cmp, ffi::CString};
+use std::{mem, ptr};
 
 use rlookup::RLookup;
 use rlookup::RLookupKeyFlags;
@@ -26,7 +23,6 @@ use rlookup_ffi::row::{
 use std::ffi::c_char;
 use std::ffi::c_int;
 use value::RSValueFFI;
-use value::RSValueTrait;
 
 #[test]
 fn rlookuprow_move() {
@@ -38,7 +34,7 @@ fn rlookuprow_move() {
     let key = lookup
         .get_key_write(c"foo", RLookupKeyFlags::empty())
         .unwrap();
-    src.write_key(key, RSValueFFI::create_num(42.0));
+    src.write_key(key, RSValueFFI::new_num(42.0));
 
     src.assert_valid("tests::row::rlookuprow_move");
     dst.assert_valid("tests::row::rlookuprow_move");
@@ -74,7 +70,7 @@ fn rlookuprow_writebyname() {
             name.as_ptr(),
             len,
             Some(NonNull::from(&mut row)),
-            NonNull::new(value.as_ptr()),
+            NonNull::new(value.as_raw()),
         );
     }
 
@@ -97,7 +93,7 @@ fn rlookuprow_writebynameowned() {
             name.as_ptr(),
             len,
             Some(NonNull::from(&mut row)),
-            NonNull::new(value.as_ptr()),
+            NonNull::new(value.as_raw()),
         );
     }
 
@@ -211,18 +207,18 @@ pub extern "C" fn HiddenString_CompareC(
     }
 }
 
-/// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
-#[unsafe(no_mangle)]
-pub extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
-    let s = s.unwrap();
-    let refcount = unsafe {
-        s.byte_add(offset_of!(ffi::IndexSpecCache, refcount))
-            .cast::<usize>()
-    };
+// /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
+// #[unsafe(no_mangle)]
+// pub extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
+//     let s = s.unwrap();
+//     let refcount = unsafe {
+//         s.byte_add(offset_of!(ffi::IndexSpecCache, refcount))
+//             .cast::<usize>()
+//     };
 
-    let refcount = unsafe { AtomicUsize::from_ptr(refcount.as_ptr()) };
+//     let refcount = unsafe { AtomicUsize::from_ptr(refcount.as_ptr()) };
 
-    if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
-        drop(unsafe { Box::from_raw(s.as_ptr()) });
-    }
-}
+//     if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+//         drop(unsafe { Box::from_raw(s.as_ptr()) });
+//     }
+// }

@@ -1890,6 +1890,10 @@ void IndexSpecCache_Decref(IndexSpecCache *c) {
   }
 }
 
+void IndexSpecCache_Incref(IndexSpecCache *c) {
+  __atomic_fetch_add(&c->refcount, 1, __ATOMIC_RELAXED);
+}
+
 // Assuming the spec is properly locked before calling this function.
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
   IndexSpecCache *ret = rm_calloc(1, sizeof(*ret));
@@ -1914,7 +1918,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
 
 IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec) {
   RS_LOG_ASSERT(spec->spcache, "Index spec cache is NULL");
-  __atomic_fetch_add(&spec->spcache->refcount, 1, __ATOMIC_RELAXED);
+  IndexSpecCache_Incref(&spec->spcache);
   return spec->spcache;
 }
 

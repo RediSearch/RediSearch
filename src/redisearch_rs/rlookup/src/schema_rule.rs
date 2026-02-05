@@ -138,9 +138,9 @@ const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CS
 mod test {
     use super::*;
 
-    use std::{ffi::CStr, mem, ptr};
-
     use pretty_assertions::assert_eq;
+    use std::ffi::c_void;
+    use std::{ffi::CStr, mem, ptr};
 
     /// Test filter_fields and filter_fields_index together since their lengths are coupled.
     #[test]
@@ -160,7 +160,7 @@ mod test {
         assert_eq!(ffi.len(), 2);
         assert_eq!(ffi, filter_fields_index);
 
-        unsafe { crate::mock::array_free(schema_rule.filter_fields.cast::<*mut c_char>()) }
+        unsafe { ffi::array_free(schema_rule.filter_fields.cast::<c_void>()) }
     }
 
     fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut c_char {
@@ -169,6 +169,20 @@ mod test {
             .map(|ff| ff.as_ptr().cast_mut())
             .collect::<Vec<_>>();
 
-        crate::mock::array_new(&temp)
+        let arr = unsafe {
+            ffi::array_new_sz(
+                u16::try_from(size_of::<*mut c_char>()).unwrap(),
+                u16::try_from(temp.len()).unwrap(),
+                0,
+            )
+            .cast::<*mut c_char>()
+        };
+        unsafe {
+            let elements = slice::from_raw_parts_mut(arr, temp.len());
+
+            elements.copy_from_slice(&temp);
+        }
+
+        arr
     }
 }
