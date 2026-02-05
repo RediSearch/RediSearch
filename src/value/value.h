@@ -108,6 +108,8 @@ RSValue *RSValue_NewNull();
  */
 RSValue *RSValue_NewString(char *str, uint32_t len);
 
+RSValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
+
 /**
  * Creates a heap-allocated RSValue wrapping a const null-terminated C string.
  * @param str The string to wrap (ownership is transferred)

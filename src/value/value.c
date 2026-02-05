@@ -215,6 +215,10 @@ RSValue *RSValue_NewString(char *str, uint32_t len) {
   return v;
 }
 
+RSValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len) {
+  return RSValue_NewString(str, len);
+}
+
 /* Same as RSValue_NewString but for const strings */
 RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
