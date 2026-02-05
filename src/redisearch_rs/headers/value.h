@@ -233,6 +233,10 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  */
 struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
 
+struct RsValue *RSValue_NewParsedNumber(const char *value, uint32_t len);
+
+struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
+
 int RSValue_ToNumber(const struct RsValue *value, double *d);
 
 const char *RSValue_ConvertStringPtrLen(const struct RsValue *value,
