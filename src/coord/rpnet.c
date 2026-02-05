@@ -532,6 +532,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
 
       return RS_RESULT_TIMEDOUT;
+    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+      // if timeout was set in previous reads, reset it
+      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
     }
 
     int ret = getNextReply(nc);
