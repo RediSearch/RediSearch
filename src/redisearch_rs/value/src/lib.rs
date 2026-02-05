@@ -11,9 +11,9 @@ use std::fmt::Debug;
 
 pub use crate::{
     collection::{RsValueArray, RsValueMap},
+    redis_string::RedisString,
     rs_string::RsString,
     shared::SharedRsValue,
-    strings::RedisString,
     trio::RsValueTrio,
 };
 
@@ -30,9 +30,9 @@ mod test_utils;
 pub use test_utils::RSValueMock;
 
 pub mod collection;
+pub mod redis_string;
 pub mod rs_string;
 pub mod shared;
-pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object

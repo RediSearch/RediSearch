@@ -11,9 +11,7 @@ use std::ffi::{c_char, c_double};
 use std::ptr::copy_nonoverlapping;
 
 use ffi::{RedisModule_Alloc, RedisModuleString};
-use value::strings::RedisString;
-use value::trio::RsValueTrio;
-use value::{RsString, RsValue, shared::SharedRsValue};
+use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
 ///
