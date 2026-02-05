@@ -233,6 +233,17 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  */
 struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
 
+int RSValue_ToNumber(const struct RsValue *value, double *d);
+
+const char *RSValue_ConvertStringPtrLen(const struct RsValue *value,
+                                        size_t *len_ptr,
+                                        char *buf,
+                                        size_t buflen);
+
+void RSValue_ToString(const struct RsValue *dst, const struct RsValue *value);
+
+size_t RSValue_NumToString(const struct RsValue *value, char *buf, size_t buflen);
+
 /**
  * Gets the numeric value from an [`RsValue`].
  *
