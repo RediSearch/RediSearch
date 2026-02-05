@@ -10,6 +10,8 @@
 use ffi::RedisModuleString;
 use libc::size_t;
 use std::ffi::{c_char, c_double};
+use std::mem::ManuallyDrop;
+use std::ops::Deref;
 use value::util::str_to_float;
 use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 
@@ -229,4 +231,12 @@ pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
     SharedRsValue::new(RsValue::Number(number as f64))
         .into_raw()
         .cast_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewReference(src: *const RsValue) -> *mut RsValue {
+    let shared_src = unsafe { SharedRsValue::from_raw(src) };
+    let shared_src = ManuallyDrop::new(shared_src);
+    let ref_value = RsValue::Ref(shared_src.deref().clone());
+    SharedRsValue::new(ref_value).into_raw() as *mut _
 }
