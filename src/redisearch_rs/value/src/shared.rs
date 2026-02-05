@@ -78,6 +78,12 @@ impl SharedRsValue {
         self.fully_dereferenced().value()
     }
 
+    /// Set a new [`RsValue`] for this [`SharedRsValue`].
+    /// Only exactly one reference to the underlying [`RsValue`] must exist.
+    ///
+    /// # Panic
+    ///
+    /// Panics if more than one reference to the underlying [`RsValue`] exists.
     pub fn set_value(&mut self, new_value: RsValue) {
         if self.is_static() {
             panic!("Cannot change the value of static NULL");
