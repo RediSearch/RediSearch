@@ -506,7 +506,11 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
     let it_ref = unsafe { &*it };
 
     match it_ref.base.type_ {
-        // TODO: check for Rust iterators once we swap the implementation
+        ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
+            unimplemented!(
+                "Numeric iterators use revision ID for revalidation, not index swapping"
+            );
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
