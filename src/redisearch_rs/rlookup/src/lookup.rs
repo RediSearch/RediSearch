@@ -448,6 +448,7 @@ fn create_keys_from_spec<'a>(
     lookup: &mut RLookup<'a>,
     index_spec: &'a IndexSpec,
 ) -> Vec<RLookupKey<'a>> {
+    // TODO: Consider returning `impl Iterator` in order to avoid the `collect()` allocation below, refer to Jira ticket MOD-13907.
     let rule = index_spec.rule();
     let field_specs = index_spec.field_specs();
     rule.filter_fields_index()
