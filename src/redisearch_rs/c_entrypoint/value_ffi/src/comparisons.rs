@@ -62,9 +62,8 @@ pub unsafe extern "C" fn RSValue_BoolTest(value: *const RsValue) -> c_int {
     let result = match value {
         RsValue::Number(num) => *num != 0.0,
         RsValue::Array(arr) => arr.len() != 0,
-        _ if crate::util::rsvalue_any_str(value) => {
-            crate::util::rsvalue_as_byte_slice2(value).unwrap().len() != 0
-        }
+        RsValue::String(string) => string.as_ptr_len().1 != 0,
+        RsValue::RedisString(string) => string.as_ptr_len().1 != 0,
         _ => false,
     };
 
