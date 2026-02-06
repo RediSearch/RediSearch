@@ -40,6 +40,7 @@ fn main() {
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
+        let trie = src.join("trie");
 
         [
             redis_modules,
@@ -50,6 +51,7 @@ fn main() {
             vecsim,
             buffer,
             ttl_table,
+            trie,
         ]
     };
 
@@ -86,6 +88,8 @@ fn main() {
         src.join("sortable.h"),
         src.join("spec.h"),
         src.join("stopwords.h"),
+        src.join("trie").join("trie.h"),
+        src.join("trie").join("trie_type.h"),
         src.join("ttl_table").join("ttl_table.h"),
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
