@@ -78,10 +78,12 @@ impl CTrieRef {
     ///
     /// This function is safe to call if the `CTrieRef` was created safely.
     /// The C function handles UTF-8 to rune conversion internally.
-    pub fn decrement_num_docs(&self, term: &[u8], delta: u64) -> CTrieDecrResult {
-        // Safety: We're calling the C function with valid parameters.
+    pub fn decrement_num_docs(&mut self, term: &[u8], delta: u64) -> CTrieDecrResult {
+        // SAFETY: We're calling the C function with valid parameters.
         // The term is passed as a UTF-8 byte slice, and the C function
         // handles the conversion to runes internally via runeBufFill.
+        // The C function mutates the Trie by decrementing numDocs and
+        // potentially deleting nodes.
         let result = unsafe {
             ffi::Trie_DecrementNumDocs(
                 self.ptr,
