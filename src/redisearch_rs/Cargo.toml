@@ -3,6 +3,7 @@ members = [
     "buffer",
     "build_utils",
     "c_entrypoint/*",
+    "c_trie",
     "document",
     "ffi",
     "field",
@@ -74,6 +75,7 @@ publish = false
 buffer = { path = "./buffer" }
 build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
+c_trie = { path = "./c_trie" }
 document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }

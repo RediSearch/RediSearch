@@ -233,6 +233,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "c_trie"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "workspace_hack",
+]
+
+[[package]]
 name = "camino"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2396,6 +2404,7 @@ name = "triemap_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_trie",
  "cbindgen",
  "ffi",
  "lending-iterator",

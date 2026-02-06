@@ -13,6 +13,7 @@ cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
 
 [dependencies]
+c_trie.workspace = true
 ffi.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true

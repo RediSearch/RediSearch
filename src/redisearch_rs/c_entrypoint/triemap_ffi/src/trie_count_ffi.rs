@@ -17,7 +17,9 @@
 //!
 //! This is used by C++ tests to verify the Rust -> C integration works correctly.
 
-use std::ffi::{c_char, c_void};
+use std::ffi::c_void;
+
+use c_trie::{CTrieDecrResult, CTrieRef};
 use trie_rs::TrieCount;
 
 /// Result of applying deltas to a C Trie.
@@ -71,25 +73,16 @@ pub unsafe extern "C" fn TrieCount_TestApplyToCTrie(c_trie: *mut c_void) -> Trie
         terms_not_found: 0,
     };
 
-    // Cast c_void pointer to the FFI Trie type
-    let c_trie_ptr = c_trie as *mut ffi::Trie;
+    // Create a safe wrapper around the C Trie pointer
+    // Safety: The caller guarantees c_trie is a valid pointer to a C Trie
+    let c_trie_ref = unsafe { CTrieRef::from_raw(c_trie as *mut ffi::Trie) };
 
     // Iterate over all terms in lexicographic order and apply to C Trie
     for (term, delta) in counter.iter() {
-        let decr_result = unsafe {
-            ffi::Trie_DecrementNumDocs(
-                c_trie_ptr,
-                term.as_ptr() as *const c_char,
-                term.len(),
-                delta as usize,
-            )
-        };
-
-        match decr_result {
-            ffi::TrieDecrResult_TRIE_DECR_NOT_FOUND => result.terms_not_found += 1,
-            ffi::TrieDecrResult_TRIE_DECR_UPDATED => result.terms_updated += 1,
-            ffi::TrieDecrResult_TRIE_DECR_DELETED => result.terms_deleted += 1,
-            _ => {}
+        match c_trie_ref.decrement_num_docs(&term, delta) {
+            CTrieDecrResult::NotFound => result.terms_not_found += 1,
+            CTrieDecrResult::Updated => result.terms_updated += 1,
+            CTrieDecrResult::Deleted => result.terms_deleted += 1,
         }
     }
 

@@ -15,9 +15,6 @@ use std::{
     slice,
 };
 
-/// cbindgen:ignore
-#[cfg(test)]
-pub mod c_trie_wrapper;
 mod find_prefixes;
 mod iter;
 /// cbindgen:ignore

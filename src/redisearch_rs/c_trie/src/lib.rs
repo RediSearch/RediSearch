@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Rust wrapper for the C Trie's `Trie_DecrementNumDocs` function.
+//! Rust wrapper for the C Trie API.
 //!
-//! This module provides a safe Rust interface to decrement the `numDocs` count
-//! for terms in a C Trie.
+//! This crate provides a safe Rust interface to the C Trie implementation,
+//! similar to how the `buffer` crate wraps the C Buffer API.
 
 use std::ffi::c_char;
 
@@ -96,7 +96,7 @@ impl CTrieRef {
     /// Get the raw pointer to the C Trie.
     ///
     /// This is useful when you need to pass the pointer to other C functions.
-    pub fn as_ptr(&self) -> *mut ffi::Trie {
+    pub const fn as_ptr(&self) -> *mut ffi::Trie {
         self.ptr
     }
 }
@@ -113,3 +113,4 @@ mod tests {
         assert_eq!(CTrieDecrResult::from(99), CTrieDecrResult::NotFound); // Unknown
     }
 }
+
