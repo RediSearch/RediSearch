@@ -1,6 +1,7 @@
 use ffi::context::redisearch_module_context;
 use ffi::{RedisModuleString, RedisModule_FreeString, RedisModule_StringPtrLen};
 use std::ffi::c_char;
+use std::fmt;
 use std::mem::MaybeUninit;
 
 /// An owned string backed by a [`RedisModuleString`].
@@ -8,7 +9,6 @@ use std::mem::MaybeUninit;
 /// # Safety
 ///
 /// - `ptr` must not be NULL and must point to a valid [`RedisModuleString`].
-#[derive(Clone, Debug)]
 pub struct RedisString {
     ptr: *const RedisModuleString,
 }
@@ -53,6 +53,13 @@ impl Drop for RedisString {
         let ctx = unsafe { redisearch_module_context() };
         let free_string = unsafe { RedisModule_FreeString }.expect("Redis module not initialized");
         unsafe { free_string(ctx, self.ptr as _) };
+    }
+}
+
+impl fmt::Debug for RedisString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let lossy = String::from_utf8_lossy(self.as_bytes());
+        f.debug_tuple("RedisString").field(&lossy).finish()
     }
 }
 
