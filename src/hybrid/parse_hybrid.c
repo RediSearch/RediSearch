@@ -144,11 +144,12 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   }
 
   // Add as QueryAttribute (will be applied to VectorQuery via QueryNode_ApplyAttributes)
+  size_t ratioStrLen = strlen(ratioStr);
   QueryAttribute attr = {
     .name = SHARD_K_RATIO_ATTR,
     .namelen = strlen(SHARD_K_RATIO_ATTR),
-    .value = rm_strdup(ratioStr),
-    .vallen = strlen(ratioStr)
+    .value = rm_strndup(ratioStr, ratioStrLen),
+    .vallen = ratioStrLen
   };
   pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
   return REDISMODULE_OK;
