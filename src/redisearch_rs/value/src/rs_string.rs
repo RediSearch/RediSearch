@@ -30,6 +30,8 @@ pub struct RsString {
     ptr: *const c_char,
     len: u32,
     kind: RsStringKind,
+    #[cfg(debug_assertions)]
+    guaranteed_nul_terminated: bool,
 }
 
 impl RsString {
@@ -50,6 +52,8 @@ impl RsString {
             ptr,
             len: len as u32,
             kind: RsStringKind::RustAlloc,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: true,
         }
     }
 
@@ -71,6 +75,8 @@ impl RsString {
             ptr,
             len,
             kind: RsStringKind::RmAlloc,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: true,
         }
     }
 
@@ -88,6 +94,8 @@ impl RsString {
             ptr,
             len,
             kind: RsStringKind::RmAlloc,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: false,
         }
     }
 
@@ -110,16 +118,52 @@ impl RsString {
             ptr,
             len,
             kind: RsStringKind::Borrowed,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: true,
         }
     }
 
     /// Returns the string data pointer and length.
+    ///
+    /// # Panic
+    ///
+    /// In debug builds, panics if the string is not nul-terminated.
     pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
+        #[cfg(debug_assertions)]
+        assert!(
+            self.guaranteed_nul_terminated,
+            "as_ptr_len_safe() called on possibly non-nul-terminated string"
+        );
+        (self.ptr, self.len)
+    }
+
+    /// Returns the string data pointer and length without ensuring nul-termination.
+    ///
+    /// Use this method when working with strings that may not be nul-terminated.
+    pub const fn as_ptr_len_trusted(&self) -> (*const c_char, u32) {
         (self.ptr, self.len)
     }
 
     /// Gets the string pointed to by `ptr`/`len` as a byte slice.
+    ///
+    /// # Panic
+    ///
+    /// In debug builds, panics if the string is not nul-terminated.
     pub const fn as_bytes(&self) -> &[u8] {
+        #[cfg(debug_assertions)]
+        assert!(
+            self.guaranteed_nul_terminated,
+            "as_bytes_safe() called on possibly non-nul-terminated string"
+        );
+
+        // SAFETY: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
+        unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
+    }
+
+    /// Gets the string pointed to by `ptr`/`len` as a byte slice without ensuring nul-termination.
+    ///
+    /// Use this method when working with strings that may not be nul-terminated.
+    pub const fn as_bytes_trusted(&self) -> &[u8] {
         // SAFETY: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
         unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
     }

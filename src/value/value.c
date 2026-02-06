@@ -362,6 +362,10 @@ const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
   return v->_strval.str;
 }
 
+const char *RSValue_String_GetTrusted(const RSValue *v, uint32_t *lenp) {
+  return RSValue_String_Get(v, lenp);
+}
+
 RedisModuleString *RSValue_RedisString_Get(const RSValue *v) {
   RS_ASSERT(v && v->_t == RSValueType_RedisString);
   return v->_rstrval;

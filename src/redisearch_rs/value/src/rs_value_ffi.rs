@@ -146,7 +146,7 @@ impl RSValueTrait for RSValueFFI {
             let mut len: u32 = 0;
             // Safety: We tested that the type is a string, so we access it over the union safely.
             let cstr: *const c_char =
-                unsafe { ffi::RSValue_String_Get(self.0.as_ptr(), &mut len as *mut _) };
+                unsafe { ffi::RSValue_String_GetTrusted(self.0.as_ptr(), &mut len as *mut _) };
 
             // Safety: We assume the returned char pointer and associated len are valid.
             Some(unsafe { slice::from_raw_parts(cstr.cast(), len as usize) })
