@@ -97,6 +97,9 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len) {
   return rc;
 }
 
+// Forward declaration for the internal rune-based function
+static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta);
+
 TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta) {
   if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
     return TRIE_DECR_NOT_FOUND;

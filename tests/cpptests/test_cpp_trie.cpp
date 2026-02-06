@@ -12,6 +12,7 @@
 #include "trie/trie.h"
 #include "trie/trie_type.h"
 #include "redismock/redismock.h"
+#include "redisearch_rs/headers/triemap.h"
 
 #include <set>
 #include <string>
@@ -926,4 +927,117 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   }
   EXPECT_EQ(6, count);
   TrieIterator_Free(it);
+}
+
+// Test TrieCount integration with C Trie
+// This test demonstrates the Rust -> C integration for the GC flow:
+// 1. Rust accumulates term deletion counts in a TrieCount
+// 2. The accumulated deltas are applied to a C Trie via TrieCount_ApplyToCTrie
+TEST_F(TrieTest, testTrieCountApplyToCTrie) {
+  // Create a C Trie with lexical sorting
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> triePtr(t, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert terms with various numDocs values
+  // These simulate terms that have been indexed with document counts
+  trieInsertWithNumDocs(t, "hello", 1.0, 100);    // numDocs = 100
+  trieInsertWithNumDocs(t, "world", 1.0, 50);     // numDocs = 50
+  trieInsertWithNumDocs(t, "delete_me", 1.0, 30); // numDocs = 30 (will be fully deleted)
+  trieInsertWithNumDocs(t, "partial", 1.0, 75);   // numDocs = 75
+
+  ASSERT_EQ(4, t->size);
+
+  // Verify initial numDocs values
+  EXPECT_EQ(100, trieGetNumDocs(t, "hello"));
+  EXPECT_EQ(50, trieGetNumDocs(t, "world"));
+  EXPECT_EQ(30, trieGetNumDocs(t, "delete_me"));
+  EXPECT_EQ(75, trieGetNumDocs(t, "partial"));
+
+  // Create a TrieCount using the Rust FFI
+  TrieCountHandle *tc = NewTrieCount();
+  ASSERT_TRUE(tc != nullptr);
+
+  // Add deltas to the TrieCount
+  // These simulate deletion counts accumulated during disk compaction
+  TrieCount_Increment(tc, "hello", 5, 30);        // 100 -> 70
+  TrieCount_Increment(tc, "world", 5, 20);        // 50 -> 30
+  TrieCount_Increment(tc, "delete_me", 9, 30);    // 30 -> 0 (should be deleted)
+  TrieCount_Increment(tc, "not_found", 9, 10);    // Term doesn't exist in C Trie
+
+  // Verify the TrieCount has the expected number of terms
+  EXPECT_EQ(4, TrieCount_Len(tc));
+
+  // Verify the accumulated deltas
+  EXPECT_EQ(30, TrieCount_Get(tc, "hello", 5));
+  EXPECT_EQ(20, TrieCount_Get(tc, "world", 5));
+  EXPECT_EQ(30, TrieCount_Get(tc, "delete_me", 9));
+  EXPECT_EQ(10, TrieCount_Get(tc, "not_found", 9));
+
+  // Apply the deltas to the C Trie
+  TrieCountApplyResult result = TrieCount_ApplyToCTrie(tc, (void *)t);
+
+  // Verify the apply result
+  EXPECT_EQ(2, result.terms_updated);   // "hello" and "world" were updated
+  EXPECT_EQ(1, result.terms_deleted);   // "delete_me" was deleted
+  EXPECT_EQ(1, result.terms_not_found); // "not_found" wasn't in the C Trie
+
+  // Verify the C Trie state after applying deltas
+  EXPECT_EQ(70, trieGetNumDocs(t, "hello"));     // 100 - 30 = 70
+  EXPECT_EQ(30, trieGetNumDocs(t, "world"));     // 50 - 20 = 30
+  EXPECT_EQ(0, trieGetNumDocs(t, "delete_me"));  // Deleted (node may or may not exist)
+  EXPECT_EQ(75, trieGetNumDocs(t, "partial"));   // Unchanged (not in TrieCount)
+
+  // The trie size should now be 3 (delete_me was removed)
+  EXPECT_EQ(3, t->size);
+
+  // Verify that the deleted term is no longer in the trie
+  EXPECT_FALSE(trieContains(t, "delete_me"));
+
+  // Verify that unchanged terms are still present
+  EXPECT_TRUE(trieContains(t, "hello"));
+  EXPECT_TRUE(trieContains(t, "world"));
+  EXPECT_TRUE(trieContains(t, "partial"));
+
+  // Free the TrieCount
+  TrieCount_Free(tc);
+}
+
+// Test TrieCount with incremental delta accumulation
+TEST_F(TrieTest, testTrieCountIncrementalDeltas) {
+  // Create a C Trie
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> triePtr(t, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert a term with high numDocs
+  trieInsertWithNumDocs(t, "accumulate", 1.0, 1000);
+  EXPECT_EQ(1000, trieGetNumDocs(t, "accumulate"));
+
+  // Create a TrieCount
+  TrieCountHandle *tc = NewTrieCount();
+
+  // Simulate multiple increments (as would happen during disk compaction)
+  TrieCount_Increment(tc, "accumulate", 10, 100);
+  EXPECT_EQ(100, TrieCount_Get(tc, "accumulate", 10));
+
+  TrieCount_Increment(tc, "accumulate", 10, 150);
+  EXPECT_EQ(250, TrieCount_Get(tc, "accumulate", 10));  // 100 + 150 = 250
+
+  TrieCount_Increment(tc, "accumulate", 10, 50);
+  EXPECT_EQ(300, TrieCount_Get(tc, "accumulate", 10));  // 250 + 50 = 300
+
+  // Apply to C Trie
+  TrieCountApplyResult result = TrieCount_ApplyToCTrie(tc, (void *)t);
+
+  EXPECT_EQ(1, result.terms_updated);
+  EXPECT_EQ(0, result.terms_deleted);
+  EXPECT_EQ(0, result.terms_not_found);
+
+  // Verify final numDocs value
+  EXPECT_EQ(700, trieGetNumDocs(t, "accumulate"));  // 1000 - 300 = 700
+
+  TrieCount_Free(tc);
 }
