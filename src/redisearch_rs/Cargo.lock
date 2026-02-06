@@ -2758,6 +2758,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "libc",
  "redis-module",
  "redis_mock",
  "thiserror",

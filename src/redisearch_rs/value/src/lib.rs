@@ -33,6 +33,7 @@ pub mod redis_string;
 pub mod rs_string;
 pub mod shared;
 pub mod trio;
+pub mod util;
 
 /// An actual [`RsValue`] object
 #[derive(Debug)]
