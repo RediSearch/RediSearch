@@ -21,7 +21,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   ProfileOptions profileOptions,
                                   MRCommand *xcmd, arrayof(char *) serialized,
                                   IndexSpec *sp,
-                                  HybridPipelineParams *hybridParams,
                                   VectorQuery *vq);
 
 // Access the global NumShards variable for testing
@@ -156,7 +155,7 @@ protected:
         // Build MR command
         MRCommand xcmd;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     nullptr, testIndexSpec, &hybridParams,
+                                     nullptr, testIndexSpec,
                                      passNullVectorQuery ? nullptr : vq);
 
         // Verify the command was built correctly
@@ -202,7 +201,7 @@ protected:
         // SHARD_K_RATIO here)
         MRCommand xcmd;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     nullptr, nullptr, &hybridParams, nullptr);
+                                     nullptr, nullptr, nullptr);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -244,7 +243,7 @@ protected:
       // SHARD_K_RATIO here)
       MRCommand xcmd;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                   nullptr, sp, &hybridParams, nullptr);
+                                   nullptr, sp, nullptr);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT

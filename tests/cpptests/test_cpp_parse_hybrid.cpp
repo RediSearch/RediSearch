@@ -1427,11 +1427,11 @@ TEST_F(ParseHybridTest, testShardKRatioValidMinValue) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result.vector;
+  const AREQ* vecReq = result.vector;
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.1);
 }
 
@@ -1446,11 +1446,11 @@ TEST_F(ParseHybridTest, testShardKRatioValidMidValue) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result.vector;
+  const AREQ* vecReq = result.vector;
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.5);
 }
 
@@ -1465,11 +1465,11 @@ TEST_F(ParseHybridTest, testShardKRatioValidMaxValue) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result.vector;
+  const AREQ* vecReq = result.vector;
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
 }
 
@@ -1561,11 +1561,11 @@ TEST_F(ParseHybridTest, testShardKRatioWithFilter) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result.vector;
-  ASSERT_TRUE(vecReq->ast.root != NULL);
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.8);
 }
 
@@ -1582,11 +1582,11 @@ TEST_F(ParseHybridTest, testShardKRatiowithFilterAndPostFilter) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result.vector;
-  ASSERT_TRUE(vecReq->ast.root != NULL);
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.8);
 
   // Verify that the vector node is the child of the filter node
@@ -1599,7 +1599,7 @@ TEST_F(ParseHybridTest, testShardKRatiowithFilterAndPostFilter) {
 
   // Verify the post-filter
   // Post-filters are stored in the tail pipeline, not in the vector AST
-  AGGPlan *tailPlan = result.tailPlan;
+  const AGGPlan *tailPlan = result.tailPlan;
   ASSERT_NE(tailPlan, nullptr) << "Tail plan should not be NULL";
 
   // Check that a FILTER step exists in the tail plan
@@ -1607,7 +1607,7 @@ TEST_F(ParseHybridTest, testShardKRatiowithFilterAndPostFilter) {
     << "Post-filter should be present in tail plan";
 
   // Find the FILTER step
-  const PLN_BaseStep *filterStep = AGPLN_FindStep(tailPlan, NULL, NULL, PLN_T_FILTER);
+  const PLN_BaseStep *filterStep = AGPLN_FindStep(tailPlan, nullptr, nullptr, PLN_T_FILTER);
   ASSERT_NE(filterStep, nullptr)
     << "Post-filter step should be found in tail plan";
   ASSERT_EQ(filterStep->type, PLN_T_FILTER)
@@ -1650,15 +1650,15 @@ TEST_F(ParseHybridTest, testShardKRatioBeforeYieldScoreAs) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result.vector;
-  ASSERT_TRUE(vecReq->ast.root != NULL);
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.75);
 
   // YIELD_SCORE_AS is stored in QueryNode opts.distField (not in parsedVectorData)
-  QueryNode *vn = vecReq->ast.root;
+  const QueryNode *vn = vecReq->ast.root;
   ASSERT_STREQ(vn->opts.distField, "my_score");
 }
 
@@ -1671,8 +1671,8 @@ TEST_F(ParseHybridTest, testShardKRatioDefaultValue) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result.vector;
-  ASSERT_TRUE(vecReq->ast.root != NULL);
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   VectorQuery *vq = vecReq->ast.root->vn.vq;

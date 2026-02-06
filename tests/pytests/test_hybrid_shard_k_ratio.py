@@ -9,7 +9,13 @@ Valid ratio range: (0.0, 1.0] (exclusive 0, inclusive 1)
 Default ratio: 1.0 (no optimization - each shard returns full K results)
 """
 
-from common import *
+from common import (
+    skip,
+    Env,
+    getConnectionByEnv,
+    create_np_array_typed,
+    create_random_np_array_typed,
+)
 
 
 def _validate_individual_shard_results(env, profile_response, k, expected_effective_k):
@@ -23,7 +29,7 @@ def _validate_individual_shard_results(env, profile_response, k, expected_effect
     shard_profiles = profile_response[8][1]
 
     env.assertEqual(len(shard_profiles), env.shardsCount, depth=1,
-                   message=f"Validate shards count in profile")
+                   message="Validate shards count in profile")
 
     # Parse each shard's results
     for i, shard_profile in enumerate(shard_profiles):
@@ -41,7 +47,7 @@ def _validate_individual_shard_results(env, profile_response, k, expected_effect
             message=f"Shard {i} expected {expected_effective_k} results, got {shard_result_count}")
 
 
-def ValidateHybridError(env, res, expected_error_message, message="", depth=1):
+def _validate_hybrid_error(env, res, expected_error_message, message="", depth=1):
     """Helper to validate error response from FT.HYBRID command"""
     env.assertTrue(res.errorRaised, message=message, depth=depth + 1)
     env.assertContains(expected_error_message, res.res, message=message, depth=depth + 1)
@@ -144,7 +150,7 @@ def test_shard_k_ratio_parameter_validation():
                          'VSIM', '@v', '$BLOB',
                            'KNN', '4', 'K', '5', 'SHARD_K_RATIO', ratio,
                          'PARAMS', '2', 'BLOB', query_vec.tobytes())
-        ValidateHybridError(
+        _validate_hybrid_error(
             env, res, "Invalid shard k ratio value",
             message=f"FT.HYBRID expected error for invalid shard k ratio: {ratio}")
 
@@ -153,7 +159,7 @@ def test_shard_k_ratio_parameter_validation():
                      'VSIM', '@v', '$BLOB',
                         'KNN', '4', 'K', '5', 'SHARD_K_RATIO', 'invalid',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    ValidateHybridError(
+    _validate_hybrid_error(
         env, res, "Invalid shard k ratio value",
         message="FT.HYBRID expected error for non-numeric shard k ratio")
 
@@ -170,7 +176,7 @@ def test_shard_k_ratio_missing_value():
                      'VSIM', '@v', '$BLOB',
                         'KNN', '4', 'K', '5', 'SHARD_K_RATIO',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    ValidateHybridError(
+    _validate_hybrid_error(
         env, res, "Invalid shard k ratio value",
         message="FT.HYBRID expected error for missing SHARD_K_RATIO value")
 
@@ -189,7 +195,7 @@ def test_shard_k_ratio_duplicate():
                         'KNN', '6', 'K', '5', 'SHARD_K_RATIO', '0.5',
                             'SHARD_K_RATIO', '0.8',
                      'PARAMS', '2', 'BLOB', query_vec.tobytes())
-    ValidateHybridError(
+    _validate_hybrid_error(
         env, res, "SHARD_K_RATIO",
         message="FT.HYBRID expected error for duplicate SHARD_K_RATIO")
 
@@ -300,7 +306,6 @@ def test_shard_k_ratio_insufficient_docs():
     dim = 2
     k = 5  # Request 5 results
     ratio = 0.1
-    # effectiveK = max(5/3, ceil(5*0.1)) = max(2, 1) = 2
 
     # Set up index and documents: [1, 1, 5] docs per shard (unequal distribution)
     target_docs_per_shard = [1, 1, 5]
@@ -325,7 +330,7 @@ def test_shard_k_ratio_insufficient_docs():
     #                   [{'shard_tag': 'shard:0', 'count': '1'}, ...]
     results = res[3]
 
-    # With effectiveK=2:
+    # Expected effectiveK = max(5/3, ceil(5*0.1)) = max(2, 1) = 2
     # - Shard 0 with 1 doc returns 1 (all available, less than effectiveK)
     # - Shard 1 with 1 doc returns 1 (all available, less than effectiveK)
     # - Shard 2 with 3 docs should return only 2 (limited by effectiveK)

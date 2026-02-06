@@ -223,8 +223,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams,
-                            VectorQuery *vq) {
+                            IndexSpec *sp, VectorQuery *vq) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -649,7 +648,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
     VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
                       ? vectorRequest->ast.root->vn.vq : NULL;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, &hybridParams, vq);
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, vq);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
