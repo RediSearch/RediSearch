@@ -62,9 +62,8 @@ impl TrieCount {
     /// * `key` - The key as a byte slice
     /// * `delta` - The count to add
     pub fn increment(&mut self, key: &[u8], delta: u64) {
-        self.inner.insert_with(key, |existing| {
-            existing.unwrap_or(0).saturating_add(delta)
-        });
+        self.inner
+            .insert_with(key, |existing| existing.unwrap_or(0).saturating_add(delta));
     }
 
     /// Get the current count for a key.
@@ -360,9 +359,12 @@ mod ffi_callback_tests {
     ///     uint64_t delta
     /// );
     /// ```
-    type TrieUpdateCallback =
-        unsafe extern "C" fn(trie: *mut c_void, term: *const u8, term_len: usize, delta: u64)
-            -> bool;
+    type TrieUpdateCallback = unsafe extern "C" fn(
+        trie: *mut c_void,
+        term: *const u8,
+        term_len: usize,
+        delta: u64,
+    ) -> bool;
 
     /// The callback implementation that updates the MockCTrie.
     /// In real C code, this would:
@@ -399,8 +401,7 @@ mod ffi_callback_tests {
 
         for (term, delta) in deltas.iter() {
             // SAFETY: We pass valid pointers matching the callback's expectations
-            let dropped_to_zero =
-                unsafe { callback(trie, term.as_ptr(), term.len(), delta) };
+            let dropped_to_zero = unsafe { callback(trie, term.as_ptr(), term.len(), delta) };
 
             if dropped_to_zero {
                 zeroed_count += 1;

@@ -113,4 +113,3 @@ mod tests {
         assert_eq!(CTrieDecrResult::from(99), CTrieDecrResult::NotFound); // Unknown
     }
 }
-
