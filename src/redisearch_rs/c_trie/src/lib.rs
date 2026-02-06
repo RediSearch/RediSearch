@@ -10,7 +10,6 @@
 //! Rust wrapper for the C Trie API.
 //!
 //! This crate provides a safe Rust interface to the C Trie implementation,
-//! similar to how the `buffer` crate wraps the C Buffer API.
 
 use std::ffi::c_char;
 
