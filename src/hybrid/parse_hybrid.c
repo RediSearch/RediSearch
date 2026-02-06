@@ -133,7 +133,8 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   }
 
   const char *ratioStr;
-  if (AC_GetString(ac, &ratioStr, NULL, 0) != AC_OK) {
+  size_t ratioStrLen;
+  if (AC_GetString(ac, &ratioStr, &ratioStrLen, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid SHARD_K_RATIO value");
     return REDISMODULE_ERR;
   }
@@ -144,7 +145,6 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   }
 
   // Add as QueryAttribute (will be applied to VectorQuery via QueryNode_ApplyAttributes)
-  size_t ratioStrLen = strlen(ratioStr);
   QueryAttribute attr = {
     .name = SHARD_K_RATIO_ATTR,
     .namelen = strlen(SHARD_K_RATIO_ATTR),

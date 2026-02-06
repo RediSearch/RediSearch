@@ -100,6 +100,26 @@ protected:
         return parsed;
     }
 
+    // Helper function to validate VectorQuery from parsed hybrid command
+    // Returns the VectorQuery pointer if validation passes, nullptr otherwise
+    VectorQuery* validateVectorQuery(ParsedHybridCommand *parsed, size_t expectedK, double expectedShardWindowRatio) {
+        EXPECT_NE(parsed->cmd.vector->ast.root, nullptr) << "Vector AST root should not be NULL";
+        if (!parsed->cmd.vector->ast.root) return nullptr;
+
+        EXPECT_EQ(parsed->cmd.vector->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
+        if (parsed->cmd.vector->ast.root->type != QN_VECTOR) return nullptr;
+
+        VectorQuery *vq = parsed->cmd.vector->ast.root->vn.vq;
+        EXPECT_NE(vq, nullptr) << "VectorQuery should not be NULL";
+        if (!vq) return nullptr;
+
+        EXPECT_EQ(vq->type, VECSIM_QT_KNN);
+        EXPECT_EQ(vq->knn.k, expectedK);
+        EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, expectedShardWindowRatio);
+
+        return vq;
+    }
+
     // Helper function to find K value in MRCommand
     // Returns the index of K keyword, or -1 if not found
     // If found, kValue will contain the K value as long long
@@ -128,7 +148,7 @@ protected:
         // SHARD_K_RATIO here)
         MRCommand xcmd;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     NULL, nullptr, &hybridParams, NULL);
+                                     nullptr, nullptr, &hybridParams, nullptr);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -170,7 +190,7 @@ protected:
       // SHARD_K_RATIO here)
       MRCommand xcmd;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                   NULL, sp, &hybridParams, NULL);
+                                   nullptr, sp, &hybridParams, nullptr);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
@@ -380,22 +400,13 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioModifiesK) {
     ParsedHybridCommand *parsed = parseHybridCommandHelper(args, "test_idx");
     ASSERT_NE(parsed, nullptr) << "Failed to parse hybrid command";
 
-    // Extract VectorQuery from parsed result
-    ASSERT_NE(parsed->cmd.vector->ast.root, nullptr) << "Vector AST root should not be NULL";
-    ASSERT_EQ(parsed->cmd.vector->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
-    VectorQuery *vq = parsed->cmd.vector->ast.root->vn.vq;
-    ASSERT_NE(vq, nullptr) << "VectorQuery should not be NULL";
-
-    // Verify the parsed VectorQuery has the expected values
-    // effectiveK = max(K/#shards, ceil(K * ratio))
-    //            = max(100/4, ceil(100 * 0.5)) = max(25, 50) = 50
-    EXPECT_EQ(vq->type, VECSIM_QT_KNN);
-    EXPECT_EQ(vq->knn.k, 100);
-    EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.5);
+    // Validate VectorQuery using helper
+    VectorQuery *vq = validateVectorQuery(parsed, 100, 0.5);
+    ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
-                                testIndexSpec, &hybridParams, vq);
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+                                 nullptr, testIndexSpec, &hybridParams, vq);
 
     // Verify the command was built correctly
     EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -436,22 +447,13 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioMinGuarantee) {
     ParsedHybridCommand *parsed = parseHybridCommandHelper(args, "test_idx");
     ASSERT_NE(parsed, nullptr) << "Failed to parse hybrid command";
 
-    // Extract VectorQuery from parsed result
-    ASSERT_NE(parsed->cmd.vector->ast.root, nullptr) << "Vector AST root should not be NULL";
-    ASSERT_EQ(parsed->cmd.vector->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
-    VectorQuery *vq = parsed->cmd.vector->ast.root->vn.vq;
-    ASSERT_NE(vq, nullptr) << "VectorQuery should not be NULL";
-
-    // Verify the parsed VectorQuery has the expected values
-    // effectiveK = max(K/#shards, ceil(K * ratio))
-    //            = max(100/4, ceil(100 * 0.1)) = max(25, 10) = 25
-    EXPECT_EQ(vq->type, VECSIM_QT_KNN);
-    EXPECT_EQ(vq->knn.k, 100);
-    EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.1);
+    // Validate VectorQuery using helper
+    VectorQuery *vq = validateVectorQuery(parsed, 100, 0.1);
+    ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
-                                 testIndexSpec, &hybridParams, vq);
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+                                 nullptr, testIndexSpec, &hybridParams, vq);
 
     // With 4 shards, K=100, ratio=0.1:
     // effectiveK = max(100/4, ceil(100*0.1)) = max(25, 10) = 25
@@ -489,20 +491,13 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNoModificationWhenRatioIsOne) {
     ParsedHybridCommand *parsed = parseHybridCommandHelper(args, "test_idx");
     ASSERT_NE(parsed, nullptr) << "Failed to parse hybrid command";
 
-    // Extract VectorQuery from parsed result
-    ASSERT_NE(parsed->cmd.vector->ast.root, nullptr) << "Vector AST root should not be NULL";
-    ASSERT_EQ(parsed->cmd.vector->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
-    VectorQuery *vq = parsed->cmd.vector->ast.root->vn.vq;
-    ASSERT_NE(vq, nullptr) << "VectorQuery should not be NULL";
-
-    // Verify the parsed VectorQuery has the expected values
-    EXPECT_EQ(vq->type, VECSIM_QT_KNN);
-    EXPECT_EQ(vq->knn.k, 50);
-    EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
+    // Validate VectorQuery using helper
+    VectorQuery *vq = validateVectorQuery(parsed, 50, 1.0);
+    ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
-                                 testIndexSpec, &hybridParams, vq);
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+                                 nullptr, testIndexSpec, &hybridParams, vq);
 
     // K value should remain 50 since ratio = 1.0 means no modification
     long long kValue;
@@ -540,17 +535,15 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNullVectorQuery) {
     ParsedHybridCommand *parsed = parseHybridCommandHelper(args, "test_idx");
     ASSERT_NE(parsed, nullptr) << "Failed to parse hybrid command";
 
-    // Extract VectorQuery from parsed result (but we'll pass NULL to buildMRCommand)
-    ASSERT_NE(parsed->cmd.vector->ast.root, nullptr) << "Vector AST root should not be NULL";
-    ASSERT_EQ(parsed->cmd.vector->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
-    VectorQuery *vq = parsed->cmd.vector->ast.root->vn.vq;
-    ASSERT_NE(vq, nullptr) << "VectorQuery should not be NULL";
-    EXPECT_EQ(vq->knn.k, 25);
+    // Validate VectorQuery using helper (but we'll pass NULL to buildMRCommand)
+    VectorQuery *vq = validateVectorQuery(parsed, 25, 1.0);
+    ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
+    (void)vq;  // Suppress unused variable warning - we validate but pass NULL below
 
     // Pass NULL for VectorQuery to test backward compatibility - should not modify K
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL,
-                                 testIndexSpec, &hybridParams, NULL);
+    HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+                                 nullptr, testIndexSpec, &hybridParams, nullptr);
 
     // K value should remain 25 since no VectorQuery provided
     long long kValue;
