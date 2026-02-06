@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use libc::snprintf;
+use std::ffi::c_char;
 use std::mem::ManuallyDrop;
 use value::{RsValue, shared::SharedRsValue};
 
@@ -48,4 +50,38 @@ pub(crate) unsafe fn expect_shared_value(value: *const RsValue) -> ManuallyDrop<
     // Safety: ensured by caller (1.)
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     ManuallyDrop::new(shared_value)
+}
+
+pub fn rsvalue_str_to_float(input: &[u8]) -> Option<f64> {
+    std::str::from_utf8(input).ok()?.parse::<f64>().ok()
+}
+
+pub fn rsvalue_num_to_str(number: f64) -> String {
+    let mut buf = [0u8; 128];
+    let len = num_to_string_cstyle(number, &mut buf);
+    let str_val = std::str::from_utf8(&buf[..(len as usize)]).unwrap();
+    str_val.to_owned()
+}
+
+pub fn num_to_string_cstyle(float: f64, buf: &mut [u8]) -> i32 {
+    let integer = float as i64;
+    if integer as f64 == float {
+        unsafe {
+            snprintf(
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len(),
+                c"%lld".as_ptr(),
+                integer,
+            )
+        }
+    } else {
+        unsafe {
+            snprintf(
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len(),
+                c"%.12g".as_ptr(),
+                float,
+            )
+        }
+    }
 }
