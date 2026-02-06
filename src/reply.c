@@ -505,9 +505,9 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
   v = RSValue_Dereference(v);
 
   switch (RSValue_Type(v)) {
-    case RSValueType_String:;
+    case RSValueType_String:
       uint32_t len;
-      char *str = RSValue_String_Get(v, &len);
+      char *str = RSValue_String_GetTrusted(v, &len);
       return RedisModule_Reply_StringBuffer(reply, str, len);
 
     case RSValueType_RedisString:
