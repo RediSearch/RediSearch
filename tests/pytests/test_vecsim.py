@@ -380,8 +380,8 @@ def test_create():
 
             env.assertEqual(info_data_FLAT, expected_FLAT)
 
-            # Test SVS-VAMANA index only for supported data types
-            if data_type in ('FLOAT32', 'FLOAT16'):
+            # Test SVS-VAMANA index only for supported data types and platforms
+            if data_type in ('FLOAT32', 'FLOAT16') and is_intel_opt_supported():
                 info = ['identifier', 'v_SVS_VAMANA', 'attribute', 'v_SVS_VAMANA', 'type', 'VECTOR']
                 env.assertEqual(index_info(env, 'idx3')['attributes'][0][:len(info)], info)
                 info_data_SVS_VAMANA = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx3", "v_SVS_VAMANA")
