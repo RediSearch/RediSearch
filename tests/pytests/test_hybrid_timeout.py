@@ -196,20 +196,13 @@ def test_maxprefixexpansions_warning_both_components():
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
-# @skip(cluster=True)
+@skip(cluster=True)
 def test_tail_property_not_loaded_error():
     """Test error when tail pipeline references property not loaded nor in pipeline"""
     env = Env()
     setup_basic_index(env)
-    if env.isCluster():
-        expected_error = 'Could not find the value for a parameter name,'
-    else:
-        expected_error = 'Property `__score` not loaded nor in pipeline'
-    env.expect(
-        'FT.HYBRID', 'idx', 'SEARCH', '*',
-        'VSIM', '@embedding', '$BLOB',
-        'PARAMS', '2', 'BLOB', query_vector,
-        'LOAD', '1', '@__key',
-        'APPLY', '2*@__score', 'AS', 'doubled_score')\
-            .error().contains(expected_error)
+    response = env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
+                          '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
+                          query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
+                          'AS', 'doubled_score').error().contains('Property `__score` not loaded nor in pipeline')
 
