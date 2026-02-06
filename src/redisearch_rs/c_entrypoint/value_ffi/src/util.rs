@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_char;
 use std::mem::ManuallyDrop;
 use value::{RsValue, shared::SharedRsValue};
 
@@ -49,46 +48,4 @@ pub(crate) unsafe fn expect_shared_value(value: *const RsValue) -> ManuallyDrop<
     // Safety: ensured by caller (1.)
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     ManuallyDrop::new(shared_value)
-}
-
-pub fn rsvalue_any_str(value: &RsValue) -> bool {
-    match value {
-        RsValue::Undefined => false,
-        RsValue::Null => false,
-        RsValue::Number(_) => false,
-        RsValue::String(_) => true,
-        RsValue::RedisString(_) => true,
-        RsValue::Array(_) => false,
-        RsValue::Ref(_) => false,
-        RsValue::Trio(_) => false,
-        RsValue::Map(_) => false,
-    }
-}
-
-pub fn rsvalue_as_str_ptr_len(value: &RsValue) -> Option<(*const c_char, u32)> {
-    match value {
-        RsValue::Undefined => None,
-        RsValue::Null => None,
-        RsValue::Number(_) => None,
-        RsValue::String(string) => Some(string.as_ptr_len()),
-        RsValue::RedisString(string) => Some(string.as_ptr_len()),
-        RsValue::Array(_) => None,
-        RsValue::Ref(_) => None,
-        RsValue::Trio(_) => None,
-        RsValue::Map(_) => None,
-    }
-}
-
-pub fn rsvalue_as_byte_slice2(value: &RsValue) -> Option<&[u8]> {
-    match value {
-        RsValue::Undefined => None,
-        RsValue::Null => None,
-        RsValue::Number(_) => None,
-        RsValue::String(string) => Some(string.as_bytes()),
-        RsValue::RedisString(string) => Some(string.as_bytes()),
-        RsValue::Array(_) => None,
-        RsValue::Ref(_) => None,
-        RsValue::Trio(_) => None,
-        RsValue::Map(_) => None,
-    }
 }
