@@ -223,7 +223,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, VectorQuery *vq) {
+                            IndexSpec *sp, const VectorQuery *vq) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 

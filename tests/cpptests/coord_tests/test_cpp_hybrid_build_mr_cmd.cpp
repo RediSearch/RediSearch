@@ -12,6 +12,7 @@
 #include "shard_window_ratio.h"
 #include "redisearch_rs/headers/query_error.h"
 
+#include <memory>
 #include <vector>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -21,7 +22,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   ProfileOptions profileOptions,
                                   MRCommand *xcmd, arrayof(char *) serialized,
                                   IndexSpec *sp,
-                                  VectorQuery *vq);
+                                  const VectorQuery *vq);
 
 // Access the global NumShards variable for testing
 extern size_t NumShards;
@@ -69,7 +70,7 @@ protected:
     };
 
     // Helper function to parse a hybrid command using the full parser
-    ParsedHybridCommand* parseHybridCommandHelper(RMCK::ArgvList& args, const char* indexName) {
+    std::unique_ptr<ParsedHybridCommand> parseHybridCommandHelper(RMCK::ArgvList& args, const char* indexName) {
         RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexName, true);
         if (!sctx) return nullptr;
 
@@ -79,7 +80,7 @@ protected:
         ArgsCursor ac = {0};
         HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
 
-        ParsedHybridCommand *parsed = new ParsedHybridCommand();
+        auto parsed = std::make_unique<ParsedHybridCommand>();
         parsed->hreq = hreq;
         parsed->cmd.search = hreq->requests[0];
         parsed->cmd.vector = hreq->requests[1];
@@ -92,7 +93,6 @@ protected:
         QueryError status = QueryError_Default();
         int rc = parseHybridCommand(ctx, &ac, sctx, &parsed->cmd, &status, false, EXEC_NO_FLAGS);
         if (rc != REDISMODULE_OK) {
-            delete parsed;
             return nullptr;
         }
 
@@ -145,11 +145,11 @@ protected:
         RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
 
         // Parse the hybrid command
-        ParsedHybridCommand *parsed = parseHybridCommandHelper(args, "test_idx");
+        auto parsed = parseHybridCommandHelper(args, "test_idx");
         ASSERT_NE(parsed, nullptr) << "Failed to parse hybrid command";
 
         // Validate VectorQuery
-        VectorQuery *vq = validateVectorQuery(parsed, expectedK, expectedRatio);
+        const VectorQuery *vq = validateVectorQuery(parsed.get(), expectedK, expectedRatio);
         ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
         // Build MR command
@@ -169,7 +169,6 @@ protected:
 
         // Cleanup
         MRCommand_Free(&xcmd);
-        delete parsed;
         NumShards = originalNumShards;
     }
 

@@ -1428,7 +1428,7 @@ TEST_F(ParseHybridTest, testShardKRatioValidMinValue) {
   parseCommand(args);
 
   const AREQ* vecReq = result.vector;
-  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   const VectorQuery *vq = vecReq->ast.root->vn.vq;
@@ -1447,7 +1447,7 @@ TEST_F(ParseHybridTest, testShardKRatioValidMidValue) {
   parseCommand(args);
 
   const AREQ* vecReq = result.vector;
-  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   const VectorQuery *vq = vecReq->ast.root->vn.vq;
@@ -1466,7 +1466,7 @@ TEST_F(ParseHybridTest, testShardKRatioValidMaxValue) {
   parseCommand(args);
 
   const AREQ* vecReq = result.vector;
-  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   const VectorQuery *vq = vecReq->ast.root->vn.vq;
