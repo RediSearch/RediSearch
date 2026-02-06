@@ -493,6 +493,61 @@ fn skip_to_propagates_child_timeout() {
     );
 }
 
+// skip_to when already at EOF should return None immediately.
+#[test]
+fn skip_to_at_eof_returns_none() {
+    let mut it = Not::new(
+        SortedIdList::new(vec![1, 2, 3, 4, 5]),
+        5,
+        1.0,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+    );
+
+    // Exhaust the iterator - child covers full range so NOT produces nothing
+    assert!(it.read().unwrap().is_none());
+    assert!(it.at_eof());
+
+    // Now call skip_to on an already-EOF iterator
+    let result = it.skip_to(6).unwrap();
+    assert!(
+        result.is_none(),
+        "skip_to on EOF iterator should return None"
+    );
+    assert!(it.at_eof());
+}
+
+// skip_to when child is behind and child.skip_to returns None (child at EOF).
+// This exercises Case 2 where child.skip_to returns None.
+#[test]
+fn skip_to_child_behind_child_skip_returns_eof() {
+    // Child has [2], max_doc_id=10
+    let mut it = Not::new(
+        SortedIdList::new(vec![2]),
+        10,
+        1.0,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+    );
+
+    // Read first doc (1) to advance child to position 2
+    let doc = it.read().unwrap().unwrap();
+    assert_eq!(doc.doc_id, 1);
+
+    // Now child.last_doc_id()=2, NOT is at 1.
+    // skip_to(5): child.last_doc_id()=2 < 5, so we enter Case 2.
+    // child.skip_to(5) will return None (child only has [2], past end).
+    // So NOT returns Found(5).
+    let outcome = it.skip_to(5).expect("skip_to(5) must not error");
+    if let Some(SkipToOutcome::Found(doc)) = outcome {
+        assert_eq!(doc.doc_id, 5);
+        assert_eq!(it.last_doc_id(), 5);
+    } else {
+        panic!(
+            "Expected Found(5) when child.skip_to returns EOF, got {:?}",
+            outcome
+        );
+    }
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn read_timeout_via_timeout_ctx() {
