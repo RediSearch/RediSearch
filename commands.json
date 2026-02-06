@@ -2095,6 +2095,12 @@
                     "optional": true
                   },
                   {
+                    "name": "shard_k_ratio",
+                    "type": "double",
+                    "token": "SHARD_K_RATIO",
+                    "optional": true
+                  },
+                  {
                     "name": "yield_score_as",
                     "type": "string",
                     "token": "YIELD_SCORE_AS",
