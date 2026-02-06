@@ -1416,6 +1416,44 @@ def testConfigAPIRunTimeBooleanParams():
         else:
             _testBooleanConfig(env, configName, ftConfigName, defaultValue)
 
+@skip(redis_less_than='7.9.227')
+def testConfigAPIInfoOnZeroIndexes():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+
+    configName = 'search-info-on-zero-indexes'
+
+    def _config_get_all():
+        if env.isCluster():
+            return run_command_on_all_shards(env, 'CONFIG', 'GET', configName)
+        return [env.cmd('CONFIG', 'GET', configName)]
+
+    def _config_set_all(val):
+        if env.isCluster():
+            return run_command_on_all_shards(env, 'CONFIG', 'SET', configName, val)
+        return [env.cmd('CONFIG', 'SET', configName, val)]
+
+    # Default should be disabled (no) on all nodes
+    env.assertTrue(all(r == [configName, 'no'] for r in _config_get_all()))
+
+    # Toggle ON and verify
+    env.assertTrue(all(r == 'OK' for r in _config_set_all('yes')))
+    env.assertTrue(all(r == [configName, 'yes'] for r in _config_get_all()))
+
+    # Toggle OFF and verify
+    env.assertTrue(all(r == 'OK' for r in _config_set_all('no')))
+    env.assertTrue(all(r == [configName, 'no'] for r in _config_get_all()))
+
+    # Invalid values should fail
+    if env.isCluster():
+        # In cluster mode, assert at least one node returns an error reply.
+        res = run_command_on_all_shards(env, 'CONFIG', 'SET', configName, 'invalid_boolean')
+        env.assertTrue(any(isinstance(r, Exception) for r in res) or any("ERR" in str(r) for r in res))
+    else:
+        env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
+            .contains('CONFIG SET failed')
+
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexBooleanParams():
     env = Env(noDefaultModuleArgs=True)

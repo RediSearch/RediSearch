@@ -1002,6 +1002,8 @@ def testIndexObfuscatedInfo(env: Env):
 def testPauseOnOOM(env: Env):
     # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
     env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+    # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+    env.expect('CONFIG', 'SET', 'search-info-on-zero-indexes', 'yes').ok()
 
     num_docs = 1000
     for i in range(num_docs):
