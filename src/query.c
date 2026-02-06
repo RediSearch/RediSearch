@@ -518,6 +518,45 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 }
 
+/**
+ * @brief Check if a scorer uses GetSlop (term proximity) for scoring
+ *
+ * Scorers that use GetSlop need offset data to calculate term proximity.
+ * Default to true for unknown/custom scorers for safety.
+ */
+static bool scorerNeedsOffsets(const char *scorerName) {
+  if (!scorerName) {
+    scorerName = RSGlobalConfig.defaultScorer;
+  }
+  // Scorers that do NOT need offsets (don't use GetSlop)
+  if (!strcmp(scorerName, BM25_STD_SCORER_NAME) ||
+      !strcmp(scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) ||
+      !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME) ||
+      !strcmp(scorerName, DISMAX_SCORER_NAME) ||
+      !strcmp(scorerName, DOCSCORE_SCORER) ||
+      !strcmp(scorerName, HAMMINGDISTANCE_SCORER)) {
+    return false;
+  }
+  // TFIDF, TFIDF.DOCNORM, BM25 (legacy), and custom scorers need offsets
+  return true;
+}
+
+/**
+ * @brief Check if a query needs offset data
+ *
+ * Offsets are needed if:
+ * 1. The query has phrase/slop constraints (maxSlop >= 0 or inOrder)
+ * 2. The scorer uses GetSlop for proximity-based scoring
+ */
+static bool queryNeedsOffsets(const char *scorerName, const QueryNodeOptions *opts) {
+  // Check if query has phrase/slop constraints that require offsets for filtering
+  if (opts && (opts->maxSlop >= 0 || opts->inOrder)) {
+    return true;
+  }
+  // Check if scorer uses GetSlop for proximity-based scoring
+  return scorerNeedsOffsets(scorerName);
+}
+
 QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
 
@@ -531,7 +570,8 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &qn->tn, q->tokenId++, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, idf, bm25_idf);
+    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, &qn->opts);
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &qn->tn, q->tokenId++, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, idf, bm25_idf, needsOffsets);
   } else {
     return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
@@ -552,7 +592,8 @@ static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, Quer
   if (q->sctx->spec->diskSpec) {
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf);
+    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, opts);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf, needsOffsets);
   } else {
     // Open an index reader
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
@@ -800,7 +841,8 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t nu
   if (q->sctx->spec->diskSpec) {
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, ctx->q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
+    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, ctx->opts);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, ctx->q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf, needsOffsets);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -833,7 +875,8 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
     double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
     double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
+    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, ctx->opts);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf, needsOffsets);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
