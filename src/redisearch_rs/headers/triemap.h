@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <time.h>
 #include "thin_vec.h"
-#include "trie/trie_type.h"
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -70,24 +69,6 @@ typedef SmallThinVecCVoid TrieMapResultBuf;
  * Callback type for passing to [`TrieMap_IterateRange`].
  */
 typedef void (*TrieMapRangeCallback)(const char*, size_t, void*, void*);
-
-/**
- * Result of applying deltas to a C Trie.
- */
-typedef struct TrieCountApplyResult {
-  /**
-   * Number of terms that were successfully updated (numDocs decremented but still > 0).
-   */
-  uint64_t terms_updated;
-  /**
-   * Number of terms that were deleted (numDocs reached 0).
-   */
-  uint64_t terms_deleted;
-  /**
-   * Number of terms that were not found in the C Trie.
-   */
-  uint64_t terms_not_found;
-} TrieCountApplyResult;
 
 #ifdef __cplusplus
 extern "C" {
@@ -378,33 +359,6 @@ void TrieMap_IterateRange(struct TrieMap *trie,
                           bool includeMax,
                           TrieMapRangeCallback callback,
                           void *ctx);
-
-/**
- * Test function that creates a TrieCount with predefined test data and applies it to a C Trie.
- *
- * This function:
- * 1. Creates a TrieCount internally
- * 2. Adds the following test deltas:
- *    - "hello": 30 (expects 100 -> 70)
- *    - "world": 20 (expects 50 -> 30)
- *    - "delete_me": 30 (expects 30 -> 0, deleted)
- *    - "not_found": 10 (term doesn't exist in C Trie)
- * 3. Applies all deltas to the C Trie
- * 4. Returns the results
- *
- * Expected results when called with a properly prepared C Trie:
- * - terms_updated: 2 ("hello" and "world")
- * - terms_deleted: 1 ("delete_me")
- * - terms_not_found: 1 ("not_found")
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `c_trie` must point to a valid C `Trie` struct and cannot be NULL.
- * - The C Trie should contain: "hello" (numDocs=100), "world" (numDocs=50),
- *   "delete_me" (numDocs=30), "partial" (numDocs=75)
- */
-struct TrieCountApplyResult TrieCount_TestApplyToCTrie(void *c_trie);
 
 #ifdef __cplusplus
 }  // extern "C"

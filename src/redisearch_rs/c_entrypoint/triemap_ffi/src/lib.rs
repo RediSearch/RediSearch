@@ -20,12 +20,10 @@ mod iter;
 /// cbindgen:ignore
 mod iter_types;
 mod range;
-mod trie_count_ffi;
 
 pub use find_prefixes::*;
 pub use iter::*;
 pub use range::*;
-pub use trie_count_ffi::*;
 
 /// The length of a key string in the trie.
 pub type tm_len_t = u16;

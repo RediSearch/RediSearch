@@ -2404,9 +2404,7 @@ name = "triemap_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "c_trie",
  "cbindgen",
- "ffi",
  "lending-iterator",
  "libc",
  "redis-module",
