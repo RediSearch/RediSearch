@@ -80,6 +80,7 @@ int CoordReduceDebugCtx_GetReduceCount(void);
 // Yield counter functions
 void IncrementLoadYieldCounter(void);
 void IncrementBgIndexYieldCounter(void);
+void IncrementBgIndexSleepCounter(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);
