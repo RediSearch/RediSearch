@@ -56,23 +56,23 @@ typedef enum {
 } RSStringType;
 
 /**
- * Represents a key-value pair entry in an RSValueMap.
+ * Represents a key-value pair entry in an RSValueMapBuilder.
  * Both key and value are RSValue pointers that are owned by the map.
  */
-typedef struct RSValueMapEntry {
+typedef struct RSValueMapBuilderEntry {
   struct RSValue *key;
   struct RSValue *value;
-} RSValueMapEntry;
+} RSValueMapBuilderEntry;
 
 #pragma pack(4)
 /**
  * Represents a map (dictionary/hash table) of RSValue key-value pairs.
  * The map owns all keys and values and will free them when the map is freed.
  */
-typedef struct RSValueMap {
+typedef struct RSValueMapBuilder {
   uint32_t len;
-  RSValueMapEntry *entries;
-} RSValueMap;
+  RSValueMapBuilderEntry *entries;
+} RSValueMapBuilder;
 
 // Variant value union
 typedef struct RSValue RSValue;
@@ -172,23 +172,23 @@ RSValue *RSValue_NewNumberFromInt64(int64_t ii);
  * @param len Number of values
  * @return A pointer to a heap-allocated RSValue of type RSValueType_Array
  */
-RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
+RSValue *RSValue_NewArrayFromBuilder(RSValue **vals, uint32_t len);
 
 /**
- * Creates a heap-allocated RSValueMap structure with space for entries.
- * The map entries are uninitialized and must be set using RSValueMap_SetEntry.
+ * Creates a heap-allocated RSValueMapBuilder structure with space for entries.
+ * The map entries are uninitialized and must be set using RSValue_MapBuilderSetEntry.
  * @param len The number of entries to allocate space for
- * @return A pointer to a heap-allocated RSValueMap with uninitialized entries
+ * @return A pointer to a heap-allocated RSValueMapBuilder with uninitialized entries
  */
-RSValueMap *RSValueMap_AllocUninit(uint32_t len);
+RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len);
 
 /**
- * Creates a heap-allocated RSValue of type RSValueType_Map from an RSValueMap.
- * Takes ownership of the map structure and all its entries. Frees the RSValueMap pointer.
- * @param map The RSValueMap pointer to wrap (ownership is transferred, pointer is freed)
+ * Creates a heap-allocated RSValue of type RSValueType_Map from an RSValueMapBuilder.
+ * Takes ownership of the map structure and all its entries. Frees the RSValueMapBuilder pointer.
+ * @param map The RSValueMapBuilder pointer to wrap (ownership is transferred, pointer is freed)
  * @return A pointer to a heap-allocated RSValue of type RSValueType_Map
  */
-RSValue *RSValue_NewMap(RSValueMap *map);
+RSValue *RSValue_NewMapFromBuilder(RSValueMapBuilder *map);
 
 /**
  * Creates a heap-allocated RSValue Trio from three RSValues.
@@ -338,7 +338,7 @@ void RSValue_Map_GetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue
  * @param key The key RSValue (ownership is transferred to the map)
  * @param value The value RSValue (ownership is transferred to the map)
  */
-void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value);
+void RSValue_MapBuilderSetEntry(RSValueMapBuilder *map, size_t i, RSValue *key, RSValue *value);
 
 // Trio getters
 /**
@@ -424,9 +424,9 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
                                         size_t buflen);
 
 /**
- * Helper function to allocate memory before passing it to RSValue_NewArray
+ * Helper function to allocate memory before passing it to RSValue_NewArrayFromBuilder
  */
-RSValue **RSValue_AllocateArray(uint32_t len);
+RSValue **RSValue_NewArrayBuilder(uint32_t len);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);

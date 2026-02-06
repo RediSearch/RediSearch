@@ -46,7 +46,7 @@ struct RSValue {
     } _arrval;
 
     // map value
-    RSValueMap _mapval;
+    RSValueMapBuilder _mapval;
 
     // trio value
     struct {
@@ -270,21 +270,21 @@ RSValue *RSValue_NewNumberFromInt64(int64_t dd) {
   return v;
 }
 
-RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
+RSValue *RSValue_NewArrayFromBuilder(RSValue **vals, uint32_t len) {
   RSValue *arr = RSValue_NewWithType(RSValueType_Array);
   arr->_arrval.vals = vals;
   arr->_arrval.len = len;
   return arr;
 }
 
-RSValueMap *RSValueMap_AllocUninit(uint32_t len) {
-  RSValueMap *map = rm_malloc(sizeof(RSValueMap));
+RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len) {
+  RSValueMapBuilder *map = rm_malloc(sizeof(RSValueMapBuilder));
   map->len = len;
-  map->entries = (len > 0) ? (RSValueMapEntry*) rm_malloc(len * sizeof(RSValueMapEntry)) : NULL;
+  map->entries = (len > 0) ? (RSValueMapBuilderEntry*) rm_malloc(len * sizeof(RSValueMapBuilderEntry)) : NULL;
   return map;
 }
 
-RSValue *RSValue_NewMap(RSValueMap *map) {
+RSValue *RSValue_NewMapFromBuilder(RSValueMapBuilder *map) {
   RSValue *v = RSValue_NewWithType(RSValueType_Map);
   v->_mapval = *map;
   rm_free(map);
@@ -405,7 +405,7 @@ void RSValue_Map_GetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue
   *val = map->_mapval.entries[i].value;
 }
 
-void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value) {
+void RSValue_MapBuilderSetEntry(RSValueMapBuilder *map, size_t i, RSValue *key, RSValue *value) {
   RS_ASSERT(i < map->len);
   map->entries[i].key = key;
   map->entries[i].value = value;
@@ -702,7 +702,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
   }
 }
 
-RSValue **RSValue_AllocateArray(uint32_t len) {
+RSValue **RSValue_NewArrayBuilder(uint32_t len) {
   return (RSValue **)rm_malloc(len * sizeof(RSValue *));
 }
 
