@@ -21,11 +21,6 @@ typedef enum tm_iter_mode {
 } tm_iter_mode;
 
 /**
- * Opaque type for TrieCount. Can be instantiated with [`NewTrieCount`].
- */
-typedef struct TrieCountHandle TrieCountHandle;
-
-/**
  * Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
  */
 typedef struct TrieMap TrieMap;
@@ -385,82 +380,31 @@ void TrieMap_IterateRange(struct TrieMap *trie,
                           void *ctx);
 
 /**
- * Create a new [`TrieCount`]. Returns an opaque pointer to the newly created counter.
+ * Test function that creates a TrieCount with predefined test data and applies it to a C Trie.
  *
- * To free the counter, use [`TrieCount_Free`].
- */
-struct TrieCountHandle *NewTrieCount(void);
-
-/**
- * Free a [`TrieCount`] and all its contents.
+ * This function:
+ * 1. Creates a TrieCount internally
+ * 2. Adds the following test deltas:
+ *    - "hello": 30 (expects 100 -> 70)
+ *    - "world": 20 (expects 50 -> 30)
+ *    - "delete_me": 30 (expects 30 -> 0, deleted)
+ *    - "not_found": 10 (term doesn't exist in C Trie)
+ * 3. Applies all deltas to the C Trie
+ * 4. Returns the results
  *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `tc` must point to a valid TrieCount obtained from [`NewTrieCount`] and cannot be NULL.
- * - After calling this function, `tc` must not be used again.
- */
-void TrieCount_Free(struct TrieCountHandle *tc);
-
-/**
- * Increment the count for a term in the TrieCount.
- *
- * If the term doesn't exist, it's created with the given delta.
- * If it exists, the delta is added to the existing count.
+ * Expected results when called with a properly prepared C Trie:
+ * - terms_updated: 2 ("hello" and "world")
+ * - terms_deleted: 1 ("delete_me")
+ * - terms_not_found: 1 ("not_found")
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `tc` must point to a valid TrieCount obtained from [`NewTrieCount`] and cannot be NULL.
- * - `term` can be NULL only if `term_len == 0`. It is not necessarily NULL-terminated.
- */
-void TrieCount_Increment(struct TrieCountHandle *tc,
-                         const char *term,
-                         uintptr_t term_len,
-                         uint64_t delta);
-
-/**
- * Get the count for a term in the TrieCount.
- *
- * Returns the count if the term exists, or 0 if it doesn't.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `tc` must point to a valid TrieCount obtained from [`NewTrieCount`] and cannot be NULL.
- * - `term` can be NULL only if `term_len == 0`. It is not necessarily NULL-terminated.
- */
-uint64_t TrieCount_Get(const struct TrieCountHandle *tc, const char *term, uintptr_t term_len);
-
-/**
- * Get the number of unique terms in the TrieCount.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `tc` must point to a valid TrieCount obtained from [`NewTrieCount`] and cannot be NULL.
- */
-uintptr_t TrieCount_Len(const struct TrieCountHandle *tc);
-
-/**
- * Apply all accumulated deltas from the TrieCount to a C Trie.
- *
- * This function iterates over all terms in the TrieCount (in lexicographic order)
- * and calls `Trie_DecrementNumDocs` for each term with its accumulated delta.
- *
- * Returns a [`TrieCountApplyResult`] containing:
- * - `terms_updated`: Number of terms where numDocs was decremented but still > 0
- * - `terms_deleted`: Number of terms where numDocs reached 0 (term was deleted)
- * - `terms_not_found`: Number of terms that were not found in the C Trie
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `tc` must point to a valid TrieCount obtained from [`NewTrieCount`] and cannot be NULL.
  * - `c_trie` must point to a valid C `Trie` struct and cannot be NULL.
- * - The C Trie must remain valid for the duration of this function call.
+ * - The C Trie should contain: "hello" (numDocs=100), "world" (numDocs=50),
+ *   "delete_me" (numDocs=30), "partial" (numDocs=75)
  */
-struct TrieCountApplyResult TrieCount_ApplyToCTrie(const struct TrieCountHandle *tc, void *c_trie);
+struct TrieCountApplyResult TrieCount_TestApplyToCTrie(void *c_trie);
 
 #ifdef __cplusplus
 }  // extern "C"
