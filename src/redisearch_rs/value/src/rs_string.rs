@@ -19,6 +19,8 @@ pub struct RsString {
     ptr: *const c_char,
     len: u32,
     kind: RsStringKind,
+    #[cfg(debug_assertions)]
+    guaranteed_nul_terminated: bool,
 }
 
 impl RsString {
@@ -39,6 +41,8 @@ impl RsString {
             ptr,
             len: len as u32,
             kind: RsStringKind::RustAlloc,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: true,
         }
     }
 
@@ -49,10 +53,36 @@ impl RsString {
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
     /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
     pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
+        // Safety: ensured by caller (1.)
+        debug_assert!(ptr != std::ptr::null());
+        // Safety: ensured by caller (2.)
+        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
+
         Self {
             ptr,
             len,
             kind: RsStringKind::RmAlloc,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: true,
+        }
+    }
+
+    /// Create an [`RsString`] from a constant string without a nul terminator.
+    /// This breaks the guarantees of the struct, but some legacy code needs this to work.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
+    pub unsafe fn rm_alloc_string_without_nul_terminator(ptr: *const c_char, len: u32) -> Self {
+        // Safety: ensured by caller (1.)
+        debug_assert!(ptr != std::ptr::null());
+
+        Self {
+            ptr,
+            len,
+            kind: RsStringKind::RmAlloc,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: false,
         }
     }
 
@@ -63,20 +93,59 @@ impl RsString {
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
     /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
     pub unsafe fn const_string(ptr: *const c_char, len: u32) -> Self {
+        // Safety: ensured by caller (1.)
+        debug_assert!(ptr != std::ptr::null());
+        // Safety: ensured by caller (2.)
+        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
+
         Self {
             ptr,
             len,
             kind: RsStringKind::Const,
+            #[cfg(debug_assertions)]
+            guaranteed_nul_terminated: true,
         }
     }
 
     /// Returns the string data pointer and length.
+    ///
+    /// # Panic
+    ///
+    /// In debug builds, panics if the string is not nul-terminated.
     pub fn as_ptr_len(&self) -> (*const c_char, u32) {
+        #[cfg(debug_assertions)]
+        assert!(
+            self.guaranteed_nul_terminated,
+            "as_ptr_len_safe() called on possibly non-nul-terminated string"
+        );
+        (self.ptr, self.len)
+    }
+
+    /// Returns the string data pointer and length without ensuring nul-termination.
+    ///
+    /// Use this method when working with strings that may not be nul-terminated.
+    pub fn as_ptr_len_trusted(&self) -> (*const c_char, u32) {
         (self.ptr, self.len)
     }
 
     /// Gets the string pointed to by `ptr`/`len` as a byte slice.
+    ///
+    /// # Panic
+    ///
+    /// In debug builds, panics if the string is not nul-terminated.
     pub fn as_bytes(&self) -> &[u8] {
+        #[cfg(debug_assertions)]
+        assert!(
+            self.guaranteed_nul_terminated,
+            "as_bytes_safe() called on possibly non-nul-terminated string"
+        );
+        unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
+    }
+
+    /// Gets the string pointed to by `ptr`/`len` as a byte slice without ensuring nul-termination.
+    ///
+    /// Use this method when working with strings that may not be nul-terminated.
+    pub fn as_bytes_trusted(&self) -> &[u8] {
         unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
     }
 }
