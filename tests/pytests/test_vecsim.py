@@ -9,6 +9,7 @@ from random import randrange
 from redis import ResponseError
 import distro
 from vecsim_utils import *
+from test_vecsim_svs import is_intel_opt_supported
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2}
@@ -1471,6 +1472,9 @@ def test_ft_aggregate_basic():
     conn = getConnectionByEnv(env)
 
     for algo in VECSIM_ALGOS:
+        # SVS-VAMANA is only supported on Intel x86_64 Linux platforms
+        if algo == 'SVS-VAMANA' and not is_intel_opt_supported():
+            continue
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', algo, '6', 'TYPE', 'FLOAT32',
                             'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC')
 
