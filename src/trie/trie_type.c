@@ -112,7 +112,7 @@ TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t 
   return rc;
 }
 
-TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta) {
+static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta) {
   if (!runes || len == 0 || len >= TRIE_INITIAL_STRING_LEN) {
     return TRIE_DECR_NOT_FOUND;
   }

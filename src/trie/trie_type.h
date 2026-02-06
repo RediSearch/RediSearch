@@ -82,7 +82,6 @@ typedef enum {
  *   TRIE_DECR_DELETED   - numDocs reached 0, node deleted
  */
 TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta);
-TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta);
 
 void TrieSearchResult_Free(TrieSearchResult *e);
 Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
