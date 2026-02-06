@@ -1,7 +1,7 @@
 use ffi::RedisModule_Free;
 use std::ffi::{CString, c_char};
+use std::fmt;
 
-#[derive(Clone, Debug)]
 enum RsStringKind {
     RustAlloc,
     RmAlloc,
@@ -15,7 +15,6 @@ enum RsStringKind {
 ///
 /// - `ptr` must not be NULL and must point to a valid string of `len` size.
 /// - The string pointed to by `ptr`/`len` must be nul-terminated.
-#[derive(Clone, Debug)]
 pub struct RsString {
     ptr: *const c_char,
     len: u32,
@@ -92,6 +91,13 @@ impl Drop for RsString {
             }
             RsStringKind::Const => (), // No nee to free const strings.
         }
+    }
+}
+
+impl fmt::Debug for RsString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let lossy = String::from_utf8_lossy(self.as_bytes());
+        f.debug_tuple("RsString").field(&lossy).finish()
     }
 }
 
