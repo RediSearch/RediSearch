@@ -35,7 +35,7 @@ pub mod shared;
 pub mod trio;
 
 /// An actual [`RsValue`] object
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RsValue {
     /// Undefined, not holding a value.
     Undefined,
