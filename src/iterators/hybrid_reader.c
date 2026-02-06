@@ -287,6 +287,8 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
       // Change policy from batches to AD-HOC BF.
       VecSimBatchIterator_Free(batch_it);
       hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
+      // Update the index with the mode transition so it can be reported via debug info
+      VecSimIndex_SetLastSearchMode(hr->index, hr->searchMode);
       // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
       mmh_clear(hr->topResults);
       hr->child->Rewind(hr->child);
@@ -517,6 +519,8 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
         hi->searchMode = VECSIM_HYBRID_BATCHES;
       }
     }
+    // Update the index with the chosen search mode so it can be reported via debug info
+    VecSimIndex_SetLastSearchMode(hParams.index, hi->searchMode);
     hi->topResults = mmh_init_with_size(hParams.query.k, cmpVecSimResByScore, NULL, (mmh_free_func)IndexResult_Free);
   }
 
