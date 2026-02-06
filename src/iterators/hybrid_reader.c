@@ -500,6 +500,8 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   if (hParams.childIt == NULL || hParams.query.k == 0) {
     // If there is no child iterator, or the query is going to return 0 results, we can use simple KNN.
     hi->searchMode = VECSIM_STANDARD_KNN;
+    // Update the index with the chosen search mode so it can be reported via debug info
+    VecSimIndex_SetLastSearchMode(hParams.index, hi->searchMode);
   } else {
     // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES
     // Get the estimated number of results that pass the child "sub-query filter". Note that
