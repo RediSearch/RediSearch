@@ -295,6 +295,8 @@ void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len);
  */
 const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
 
+char *RSValue_String_GetTrusted(const RSValue *v, uint32_t *lenp);
+
 /**
  * Get the RedisModuleString from an RSValue.
  * The value must be of type RSValueType_RedisString.
