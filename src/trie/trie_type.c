@@ -126,6 +126,14 @@ static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, siz
     return TRIE_DECR_NOT_FOUND;
   }
 
+  // Only terminal nodes represent actual terms in the trie.
+  // Non-terminal nodes are internal split/prefix nodes and should not be modified.
+  // TrieNode_Delete only succeeds on terminal nodes, so we must check this first
+  // to avoid corrupting numDocs on non-terminal nodes.
+  if (!__trieNode_isTerminal(node)) {
+    return TRIE_DECR_NOT_FOUND;
+  }
+
   // Decrement numDocs, clamping to 0 to avoid underflow
   if (delta >= node->numDocs) {
     node->numDocs = 0;

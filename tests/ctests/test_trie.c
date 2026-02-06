@@ -891,6 +891,171 @@ int testDecrementNumDocsComplex() {
   return 0;
 }
 
+// Test that Trie_DecrementNumDocs correctly handles non-terminal nodes
+// (internal split/prefix nodes that are not actual terms)
+int testDecrementNumDocsNonTerminal() {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  ASSERT(t != NULL);
+  TrieNode *node;
+  TrieDecrResult rc;
+  size_t runeLen;
+  rune *runes;
+
+  // ========================================
+  // Test 1: Non-terminal prefix node (split scenario)
+  // Insert "helloworld" only - "hello" will NOT be a terminal node
+  // ========================================
+  int insertRc = Trie_InsertStringBuffer(t, "helloworld", 10, 1.0, 0, NULL, 100);
+  ASSERT_EQUAL(1, insertRc);
+  ASSERT_EQUAL(1, t->size);
+
+  // Verify "helloworld" exists and is terminal
+  runes = strToRunes("helloworld", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT(__trieNode_isTerminal(node));
+  ASSERT_EQUAL(100, node->numDocs);
+  free(runes);
+
+  // Try to decrement "hello" which is NOT a terminal node (just a prefix)
+  // This should return NOT_FOUND, not corrupt the trie
+  rc = Trie_DecrementNumDocs(t, "hello", 5, 1);
+  ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
+
+  // Verify "helloworld" is still intact
+  runes = strToRunes("helloworld", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT_EQUAL(100, node->numDocs);
+  free(runes);
+
+  // Trie size should still be 1
+  ASSERT_EQUAL(1, t->size);
+
+  // ========================================
+  // Test 2: Now insert "hello" as a terminal node
+  // Both "hello" and "helloworld" should be valid terms
+  // ========================================
+  insertRc = Trie_InsertStringBuffer(t, "hello", 5, 1.0, 0, NULL, 50);
+  ASSERT_EQUAL(1, insertRc);
+  ASSERT_EQUAL(2, t->size);
+
+  // Verify "hello" is now terminal
+  runes = strToRunes("hello", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT(__trieNode_isTerminal(node));
+  ASSERT_EQUAL(50, node->numDocs);
+  free(runes);
+
+  // Decrement "hello" should now work
+  rc = Trie_DecrementNumDocs(t, "hello", 5, 10);
+  ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
+
+  runes = strToRunes("hello", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT_EQUAL(40, node->numDocs);
+  free(runes);
+
+  // "helloworld" should still be intact
+  runes = strToRunes("helloworld", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT_EQUAL(100, node->numDocs);
+  free(runes);
+
+  // ========================================
+  // Test 3: Delete "hello", then try to decrement it again
+  // After deletion, "hello" node should be marked deleted or merged
+  // ========================================
+  rc = Trie_DecrementNumDocs(t, "hello", 5, 40);
+  ASSERT_EQUAL(TRIE_DECR_DELETED, rc);
+  ASSERT_EQUAL(1, t->size);
+
+  // "hello" should no longer be found (deleted)
+  runes = strToRunes("hello", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node == NULL);
+  free(runes);
+
+  // Try to decrement again - should return NOT_FOUND
+  rc = Trie_DecrementNumDocs(t, "hello", 5, 1);
+  ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
+
+  // "helloworld" should still be intact
+  runes = strToRunes("helloworld", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT_EQUAL(100, node->numDocs);
+  free(runes);
+
+  // ========================================
+  // Test 4: Multiple levels of non-terminal prefixes
+  // Insert only "abcdefgh" - all prefixes are non-terminal
+  // ========================================
+  insertRc = Trie_InsertStringBuffer(t, "abcdefgh", 8, 1.0, 0, NULL, 200);
+  ASSERT_EQUAL(1, insertRc);
+
+  // Try to decrement various non-terminal prefixes
+  rc = Trie_DecrementNumDocs(t, "a", 1, 1);
+  ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
+
+  rc = Trie_DecrementNumDocs(t, "ab", 2, 1);
+  ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
+
+  rc = Trie_DecrementNumDocs(t, "abc", 3, 1);
+  ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
+
+  rc = Trie_DecrementNumDocs(t, "abcd", 4, 1);
+  ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
+
+  // The actual term should still work
+  rc = Trie_DecrementNumDocs(t, "abcdefgh", 8, 50);
+  ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
+
+  runes = strToRunes("abcdefgh", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT_EQUAL(150, node->numDocs);
+  free(runes);
+
+  // ========================================
+  // Test 5: Suffix insertion creating split nodes
+  // Insert "redis", then "redisearch" (redis becomes a split point)
+  // ========================================
+  insertRc = Trie_InsertStringBuffer(t, "redisearch", 10, 1.0, 0, NULL, 300);
+  ASSERT_EQUAL(1, insertRc);
+
+  // "redis" is NOT terminal yet - just a prefix of "redisearch"
+  rc = Trie_DecrementNumDocs(t, "redis", 5, 1);
+  ASSERT_EQUAL(TRIE_DECR_NOT_FOUND, rc);
+
+  // Now insert "redis" as a terminal
+  insertRc = Trie_InsertStringBuffer(t, "redis", 5, 1.0, 0, NULL, 500);
+  ASSERT_EQUAL(1, insertRc);
+
+  // Now "redis" should be decrementable
+  rc = Trie_DecrementNumDocs(t, "redis", 5, 100);
+  ASSERT_EQUAL(TRIE_DECR_UPDATED, rc);
+
+  runes = strToRunes("redis", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT_EQUAL(400, node->numDocs);
+  free(runes);
+
+  // "redisearch" should be unaffected
+  runes = strToRunes("redisearch", &runeLen);
+  node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  ASSERT(node != NULL);
+  ASSERT_EQUAL(300, node->numDocs);
+  free(runes);
+
+  TrieType_Free(t);
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testRuneUtil);
@@ -901,4 +1066,5 @@ TEST_MAIN({
   TESTFUNC(testNumDocs);
   TESTFUNC(testDecrementNumDocs);
   TESTFUNC(testDecrementNumDocsComplex);
+  TESTFUNC(testDecrementNumDocsNonTerminal);
 });
