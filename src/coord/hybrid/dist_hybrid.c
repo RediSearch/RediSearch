@@ -645,8 +645,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // optimization
     // Note: parsedVectorData is only set on shards, not on coordinator
     // The coordinator has the VectorQuery in the AST after parsing
-    AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
-    VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
+    const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
+    const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
                       ? vectorRequest->ast.root->vn.vq : NULL;
     HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, vq);
 

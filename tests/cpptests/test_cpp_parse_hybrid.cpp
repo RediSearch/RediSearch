@@ -1614,7 +1614,7 @@ TEST_F(ParseHybridTest, testShardKRatiowithFilterAndPostFilter) {
     << "Step should be of type PLN_T_FILTER";
 
   // Cast to PLN_MapFilterStep to access the filter expression
-  const PLN_MapFilterStep *mapFilterStep = (const PLN_MapFilterStep *)filterStep;
+  const auto *mapFilterStep = (const PLN_MapFilterStep *)filterStep;
   ASSERT_NE(mapFilterStep->expr, nullptr) << "Filter expression should not be NULL";
 
   // Verify the expression content
@@ -1654,7 +1654,7 @@ TEST_F(ParseHybridTest, testShardKRatioBeforeYieldScoreAs) {
   ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.75);
 
   // YIELD_SCORE_AS is stored in QueryNode opts.distField (not in parsedVectorData)
@@ -1675,7 +1675,7 @@ TEST_F(ParseHybridTest, testShardKRatioDefaultValue) {
   ASSERT_TRUE(vecReq->ast.root != nullptr);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
   // Default should be 1.0 (DEFAULT_SHARD_WINDOW_RATIO - no optimization)
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
 }

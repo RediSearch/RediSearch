@@ -111,8 +111,7 @@ protected:
         HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
 
         QueryError status = QueryError_Default();
-        int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS);
-        if (rc != REDISMODULE_OK) {
+        if (int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS); rc != REDISMODULE_OK) {
             if (hybridParams.scoringCtx) {
                 HybridScoringContext_Free(hybridParams.scoringCtx);
             }

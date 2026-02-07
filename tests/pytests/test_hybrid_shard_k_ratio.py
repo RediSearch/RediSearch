@@ -33,7 +33,8 @@ def _validate_individual_shard_results(env, profile_response, k, expected_effect
 
     # Parse each shard's results
     for i, shard_profile in enumerate(shard_profiles):
-        # shard_profile = ['Shard ID', id, 'SEARCH', [...], 'VSIM', vsim_profile]
+        # shard profile has the following structure:
+        # ['Shard ID', id, 'SEARCH', [...], 'VSIM', vsim_profile]
         vsim_profile = shard_profile[5]  # VSIM profile is at index 5
         result_processors_profile = vsim_profile[7]
 
