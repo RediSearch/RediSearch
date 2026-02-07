@@ -60,6 +60,20 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     code.to_c_str().as_ptr()
 }
 
+/// Returns a human-readable string representing the provided [`QueryWarningCode`].
+///
+/// This function should always return without a panic for any value provided.
+/// It is unique among the `QueryWarningCode_*` API as the only function which allows
+/// an invalid [`QueryWarningCode`] to be provided.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryWarningCode_Strerror(maybe_code: u8) -> *const c_char {
+    let Some(code) = QueryWarningCode::from_repr(maybe_code) else {
+        return c"Unknown warning code".as_ptr();
+    };
+
+    code.to_c_str().as_ptr()
+}
+
 /// Returns a [`QueryErrorCode`] given an error message.
 ///
 /// This only supports the query error codes [`QueryErrorCode::TimedOut`] and
@@ -378,11 +392,15 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
     query_error.warnings_mut().set_out_of_memory()
 }
 
-/// Returns a [`QueryWarningCode`] given an warnings message.
+/// Returns a [`QueryWarningCode`] given a warning message.
 ///
-/// This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
-/// [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
-/// [`QueryWarningCode::Ok`] is returned.
+/// This supports the following warning codes:
+/// - [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
+///   [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`]
+/// - FT.HYBRID specific: [`QueryWarningCode::TimedOutSearch`], [`QueryWarningCode::TimedOutVsim`],
+///   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`], [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`]
+///
+/// If another message is provided, [`QueryWarningCode::Ok`] is returned.
 ///
 /// # Safety
 ///
@@ -391,15 +409,25 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
     message: *const c_char,
 ) -> QueryWarningCode {
+    // Generic warning constants
     const TIMED_OUT_WARNING_CSTR: &CStr = QueryWarningCode::TimedOut.to_c_str();
     const REACHED_MAX_PREFIX_EXPANSIONS_WARNING_CSTR: &CStr =
         QueryWarningCode::ReachedMaxPrefixExpansions.to_c_str();
     const OUT_OF_MEMORY_COORD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryCoord.to_c_str();
     const OUT_OF_MEMORY_SHARD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryShard.to_c_str();
 
+    // FT.HYBRID specific warning constants (with subquery source)
+    const TIMED_OUT_SEARCH_CSTR: &CStr = QueryWarningCode::TimedOutSearch.to_c_str();
+    const TIMED_OUT_VSIM_CSTR: &CStr = QueryWarningCode::TimedOutVsim.to_c_str();
+    const REACHED_MAX_PREFIX_EXPANSIONS_SEARCH_CSTR: &CStr =
+        QueryWarningCode::ReachedMaxPrefixExpansionsSearch.to_c_str();
+    const REACHED_MAX_PREFIX_EXPANSIONS_VSIM_CSTR: &CStr =
+        QueryWarningCode::ReachedMaxPrefixExpansionsVsim.to_c_str();
+
     // Safety: see safety requirement above.
     let message = unsafe { CStr::from_ptr(message) };
 
+    // Check generic warnings first
     if message == TIMED_OUT_WARNING_CSTR {
         QueryWarningCode::TimedOut
     } else if message == REACHED_MAX_PREFIX_EXPANSIONS_WARNING_CSTR {
@@ -408,6 +436,16 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::OutOfMemoryCoord
     } else if message == OUT_OF_MEMORY_SHARD_WARNING_CSTR {
         QueryWarningCode::OutOfMemoryShard
+    }
+    // Check FT.HYBRID specific warnings
+    else if message == TIMED_OUT_SEARCH_CSTR {
+        QueryWarningCode::TimedOutSearch
+    } else if message == TIMED_OUT_VSIM_CSTR {
+        QueryWarningCode::TimedOutVsim
+    } else if message == REACHED_MAX_PREFIX_EXPANSIONS_SEARCH_CSTR {
+        QueryWarningCode::ReachedMaxPrefixExpansionsSearch
+    } else if message == REACHED_MAX_PREFIX_EXPANSIONS_VSIM_CSTR {
+        QueryWarningCode::ReachedMaxPrefixExpansionsVsim
     } else {
         QueryWarningCode::Ok
     }
