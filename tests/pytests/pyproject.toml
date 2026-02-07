@@ -7,7 +7,7 @@ dependencies = [
     "packaging<=24.2",
     "deepdiff==8.6.1",
     "redis>=5.2.1,<7.0.0", # Pin to avoid redis-py 7.x incompatibility (todo: update once fixed)
-    "RLTest>=0.7.18,<0.8.0",
+    "RLTest @ git+https://github.com/memark/RLTest.git@12bcbe5070f3a06e9fcc3fa3daa62ced725ddc3f",
     "numpy<=2.2.4",
     "scipy>=1.17.0",
     "faker<=37.1.0",
