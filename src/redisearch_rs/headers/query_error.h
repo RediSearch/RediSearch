@@ -138,8 +138,6 @@ enum QueryWarningCode
   QUERY_WARNING_CODE_TIMED_OUT_VSIM,
   QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH,
   QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM,
-  QUERY_WARNING_CODE_OUT_OF_MEMORY_SEARCH,
-  QUERY_WARNING_CODE_OUT_OF_MEMORY_VSIM,
 };
 #ifndef __cplusplus
 typedef uint8_t QueryWarningCode;
@@ -407,8 +405,7 @@ void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
  * - [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
  *   [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`]
  * - FT.HYBRID specific: [`QueryWarningCode::TimedOutSearch`], [`QueryWarningCode::TimedOutVsim`],
- *   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`], [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`],
- *   [`QueryWarningCode::OutOfMemorySearch`], [`QueryWarningCode::OutOfMemoryVsim`]
+ *   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`], [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`]
  *
  * If another message is provided, [`QueryWarningCode::Ok`] is returned.
  *

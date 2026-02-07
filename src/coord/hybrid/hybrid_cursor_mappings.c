@@ -203,6 +203,54 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
+// Process a single error/warning from a shard response.
+// Returns true if processing should continue, false if a fatal error occurred.
+static bool processShardError(const QueryError *error, HybridRequest *hreq,
+                              QueryError *status, RSOomPolicy oomPolicy,
+                              size_t totalErrorCount) {
+    const char *message = QueryError_GetUserError(error);
+    if (!message) return true;
+
+    // Get warning code from message for efficient switch-based matching
+    QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(message);
+    bool isWarning = true;
+
+    switch (warningCode) {
+        // Max prefix expansions warnings
+        case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH:
+            QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[SEARCH_INDEX]);
+            break;
+        case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM:
+            QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[VECTOR_INDEX]);
+            break;
+        // Timeout warnings
+        case QUERY_WARNING_CODE_TIMED_OUT_SEARCH:
+            hreq->subqueriesReturnCodes[SEARCH_INDEX] = RS_RESULT_TIMEDOUT;
+            break;
+        case QUERY_WARNING_CODE_TIMED_OUT_VSIM:
+            hreq->subqueriesReturnCodes[VECTOR_INDEX] = RS_RESULT_TIMEDOUT;
+            break;
+        case QUERY_WARNING_CODE_OK:
+        default:
+            // Not a known warning, will be treated as error below
+            isWarning = false;
+            break;
+    }
+
+    // If not a known warning, treat as error
+    if (!isWarning) {
+        if (QueryError_GetCode(error) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return) {
+            QueryError_SetQueryOOMWarning(status);
+        } else {
+            QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(error),
+                "Failed to process shard responses, first error: %s, total error count: %zu",
+                message, totalErrorCount);
+            return false;
+        }
+    }
+    return true;
+}
+
 bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards,
         StrongRef searchMappingsRef, StrongRef vsimMappingsRef,
         QueryError *status, const RSOomPolicy oomPolicy, HybridRequest *hreq) {
@@ -248,72 +296,11 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards,
     bool success = true;
 
     // Process errors and warnings (unified in ctx->errors)
-    if (array_len(ctx->errors)) {
-        for (size_t i = 0; i < array_len(ctx->errors); i++) {
-            const char *message = QueryError_GetUserError(&ctx->errors[i]);
-            if (!message) continue;
-
-            // Get warning code from message for efficient switch-based matching
-            QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(message);
-            bool isWarning = false;
-
-            switch (warningCode) {
-                // Max prefix expansions warnings
-                case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH:
-                    isWarning = true;
-                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
-                        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[SEARCH_INDEX]);
-                    }
-                    break;
-                case QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM:
-                    isWarning = true;
-                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
-                        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[VECTOR_INDEX]);
-                    }
-                    break;
-                // Timeout warnings
-                case QUERY_WARNING_CODE_TIMED_OUT_SEARCH:
-                    isWarning = true;
-                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
-                        hreq->subqueriesReturnCodes[SEARCH_INDEX] = RS_RESULT_TIMEDOUT;
-                    }
-                    break;
-                case QUERY_WARNING_CODE_TIMED_OUT_VSIM:
-                    isWarning = true;
-                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
-                        hreq->subqueriesReturnCodes[VECTOR_INDEX] = RS_RESULT_TIMEDOUT;
-                    }
-                    break;
-                // OOM warnings
-                case QUERY_WARNING_CODE_OUT_OF_MEMORY_SEARCH:
-                    isWarning = true;
-                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
-                        QueryError_SetQueryOOMWarning(&hreq->errors[SEARCH_INDEX]);
-                    }
-                    break;
-                case QUERY_WARNING_CODE_OUT_OF_MEMORY_VSIM:
-                    isWarning = true;
-                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
-                        QueryError_SetQueryOOMWarning(&hreq->errors[VECTOR_INDEX]);
-                    }
-                    break;
-                case QUERY_WARNING_CODE_OK:
-                default:
-                    // Not a known warning, will be treated as error below
-                    break;
-            }
-
-            // If not a known warning, treat as error
-            if (!isWarning) {
-                if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return) {
-                    QueryError_SetQueryOOMWarning(status);
-                } else {
-                    QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
-                        message, array_len(ctx->errors));
-                    success = false;
-                    break;
-                }
-            }
+    size_t errorCount = array_len(ctx->errors);
+    for (size_t i = 0; i < errorCount; i++) {
+        if (!processShardError(&ctx->errors[i], hreq, status, oomPolicy, errorCount)) {
+            success = false;
+            break;
         }
     }
 

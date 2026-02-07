@@ -400,7 +400,7 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
     return REDISMODULE_OK;
 }
 
-static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors, HybridRequest *hreq) {
+static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors, const HybridRequest *hreq) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
@@ -420,7 +420,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     // Add warnings array with warnings from subqueries (using QueryWarningCode enum for string representation)
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     for (size_t i = 0; i < hreq->nrequests; ++i) {
-      QueryError* err = &hreq->errors[i];
+      const QueryError* err = &hreq->errors[i];
       const bool isSearch = (i == 0);
       const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
       // Check for timeout warning
@@ -431,11 +431,6 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       // Check for max prefix expansions warning
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
         QueryWarningCode code = isSearch ? QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH : QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM;
-        RedisModule_Reply_SimpleString(reply, QueryWarningCode_Strerror(code));
-      }
-      // Check for OOM warning
-      if (QueryError_HasQueryOOMWarning(err)) {
-        QueryWarningCode code = isSearch ? QUERY_WARNING_CODE_OUT_OF_MEMORY_SEARCH : QUERY_WARNING_CODE_OUT_OF_MEMORY_VSIM;
         RedisModule_Reply_SimpleString(reply, QueryWarningCode_Strerror(code));
       }
     }

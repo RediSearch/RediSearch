@@ -442,8 +442,7 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 /// - [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
 ///   [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`]
 /// - FT.HYBRID specific: [`QueryWarningCode::TimedOutSearch`], [`QueryWarningCode::TimedOutVsim`],
-///   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`], [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`],
-///   [`QueryWarningCode::OutOfMemorySearch`], [`QueryWarningCode::OutOfMemoryVsim`]
+///   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`], [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`]
 ///
 /// If another message is provided, [`QueryWarningCode::Ok`] is returned.
 ///
@@ -468,8 +467,6 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::ReachedMaxPrefixExpansionsSearch.to_c_str();
     const REACHED_MAX_PREFIX_EXPANSIONS_VSIM_CSTR: &CStr =
         QueryWarningCode::ReachedMaxPrefixExpansionsVsim.to_c_str();
-    const OUT_OF_MEMORY_SEARCH_CSTR: &CStr = QueryWarningCode::OutOfMemorySearch.to_c_str();
-    const OUT_OF_MEMORY_VSIM_CSTR: &CStr = QueryWarningCode::OutOfMemoryVsim.to_c_str();
 
     // Safety: see safety requirement above.
     let message = unsafe { CStr::from_ptr(message) };
@@ -493,10 +490,6 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::ReachedMaxPrefixExpansionsSearch
     } else if message == REACHED_MAX_PREFIX_EXPANSIONS_VSIM_CSTR {
         QueryWarningCode::ReachedMaxPrefixExpansionsVsim
-    } else if message == OUT_OF_MEMORY_SEARCH_CSTR {
-        QueryWarningCode::OutOfMemorySearch
-    } else if message == OUT_OF_MEMORY_VSIM_CSTR {
-        QueryWarningCode::OutOfMemoryVsim
     } else {
         QueryWarningCode::Ok
     }
