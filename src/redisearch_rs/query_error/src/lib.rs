@@ -259,8 +259,6 @@ pub enum QueryWarningCode {
     TimedOutVsim,
     ReachedMaxPrefixExpansionsSearch,
     ReachedMaxPrefixExpansionsVsim,
-    OutOfMemorySearch,
-    OutOfMemoryVsim,
 }
 
 impl QueryWarningCode {
@@ -291,8 +289,6 @@ impl QueryWarningCode {
             Self::ReachedMaxPrefixExpansionsVsim => {
                 c"Max prefix expansions limit was reached (VSIM)"
             }
-            Self::OutOfMemorySearch => c"Not enough memory available to execute the query (SEARCH)",
-            Self::OutOfMemoryVsim => c"Not enough memory available to execute the query (VSIM)",
         }
     }
 }
