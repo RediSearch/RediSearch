@@ -22,9 +22,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   MRCommand *xcmd, arrayof(char *) serialized,
                                   IndexSpec *sp,
                                   const VectorQuery *vq);
-
-// Access the global NumShards variable for testing
-extern size_t NumShards;
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -80,6 +77,9 @@ protected:
                                        double expectedRatio,
                                        long long expectedEffectiveK,
                                        bool passNullVectorQuery = false) {
+        // Access the global NumShards variable for testing
+        extern size_t NumShards;
+
         // Save and set NumShards
         size_t originalNumShards = NumShards;
         NumShards = numShards;
@@ -119,7 +119,6 @@ protected:
             HybridRequest_Free(hreq);
             NumShards = originalNumShards;
             FAIL() << "Failed to parse hybrid command";
-            return;
         }
 
         // Validate VectorQuery
