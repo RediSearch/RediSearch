@@ -12,7 +12,6 @@
 #include "shard_window_ratio.h"
 #include "redisearch_rs/headers/query_error.h"
 
-#include <memory>
 #include <vector>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -53,62 +52,16 @@ protected:
     HybridPipelineParams hybridParams;
     IndexSpec *testIndexSpec = nullptr;
 
-    // Helper structure to hold parsed hybrid command context and resources
-    struct ParsedHybridCommand {
-        HybridRequest *hreq = nullptr;
-        HybridPipelineParams parsedHybridParams = {0};
-        ParseHybridCommandCtx cmd = {0};
-
-        ~ParsedHybridCommand() {
-            if (hreq) {
-                HybridRequest_Free(hreq);
-            }
-            if (parsedHybridParams.scoringCtx) {
-                HybridScoringContext_Free(parsedHybridParams.scoringCtx);
-            }
-        }
-    };
-
-    // Helper function to parse a hybrid command using the full parser
-    std::unique_ptr<ParsedHybridCommand> parseHybridCommandHelper(RMCK::ArgvList& args, const char* indexName) {
-        RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexName, true);
-        if (!sctx) return nullptr;
-
-        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-        if (!hreq) return nullptr;
-
-        ArgsCursor ac = {0};
-        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
-
-        auto parsed = std::make_unique<ParsedHybridCommand>();
-        parsed->hreq = hreq;
-        parsed->cmd.search = hreq->requests[0];
-        parsed->cmd.vector = hreq->requests[1];
-        parsed->cmd.tailPlan = &hreq->tailPipeline->ap;
-        parsed->cmd.hybridParams = &parsed->parsedHybridParams;
-        parsed->cmd.reqConfig = &hreq->reqConfig;
-        parsed->cmd.cursorConfig = &hreq->cursorConfig;
-        parsed->cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
-
-        QueryError status = QueryError_Default();
-        int rc = parseHybridCommand(ctx, &ac, sctx, &parsed->cmd, &status, false, EXEC_NO_FLAGS);
-        if (rc != REDISMODULE_OK) {
-            return nullptr;
-        }
-
-        return parsed;
-    }
-
-    // Helper function to validate VectorQuery from parsed hybrid command
+    // Helper function to validate VectorQuery from AREQ
     // Returns the VectorQuery pointer if validation passes, nullptr otherwise
-    VectorQuery* validateVectorQuery(ParsedHybridCommand *parsed, size_t expectedK, double expectedShardWindowRatio) {
-        EXPECT_NE(parsed->cmd.vector->ast.root, nullptr) << "Vector AST root should not be NULL";
-        if (!parsed->cmd.vector->ast.root) return nullptr;
+    VectorQuery* validateVectorQuery(AREQ *vectorReq, size_t expectedK, double expectedShardWindowRatio) {
+        EXPECT_NE(vectorReq->ast.root, nullptr) << "Vector AST root should not be NULL";
+        if (!vectorReq->ast.root) return nullptr;
 
-        EXPECT_EQ(parsed->cmd.vector->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
-        if (parsed->cmd.vector->ast.root->type != QN_VECTOR) return nullptr;
+        EXPECT_EQ(vectorReq->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
+        if (vectorReq->ast.root->type != QN_VECTOR) return nullptr;
 
-        VectorQuery *vq = parsed->cmd.vector->ast.root->vn.vq;
+        VectorQuery *vq = vectorReq->ast.root->vn.vq;
         EXPECT_NE(vq, nullptr) << "VectorQuery should not be NULL";
         if (!vq) return nullptr;
 
@@ -120,15 +73,7 @@ protected:
     }
 
     // Helper function to test SHARD_K_RATIO command transformation
-    // Parameters:
-    //   inputArgs: The input command arguments
-    //   numShards: Number of shards to simulate
-    //   expectedK: Expected K value in VectorQuery after parsing
-    //   expectedRatio: Expected shardWindowRatio in VectorQuery after parsing
-    //   expectedEffectiveK: Expected K value in output MRCommand after
-    //                       transformation
-    //   passNullVectorQuery: If true, pass NULL for VectorQuery to test
-    //                        backward compatibility
+    // Uses stack-allocated variables following the pattern in hybrid_debug.c
     void testShardKRatioTransformation(const std::vector<const char*>& inputArgs,
                                        size_t numShards,
                                        size_t expectedK,
@@ -144,12 +89,41 @@ protected:
         argsWithNull.push_back(nullptr);
         RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
 
-        // Parse the hybrid command
-        auto parsed = parseHybridCommandHelper(args, "test_idx");
-        ASSERT_NE(parsed, nullptr) << "Failed to parse hybrid command";
+        // Create search context and hybrid request
+        RedisSearchCtx *sctx = NewSearchCtxC(ctx, "test_idx", true);
+        ASSERT_NE(sctx, nullptr) << "Failed to create search context";
+
+        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+        ASSERT_NE(hreq, nullptr) << "Failed to create hybrid request";
+
+        // Stack-allocated variables (following hybrid_debug.c pattern)
+        HybridPipelineParams hybridParams = {};
+        ParseHybridCommandCtx cmd = {};
+        cmd.search = hreq->requests[0];
+        cmd.vector = hreq->requests[1];
+        cmd.tailPlan = &hreq->tailPipeline->ap;
+        cmd.hybridParams = &hybridParams;
+        cmd.reqConfig = &hreq->reqConfig;
+        cmd.cursorConfig = &hreq->cursorConfig;
+        cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
+
+        ArgsCursor ac = {};
+        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
+
+        QueryError status = QueryError_Default();
+        int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS);
+        if (rc != REDISMODULE_OK) {
+            if (hybridParams.scoringCtx) {
+                HybridScoringContext_Free(hybridParams.scoringCtx);
+            }
+            HybridRequest_Free(hreq);
+            NumShards = originalNumShards;
+            FAIL() << "Failed to parse hybrid command";
+            return;
+        }
 
         // Validate VectorQuery
-        const VectorQuery *vq = validateVectorQuery(parsed.get(), expectedK, expectedRatio);
+        const VectorQuery *vq = validateVectorQuery(cmd.vector, expectedK, expectedRatio);
         ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
         // Build MR command
@@ -167,8 +141,12 @@ protected:
         EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
         EXPECT_EQ(kValue, expectedEffectiveK) << "K value mismatch";
 
-        // Cleanup
+        // Cleanup (following hybrid_debug.c pattern)
         MRCommand_Free(&xcmd);
+        if (hybridParams.scoringCtx) {
+            HybridScoringContext_Free(hybridParams.scoringCtx);
+        }
+        HybridRequest_Free(hreq);
         NumShards = originalNumShards;
     }
 
