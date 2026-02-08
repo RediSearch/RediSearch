@@ -167,6 +167,7 @@ def test_profile(env):
         'Shards': [{
           'Total profile time': ANY,
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Total GIL time': ANY,
           'Warning': ['None'],
@@ -210,13 +211,13 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': ['None'],
+                      {'Total profile time': ANY, 'Parsing time': ANY, 'Workers queue time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': ['None'],
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Sorter', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Loader', 'Time': ANY, 'Results processed': ANY}]}],
-        'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY},
+        'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY, 'Coordinator queue time': ANY},
       },
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING', 'SCORER', 'TFIDF')
@@ -239,6 +240,7 @@ def test_coord_profile():
         'Coordinator': {
           'Total profile time': ANY,
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Total GIL time': ANY,
           'Warning': ['None'],
@@ -249,6 +251,7 @@ def test_coord_profile():
     shard = {
       'Total profile time': ANY,
       'Parsing time': ANY,
+      'Workers queue time': ANY,
       'Pipeline creation time': ANY,
       'Total GIL time': ANY,
       'Warning': ['None'],
@@ -666,6 +669,7 @@ def test_profile_crash_mod5323():
               'Type': 'INTERSECT'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Total GIL time': ANY,
           'Warning': ['None'],
@@ -715,6 +719,7 @@ def test_profile_child_itrerators_array():
               'Type': 'UNION'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Total GIL time': ANY,
           'Warning': ['None'],
@@ -753,6 +758,7 @@ def test_profile_child_itrerators_array():
               'Type': 'INTERSECT'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Total GIL time': ANY,
           'Warning': ['None'],

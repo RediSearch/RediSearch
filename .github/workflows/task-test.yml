@@ -108,7 +108,7 @@ jobs:
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
@@ -475,6 +475,21 @@ jobs:
           ENABLE_ASSERT: 1
         run: make pytest ${{ inputs.test-config }}
 
+      - name: Decode C++ crash stack traces
+        if: failure() || steps.c_unit_tests.outcome == 'failure'
+        run: |
+          chmod +x tests/cpptests/scripts/decode_stacktrace.sh 2>/dev/null || true
+          if [[ -x tests/cpptests/scripts/decode_stacktrace.sh ]]; then
+            # Find all log files containing stack trace markers and decode them separately
+            # Processing each file separately avoids test name cross-contamination between binaries
+            find tests -name "*.log" -exec grep -l "=== Caught fatal signal in C++ test" {} \; 2>/dev/null | \
+              while read -r logfile; do
+                tests/cpptests/scripts/decode_stacktrace.sh "$logfile" || true
+              done
+          else
+            echo "Decode script not found or not executable"
+          fi
+
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
@@ -544,7 +559,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: stop
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
