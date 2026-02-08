@@ -14,7 +14,9 @@
 //!
 //! The implementation is split into sub-modules by concern:
 //! - [`insert`]: Write path (add, split, balance)
+//! - [`find`]: Read path (range queries)
 
+mod find;
 mod insert;
 #[cfg(all(feature = "unittest", not(miri)))]
 mod invariants;

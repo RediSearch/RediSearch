@@ -77,6 +77,7 @@ mod unique_id;
 
 pub use arena::NodeIndex;
 pub use index::{NumericIndex, NumericIndexReader};
+pub use inverted_index::NumericFilter;
 pub use iter::PreOrderDfsIterator;
 pub use node::{InternalNode, LeafNode, NumericRangeNode};
 pub use range::NumericRange;
