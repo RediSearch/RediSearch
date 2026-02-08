@@ -677,4 +677,27 @@ TEST_F(ExprTest, testEvalCtxEvalExprNullExpr) {
   EvalCtx_Destroy(ctx);
 }
 
+TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
+  // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when the expression
+  // references a property that doesn't exist in the lookup registry
+  EvalCtx *ctx = EvalCtx_Create();
+  ASSERT_NE(ctx, nullptr);
+
+  // Create an expression that references a property @foo
+  // The lookup is empty (no properties registered), so this should fail
+  RSExpr *expr = RS_NewProp("foo", 3);
+
+  int rc = EvalCtx_EvalExpr(ctx, expr);
+  ASSERT_EQ(EXPR_EVAL_ERR, rc);
+
+  // Verify the error message mentions the missing property
+  const char *err = QueryError_GetUserError(&ctx->status);
+  ASSERT_NE(err, nullptr);
+  ASSERT_TRUE(strstr(err, "foo") != nullptr) << "Error should mention the missing property: " << err;
+
+  // Clean up - we own the expression since EvalCtx_EvalExpr sets _own_expr = false
+  ExprAST_Free(expr);
+  EvalCtx_Destroy(ctx);
+}
+
 #undef ASSERT_EXPR_EVAL_NUMBER
