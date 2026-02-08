@@ -693,7 +693,7 @@ TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
   // Verify the error message mentions the missing property
   const char *err = QueryError_GetUserError(&ctx->status);
   ASSERT_NE(err, nullptr);
-  ASSERT_TRUE(strstr(err, "foo") != nullptr) << "Error should mention the missing property: " << err;
+  ASSERT_TRUE(strstr(err, "Property `foo` not loaded nor in pipeline") != nullptr) << "Error should mention the missing property: " << err;
 
   // Clean up - we own the expression since EvalCtx_EvalExpr sets _own_expr = false
   ExprAST_Free(expr);
