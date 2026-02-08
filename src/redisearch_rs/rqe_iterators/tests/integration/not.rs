@@ -538,7 +538,7 @@ fn read_timeout_via_timeout_ctx() {
             .doc_id,
         "rewind should have allowed us to start reading again from start, despites earlier timeout"
     )
-    // that said... internal timeout context is _not_ reset,
+    // that said... internal timeout context is _not_ resetted,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
 
@@ -589,6 +589,6 @@ fn skip_to_timeout_via_timeout_ctx() {
             .doc_id,
         "rewind should have allowed us to start reading again from start, despites earlier timeout"
     )
-    // that said... internal timeout context is _not_ reset,
+    // that said... internal timeout context is _not_ resetted,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
