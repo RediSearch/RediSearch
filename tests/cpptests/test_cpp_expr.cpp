@@ -665,4 +665,16 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypeComparison) {
   ASSERT_EXPR_EVAL_NUMBER(ctx, 0);  // NULL == 'hello' should be false
 }
 
+TEST_F(ExprTest, testEvalCtxEvalExprNullExpr) {
+  // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when called with NULL expression
+  EvalCtx *ctx = EvalCtx_Create();
+  ASSERT_NE(ctx, nullptr);
+
+  // Calling EvalCtx_EvalExpr with NULL should set _expr to NULL and return error
+  int rc = EvalCtx_EvalExpr(ctx, NULL);
+  ASSERT_EQ(EXPR_EVAL_ERR, rc);
+
+  EvalCtx_Destroy(ctx);
+}
+
 #undef ASSERT_EXPR_EVAL_NUMBER
