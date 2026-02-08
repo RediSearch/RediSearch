@@ -379,6 +379,7 @@ void EvalCtx_Destroy(EvalCtx *r) {
   }
   RLookupRow_Reset(&r->row);
   RLookup_Cleanup(&r->lk);
+  QueryError_ClearError(&r->status);
   rm_free(r);
 }
 
