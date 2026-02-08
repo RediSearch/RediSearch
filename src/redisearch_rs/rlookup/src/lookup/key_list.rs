@@ -8,6 +8,7 @@
 */
 
 use crate::{RLookup, RLookupKey, RLookupKeyFlags};
+use std::marker::PhantomData;
 use std::ptr;
 use std::{ffi::CStr, pin::Pin, ptr::NonNull};
 
@@ -22,6 +23,20 @@ pub struct KeyList<'a> {
     // of lookup keys. Overridden keys created through [`CursorMut::override_current`] increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     pub(crate) rowlen: u32,
+}
+
+struct RawIter<'a> {
+    current: Option<NonNull<RLookupKey<'a>>>,
+}
+
+pub struct Iter<'list, 'a> {
+    _list: PhantomData<&'list KeyList<'a>>,
+    raw: RawIter<'a>,
+}
+
+pub struct IterMut<'list, 'a> {
+    _list: PhantomData<&'list mut KeyList<'a>>,
+    raw: RawIter<'a>,
 }
 
 /// A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
@@ -119,6 +134,28 @@ impl<'a> KeyList<'a> {
         Cursor {
             _rlookup: self,
             current: self.head,
+        }
+    }
+
+    pub fn iter(&self) -> Iter<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter");
+
+        Iter {
+            _list: PhantomData,
+            // Safety: we borrow self (1.) and return only references that cannot outlive the list from the iterator (2.)            raw: unsafe { RawIter::new(self.head) },
+            raw: unsafe { RawIter::new(self.head) },
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter");
+
+        IterMut {
+            _list: PhantomData,
+            // Safety: we borrow self (1.) and return only references that cannot outlive the list from the iterator (2.)
+            raw: unsafe { RawIter::new(self.head) },
         }
     }
 
@@ -264,6 +301,81 @@ impl Drop for KeyList<'_> {
             // 3 -> RLookupKey is about to be freed, we don't need to worry about pinning anymore.
             drop(unsafe { RLookupKey::from_ptr(head_ptr) });
         }
+    }
+}
+
+// ===== impl RawIter =====
+
+impl<'a> RawIter<'a> {
+    /// Construct a new raw iterator.
+    ///
+    /// # Safety
+    ///
+    /// 1. The list must not be mutated while the iterator is held.
+    /// 2. The returned pointers must not outlive the key list.
+    const unsafe fn new(current: Option<NonNull<RLookupKey<'a>>>) -> Self {
+        Self { current }
+    }
+}
+
+impl<'a> Iterator for RawIter<'a> {
+    type Item = NonNull<RLookupKey<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.current.take()?;
+
+        // Safety: The caller promised to uphold the safety invariants.
+        let curr = unsafe { current.as_ref() };
+        self.current = curr.next();
+
+        Some(current)
+    }
+}
+
+// ===== impl Iter =====
+
+impl<'list, 'a> Iterator for Iter<'list, 'a> {
+    type Item = &'list RLookupKey<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for next in self.raw.by_ref() {
+            // Safety: It is safe for us to borrow `curr`, because the iteraror immutably borrows the `KeyList`,
+            // ensuring it will not be dropped while the iterator exists.
+            // The returned item will not outlive the iterator.
+            let next = unsafe { next.as_ref() };
+
+            if next.is_tombstone() {
+                continue;
+            }
+
+            return Some(next);
+        }
+
+        None
+    }
+}
+
+// ===== impl IterMut =====
+
+impl<'list, 'a> Iterator for IterMut<'list, 'a> {
+    type Item = &'list mut RLookupKey<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for mut next in self.raw.by_ref() {
+            // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
+            // ensuring it will not be dropped while the iterator exists AND we have exclusive access
+            // to the keys it owns (and can therefore hand out mutable references).
+            // The returned item will not outlive the iterator.
+            let next = unsafe { next.as_mut() };
+
+            if next.is_tombstone() {
+                continue;
+            }
+
+            return Some(next);
+        }
+
+        None
     }
 }
 

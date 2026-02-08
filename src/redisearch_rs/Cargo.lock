@@ -1703,6 +1703,7 @@ dependencies = [
  "pin-project",
  "pretty_assertions",
  "proptest",
+ "query_error",
  "redis-module",
  "redis_mock",
  "sorting_vector",
@@ -1918,6 +1919,7 @@ dependencies = [
 name = "search_result"
 version = "0.0.1"
 dependencies = [
+ "document",
  "enumflags2",
  "ffi",
  "inverted_index",
