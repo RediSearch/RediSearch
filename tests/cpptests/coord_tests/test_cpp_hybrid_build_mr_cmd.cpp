@@ -28,7 +28,6 @@ class HybridBuildMRCommandTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
-        memset(&hybridParams, 0, sizeof(hybridParams));
 
         // Create index used by SHARD_K_RATIO tests
         QueryError qerr = QueryError_Default();
@@ -46,7 +45,6 @@ protected:
     }
 
     RedisModuleCtx *ctx = nullptr;
-    HybridPipelineParams hybridParams;
     IndexSpec *testIndexSpec = nullptr;
 
     // Helper function to validate VectorQuery from AREQ

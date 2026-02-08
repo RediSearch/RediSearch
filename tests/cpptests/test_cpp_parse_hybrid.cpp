@@ -137,22 +137,24 @@ class ParseHybridTest : public ::testing::Test {
 
 };
 
-#define parseCommand(args) ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed";
+#define parseCommand(args) do { \
+  ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed"; \
+} while(0)
 
 
-#define assertLinearScoringCtx(Weight0, Weight1) { \
+#define assertLinearScoringCtx(Weight0, Weight1) do { \
   ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
   ASSERT_EQ(result.hybridParams->scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
   ASSERT_TRUE(result.hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
-}
+} while(0)
 
-#define assertRRFScoringCtx(Constant, Window) { \
+#define assertRRFScoringCtx(Constant, Window) do { \
   ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->rrfCtx.constant, Constant); \
   ASSERT_EQ(result.hybridParams->scoringCtx->rrfCtx.window, Window); \
-}
+} while(0)
 
 
 TEST_F(ParseHybridTest, testBasicValidInput) {
