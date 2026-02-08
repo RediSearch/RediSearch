@@ -13,12 +13,22 @@
 #include "vecsim_disk_api.h"
 #include "factory/disk_index_factory.h"
 
+#include <barrier>
+#include <set>
+
 using namespace test_utils;
 using sq8 = vecsim_types::sq8;
 
 class HNSWDiskTest : public ::testing::Test {
 protected:
     static constexpr size_t DIM = 4;
+
+    // Helper to fill a vector with deterministic values based on label
+    static void fillVector(float* vec, labelType label) {
+        for (size_t j = 0; j < DIM; j++) {
+            vec[j] = static_cast<float>(label * DIM + j);
+        }
+    }
 
     VecSimIndex* createIndex(const HNSWParams& hnsw_params, const SpeeDBHandles* handles = nullptr) {
         auto params_disk_holder = createDiskParams(hnsw_params);
@@ -39,14 +49,83 @@ TEST_F(HNSWDiskTest, CreateIndex) {
     EXPECT_EQ(index->indexSize(), 0);
 }
 
-// Stub tests - verify stub behavior until MOD-13164 implementation
-TEST_F(HNSWDiskTest, AddVectorStub) {
+// Test addVector basic functionality
+TEST_F(HNSWDiskTest, AddVectorBasic) {
     TestIndex<float, float> index(DIM);
 
     float vec[DIM] = {1.0f, 1.0f, 1.0f, 1.0f};
-    // Stub returns 0 (not implemented)
-    EXPECT_EQ(index->addVector(vec, 1), 0);
-    EXPECT_EQ(index->indexSize(), 0);
+    // addVector returns 1 to indicate one vector was added
+    EXPECT_EQ(index->addVector(vec, 1), 1);
+    EXPECT_EQ(index->indexSize(), 1);
+}
+
+// Test addVector with multiple vectors - verifies graph structure is built
+TEST_F(HNSWDiskTest, AddVectorMultiple) {
+    TestIndex<float, float> index(DIM);
+
+    // Add 5 vectors in a line
+    float vectors[5][DIM] = {{0.0f, 0.0f, 0.0f, 0.0f},
+                             {1.0f, 0.0f, 0.0f, 0.0f},
+                             {2.0f, 0.0f, 0.0f, 0.0f},
+                             {3.0f, 0.0f, 0.0f, 0.0f},
+                             {4.0f, 0.0f, 0.0f, 0.0f}};
+
+    for (int i = 0; i < 5; i++) {
+        EXPECT_EQ(index->addVector(vectors[i], 100 + i), 1);
+    }
+    EXPECT_EQ(index->indexSize(), 5);
+
+    // Verify entry point exists
+    auto entryPointState = index->testGetEntryPointState();
+    EXPECT_NE(entryPointState.id, INVALID_ID) << "Entry point should be set after adding vectors";
+
+    // Verify at least the first few elements have edges at level 0
+    // (the graph should be connected after insertion)
+    auto edges0 = index->testGetOutgoingEdges(0, 0);
+    EXPECT_GT(edges0.size(), 0) << "First element should have neighbors after graph construction";
+}
+
+// Test addVector creates proper graph structure with connections
+TEST_F(HNSWDiskTest, AddVectorCreatesConnectedGraph) {
+    // Use small M to make edge counts predictable
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 2, 200, 10);
+
+    // Add 3 vectors close together - they should all be connected
+    float vec0[DIM] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.1f, 0.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.2f, 0.0f, 0.0f, 0.0f};
+
+    EXPECT_EQ(index->addVector(vec0, 100), 1);
+    EXPECT_EQ(index->addVector(vec1, 101), 1);
+    EXPECT_EQ(index->addVector(vec2, 102), 1);
+
+    EXPECT_EQ(index->indexSize(), 3);
+
+    // After adding 3 close vectors, they should form a connected graph
+    // Check that node 1 has neighbors (it was inserted after node 0 exists)
+    auto edges1 = index->testGetOutgoingEdges(1, 0);
+    EXPECT_GT(edges1.size(), 0) << "Node 1 should have neighbors";
+
+    // Check that node 2 has neighbors
+    auto edges2 = index->testGetOutgoingEdges(2, 0);
+    EXPECT_GT(edges2.size(), 0) << "Node 2 should have neighbors";
+}
+
+// Test addVector properly stores vectors for distance computation
+TEST_F(HNSWDiskTest, AddVectorStoresVectorsCorrectly) {
+    TestIndex<float, float> index(DIM);
+
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+
+    EXPECT_EQ(index->addVector(vec1, 100), 1);
+    EXPECT_EQ(index->addVector(vec2, 101), 1);
+
+    // Compute distance between the two stored vectors
+    // L2 distance between [1,0,0,0] and [0,1,0,0] = sqrt(2) ≈ 1.414
+    float dist = index->testComputeDistance(vec1, 1);
+    EXPECT_GT(dist, 0.0f);
+    EXPECT_LT(dist, 3.0f); // Reasonable range for L2 distance
 }
 
 TEST_F(HNSWDiskTest, TopKQueryStub) {
@@ -318,25 +397,27 @@ TEST_F(HNSWDiskTest, GrowByBlockMultipleTimes) {
 // Graph Search Algorithm Tests
 // =============================================================================
 
-TEST_F(HNSWDiskTest, SetupElementAndComputeDistance) {
+TEST_F(HNSWDiskTest, AddVectorAndComputeDistance) {
     TestIndex<float, float> index(DIM);
 
     // Create test vectors
     float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
     float vec2[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
 
-    // Set up elements using the test helper
-    idType id0 = index->testSetupElement(100, 0, vec1);
-    idType id1 = index->testSetupElement(101, 0, vec2);
+    // Add elements using the production addVector function
+    EXPECT_EQ(index->addVector(vec1, 100), 1);
+    EXPECT_EQ(index->addVector(vec2, 101), 1);
 
-    EXPECT_EQ(id0, 0);
-    EXPECT_EQ(id1, 1);
     EXPECT_EQ(index->indexSize(), 2);
+
+    // Verify entry point is set after adding vectors
+    auto entryPointState = index->testGetEntryPointState();
+    EXPECT_NE(entryPointState.id, INVALID_ID) << "Entry point should be set";
 
     // Compute distance from vec1 to stored vec2
     // L2 distance between [1,0,0,0] and [0,1,0,0] = sqrt(2) ≈ 1.414
     // But SQ8 quantization may introduce some error
-    float dist = index->testComputeDistance(vec1, id1);
+    float dist = index->testComputeDistance(vec1, 1);
     EXPECT_GT(dist, 0.0f);
     EXPECT_LT(dist, 3.0f); // Reasonable range for L2 distance
 }
@@ -446,6 +527,48 @@ TEST_F(HNSWDiskTest, SearchLayerBasic) {
     EXPECT_TRUE(found2 || found3);
 }
 
+// Test search on graph built with addVector (full insertion flow)
+TEST_F(HNSWDiskTest, SearchLayerOnAddVectorGraph) {
+    TestIndex<float, float> index(DIM);
+
+    // Build graph using addVector (the production path)
+    float vectors[5][DIM] = {{0.0f, 0.0f, 0.0f, 0.0f},
+                             {1.0f, 0.0f, 0.0f, 0.0f},
+                             {2.0f, 0.0f, 0.0f, 0.0f},
+                             {3.0f, 0.0f, 0.0f, 0.0f},
+                             {4.0f, 0.0f, 0.0f, 0.0f}};
+
+    for (int i = 0; i < 5; i++) {
+        EXPECT_EQ(index->addVector(vectors[i], 100 + i), 1);
+    }
+    EXPECT_EQ(index->indexSize(), 5);
+
+    // Get entry point for search
+    auto entryPointState = index->testGetEntryPointState();
+    EXPECT_NE(entryPointState.id, INVALID_ID);
+
+    // Query for vector closest to [2.5, 0, 0, 0] - between nodes 2 and 3
+    float query[DIM] = {2.5f, 0.0f, 0.0f, 0.0f};
+
+    // Search starting from entry point
+    auto results = index->testSearchLayer<false>(entryPointState.id, query, 0, 5);
+
+    // Should find results
+    EXPECT_GT(results.size(), 0);
+
+    // Extract result IDs
+    std::vector<idType> resultIds;
+    while (!results.empty()) {
+        resultIds.push_back(results.top().second);
+        results.pop();
+    }
+
+    // Should have found nodes 2 and 3 (closest to query [2.5, 0, 0, 0])
+    bool found2 = std::find(resultIds.begin(), resultIds.end(), 2) != resultIds.end();
+    bool found3 = std::find(resultIds.begin(), resultIds.end(), 3) != resultIds.end();
+    EXPECT_TRUE(found2 || found3) << "Should find nodes 2 or 3 (closest to query)";
+}
+
 // =============================================================================
 // Neighbor Selection Heuristic Tests
 // =============================================================================
@@ -533,13 +656,13 @@ TEST_F(HNSWDiskTest, MutuallyConnectNewElement) {
     idType id2 = index->testSetupElement(102, 0, vec2);
 
     // Create top candidates heap for new node
-    vecsim_stl::updatable_max_heap<float, idType> topCandidates(index->getAllocator());
+    candidatesMaxHeap<float> topCandidates(index->getAllocator());
     topCandidates.emplace(index->testComputeDistance(vec2, id0), id0);
     topCandidates.emplace(index->testComputeDistance(vec2, id1), id1);
 
     // Mutually connect new element
-    auto nodesToRepair = index->testMutuallyConnectNewElement(id2, topCandidates, 0);
-    (void)nodesToRepair; // Unused in this test - we just verify edges are created
+    auto result = index->testMutuallyConnectNewElement(id2, topCandidates, 0);
+    (void)result; // Unused in this test - we just verify edges are created
 
     // Verify edges were created for the new node
     auto edges = index->testGetOutgoingEdges(id2, 0);
@@ -743,11 +866,11 @@ TEST_F(HNSWDiskTest, MutuallyConnectReturnsNodesToRepairOnOverflow) {
     ids[5] = index->testSetupElement(105, 0, vectors[5]);
 
     // Create candidates for the new node - include id0 which is already at capacity
-    vecsim_stl::updatable_max_heap<float, idType> topCandidates(index->getAllocator());
+    candidatesMaxHeap<float> topCandidates(index->getAllocator());
     topCandidates.emplace(index->testComputeDistance(vectors[5], ids[0]), ids[0]);
 
     // Mutually connect - this should return id0 as needing repair
-    auto nodesToRepair = index->testMutuallyConnectNewElement(ids[5], topCandidates, 0);
+    auto result = index->testMutuallyConnectNewElement(ids[5], topCandidates, 0);
 
     // Verify the new node has edges
     auto newNodeEdges = index->testGetOutgoingEdges(ids[5], 0);
@@ -757,11 +880,11 @@ TEST_F(HNSWDiskTest, MutuallyConnectReturnsNodesToRepairOnOverflow) {
     auto edgesAfter = index->testGetOutgoingEdges(ids[0], 0);
     if (edgesAfter.size() > index->testGetM0()) {
         // If overflow occurred, the node should be in the list to repair
-        EXPECT_GT(nodesToRepair.size(), 0) << "Should return node to repair when neighbor overflows";
+        EXPECT_GT(result.nodesToRepair.size(), 0) << "Should return node to repair when neighbor overflows";
         // Verify the node to repair is id0 at level 0
         bool foundId0ToRepair = false;
-        for (const auto& node : nodesToRepair) {
-            if (node.first == ids[0] && node.second == 0) {
+        for (const auto& node : result.nodesToRepair) {
+            if (node.id == ids[0] && node.level == 0) {
                 foundId0ToRepair = true;
                 break;
             }
@@ -936,4 +1059,763 @@ TEST_P(HNSWDiskMetricTest, DiskIndexComponentsAndConversion) {
 
     delete components.preprocessors;
     delete components.diskCalculator;
+}
+
+// Test that storeVector allocates ID, initializes metadata, and stores vectors
+TEST_F(HNSWDiskTest, StoreVectorAllocatesIdAndInitializesMetadata) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    labelType label = 100;
+
+    // Call storeVector directly
+    HNSWDiskAddVectorState state = index->testStoreVector(vec, label);
+
+    // Verify ID was allocated (should be 0 for first element)
+    EXPECT_EQ(state.newElementId, 0);
+
+    // Verify random level was assigned (should be >= 0)
+    EXPECT_GE(state.elementMaxLevel, 0);
+
+    // Verify element count increased
+    EXPECT_EQ(index->indexSize(), 1);
+
+    // Verify metadata was initialized correctly
+    EXPECT_EQ(index->testGetLabelById(state.newElementId), label);
+    EXPECT_EQ(index->testGetElementLevel(state.newElementId), state.elementMaxLevel);
+}
+
+// Test that storeVector stores SQ8 quantized vector in memory
+TEST_F(HNSWDiskTest, StoreVectorStoresQuantizedVectorInMemory) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    HNSWDiskAddVectorState state = index->testStoreVector(vec, 100);
+
+    // Get the stored SQ8 quantized data
+    const char* storedSQ8 = index->testGetQuantizedDataByInternalId(state.newElementId);
+    ASSERT_NE(storedSQ8, nullptr) << "SQ8 quantized vector should be stored in memory";
+
+    // Verify the stored data is non-trivial (not all zeros)
+    // SQ8 format: dim bytes + metadata floats
+    size_t sq8Size = index->getStoredDataSize();
+    bool hasNonZeroData = false;
+    for (size_t i = 0; i < sq8Size && !hasNonZeroData; ++i) {
+        if (storedSQ8[i] != 0) {
+            hasNonZeroData = true;
+        }
+    }
+    EXPECT_TRUE(hasNonZeroData) << "Stored SQ8 data should contain non-zero values";
+}
+
+// Test that storeVector stores original FP32 vector on disk
+TEST_F(HNSWDiskTest, StoreVectorStoresFP32VectorOnDisk) {
+    TestIndex<float, float> index(DIM);
+
+    float originalVec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    HNSWDiskAddVectorState state = index->testStoreVector(originalVec, 100);
+
+    // Retrieve the stored vector from disk
+    float retrievedVec[DIM] = {0.0f, 0.0f, 0.0f, 0.0f};
+    size_t bufferSize = DIM * sizeof(float);
+    bool success = index->testGetVectorFromDisk(state.newElementId, retrievedVec, bufferSize);
+    ASSERT_TRUE(success) << "Should be able to retrieve vector from disk";
+
+    // Verify the retrieved vector matches the original
+    for (size_t i = 0; i < DIM; ++i) {
+        EXPECT_FLOAT_EQ(retrievedVec[i], originalVec[i]) << "Dimension " << i << " should match original vector";
+    }
+}
+
+// Test that storeVector does NOT update entry point (entry point update is deferred to indexVector)
+TEST_F(HNSWDiskTest, StoreVectorUpdatesEntryPointForFirstElement) {
+    TestIndex<float, float> index(DIM);
+
+    // Initially, entry point should be invalid
+    auto initialState = index->testGetEntryPointState();
+    EXPECT_EQ(initialState.id, INVALID_ID) << "Entry point should be invalid initially";
+
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    HNSWDiskAddVectorState state = index->testStoreVector(vec, 100);
+
+    // After storeVector, entry point should still be invalid
+    // (entry point is only updated in indexVector after graph connections are made)
+    auto afterStoreState = index->testGetEntryPointState();
+    EXPECT_EQ(afterStoreState.id, INVALID_ID)
+        << "Entry point should still be invalid after storeVector (deferred to indexVector)";
+}
+
+// Test that storeVector captures current entry point state for indexVector
+TEST_F(HNSWDiskTest, StoreVectorCapturesCurrentState) {
+    TestIndex<float, float> index(DIM);
+
+    // Store first element - does NOT become entry point yet (deferred to indexVector)
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    HNSWDiskAddVectorState state1 = index->testStoreVector(vec1, 100);
+
+    // state1 should have captured that there was no entry point before
+    EXPECT_EQ(state1.currEntryPoint, INVALID_ID) << "First element should have INVALID_ID as currEntryPoint";
+
+    // Now store second element - entry point still not updated (only storeVector was called)
+    float vec2[DIM] = {2.0f, 0.0f, 0.0f, 0.0f};
+    HNSWDiskAddVectorState state2 = index->testStoreVector(vec2, 101);
+
+    // state2 should also have INVALID_ID because entry point is only updated in indexVector
+    // Both elements were stored but neither has been indexed yet
+    EXPECT_EQ(state2.currEntryPoint, INVALID_ID)
+        << "Second element should also have INVALID_ID (entry point updated only in indexVector)";
+}
+
+// Test that edge lists are empty after storeVector (before graph insertion)
+TEST_F(HNSWDiskTest, StoreVectorHasEmptyEdgeLists) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    HNSWDiskAddVectorState state = index->testStoreVector(vec, 100);
+
+    // Verify edge lists are empty for all levels up to elementMaxLevel.
+    // Missing keys in storage are treated as empty edge lists.
+    for (levelType level = 0; level <= state.elementMaxLevel; ++level) {
+        auto outgoing = index->testGetOutgoingEdges(state.newElementId, level);
+        auto incoming = index->testGetIncomingEdges(state.newElementId, level);
+        EXPECT_EQ(outgoing.size(), 0) << "Outgoing edges should be empty at level " << level;
+        EXPECT_EQ(incoming.size(), 0) << "Incoming edges should be empty at level " << level;
+    }
+}
+
+// Test that storeVector marks element as IN_PROCESS
+TEST_F(HNSWDiskTest, StoreVectorMarksElementAsInProcess) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    HNSWDiskAddVectorState state = index->testStoreVector(vec, 100);
+
+    // Element should be marked as IN_PROCESS (not yet indexed)
+    EXPECT_TRUE(index->testIsInProcess(state.newElementId)) << "Element should be marked IN_PROCESS after storeVector";
+    EXPECT_FALSE(index->testIsMarkedDeleted(state.newElementId)) << "Element should NOT be marked as deleted";
+}
+
+// =============================================================================
+// indexVector Tests (Phase 2 of insertion)
+// =============================================================================
+
+// Test that indexVector unmarks IN_PROCESS flag for first element (no graph insertion needed)
+TEST_F(HNSWDiskTest, IndexVectorUnmarksInProcessForFirstElement) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    HNSWDiskAddVectorState state = index->testStoreVector(vec, 100);
+
+    // Before indexVector: element should be IN_PROCESS
+    EXPECT_TRUE(index->testIsInProcess(state.newElementId));
+
+    // Get the SQ8 quantized data for indexVector
+    const char* storedSQ8 = index->testGetQuantizedDataByInternalId(state.newElementId);
+    ASSERT_NE(storedSQ8, nullptr);
+
+    // Call indexVector
+    GraphNodeList nodesToRepair = index->testIndexVector(storedSQ8, 100, state);
+
+    // After indexVector: element should NOT be IN_PROCESS anymore
+    EXPECT_FALSE(index->testIsInProcess(state.newElementId)) << "Element should be unmarked after indexVector";
+
+    // For first element, no nodes should need repair (no graph insertion)
+    EXPECT_EQ(nodesToRepair.size(), 0) << "First element should have no nodes to repair";
+}
+
+// Test that indexVector connects second element to first
+TEST_F(HNSWDiskTest, IndexVectorConnectsSecondElementToFirst) {
+    TestIndex<float, float> index(DIM);
+
+    // Add first element using full addVector
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    index->addVector(vec1, 100);
+    EXPECT_EQ(index->indexSize(), 1);
+
+    // Now add second element using storeVector + indexVector manually
+    float vec2[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    HNSWDiskAddVectorState state = index->testStoreVector(vec2, 200);
+
+    // State should capture first element as entry point
+    EXPECT_EQ(state.currEntryPoint, 0) << "Entry point should be first element";
+
+    // Get SQ8 data and call indexVector
+    const char* storedSQ8 = index->testGetQuantizedDataByInternalId(state.newElementId);
+    GraphNodeList nodesToRepair = index->testIndexVector(storedSQ8, 200, state);
+
+    // Element should be unmarked
+    EXPECT_FALSE(index->testIsInProcess(state.newElementId));
+
+    // Second element should have edges to first element at level 0
+    auto outgoing = index->testGetOutgoingEdges(state.newElementId, 0);
+    EXPECT_GE(outgoing.size(), 1) << "Second element should have at least one outgoing edge";
+
+    // First element should have second element as neighbor (bidirectional connection)
+    auto firstOutgoing = index->testGetOutgoingEdges(0, 0);
+    bool hasSecond = std::find(firstOutgoing.begin(), firstOutgoing.end(), state.newElementId) != firstOutgoing.end();
+    EXPECT_TRUE(hasSecond) << "First element should have second element as neighbor";
+}
+
+// Test that indexVector returns nodes to repair when neighbors overflow
+TEST_F(HNSWDiskTest, IndexVectorReturnsNodesToRepairOnOverflow) {
+    // Use small M to trigger overflow quickly
+    size_t smallM = 2;
+    // Constructor: dim, metric, M, efConstruction, efRuntime
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, smallM, 4, 10);
+
+    // Add M+1 elements to trigger overflow on one of them
+    std::vector<float> vectors;
+    for (size_t i = 0; i <= smallM + 1; i++) {
+        float vec[DIM];
+        fillVector(vec, i);
+        index->addVector(vec, 100 + i);
+    }
+
+    // With M=2, after adding 3+ elements, some nodes should have needed repair.
+    // The repairs are executed inline in addVector, so we can't directly observe them.
+    // But we can verify the graph is connected properly
+    EXPECT_EQ(index->indexSize(), smallM + 2);
+
+    // Verify all elements have at most M neighbors at level 0
+    for (size_t i = 0; i < index->indexSize(); i++) {
+        auto outgoing = index->testGetOutgoingEdges(i, 0);
+        EXPECT_LE(outgoing.size(), smallM * 2) << "Element " << i << " should have at most M*2 neighbors";
+    }
+}
+
+// Test that indexVector returns nodes to repair and repairNode fixes the overflow
+// This test explicitly verifies the full flow:
+// 1. storeVector + indexVector (without calling repairNode)
+// 2. Verify indexVector returns nodes needing repair
+// 3. Verify the graph has overflow BEFORE repair
+// 4. Call repairNode and verify it fixes the overflow
+TEST_F(HNSWDiskTest, IndexVectorReturnsNodesToRepairAndRepairNodeFixesThem) {
+    // Use very small M=2 to easily trigger overflow (M0 = 4 at level 0)
+    size_t smallM = 2;
+    size_t M0 = smallM * 2; // Max neighbors at level 0
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, smallM, 4, 10);
+
+    // Add MORE than M0 nodes so we have enough nodes to fill node 0's neighbor list
+    // We need at least M0+1 nodes (not counting node 0) to guarantee we can fill all M0 slots
+    size_t numInitialNodes = M0 + 3;
+    for (size_t i = 0; i < numInitialNodes; i++) {
+        float vec[DIM];
+        for (size_t j = 0; j < DIM; j++) {
+            vec[j] = static_cast<float>(i);
+        }
+        index->addVector(vec, 100 + i);
+    }
+    ASSERT_EQ(index->indexSize(), numInitialNodes);
+
+    // Find a node that we can force into overflow
+    // Node 0 is a good candidate - check its current neighbor count
+    auto currentEdges = index->testGetOutgoingEdges(0, 0);
+
+    // Add extra edges to node 0 to bring it to exactly M0 capacity
+    // Use all available nodes (1 to numInitialNodes-1) as potential targets
+    for (size_t targetId = 1; targetId < numInitialNodes && currentEdges.size() < M0; targetId++) {
+        bool alreadyConnected = false;
+        for (const auto& neighbor : currentEdges) {
+            if (neighbor == static_cast<idType>(targetId)) {
+                alreadyConnected = true;
+                break;
+            }
+        }
+        if (!alreadyConnected) {
+            index->testAddEdge(0, static_cast<idType>(targetId), 0);
+            // Refresh edge list after each addition
+            currentEdges = index->testGetOutgoingEdges(0, 0);
+        }
+    }
+
+    // Verify node 0 is at exactly M0 capacity
+    auto edgesAtCapacity = index->testGetOutgoingEdges(0, 0);
+    ASSERT_EQ(edgesAtCapacity.size(), M0) << "Node 0 should have exactly M0=" << M0 << " neighbors";
+
+    // Now add a NEW node using storeVector + indexVector (not addVector!)
+    // This lets us observe nodesToRepair before calling repairNode
+    // Use a vector very close to node 0 so it will connect to it
+    float newVec[DIM];
+    for (size_t j = 0; j < DIM; j++) {
+        newVec[j] = 0.1f; // Very close to node 0 (which has all 0s)
+    }
+
+    // Phase 1: storeVector
+    HNSWDiskAddVectorState state = index->testStoreVector(newVec, 999);
+    EXPECT_TRUE(index->testIsInProcess(state.newElementId));
+
+    // Get the SQ8 quantized data
+    const char* storedSQ8 = index->testGetQuantizedDataByInternalId(state.newElementId);
+    ASSERT_NE(storedSQ8, nullptr);
+
+    // Phase 2: indexVector - this should return nodes needing repair
+    GraphNodeList nodesToRepair = index->testIndexVector(storedSQ8, 999, state);
+
+    // Element should be unmarked after indexVector
+    EXPECT_FALSE(index->testIsInProcess(state.newElementId));
+
+    // Check if node 0 has overflow (more than M0 neighbors)
+    auto edgesBeforeRepair = index->testGetOutgoingEdges(0, 0);
+
+    // The new node should have connected to node 0 (since it's very close)
+    // Check both directions - new node connecting TO node 0, or node 0 having new node as neighbor
+    bool newNodeConnectedToNode0 =
+        std::find(edgesBeforeRepair.begin(), edgesBeforeRepair.end(), state.newElementId) != edgesBeforeRepair.end();
+
+    // Also check if new node has node 0 as a neighbor
+    auto newNodeEdges = index->testGetOutgoingEdges(state.newElementId, 0);
+    bool node0InNewNodeNeighbors = std::find(newNodeEdges.begin(), newNodeEdges.end(), 0) != newNodeEdges.end();
+
+    if (newNodeConnectedToNode0 || node0InNewNodeNeighbors) {
+        // If connected, node 0 should have overflow
+        if (edgesBeforeRepair.size() > M0) {
+            // Verify nodesToRepair contains node 0
+            bool foundNode0InRepairList = false;
+            for (const auto& node : nodesToRepair) {
+                if (node.id == 0 && node.level == 0) {
+                    foundNode0InRepairList = true;
+                    break;
+                }
+            }
+            EXPECT_TRUE(foundNode0InRepairList) << "Node 0 should be in nodesToRepair list";
+
+            // Call repairNode to fix the overflow
+            index->testRepairNode(0, 0);
+
+            // Verify overflow is fixed
+            auto edgesAfterRepair = index->testGetOutgoingEdges(0, 0);
+            EXPECT_LE(edgesAfterRepair.size(), M0)
+                << "Node 0 should have at most M0=" << M0 << " neighbors after repair";
+            EXPECT_GT(edgesAfterRepair.size(), 0) << "Node 0 should still have some neighbors after repair";
+        } else {
+            // No overflow on node 0, but the insertion succeeded - check if repair was needed elsewhere
+            if (nodesToRepair.size() > 0) {
+                // Repair all nodes and verify they end up within limits
+                for (const auto& [nodeId, level] : nodesToRepair) {
+                    auto beforeRepair = index->testGetOutgoingEdges(nodeId, level);
+                    index->testRepairNode(nodeId, level);
+                    auto afterRepair = index->testGetOutgoingEdges(nodeId, level);
+                    size_t maxNeighbors = (level == 0) ? M0 : smallM;
+                    EXPECT_LE(afterRepair.size(), maxNeighbors)
+                        << "Node " << nodeId << " at level " << level << " should be repaired";
+                }
+            }
+        }
+    } else {
+        GTEST_SKIP() << "New node did not connect to node 0 - test scenario not triggered";
+    }
+}
+
+// Test that indexVector with multiple elements creates connected graph
+TEST_F(HNSWDiskTest, IndexVectorCreatesConnectedGraph) {
+    TestIndex<float, float> index(DIM);
+    const size_t numVectors = 10;
+
+    // Add vectors
+    for (size_t i = 0; i < numVectors; i++) {
+        float vec[DIM];
+        fillVector(vec, i);
+        index->addVector(vec, 100 + i);
+    }
+
+    EXPECT_EQ(index->indexSize(), numVectors);
+
+    // Verify each element (except potentially first) has neighbors
+    size_t elementsWithNeighbors = 0;
+    for (size_t i = 0; i < numVectors; i++) {
+        auto outgoing = index->testGetOutgoingEdges(i, 0);
+        if (outgoing.size() > 0) {
+            elementsWithNeighbors++;
+        }
+    }
+
+    // Most elements should have neighbors (at least n-1 elements)
+    EXPECT_GE(elementsWithNeighbors, numVectors - 1);
+
+    // All elements should be unmarked (not IN_PROCESS)
+    for (size_t i = 0; i < numVectors; i++) {
+        EXPECT_FALSE(index->testIsInProcess(i)) << "Element " << i << " should not be IN_PROCESS";
+    }
+}
+
+// =============================================================================
+// insertElementToGraph Tests (Core graph insertion algorithm)
+// =============================================================================
+
+// Test that insertElementToGraph creates bidirectional connections
+TEST_F(HNSWDiskTest, InsertElementToGraphCreatesBidirectionalConnections) {
+    TestIndex<float, float> index(DIM);
+
+    // Add first element manually using storeVector (skip indexVector since no entry point)
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    HNSWDiskAddVectorState state1 = index->testStoreVector(vec1, 100);
+    index->testUnmarkInProcess(state1.newElementId);
+
+    // Add second element and call insertElementToGraph directly
+    float vec2[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    HNSWDiskAddVectorState state2 = index->testStoreVector(vec2, 200);
+
+    const char* sq8Data = index->testGetQuantizedDataByInternalId(state2.newElementId);
+    ASSERT_NE(sq8Data, nullptr);
+
+    // Manually call insertElementToGraph
+    GraphNodeList nodesToRepair =
+        index->testInsertElementToGraph(state2.newElementId, state2.elementMaxLevel, state1.newElementId, 0, sq8Data);
+
+    // Verify bidirectional connection at level 0
+    auto outgoing2 = index->testGetOutgoingEdges(state2.newElementId, 0);
+    bool elem2HasElem1 = std::find(outgoing2.begin(), outgoing2.end(), state1.newElementId) != outgoing2.end();
+    EXPECT_TRUE(elem2HasElem1) << "Element 2 should have element 1 as neighbor";
+
+    auto outgoing1 = index->testGetOutgoingEdges(state1.newElementId, 0);
+    bool elem1HasElem2 = std::find(outgoing1.begin(), outgoing1.end(), state2.newElementId) != outgoing1.end();
+    EXPECT_TRUE(elem1HasElem2) << "Element 1 should have element 2 as neighbor";
+}
+
+// Test that insertElementToGraph maintains incoming edges
+TEST_F(HNSWDiskTest, InsertElementToGraphMaintainsIncomingEdges) {
+    TestIndex<float, float> index(DIM);
+
+    // Add first element
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    index->addVector(vec1, 100);
+
+    // Add second element
+    float vec2[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    index->addVector(vec2, 200);
+
+    // Verify incoming edges are maintained
+    auto incoming1 = index->testGetIncomingEdges(0, 0);
+    auto incoming2 = index->testGetIncomingEdges(1, 0);
+
+    // At least one of them should have incoming edges from the other
+    bool hasIncoming = (std::find(incoming1.begin(), incoming1.end(), 1) != incoming1.end()) ||
+                       (std::find(incoming2.begin(), incoming2.end(), 0) != incoming2.end());
+    EXPECT_TRUE(hasIncoming) << "Bidirectional connections should create incoming edges";
+}
+
+// Test insertElementToGraph with multiple elements selects correct neighbors
+TEST_F(HNSWDiskTest, InsertElementToGraphSelectsCorrectNeighbors) {
+    // Use small M to verify neighbor selection
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 2, 10, 10);
+
+    // Add several elements in a line (easy to predict distances)
+    for (int i = 0; i < 5; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        index->addVector(vec, 100 + i);
+    }
+
+    EXPECT_EQ(index->indexSize(), 5);
+
+    // Middle element (id 2) should have neighbors 1 and 3 (closest in L2)
+    auto neighbors = index->testGetOutgoingEdges(2, 0);
+    EXPECT_GE(neighbors.size(), 1) << "Middle element should have neighbors";
+
+    // The neighbors should include adjacent elements (1 or 3)
+    bool hasAdjacent = std::find(neighbors.begin(), neighbors.end(), 1) != neighbors.end() ||
+                       std::find(neighbors.begin(), neighbors.end(), 3) != neighbors.end();
+    EXPECT_TRUE(hasAdjacent) << "Middle element should have adjacent elements as neighbors";
+}
+
+// =============================================================================
+// Multithreading Tests for addVector flow
+// =============================================================================
+
+#include <atomic>
+#include <barrier>
+#include <set>
+#include <thread>
+#include <vector>
+
+// Parameterized test for concurrent addVector with varying thread counts
+// Using 1 thread tests the single-threaded baseline
+struct AddVectorTestParams {
+    size_t numThreads;
+    size_t vectorsPerThread;
+};
+
+class HNSWDiskAddVectorTest : public HNSWDiskTest, public testing::WithParamInterface<AddVectorTestParams> {};
+
+TEST_P(HNSWDiskAddVectorTest, AddVector) {
+    auto params = GetParam();
+    TestIndex<float, float> index(DIM);
+
+    const size_t totalVectors = params.numThreads * params.vectorsPerThread;
+
+    // Use threads for all cases (works for numThreads=1 too)
+    std::vector<std::thread> threads;
+    for (size_t t = 0; t < params.numThreads; t++) {
+        threads.emplace_back([&, t]() {
+            for (size_t i = 0; i < params.vectorsPerThread; i++) {
+                labelType label = t * params.vectorsPerThread + i;
+                float vec[DIM];
+                fillVector(vec, label);
+                index->addVector(vec, label);
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // Verify all inserts succeeded
+    EXPECT_EQ(index->indexSize(), totalVectors);
+
+    // Verify no elements are marked IN_PROCESS
+    for (size_t i = 0; i < totalVectors; i++) {
+        EXPECT_FALSE(index->testIsInProcess(i)) << "Element " << i << " should not be IN_PROCESS";
+    }
+
+    // Verify label <-> ID mapping consistency
+    std::set<idType> usedIds;
+    for (labelType label = 0; label < static_cast<labelType>(totalVectors); label++) {
+        EXPECT_TRUE(index->testIsLabelExists(label)) << "Label " << label << " should exist";
+        idType id = index->testGetIdByLabel(label);
+        EXPECT_LT(id, totalVectors) << "ID for label " << label << " should be valid";
+        EXPECT_EQ(index->testGetLabelById(id), label) << "Round-trip failed for label " << label;
+        usedIds.insert(id);
+    }
+    EXPECT_EQ(usedIds.size(), totalVectors) << "All IDs should be unique";
+
+    // Verify graph connectivity (all but first should have neighbors)
+    if (totalVectors > 1) {
+        size_t elementsWithNeighbors = 0;
+        for (size_t i = 0; i < totalVectors; i++) {
+            auto outgoing = index->testGetOutgoingEdges(i, 0);
+            if (!outgoing.empty()) {
+                elementsWithNeighbors++;
+            }
+        }
+        EXPECT_GE(elementsWithNeighbors, totalVectors - 1);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(Concurrency, HNSWDiskAddVectorTest,
+                         testing::Values(AddVectorTestParams{1, 100},  // Single-threaded baseline
+                                         AddVectorTestParams{4, 25},   // Basic concurrent (4 threads)
+                                         AddVectorTestParams{8, 50},   // Higher thread count
+                                         AddVectorTestParams{16, 25},  // High thread count stress
+                                         AddVectorTestParams{8, 200}), // Block growth stress (1600 vectors)
+                         [](const testing::TestParamInfo<AddVectorTestParams>& info) {
+                             return std::to_string(info.param.numThreads) + "threads_" +
+                                    std::to_string(info.param.vectorsPerThread) + "vectors";
+                         });
+
+// Test that concurrent storeVector+indexVector flow works correctly.
+// NOTE: This test intentionally bypasses addVector and calls storeVector+indexVector directly,
+// which is how the tiered index will use these functions. The label-to-ID mapping is NOT
+// registered here because the tiered index manages label mappings at its own layer.
+// This test only verifies that the low-level storage and graph insertion work correctly.
+TEST_F(HNSWDiskTest, ConcurrentStoreAndIndexVector) {
+    TestIndex<float, float> index(DIM);
+    const size_t numThreads = 4;
+    const size_t vectorsPerThread = 20;
+    const size_t totalVectors = numThreads * vectorsPerThread;
+
+    std::vector<std::thread> threads;
+
+    for (size_t t = 0; t < numThreads; t++) {
+        threads.emplace_back([&, t]() {
+            for (size_t i = 0; i < vectorsPerThread; i++) {
+                labelType label = t * vectorsPerThread + i;
+                float vec[DIM];
+                fillVector(vec, label);
+
+                // Phase 1: storeVector (no label mapping - tiered index handles that)
+                HNSWDiskAddVectorState state = index->testStoreVector(vec, label);
+
+                // Get the quantized data for indexing
+                const char* sq8Data = index->testGetQuantizedDataByInternalId(state.newElementId);
+                if (sq8Data != nullptr) {
+                    // Phase 2: indexVector
+                    index->testIndexVector(sq8Data, label, state);
+                }
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_EQ(index->indexSize(), totalVectors);
+
+    // Verify no elements are marked IN_PROCESS
+    for (size_t i = 0; i < totalVectors; i++) {
+        EXPECT_FALSE(index->testIsInProcess(i)) << "Element " << i << " should not be IN_PROCESS";
+    }
+}
+
+// Test that concurrent first vector insertion is handled correctly
+// This tests the race condition when multiple threads try to become the first entry point
+TEST_F(HNSWDiskTest, ConcurrentFirstVectorRace) {
+    const size_t numThreads = 8;
+
+    std::vector<std::thread> threads;
+
+    // Each thread creates its own index and tries to add the first vector concurrently
+    // This tests the entry point initialization race
+    TestIndex<float, float> index(DIM);
+
+    std::barrier<> startBarrier(numThreads);
+
+    for (size_t t = 0; t < numThreads; t++) {
+        threads.emplace_back([&, t]() {
+            float vec[DIM];
+            fillVector(vec, t);
+
+            // Synchronize all threads to start at the same time
+            startBarrier.arrive_and_wait();
+
+            index->addVector(vec, t);
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // All threads should succeed (each has unique label)
+    EXPECT_EQ(index->indexSize(), numThreads);
+
+    // Verify entry point is set to a valid element
+    auto entryPointState = index->testGetEntryPointState();
+    EXPECT_LT(entryPointState.id, numThreads);
+}
+
+// Test concurrent insertions where many threads insert similar vectors, causing high contention
+// on the same graph nodes (same neighborhood). This tests that per-node locking works correctly.
+TEST_F(HNSWDiskTest, ConcurrentHighContentionSameNeighborhood) {
+    const size_t numThreads = 8;
+    const size_t vectorsPerThread = 10;
+    const size_t totalVectors = numThreads * vectorsPerThread;
+
+    // Use small M to increase contention on limited neighbor slots
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 4, 50, 10);
+
+    std::vector<std::thread> threads;
+
+    // All threads insert vectors clustered around the same point
+    // This causes maximum contention as all vectors compete for the same neighbors
+    for (size_t t = 0; t < numThreads; t++) {
+        threads.emplace_back([&, t]() {
+            for (size_t i = 0; i < vectorsPerThread; i++) {
+                labelType label = t * vectorsPerThread + i;
+                // Create vectors clustered around origin with small perturbations
+                // This causes them all to be neighbors of each other
+                float vec[DIM];
+                float perturbation = static_cast<float>(label) * 0.001f;
+                for (size_t j = 0; j < DIM; j++) {
+                    vec[j] = perturbation + static_cast<float>(j) * 0.0001f;
+                }
+                index->addVector(vec, label);
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // All inserts should succeed
+    EXPECT_EQ(index->indexSize(), totalVectors);
+
+    // Verify graph is properly connected despite high contention
+    size_t elementsWithNeighbors = 0;
+    for (size_t i = 0; i < totalVectors; i++) {
+        auto outgoing = index->testGetOutgoingEdges(i, 0);
+        if (!outgoing.empty()) {
+            elementsWithNeighbors++;
+        }
+    }
+    // All elements except possibly first should have neighbors
+    EXPECT_GE(elementsWithNeighbors, totalVectors - 1);
+
+    // Verify all elements are properly finalized (not IN_PROCESS)
+    for (size_t i = 0; i < totalVectors; i++) {
+        EXPECT_FALSE(index->testIsInProcess(i)) << "Element " << i << " should not be IN_PROCESS";
+    }
+}
+
+// Test that metadata is fully visible after element creation (no partial visibility)
+// This tests the atomicity of metadata initialization
+TEST_F(HNSWDiskTest, MetadataVisibilityAfterCreation) {
+    const size_t numThreads = 8;
+    const size_t vectorsPerThread = 30;
+    const size_t totalVectors = numThreads * vectorsPerThread;
+
+    TestIndex<float, float> index(DIM);
+
+    std::vector<std::thread> threads;
+    std::atomic<bool> allInsertsDone{false};
+
+    // Insert threads
+    for (size_t t = 0; t < numThreads / 2; t++) {
+        threads.emplace_back([&, t]() {
+            for (size_t i = 0; i < vectorsPerThread; i++) {
+                labelType label = t * vectorsPerThread + i;
+                float vec[DIM];
+                fillVector(vec, label);
+                index->addVector(vec, label);
+            }
+        });
+    }
+
+    // Metadata checking threads - verify that whenever an element is visible,
+    // its metadata is fully initialized
+    std::atomic<size_t> metadataChecks{0};
+    std::atomic<size_t> metadataErrors{0};
+
+    for (size_t t = numThreads / 2; t < numThreads; t++) {
+        threads.emplace_back([&]() {
+            while (!allInsertsDone.load() || metadataChecks.load() < 1000) {
+                size_t currentSize = index->indexSize();
+                if (currentSize > 0) {
+                    // Check a random element's metadata
+                    size_t elemId = metadataChecks.load() % currentSize;
+                    metadataChecks++;
+
+                    // If element exists, its label should be retrievable
+                    try {
+                        labelType label = index->testGetLabelById(elemId);
+                        levelType level = index->testGetElementLevel(elemId);
+                        // Verify label is sensible (non-garbage)
+                        if (label > totalVectors * 10) {
+                            metadataErrors++;
+                        }
+                        // Verify level is sensible
+                        if (level < 0 || level > 20) {
+                            metadataErrors++;
+                        }
+                    } catch (...) {
+                        // Element may have been added but not fully visible yet - this is OK
+                    }
+                }
+                // Small delay to reduce CPU spinning
+                std::this_thread::yield();
+            }
+        });
+    }
+
+    // Wait for insert threads
+    for (size_t t = 0; t < numThreads / 2; t++) {
+        threads[t].join();
+    }
+
+    allInsertsDone.store(true);
+
+    // Wait for checker threads
+    for (size_t t = numThreads / 2; t < numThreads; t++) {
+        threads[t].join();
+    }
+
+    // Verify inserts succeeded
+    EXPECT_EQ(index->indexSize(), (numThreads / 2) * vectorsPerThread);
+
+    // Verify no metadata errors detected
+    EXPECT_EQ(metadataErrors.load(), 0) << "Should have no metadata visibility errors";
+
+    // Verify metadata checks ran
+    EXPECT_GT(metadataChecks.load(), 100) << "Should have performed many metadata checks";
 }

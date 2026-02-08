@@ -22,8 +22,8 @@
     size_t testGetRandomLevel() { return getRandomLevel(); }                                                           \
     idType testAllocateId() { return allocateId(); }                                                                   \
     void testRecycleId(idType id) { recycleId(id); }                                                                   \
-    std::pair<idType, size_t> testGetEntryPointState() const { return safeGetEntryPointState(); }                      \
-    bool testTryUpdateEntryPoint(idType id, size_t level) { return tryUpdateEntryPoint(id, level); }                   \
+    GraphNodeType testGetEntryPointState() const { return safeGetEntryPointState(); }                                  \
+    void testTryUpdateEntryPoint(idType id, size_t level) { replaceEntryPoint(id, level); }                            \
     idType testGetNextId() const { return nextId_.load(); }                                                            \
     size_t testGetHolesCount() const {                                                                                 \
         std::lock_guard<std::mutex> lock(holesMutex_);                                                                 \
@@ -89,13 +89,15 @@
     /* Check if element is marked in-process (test accessor) */                                                        \
     bool testIsInProcess(idType id) const { return isInProcess(id); }                                                  \
                                                                                                                        \
+    /* Check if label exists (test accessor) */                                                                        \
+    bool testIsLabelExists(labelType label) const { return isLabelExists(label); }                                     \
+                                                                                                                       \
     /* Set element count for testing (needed for assertion in greedySearchLevel) */                                    \
     void testSetElementCount(size_t count) { curElementCount_ = count; }                                               \
                                                                                                                        \
     /* Test helper for searchLayer - automatically preprocesses FP32 query based on mode */                            \
     template <bool running_query = true>                                                                               \
-    vecsim_stl::updatable_max_heap<DistType, idType> testSearchLayer(idType ep_id, const void* queryFP32,              \
-                                                                     size_t layer, size_t ef) const {                  \
+    candidatesMaxHeap<DistType> testSearchLayer(idType ep_id, const void* queryFP32, size_t layer, size_t ef) const {  \
         if constexpr (running_query) {                                                                                 \
             auto processedQuery = this->preprocessQuery(queryFP32, false);                                             \
             return searchLayer<true>(ep_id, processedQuery.get(), layer, ef);                                          \
@@ -117,8 +119,8 @@
     }                                                                                                                  \
                                                                                                                        \
     /* Test accessor for mutuallyConnectNewElement */                                                                  \
-    GraphNodeList testMutuallyConnectNewElement(                                                                       \
-        idType new_node_id, vecsim_stl::updatable_max_heap<DistType, idType>& top_candidates, size_t level) const {    \
+    MutualConnectResult testMutuallyConnectNewElement(idType new_node_id, candidatesMaxHeap<DistType>& top_candidates, \
+                                                      size_t level) const {                                            \
         return mutuallyConnectNewElement(new_node_id, top_candidates, level);                                          \
     }                                                                                                                  \
                                                                                                                        \
@@ -212,6 +214,46 @@
             storage_->get_incoming_edges(nodeId, level, result);                                                       \
         }                                                                                                              \
         return result;                                                                                                 \
+    }                                                                                                                  \
+                                                                                                                       \
+    /* Test accessor for storeVector - Phase 1 of insertion */                                                         \
+    HNSWDiskAddVectorState testStoreVector(const void* vector_data, labelType label) {                                 \
+        return storeVector(vector_data, label);                                                                        \
+    }                                                                                                                  \
+                                                                                                                       \
+    /* Test accessor for indexVector - Phase 2 of insertion */                                                         \
+    GraphNodeList testIndexVector(const void* querySQ8, labelType label, const HNSWDiskAddVectorState& state) {        \
+        return indexVector(querySQ8, label, state);                                                                    \
+    }                                                                                                                  \
+                                                                                                                       \
+    /* Test accessor for insertElementToGraph - the core graph insertion algorithm */                                  \
+    GraphNodeList testInsertElementToGraph(idType element_id, levelType element_max_level, idType entry_point,         \
+                                           levelType global_max_level, const void* querySQ8) {                         \
+        return insertElementToGraph(element_id, element_max_level, entry_point, global_max_level, querySQ8);           \
+    }                                                                                                                  \
+                                                                                                                       \
+    /* Get quantized data by internal ID for testing */                                                                \
+    const char* testGetQuantizedDataByInternalId(idType id) const { return getQuantizedDataByInternalId(id); }         \
+                                                                                                                       \
+    /* Get label by internal ID for testing */                                                                         \
+    labelType testGetLabelById(idType id) const { return idToMetaData[id].label; }                                     \
+                                                                                                                       \
+    /* Get internal ID by label for testing */                                                                         \
+    idType testGetIdByLabel(labelType label) const {                                                                   \
+        std::shared_lock<std::shared_mutex> lock(labelLookupMutex_);                                                   \
+        auto it = labelToIdLookup_.find(label);                                                                        \
+        return (it != labelToIdLookup_.end()) ? it->second : INVALID_ID;                                               \
+    }                                                                                                                  \
+                                                                                                                       \
+    /* Get max level for element by internal ID for testing */                                                         \
+    levelType testGetElementLevel(idType id) const { return idToMetaData[id].maxLevel; }                               \
+                                                                                                                       \
+    /* Get vector from disk storage for testing */                                                                     \
+    bool testGetVectorFromDisk(idType id, void* buffer, size_t bufferSize) const {                                     \
+        if (storage_) {                                                                                                \
+            return storage_->get_vector(id, buffer, bufferSize);                                                       \
+        }                                                                                                              \
+        return false;                                                                                                  \
     }
 
 #else

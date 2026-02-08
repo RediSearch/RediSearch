@@ -490,33 +490,33 @@ TEST_F(TieredHNSWDiskAsyncJobTest, JobSubmissionWithMockQueue) {
     EXPECT_EQ(mock_queue.size(), 1);
 }
 
-// Test hash function for std::pair<idType, levelType>
-TEST_F(TieredHNSWDiskAsyncJobTest, PairHashFunction) {
-    std::hash<std::pair<idType, levelType>> hasher;
+// Test hash function for GraphNodeType
+TEST_F(TieredHNSWDiskAsyncJobTest, GraphNodeTypeHashFunction) {
+    std::hash<GraphNodeType> hasher;
 
-    // Test that same pairs produce same hash
-    auto pair1 = std::make_pair(idType(42), levelType(3));
-    auto pair2 = std::make_pair(idType(42), levelType(3));
-    EXPECT_EQ(hasher(pair1), hasher(pair2));
+    // Test that same nodes produce same hash
+    GraphNodeType node1(42, 3);
+    GraphNodeType node2(42, 3);
+    EXPECT_EQ(hasher(node1), hasher(node2));
 
-    // Test that different pairs produce different hashes (likely, not guaranteed)
-    auto pair3 = std::make_pair(idType(42), levelType(4));
-    auto pair4 = std::make_pair(idType(43), levelType(3));
+    // Test that different nodes produce different hashes (likely, not guaranteed)
+    GraphNodeType node3(42, 4);
+    GraphNodeType node4(43, 3);
     // We can't assert inequality due to hash collisions, but we can verify they compute
-    EXPECT_TRUE(hasher(pair3) >= 0);
-    EXPECT_TRUE(hasher(pair4) >= 0);
+    EXPECT_TRUE(hasher(node3) >= 0);
+    EXPECT_TRUE(hasher(node4) >= 0);
 
     // Test with unordered_map
-    std::unordered_map<std::pair<idType, levelType>, int> test_map;
-    test_map[pair1] = 1;
-    test_map[pair3] = 2;
-    test_map[pair4] = 3;
+    std::unordered_map<GraphNodeType, int, std::hash<GraphNodeType>> test_map;
+    test_map[node1] = 1;
+    test_map[node3] = 2;
+    test_map[node4] = 3;
 
     EXPECT_EQ(test_map.size(), 3);
-    EXPECT_EQ(test_map[pair1], 1);
-    EXPECT_EQ(test_map[pair2], 1); // Same as pair1
-    EXPECT_EQ(test_map[pair3], 2);
-    EXPECT_EQ(test_map[pair4], 3);
+    EXPECT_EQ(test_map[node1], 1);
+    EXPECT_EQ(test_map[node2], 1); // Same as node1
+    EXPECT_EQ(test_map[node3], 2);
+    EXPECT_EQ(test_map[node4], 3);
 }
 
 // Test job type enum values
@@ -747,7 +747,7 @@ TEST_F(TieredHNSWDiskAsyncJobTest, ConcurrentRepairJobDeduplication) {
 
     // Simulate the pending_repairs map and its mutex
     std::mutex pending_repairs_guard;
-    vecsim_stl::unordered_map<std::pair<idType, levelType>, std::shared_ptr<AsyncDiskJob>> pending_repairs(allocator);
+    vecsim_stl::unordered_map<GraphNodeType, std::shared_ptr<AsyncDiskJob>> pending_repairs(allocator);
 
     const idType node_id = 42;
     const levelType level = 2;
@@ -756,7 +756,7 @@ TEST_F(TieredHNSWDiskAsyncJobTest, ConcurrentRepairJobDeduplication) {
     std::atomic<int> jobs_created{0};
 
     auto submit_repair = [&]() {
-        auto key = std::make_pair(node_id, level);
+        GraphNodeType key(node_id, level);
         bool created_new_job = false;
 
         {
@@ -786,7 +786,7 @@ TEST_F(TieredHNSWDiskAsyncJobTest, ConcurrentRepairJobDeduplication) {
 
     EXPECT_EQ(jobs_created.load(), 1);
     EXPECT_EQ(pending_repairs.size(), 1);
-    EXPECT_NE(pending_repairs.find(std::make_pair(node_id, level)), pending_repairs.end());
+    EXPECT_NE(pending_repairs.find(GraphNodeType(node_id, level)), pending_repairs.end());
 }
 // Test job lifecycle: created -> submitted -> currently_running -> complete
 TEST_F(TieredHNSWDiskAsyncJobTest, JobLifecycleTracking) {

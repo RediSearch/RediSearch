@@ -13,33 +13,17 @@
 
 #include "VecSim/vec_sim_index.h"
 #include "VecSim/query_result_definitions.h"
-#include "VecSim/utils/vec_utils.h"
 #include "VecSim/info_iterator_struct.h"
-#include "VecSim/spaces/L2_space.h"
-#include "VecSim/spaces/IP_space.h"
-#include "VecSim/types/sq8.h"
 #include "VecSim/tombstone_interface.h"
-#include "storage/hnsw_storage.h"
 #include "VecSim/utils/updatable_heap.h"
-#include "VecSim/algorithms/hnsw/graph_data.h"
-#include "VecSim/algorithms/hnsw/hnsw.h"
+#include "storage/hnsw_storage.h"
 #include "factory/components/disk_components_factory.h"
 #include "utils/vecsim_stl_ext.h"
+#include "graph_node_type.h"
 
-#include <atomic>
-#include <chrono>
 #include <cmath>
-#include <algorithm>
-#include <deque>
-#include <memory>
-#include <mutex>
 #include <random>
 #include <shared_mutex>
-#include <stdexcept>
-#include <string>
-#include <unordered_set>
-#include <utility>
-#include <vector>
 
 // Test helpers are in tests/unit/ directory - included via CMake include path when BUILD_TESTS is defined
 #ifdef BUILD_TESTS
@@ -53,8 +37,6 @@ template <typename DistType>
 using candidatesMaxHeap = vecsim_stl::max_priority_queue<DistType, idType>;
 template <typename DistType>
 using candidatesList = vecsim_stl::vector<std::pair<DistType, idType>>;
-using GraphNodeType = std::pair<idType, levelType>; // represented as: (element_id, level)
-using GraphNodeList = vecsim_stl::vector<GraphNodeType>;
 
 using elementFlags = uint8_t;
 
@@ -63,6 +45,33 @@ using elementFlags = uint8_t;
 enum ElementFlags : elementFlags {
     DISK_DELETE_MARK = 0x01, // Element is logically deleted but still in graph
     DISK_IN_PROCESS = 0x02,  // Element is being inserted into the graph
+};
+
+/**
+ * @brief State captured during storeVector for use in indexVector.
+ *
+ * Captures the index state at the time of storage to ensure consistent
+ * graph traversal even if entry point changes during concurrent insertions.
+ */
+struct HNSWDiskAddVectorState {
+    idType newElementId;       // Newly allocated internal ID
+    levelType elementMaxLevel; // Maximum level for this element (randomly generated)
+    idType currEntryPoint;     // Entry point at time of storage
+    levelType currMaxLevel;    // Max level at time of storage
+};
+
+/**
+ * @brief Result from mutuallyConnectNewElement.
+ *
+ * Contains both the nodes needing repair and the closest candidate for use as
+ * entry point in the next level.
+ */
+struct MutualConnectResult {
+    GraphNodeList nodesToRepair;
+    idType closestCandidate;
+
+    explicit MutualConnectResult(const std::shared_ptr<VecSimAllocator>& alloc)
+        : nodesToRepair(alloc), closestCandidate(INVALID_ID) {}
 };
 
 // Note: INVALID_ID and HNSW_INVALID_LEVEL are already defined in vec_sim_common.h
@@ -152,16 +161,28 @@ public:
     int addVector(const void* blob, labelType label) override;
     int deleteVector(labelType label) override;
     double getDistanceFrom_Unsafe(labelType label, const void* blob) const override;
-    size_t indexSize() const override { return curElementCount_; }
+    size_t indexSize() const override { return curElementCount_.load(std::memory_order_relaxed); }
     size_t indexCapacity() const override { return maxElements_.load(std::memory_order_relaxed); }
-    size_t indexLabelCount() const override { return curElementCount_; }
+    size_t indexLabelCount() const override {
+        std::shared_lock<std::shared_mutex> lock(labelLookupMutex_);
+        return labelToIdLookup_.size();
+    }
+
+    vecsim_stl::set<labelType> getLabelsSet() const override {
+        std::shared_lock<std::shared_mutex> lock(labelLookupMutex_);
+        vecsim_stl::set<labelType> labels(this->allocator);
+        for (const auto& [label, id] : labelToIdLookup_) {
+            labels.insert(label);
+        }
+        return labels;
+    }
 
     /**
      * @brief Check if current capacity is full.
      *
      * @return true if nextId_ >= maxElements_ and holes is empty
      */
-    bool isCapacityFull() const;
+    [[nodiscard]] bool isCapacityFull() const;
 
     VecSimQueryReply* topKQuery(const void* queryBlob, size_t k, VecSimQueryParams* queryParams) const override;
     VecSimQueryReply* rangeQuery(const void* queryBlob, double radius, VecSimQueryParams* queryParams) const override;
@@ -172,8 +193,6 @@ public:
 
     VecSimBatchIterator* newBatchIterator(const void*, VecSimQueryParams*) const override { return nullptr; }
     bool preferAdHocSearch(size_t, size_t, bool) const override { return true; }
-
-    vecsim_stl::set<labelType> getLabelsSet() const override { return vecsim_stl::set<labelType>(this->allocator); }
 
 #ifdef BUILD_TESTS
     void fitMemory() override {}
@@ -196,12 +215,23 @@ public:
     // This keeps the main header clean while providing full test access
     HNSW_DISK_TEST_METHODS
 
-    // TODO: Make thread safe (the the right locking mechanism)
     vecsim_stl::vector<idType> markDelete(labelType label) override {
-        // Stub - returns dummy ID for testing purposes
-        // TODO: Get internal ID by label, mark as deleted, return deleted IDs
         vecsim_stl::vector<idType> deleted_ids(this->allocator);
-        deleted_ids.push_back(0); // Dummy ID - real implementation will look up by label
+
+        // Look up internal ID by label
+        auto id_opt = getIdByLabel(label);
+        if (!id_opt.has_value()) {
+            return deleted_ids; // Label doesn't exist, return empty
+        }
+        idType id = id_opt.value();
+
+        // Mark the element as deleted (uses atomic operation for thread safety)
+        markAs<DISK_DELETE_MARK>(id);
+
+        // Remove from label lookup (thread-safe via mutex in removeLabel)
+        removeLabel(label);
+
+        deleted_ids.push_back(id);
         return deleted_ids;
     }
 
@@ -226,6 +256,18 @@ protected:
         return isMarkedAsUnsafe<FLAG>(internalId);
     }
 
+    // --- Graph Repair ---
+    /**
+     * @brief Repair a node's connections after neighbors have been deleted or when node overflows.
+     *
+     * Collects non-deleted neighbors and neighbors-of-deleted-neighbors as candidates,
+     * then re-runs the heuristic to select the best connections.
+     *
+     * @param id The node to repair
+     * @param level The graph level to repair connections at
+     */
+    void repairNode(idType id, levelType level);
+
 private:
     // Private helper - assumes metadataMutex_ lock is already held.
     // Does NOT perform bounds checking.
@@ -236,6 +278,17 @@ private:
     // =========================================================================
     // Member Variables
     // =========================================================================
+
+    // --- Lock Ordering Hierarchy (to prevent deadlocks) ---
+    // When acquiring multiple locks, always acquire in this order:
+    //   1. labelLookupMutex_  (outermost - protects label-to-ID mapping)
+    //   2. vectorsMutex_      (protects vectors container)
+    //   3. metadataMutex_     (protects idToMetaData and nodeLocks_)
+    //   4. entryPointMutex_   (protects entry point state)
+    //   5. holesMutex_        (innermost - protects recycled ID list)
+    //
+    // Note: Most code paths acquire only a single lock. The hierarchy above
+    // must be followed when adding new code that acquires multiple locks.
 
     // --- Index Parameters ---
     size_t M_;  // Max neighbors per node at levels > 0
@@ -266,6 +319,12 @@ private:
     // Shared lock for reads (isMarkedAs, lockNode), exclusive lock for writes (growByBlock, initElementMetadata).
     mutable std::shared_mutex metadataMutex_;
 
+    // --- Label-to-ID Reverse Lookup (as per design doc) ---
+    // Maps user-provided labels to internal IDs for O(1) label existence checks,
+    // overwrites, and deletions. The forward mapping (ID → label) is in idToMetaData.
+    vecsim_stl::unordered_map<labelType, idType> labelToIdLookup_;
+    mutable std::shared_mutex labelLookupMutex_; // Protects labelToIdLookup_
+
     // --- Storage ---
     std::unique_ptr<HNSWStorage<DataType>> storage_;
 
@@ -281,9 +340,9 @@ private:
     vecsim_stl::vector<idType> holes_;
 
     // --- Entry Point State ---
-    mutable std::shared_mutex entryPointMutex_; // Protects entryPoint_ and maxLevel_
-    idType entryPoint_{INVALID_ID};             // Current entry point ID
-    size_t maxLevel_{HNSW_INVALID_LEVEL};       // Maximum level in the graph
+    mutable std::shared_mutex entryPointMutex_;                 // Protects entryPoint_ and maxLevel_
+    idType entryPoint_{INVALID_ID};                             // Current entry point ID
+    levelType maxLevel_{std::numeric_limits<levelType>::max()}; // Maximum level in the graph
 
     // --- Vector Container Protection ---
     // Protects this->vectors (DataBlocksContainer) from concurrent access.
@@ -305,7 +364,7 @@ private:
      * @return Random level (0 to ~16 typically)
      */
     template <unsigned int Seed = 0>
-    size_t getRandomLevel();
+    levelType getRandomLevel();
 
     // --- Graph Traversal Helpers ---
     vecsim_stl::vector<idType> getNeighbors(idType nodeId, levelType level) const;
@@ -320,7 +379,7 @@ private:
      *
      * @return Newly allocated internal ID
      */
-    idType allocateId();
+    [[nodiscard]] idType allocateId();
 
     /**
      * @brief Return an ID to the pool for reuse.
@@ -358,21 +417,34 @@ private:
      *
      * Thread-safe read under shared lock.
      *
-     * @return Pair of (entryPoint, maxLevel)
+     * @return Graph node type containing entry point and max level
      */
-    std::pair<idType, size_t> safeGetEntryPointState() const;
+    GraphNodeType safeGetEntryPointState() const;
 
     /**
-     * @brief Attempt to update entry point if new element has higher level.
+     * @brief Conditionally update entry point if new element has higher level.
      *
-     * Only updates if newLevel > current maxLevel_.
-     * Thread-safe with exclusive lock.
+     * Thread-safe with exclusive lock. Only updates if the new element has a higher
+     * level than the current entry point (or if there is no entry point yet).
+     *
+     * Called from indexVector AFTER the element is connected to the graph,
+     * ensuring concurrent queries never start from an unconnected node.
      *
      * @param newId ID of the new element
      * @param newLevel Maximum level of the new element
-     * @return true if entry point was updated, false otherwise
      */
-    bool tryUpdateEntryPoint(idType newId, size_t newLevel);
+    void replaceEntryPoint(idType newId, levelType newLevel);
+
+    /**
+     * @brief Conditionally update entry point if new element has higher level (unsafe version).
+     *
+     * NOT thread-safe. Caller must hold entryPointMutex_ exclusively.
+     * Updates entryPoint_ and maxLevel_ if this is the first element or newLevel > maxLevel_.
+     *
+     * @param newId ID of the new element
+     * @param newLevel Maximum level of the new element
+     */
+    void replaceEntryPointUnsafe(idType newId, levelType newLevel);
 
     // --- Distance Computation ---
     /**
@@ -452,12 +524,11 @@ private:
      * @param rc Result code output (only used when running_query=true)
      */
     template <bool running_query>
-    void greedySearchLevel(const void* querySQ8, size_t level, idType& currObj, DistType& currDist,
+    void greedySearchLevel(const void* querySQ8, levelType level, idType& currObj, DistType& currDist,
                            void* timeoutCtx = nullptr, VecSimQueryReply_Code* rc = nullptr) const;
 
     template <bool running_query>
-    vecsim_stl::updatable_max_heap<DistType, idType> searchLayer(idType ep_id, const void* data_point, size_t layer,
-                                                                 size_t ef) const;
+    candidatesMaxHeap<DistType> searchLayer(idType ep_id, const void* data_point, levelType layer, size_t ef) const;
 
     /**
      * @brief Process a candidate during beam search.
@@ -476,9 +547,8 @@ private:
      * @param lowerBound Current distance threshold for adding candidates
      */
     template <bool running_query>
-    void processCandidate(idType curNodeId, const void* data_point, size_t layer, size_t ef,
-                          vecsim_stl::unordered_set<idType>& visited_set,
-                          vecsim_stl::updatable_max_heap<DistType, idType>& top_candidates,
+    void processCandidate(idType curNodeId, const void* data_point, levelType layer, size_t ef,
+                          vecsim_stl::unordered_set<idType>& visited_set, candidatesMaxHeap<DistType>& top_candidates,
                           candidatesMaxHeap<DistType>& candidate_set, DistType& lowerBound) const;
 
     // --- Neighbor Selection Heuristic ---
@@ -511,29 +581,67 @@ private:
      *
      * For each selected neighbor:
      * 1. Add new_node_id to neighbor's outgoing edges
-     * 2. If neighbor is full, add repair job to queue
+     * 2. If neighbor overflows capacity, mark it as needing repair
      * 3. Add to new node's incoming edges for bidirectional tracking
      *
      * @param new_node_id The new element being inserted
      * @param top_candidates Candidates from searchLayer (best neighbors found)
      * @param level The graph level being connected
-     * @return List of graphNodeTypes that need to be repaired
+     * @return Result containing nodes needing repair and closest candidate for next level entry point
      */
-    GraphNodeList mutuallyConnectNewElement(idType new_node_id,
-                                            vecsim_stl::updatable_max_heap<DistType, idType>& top_candidates,
-                                            levelType level) const;
+    MutualConnectResult mutuallyConnectNewElement(idType new_node_id, candidatesMaxHeap<DistType>& top_candidates,
+                                                  levelType level) const;
 
-    // --- Graph Repair ---
+    // --- Vector Addition ---
     /**
-     * @brief Repair a node's connections after neighbors have been deleted or when node overflows.
+     * @brief Store a new vector in the index (Phase 1 of insertion).
      *
-     * Collects non-deleted neighbors and neighbors-of-deleted-neighbors as candidates,
-     * then re-runs the heuristic to select the best connections.
+     * This function:
+     * 1. Preprocesses the vector (quantizes to SQ8 for in-memory storage)
+     * 2. Allocates a new internal ID
+     * 3. Creates metadata slot (marked as IN_PROCESS)
+     * 4. Stores SQ8 quantized vector in memory for graph traversal
+     * 5. Stores FP32 original vector on disk for reranking
+     * 6. Updates entry point if this element has higher max level
      *
-     * @param id The node to repair
-     * @param level The graph level to repair connections at
+     * Thread safety: Uses exclusive locks where needed for metadata updates.
+     *
+     * @param vector_data Raw FP32 vector data
+     * @param label User-provided label for this vector
+     * @return State for use in indexVector (contains allocated ID, levels, entry point)
      */
-    void repairNode(idType id, levelType level);
+    [[nodiscard]] HNSWDiskAddVectorState storeVector(const void* vector_data, labelType label);
+
+    /**
+     * @brief Insert element into the graph (Phase 2 of insertion).
+     *
+     * Traverses the graph from the entry point and connects the new element:
+     * 1. Greedy search upper levels (above element's max level) to find entry point
+     * 2. For each level from max_common_level down to 0:
+     *    - Search layer to find best neighbors
+     *    - Connect new element bidirectionally using mutuallyConnectNewElement
+     *
+     * @param element_id Internal ID of the new element
+     * @param element_max_level Maximum level for this element
+     * @param entry_point Entry point to start traversal from
+     * @param global_max_level Current max level of the graph
+     * @param querySQ8 SQ8 quantized vector data for distance computation
+     * @return List of nodes needing repair (caller is responsible for repairing them)
+     */
+    [[nodiscard]] GraphNodeList insertElementToGraph(idType element_id, levelType element_max_level, idType entry_point,
+                                                     levelType global_max_level, const void* querySQ8);
+
+    /**
+     * @brief Index a stored vector (Phase 2 of insertion).
+     *
+     * Calls insertElementToGraph if there's an entry point, then unmarks DISK_IN_PROCESS.
+     *
+     * @param querySQ8 SQ8 quantized vector data for distance computation
+     * @param label User-provided label (for logging)
+     * @param state State from storeVector
+     * @return List of nodes needing repair
+     */
+    [[nodiscard]] GraphNodeList indexVector(const void* querySQ8, labelType label, const HNSWDiskAddVectorState& state);
 
     /**
      * @brief Collect repair candidates for a node.
@@ -557,7 +665,7 @@ private:
      * Maintains bidirectional edge consistency by:
      * - For removed neighbors (in original but not in new): delete nodeId from their incoming edges
      * - For new neighbors (in new but not in original): add nodeId to their incoming edges
-     * - For deleted neighbors: delete nodeId from their incoming edges (to prevent redundant repair jobs)
+     * - For deleted neighbors: delete nodeId from their incoming edges (to prevent redundant repairs)
      *
      * @param nodeId The node that was repaired
      * @param originalEdgesSet Set of original outgoing edges before repair (for O(1) lookup)
@@ -570,6 +678,46 @@ private:
                                         const vecsim_stl::vector<idType>& newNeighbors,
                                         const vecsim_stl::vector<idType>& removedCandidates,
                                         const vecsim_stl::vector<idType>& deletedNeighbors, levelType level);
+
+    // --- Label Lookup Helpers ---
+    /**
+     * @brief Look up internal ID by label.
+     *
+     * @param label User-provided label to look up
+     * @return The internal ID if found, or std::nullopt if label doesn't exist
+     */
+    std::optional<idType> getIdByLabel(labelType label) const {
+        std::shared_lock<std::shared_mutex> lock(labelLookupMutex_);
+        auto it = labelToIdLookup_.find(label);
+        if (it == labelToIdLookup_.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
+
+    /**
+     * @brief Check if a label exists in the index.
+     *
+     * @param label User-provided label to check
+     * @return true if label exists, false otherwise
+     */
+    bool isLabelExists(labelType label) const {
+        std::shared_lock<std::shared_mutex> lock(labelLookupMutex_);
+        return labelToIdLookup_.find(label) != labelToIdLookup_.end();
+    }
+
+    /**
+     * @brief Remove a label from the lookup.
+     *
+     * Called during vector deletion.
+     *
+     * @param label User-provided label to remove
+     * @return Number of elements removed (0 or 1)
+     */
+    size_t removeLabel(labelType label) {
+        std::unique_lock<std::shared_mutex> lock(labelLookupMutex_);
+        return labelToIdLookup_.erase(label);
+    }
 
     // Helper to access the disk calculator with proper type for templated calcDistance<Mode>()
     const DiskDistanceCalculator<DistType>* getDiskCalculator() const {
@@ -591,7 +739,8 @@ HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
     : VecSimIndexAbstract<DataType, DistType>(abstractInitParams, components),
       indexName_(params->diskContext->indexName, params->diskContext->indexNameLen),
       idToMetaData(abstractInitParams.allocator), nodeLocks_(abstractInitParams.allocator),
-      storage_(std::move(storage)), holes_(abstractInitParams.allocator) {
+      labelToIdLookup_(abstractInitParams.allocator), storage_(std::move(storage)),
+      holes_(abstractInitParams.allocator) {
     const HNSWParams& hnswParams = params->indexParams->algoParams.hnswParams;
     // Apply defaults for zero values (uses the public VectorSimilarity definitions)
     M_ = hnswParams.M ? hnswParams.M : HNSW_DEFAULT_M;
@@ -610,14 +759,14 @@ HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
 
 template <typename DataType, typename DistType>
 template <unsigned int Seed>
-size_t HNSWDiskIndex<DataType, DistType>::getRandomLevel() {
+levelType HNSWDiskIndex<DataType, DistType>::getRandomLevel() {
     // Use template helper for thread-local RNG (Seed=0 means random_device)
     auto& generator = getThreadLocalGenerator<Seed>();
-    // Static distribution: constructed once, reused (thread-safe in C++11+)
     // Use (0.0, 1.0] range to avoid log(0) which is undefined.
-    static const std::uniform_real_distribution<double> distribution(std::nextafter(0.0, 1.0), 1.0);
+    // Distribution is stateless after construction, only the generator needs thread-local state.
+    static std::uniform_real_distribution<double> distribution(std::nextafter(0.0, 1.0), 1.0);
     double r = -std::log(distribution(generator)) * mult_;
-    return static_cast<size_t>(r);
+    return static_cast<levelType>(r);
 }
 
 template <typename DataType, typename DistType>
@@ -689,20 +838,24 @@ void HNSWDiskIndex<DataType, DistType>::initElementMetadata(idType id, labelType
 }
 
 template <typename DataType, typename DistType>
-std::pair<idType, size_t> HNSWDiskIndex<DataType, DistType>::safeGetEntryPointState() const {
+GraphNodeType HNSWDiskIndex<DataType, DistType>::safeGetEntryPointState() const {
     std::shared_lock<std::shared_mutex> lock(entryPointMutex_);
     return {entryPoint_, maxLevel_};
 }
 
 template <typename DataType, typename DistType>
-bool HNSWDiskIndex<DataType, DistType>::tryUpdateEntryPoint(idType newId, size_t newLevel) {
-    std::unique_lock<std::shared_mutex> lock(entryPointMutex_);
-    if (entryPoint_ != INVALID_ID && newLevel <= maxLevel_) {
-        return false;
+void HNSWDiskIndex<DataType, DistType>::replaceEntryPointUnsafe(idType newId, levelType newLevel) {
+    // Update if first element or new element has higher level
+    if (entryPoint_ == INVALID_ID || newLevel > maxLevel_) {
+        entryPoint_ = newId;
+        maxLevel_ = newLevel;
     }
-    entryPoint_ = newId;
-    maxLevel_ = newLevel;
-    return true;
+}
+
+template <typename DataType, typename DistType>
+void HNSWDiskIndex<DataType, DistType>::replaceEntryPoint(idType newId, levelType newLevel) {
+    std::unique_lock<std::shared_mutex> lock(entryPointMutex_);
+    replaceEntryPointUnsafe(newId, newLevel);
 }
 
 template <typename DataType, typename DistType>
@@ -797,10 +950,11 @@ ElementLockGuard HNSWDiskIndex<DataType, DistType>::lockNode(idType id) const {
  */
 template <typename DataType, typename DistType>
 template <bool running_query>
-void HNSWDiskIndex<DataType, DistType>::processCandidate(
-    idType curNodeId, const void* data_point, size_t layer, size_t ef, vecsim_stl::unordered_set<idType>& visited_set,
-    vecsim_stl::updatable_max_heap<DistType, idType>& top_candidates, candidatesMaxHeap<DistType>& candidate_set,
-    DistType& lowerBound) const {
+void HNSWDiskIndex<DataType, DistType>::processCandidate(idType curNodeId, const void* data_point, levelType layer,
+                                                         size_t ef, vecsim_stl::unordered_set<idType>& visited_set,
+                                                         candidatesMaxHeap<DistType>& top_candidates,
+                                                         candidatesMaxHeap<DistType>& candidate_set,
+                                                         DistType& lowerBound) const {
 
     // Get neighbors of current node at this level
     vecsim_stl::vector<idType> neighbors = getNeighbors(curNodeId, layer);
@@ -862,12 +1016,12 @@ void HNSWDiskIndex<DataType, DistType>::processCandidate(
  */
 template <typename DataType, typename DistType>
 template <bool running_query>
-vecsim_stl::updatable_max_heap<DistType, idType>
-HNSWDiskIndex<DataType, DistType>::searchLayer(idType ep_id, const void* data_point, size_t layer, size_t ef) const {
+candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idType ep_id, const void* data_point,
+                                                                           levelType layer, size_t ef) const {
     // TODO: Consider using tag-based visited set for better performance
     vecsim_stl::unordered_set<idType> visited_set(std::min(ef * 10, size_t(10000)), this->allocator);
 
-    vecsim_stl::updatable_max_heap<DistType, idType> top_candidates(this->allocator);
+    candidatesMaxHeap<DistType> top_candidates(this->allocator);
     candidatesMaxHeap<DistType> candidate_set(this->allocator);
 
     DistType lowerBound;
@@ -926,7 +1080,7 @@ HNSWDiskIndex<DataType, DistType>::searchLayer(idType ep_id, const void* data_po
  */
 template <typename DataType, typename DistType>
 template <bool running_query>
-void HNSWDiskIndex<DataType, DistType>::greedySearchLevel(const void* query, size_t level, idType& currObj,
+void HNSWDiskIndex<DataType, DistType>::greedySearchLevel(const void* query, levelType level, idType& currObj,
                                                           DistType& currDist, void* timeoutCtx,
                                                           VecSimQueryReply_Code* rc) const {
     bool changed;
@@ -1102,24 +1256,29 @@ void HNSWDiskIndex<DataType, DistType>::getNeighborsByHeuristic2_internal(
 }
 
 template <typename DataType, typename DistType>
-GraphNodeList HNSWDiskIndex<DataType, DistType>::mutuallyConnectNewElement(
-    idType new_node_id, vecsim_stl::updatable_max_heap<DistType, idType>& top_candidates, levelType level) const {
+MutualConnectResult HNSWDiskIndex<DataType, DistType>::mutuallyConnectNewElement(
+    idType new_node_id, candidatesMaxHeap<DistType>& top_candidates, levelType level) const {
+    MutualConnectResult result(this->allocator);
+
     // Maximum neighbors allowed at this level
     const size_t max_M_cur = level ? M_ : M0_;
 
     // Copy candidates to list for heuristic processing.
-    // Note: We pop elements from the heap and reverse to get ascending order by distance.
     candidatesList<DistType> top_candidates_list(this->allocator);
-    top_candidates_list.reserve(top_candidates.size());
-    while (!top_candidates.empty()) {
-        top_candidates_list.push_back(top_candidates.top());
-        top_candidates.pop();
-    }
-    // Reverse to get ascending order (max-heap gives descending order)
-    std::reverse(top_candidates_list.begin(), top_candidates_list.end());
+    top_candidates_list.insert(top_candidates_list.end(), top_candidates.begin(), top_candidates.end());
 
-    // Use heuristic to filter candidates to at most max_M_cur neighbors
+    // Use heuristic to filter candidates to at most max_M_cur neighbors.
+    // The heuristic sorts by distance and selects diverse neighbors.
     getNeighborsByHeuristic2(top_candidates_list, max_M_cur);
+
+    // After heuristic filtering, the closest selected neighbor is at the front.
+    // This will be used as entry point for the next level.
+    // Assert: top_candidates_list should never be empty here. If it is, all candidates
+    // failed validation in getNeighborsByHeuristic2_internal (e.g., getElement returned null),
+    // which would cause INVALID_ID to propagate to searchLayer and crash.
+    assert(!top_candidates_list.empty() && "top_candidates_list empty after heuristic - all candidates invalid");
+    result.closestCandidate = top_candidates_list.front().second;
+
     // Extract selected neighbor IDs for the new node
     vecsim_stl::vector<idType> new_node_neighbors(this->allocator);
     new_node_neighbors.reserve(top_candidates_list.size());
@@ -1141,7 +1300,6 @@ GraphNodeList HNSWDiskIndex<DataType, DistType>::mutuallyConnectNewElement(
     // Set new_node's incoming edges upfront - all neighbors will add back-edges to us
     storage_->put_incoming_edges(new_node_id, level, new_node_neighbors);
 
-    GraphNodeList nodesToRepair(this->allocator);
     for (idType selected_neighbor : new_node_neighbors) {
         // Only lock the neighbor - new_node_id doesn't need locking because:
         // 1. It's marked DISK_IN_PROCESS, so other threads skip it in searchLayer/processCandidate
@@ -1156,14 +1314,14 @@ GraphNodeList HNSWDiskIndex<DataType, DistType>::mutuallyConnectNewElement(
         neighbor_neighbors.push_back(new_node_id);
         setNeighbors(selected_neighbor, level, neighbor_neighbors);
 
-        // If neighbor overflows, collect it for repair
+        // If neighbor overflows, mark it as needing repair
         if (neighbor_neighbors.size() > max_M_cur) {
-            nodesToRepair.push_back({selected_neighbor, level});
+            result.nodesToRepair.emplace_back(selected_neighbor, level);
         }
         // Lock released automatically when going out of scope
     }
 
-    return nodesToRepair;
+    return result;
 }
 
 // =============================================================================
@@ -1187,13 +1345,186 @@ DistType HNSWDiskIndex<DataType, DistType>::calcQuantizedDistance(const void* qu
     return getDiskCalculator()->template calcDistance<DistanceMode::Quantized>(quantized1, quantized2, this->dim);
 }
 
+// =============================================================================
+// Vector Addition Implementation
+// =============================================================================
+
+template <typename DataType, typename DistType>
+HNSWDiskAddVectorState HNSWDiskIndex<DataType, DistType>::storeVector(const void* vector_data, labelType label) {
+    HNSWDiskAddVectorState state{};
+
+    state.elementMaxLevel = getRandomLevel();
+
+    // Preprocess vector outside critical section for better concurrency
+    ProcessedBlobs processedBlobs = this->preprocess(vector_data);
+
+    // CRITICAL SECTION: Allocate ID and add element atomically.
+    // DataBlocksContainer::addElement requires IDs to be added sequentially
+    // (id must equal element_count). By holding vectorsMutex_ during both
+    // allocateId() and addElement(), we ensure that the order of ID allocation
+    // matches the order of element addition to the container.
+    {
+        std::unique_lock<std::shared_mutex> vectorsLock(vectorsMutex_);
+        state.newElementId = allocateId();
+        this->vectors->addElement(processedBlobs.getStorageBlob(), state.newElementId);
+    }
+
+    // initElementMetadata handles both fresh IDs and recycled IDs
+    initElementMetadata(state.newElementId, label, state.elementMaxLevel);
+
+    // Note: Empty edge lists are not explicitly stored - missing keys are treated as empty.
+    storage_->put_vector(state.newElementId, vector_data, this->getInputBlobSize());
+
+    // Get current entry point state for graph traversal in indexVector.
+    // NOTE: We do NOT update the entry point here. The entry point is only updated
+    // in indexVector AFTER the element is connected to the graph. This prevents
+    // concurrent queries from starting at an unconnected node.
+    {
+        std::shared_lock<std::shared_mutex> lock(entryPointMutex_);
+        state.currEntryPoint = entryPoint_;
+        state.currMaxLevel = maxLevel_;
+    }
+
+    curElementCount_.fetch_add(1, std::memory_order_relaxed);
+
+    return state;
+}
+
+template <typename DataType, typename DistType>
+GraphNodeList HNSWDiskIndex<DataType, DistType>::insertElementToGraph(idType element_id, levelType element_max_level,
+                                                                      idType entry_point, levelType global_max_level,
+                                                                      const void* querySQ8) {
+    GraphNodeList allNodesToRepair(this->allocator);
+    idType curr_element = entry_point;
+
+    // Compute initial distance to entry point using SQ8↔SQ8
+    DistType cur_dist = computeDistanceQuantized_Quantized(querySQ8, curr_element);
+
+    // Determine the level at which we start connecting (min of element's level and global max)
+    levelType max_common_level;
+    if (element_max_level < global_max_level) {
+        max_common_level = element_max_level;
+
+        // Greedy search through upper levels to find best entry point for lower levels.
+        // We use int for the loop variable to safely decrement past zero.
+        for (int level = static_cast<int>(global_max_level); level > static_cast<int>(element_max_level); --level) {
+            greedySearchLevel<false>(querySQ8, static_cast<levelType>(level), curr_element, cur_dist);
+        }
+    } else {
+        max_common_level = global_max_level;
+    }
+
+    // Connect at each level from max_common_level down to 0 (inclusive).
+    // We use int for the loop variable to safely decrement to -1 (loop termination).
+    for (int level = static_cast<int>(max_common_level); level >= 0; --level) {
+        // Search this level to find best neighbors
+        auto top_candidates =
+            searchLayer<false>(curr_element, querySQ8, static_cast<levelType>(level), efConstruction_);
+
+        // If the entry point was marked deleted between iterations, we may receive an empty
+        // candidates set. In this case, we keep using the previous curr_element for the next level.
+        // This matches the RAM HNSW behavior and is intentional.
+        if (!top_candidates.empty()) {
+            // Connect new element to neighbors and get nodes needing repair + closest candidate
+            MutualConnectResult result =
+                mutuallyConnectNewElement(element_id, top_candidates, static_cast<levelType>(level));
+            // Accumulate nodes needing repair from this level
+            allNodesToRepair.insert(allNodesToRepair.end(), result.nodesToRepair.begin(), result.nodesToRepair.end());
+            // Use closest candidate as entry point for next level
+            curr_element = result.closestCandidate;
+        }
+    }
+
+    return allNodesToRepair;
+}
+
+template <typename DataType, typename DistType>
+GraphNodeList HNSWDiskIndex<DataType, DistType>::indexVector(const void* querySQ8, labelType label,
+                                                             const HNSWDiskAddVectorState& state) {
+    (void)label; // Used for logging in future
+
+    GraphNodeList nodesToRepair(this->allocator);
+
+    // Per RAM HNSW design: if prev_entry_point != INVALID_ID, insert into graph
+    // This condition means we're not inserting the first element
+    if (state.currEntryPoint != INVALID_ID) {
+        nodesToRepair = insertElementToGraph(state.newElementId, state.elementMaxLevel, state.currEntryPoint,
+                                             state.currMaxLevel, querySQ8);
+    }
+
+    // Update entry point AFTER the element is connected to the graph.
+    // This ensures concurrent queries never start from an unconnected node.
+    // Only updates if this element has a higher level than current entry point.
+    replaceEntryPoint(state.newElementId, state.elementMaxLevel);
+
+    // Unmark the element as IN_PROCESS - it's now fully indexed and searchable
+    unmarkAs<DISK_IN_PROCESS>(state.newElementId);
+
+    return nodesToRepair;
+}
+
 template <typename DataType, typename DistType>
 int HNSWDiskIndex<DataType, DistType>::addVector(const void* blob, labelType label) {
-    (void)blob;
-    (void)label;
-    // TODO(MOD-13164): Implement vector insertion
-    // After successful insertion: curElementCount_++;
-    return 0;
+    // Main entry point for adding a vector
+    // Used only for tests and VecSimInterface compliance
+    // the real work is done in storeVector + indexVector called from the tiered addVector
+
+    // CRITICAL: Check if label exists AND reserve the slot atomically.
+    // We must hold the lock from check through storeVector + label registration to prevent
+    // multiple threads from inserting the same label concurrently.
+    // This is a trade-off: holding the lock longer reduces concurrency for same-label
+    // insertions, but that's rare and correctness is more important.
+    HNSWDiskAddVectorState state{};
+    bool label_exists = false;
+    {
+        std::unique_lock<std::shared_mutex> labelLock(labelLookupMutex_);
+        label_exists = (labelToIdLookup_.find(label) != labelToIdLookup_.end());
+        if (label_exists) {
+            // Per VecSimInterface contract: overwrite = delete old + insert new
+            // NOTE: This unlock/relock creates a theoretical race window for same-label
+            // concurrent inserts. This is acceptable because:
+            // 1. addVector is test-only (production uses tiered index)
+            // 2. Tests use unique labels per thread
+            // TODO(MOD-13164): deleteVector is currently a stub. Remove overwrite logic
+            // entirely or fix if we add same-label tests.
+            deleteVector(label);
+        }
+
+        // Store the vector while holding the label lock to prevent race conditions.
+        // Other threads trying to insert the same label will block here.
+        state = storeVector(blob, label);
+
+        // Register the label-to-ID mapping atomically with the existence check
+        labelToIdLookup_[label] = state.newElementId;
+    } // Release labelLock after label is registered
+
+    // We need the SQ8 quantized version for graph traversal.
+    //
+    // POINTER STABILITY INVARIANT: DataBlocksContainer guarantees stable pointers.
+    // Each DataBlock allocates its own heap buffer at construction. When the vector
+    // of DataBlock objects grows, DataBlock's move constructor (see data_block.cpp)
+    // transfers the `data` pointer ownership without reallocating the buffer:
+    //   DataBlock(DataBlock &&other) : data(other.data) { other.data = nullptr; }
+    // Therefore, pointers returned by getElement() remain valid even after concurrent
+    // threads add elements and trigger vector growth. This is the same design used by
+    // the original RAM HNSW implementation.
+    const char* storedSQ8;
+    {
+        std::shared_lock<std::shared_mutex> vectorsLock(vectorsMutex_);
+        storedSQ8 = getQuantizedDataByInternalId(state.newElementId);
+    }
+
+    // indexVector performs graph traversal and connections - this is the expensive part
+    // and runs without holding vectorsMutex_ to allow concurrent insertions
+    GraphNodeList nodesToRepair = indexVector(storedSQ8, label, state);
+
+    // In async mode, these would be submitted to a job queue
+    for (const auto& [nodeId, level] : nodesToRepair) {
+        repairNode(nodeId, level);
+    }
+
+    // Return 1 for new insert, 0 for overwrite (label already exists in labelToIdLookup_)
+    return label_exists ? 0 : 1;
 }
 
 template <typename DataType, typename DistType>
@@ -1298,7 +1629,7 @@ void HNSWDiskIndex<DataType, DistType>::updateIncomingEdgesAfterRepair(
     }
 
     // Also remove nodeId from incoming edges of deleted neighbors.
-    // This prevents redundant repair jobs: when the delete job for a deleted neighbor runs,
+    // This prevents redundant repairs: when the delete job for a deleted neighbor runs,
     // it won't find nodeId in its incoming edges and won't schedule another repair for nodeId.
     for (idType id : deletedNeighbors) {
         operations_to_batch.emplace_back(id, level, nodeId, EdgeOperation::Delete);
@@ -1339,8 +1670,8 @@ void HNSWDiskIndex<DataType, DistType>::repairNode(idType id, levelType level) {
     vecsim_stl::vector<idType> candidateIds = collectRepairCandidates(id, outgoingEdges, level, deletedNeighbors);
 
     // Early exit: if no overflow and no deleted neighbors were filtered out, no repair needed.
-    // This is important, as some repair jobs may be scheduled due to bad timing and may not be
-    // needed eventually.
+    // This is important, as some nodes may be marked for repair due to bad timing but may not
+    // actually need repair when we get here.
     if (outgoingEdges.size() <= maxConnections && deletedNeighbors.empty()) {
         return;
     }

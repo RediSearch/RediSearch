@@ -24,19 +24,6 @@ enum DiskJobType {
     DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB,
 };
 
-// Hash function for std::pair<idType, levelType> to use in unordered_map
-namespace std {
-template <>
-struct hash<std::pair<idType, levelType>> {
-    size_t operator()(const std::pair<idType, levelType>& p) const {
-        // Combine hashes of the two elements
-        static_assert(sizeof(size_t) >= sizeof(idType) + sizeof(levelType));
-        size_t combined = p.first + (size_t(p.second) << (sizeof(idType) * 8));
-        return std::hash<size_t>()(combined);
-    }
-};
-} // namespace std
-
 struct AsyncDiskJob : public AsyncJob {
     DiskJobType type;
 
@@ -78,7 +65,7 @@ class TieredHNSWDiskIndex : public VecSimTieredIndex<DataType, DistType> {
 private:
     // Job tracking for pending repair jobs
     std::mutex pending_repairs_guard;
-    vecsim_stl::unordered_map<std::pair<idType, levelType>, std::shared_ptr<AsyncDiskJob>> pending_repairs;
+    vecsim_stl::unordered_map<GraphNodeType, std::shared_ptr<AsyncDiskJob>> pending_repairs;
 
     // Job tracking for currently running jobs (non-owning raw pointers)
     std::mutex running_guard;
@@ -210,12 +197,12 @@ private:
         levelType max_level = 0; // TODO: Get actual max level for this node from storage
 
         // Collect all incoming neighbors at all levels
-        vecsim_stl::vector<std::pair<idType, levelType>> all_neighbors(this->allocator);
+        GraphNodeList all_neighbors(this->allocator);
         for (levelType level = 0; level <= max_level; level++) {
             vecsim_stl::vector<idType> incoming_neighbors(this->allocator);
             if (storage->get_incoming_edges(deleted_id, level, incoming_neighbors)) {
                 for (idType neighbor_id : incoming_neighbors) {
-                    all_neighbors.push_back(std::make_pair(neighbor_id, level));
+                    all_neighbors.emplace_back(neighbor_id, level);
                 }
             }
         }
@@ -247,7 +234,7 @@ private:
         if (disk_job->type == DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB) {
             RepairDiskJob* repair_job = static_cast<RepairDiskJob*>(disk_job);
             std::lock_guard<std::mutex> lock(index->pending_repairs_guard);
-            index->pending_repairs.erase(std::make_pair(repair_job->node_id, repair_job->level));
+            index->pending_repairs.erase(GraphNodeType(repair_job->node_id, repair_job->level));
         }
 
         // Remove from submitted_jobs (we now own a reference on the stack if it was there)
@@ -300,8 +287,7 @@ private:
     // Submit multiple repair jobs for a collection of (id, level) pairs
     // All repairs will have the same pending job linked to them
     // Uses batch submission for efficiency
-    void submitRepairs(const vecsim_stl::vector<std::pair<idType, levelType>>& repairs,
-                       std::shared_ptr<AsyncDiskJob> pend_on = nullptr) {
+    void submitRepairs(const GraphNodeList& repairs, std::shared_ptr<AsyncDiskJob> pend_on = nullptr) {
         if (repairs.empty()) {
             return;
         }
@@ -322,7 +308,7 @@ private:
                     // Create new repair job with the wrapper callback
                     // Use default deleter - VecsimBaseObject has proper operator delete
                     RepairDiskJob* job = new (this->allocator)
-                        RepairDiskJob(this->allocator, repair.first, repair.second, executeDiskJobWrapper, this);
+                        RepairDiskJob(this->allocator, repair.id, repair.level, executeDiskJobWrapper, this);
                     std::shared_ptr<AsyncDiskJob> job_ptr(job);
 
                     if (pend_on) {
