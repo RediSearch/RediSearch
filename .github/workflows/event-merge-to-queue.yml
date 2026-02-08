@@ -17,16 +17,10 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
-    # TODO: Revert once redis v8.4.1 is released
-    # uses: ./.github/workflows/task-get-latest-tag.yml
-    # with:
-    #   repo: redis/redis
-    #   prefix: '8.4'
-    runs-on: ubuntu-latest
-    outputs:
-      tag: '8.4'
-    steps:
-      - run: echo "dummy step"
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.4'
 
   test-matrix:
     needs: [get-latest-redis-tag]
