@@ -54,6 +54,39 @@ fn test_add_updates_cardinality() {
 }
 
 #[test]
+fn test_contained_in() {
+    let mut range = NumericRange::new(false);
+    range.add(1, 5.0);
+    range.add(2, 10.0);
+
+    // Range [5, 10] is contained in [0, 20]
+    assert!(range.contained_in(0.0, 20.0));
+    // Range [5, 10] is contained in [5, 10]
+    assert!(range.contained_in(5.0, 10.0));
+    // Range [5, 10] is NOT contained in [6, 20]
+    assert!(!range.contained_in(6.0, 20.0));
+    // Range [5, 10] is NOT contained in [0, 9]
+    assert!(!range.contained_in(0.0, 9.0));
+}
+
+#[test]
+fn test_overlaps() {
+    let mut range = NumericRange::new(false);
+    range.add(1, 5.0);
+    range.add(2, 10.0);
+
+    // Overlapping cases
+    assert!(range.overlaps(0.0, 6.0)); // left overlap
+    assert!(range.overlaps(8.0, 20.0)); // right overlap
+    assert!(range.overlaps(6.0, 8.0)); // contained
+    assert!(range.overlaps(0.0, 20.0)); // contains
+
+    // Non-overlapping cases
+    assert!(!range.overlaps(11.0, 20.0)); // completely right
+    assert!(!range.overlaps(0.0, 4.0)); // completely left
+}
+
+#[test]
 fn test_default_impl() {
     let range: NumericRange = Default::default();
     assert_eq!(range.min_val(), f64::INFINITY);

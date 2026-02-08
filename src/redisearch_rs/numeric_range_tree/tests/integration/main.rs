@@ -9,6 +9,9 @@
 
 //! Integration tests for numeric_range_tree.
 
+#[cfg(not(miri))]
+mod debug;
+mod find;
 mod helpers;
 mod iter;
 mod node;
