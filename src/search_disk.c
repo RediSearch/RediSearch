@@ -43,14 +43,14 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
 
   disk_db = disk->basic.open(ctx);
   if (disk_db) {
-    disk->basic.startGC();
+    disk->basic.startGCThread();
   }
   return disk_db != NULL;
 }
 
 void SearchDisk_Close() {
   if (disk && disk_db) {
-    disk->basic.stopGC();
+    disk->basic.stopGCThread();
     disk->basic.close(disk_db);
     disk_db = NULL;
   }
