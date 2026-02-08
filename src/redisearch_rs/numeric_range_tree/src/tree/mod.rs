@@ -265,6 +265,11 @@ impl NumericRangeTree {
         crate::PreOrderDfsIterator::new(self)
     }
 
+    /// Returns an iterator over all nodes in the tree, alongside their indices (depth-first traversal).
+    pub fn indexed_iter(&self) -> crate::IndexedPreOrderDfsIterator<'_> {
+        crate::IndexedPreOrderDfsIterator::new(self)
+    }
+
     /// Calculate the total memory usage of the tree.
     pub const fn mem_usage(&self) -> usize {
         let base_size = std::mem::size_of::<Self>();

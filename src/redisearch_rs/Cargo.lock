@@ -1246,8 +1246,30 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "rmp-serde",
  "rstest",
+ "serde",
  "slab",
+ "workspace_hack",
+]
+
+[[package]]
+name = "numeric_range_tree_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "hyperloglog",
+ "inverted_index",
+ "inverted_index_ffi",
+ "numeric_range_tree",
+ "redis-module",
+ "redis_mock",
+ "rmp-serde",
+ "serde",
+ "slab",
+ "tracing",
  "workspace_hack",
 ]
 
@@ -2893,6 +2915,7 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
+ "bindgen 0.66.1",
  "bindgen 0.72.1",
  "bitflags 2.10.0",
  "clang-sys",
@@ -2912,6 +2935,7 @@ dependencies = [
  "quote 1.0.44",
  "rand",
  "rand_chacha",
+ "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",

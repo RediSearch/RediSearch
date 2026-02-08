@@ -42,7 +42,7 @@ impl<'a> PreOrderDfsIterator<'a> {
     }
 
     /// Create a new iterator starting from the given node index in the tree.
-    pub fn from_node(tree: &'a NumericRangeTree, node_idx: NodeIndex) -> Self {
+    fn from_node(tree: &'a NumericRangeTree, node_idx: NodeIndex) -> Self {
         let mut stack = Vec::with_capacity(4);
         stack.push(node_idx);
         Self { tree, stack }
@@ -72,5 +72,46 @@ impl<'a> IntoIterator for &'a NumericRangeTree {
 
     fn into_iter(self) -> Self::IntoIter {
         PreOrderDfsIterator::new(self)
+    }
+}
+
+/// Same iteration logic as [`PreOrderDfsIterator`], but it yields indices alongside each node.
+#[derive(Debug)]
+pub struct IndexedPreOrderDfsIterator<'a> {
+    /// Reference to the tree (used to resolve node indices).
+    tree: &'a NumericRangeTree,
+    /// Stack of node indices to visit. Nodes are pushed right-first so left is
+    /// processed first (LIFO order).
+    stack: Vec<NodeIndex>,
+}
+
+impl<'a> IndexedPreOrderDfsIterator<'a> {
+    /// Create a new iterator starting from the root of the given tree.
+    pub fn new(tree: &'a NumericRangeTree) -> Self {
+        Self::from_node(tree, tree.root_index())
+    }
+
+    /// Create a new iterator starting from the given node index in the tree.
+    fn from_node(tree: &'a NumericRangeTree, node_idx: NodeIndex) -> Self {
+        let mut stack = Vec::with_capacity(4);
+        stack.push(node_idx);
+        Self { tree, stack }
+    }
+}
+
+impl<'a> Iterator for IndexedPreOrderDfsIterator<'a> {
+    type Item = (NodeIndex, &'a NumericRangeNode);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node_idx = self.stack.pop()?;
+        let node = self.tree.node(node_idx);
+
+        if let NumericRangeNode::Internal(internal) = node {
+            // Push children onto stack (right first so left is processed first)
+            self.stack.push(internal.right_index());
+            self.stack.push(internal.left_index());
+        }
+
+        Some((node_idx, node))
     }
 }
