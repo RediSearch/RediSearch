@@ -21,6 +21,8 @@
 #include "info/global_stats.h"
 #include "profile/profile.h"
 #include "dist_profile.h"
+#include "shard_window_ratio.h"
+#include "config.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -111,14 +113,22 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
 
 /**
  * Appends all VSIM-related arguments to MR command.
- * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER if present.
+ * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER
+ * if present.
+ * For KNN queries, replaces the K value with the provided effectiveK value.
+ *
+ * SHARD_K_RATIO is only valid for KNN queries, but this is validated during
+ * parsing - no validation is done here.
  *
  * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
  * @param vsimOffset - offset where VSIM keyword appears
+ * @param effectiveK - K value to use for KNN queries (0 for RANGE or when no
+ *        replacement needed)
  */
-static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int argc, int vsimOffset) {
+static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
+                                 int argc, int vsimOffset, size_t effectiveK) {
   // Add VSIM keyword and field
   MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
   MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
@@ -148,9 +158,29 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
     if (vectorMethodOffset < argc - 2) {
       RedisModule_StringToLongLong(argv[vectorMethodOffset + 1], &methodNargs);
 
-      // Append method name, argument count, and all method arguments
-      for (int i = 0; i < methodNargs + 2; ++i) {
-        MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+      // Append method name (KNN/RANGE) and argument count
+      MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset]);     // KNN or RANGE
+      MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + 1]); // argument count
+
+      // Append method arguments, replacing K value if effectiveK is provided
+      // Format for KNN: KNN <count> K <value> [EF_RUNTIME <value>]...
+      for (int i = 2; i < methodNargs + 2; ++i) {
+        size_t argLen;
+        const char *argStr = RedisModule_StringPtrLen(argv[vectorMethodOffset + i], &argLen);
+
+        if (effectiveK > 0 && argLen == 1 && strncasecmp(argStr, "K", 1) == 0 && i + 1 < methodNargs + 2) {
+          // Found K keyword - append it and then the effectiveK value
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);  // K keyword
+          ++i;  // Move to K value
+
+          // Append effectiveK instead of original K value
+          char effectiveK_str[32];
+          int len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
+          MRCommand_Append(xcmd, effectiveK_str, len);
+        } else {
+          // Regular argument - append as-is
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+        }
       }
     }
   }
@@ -193,7 +223,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams) {
+                            IndexSpec *sp, const VectorQuery *vq) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -215,8 +245,21 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_appendSearch(xcmd, argv, argc, searchOffset);
 
   // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
+  // Calculate effective K for KNN queries if SHARD_K_RATIO is set
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset);
+  size_t effectiveK = 0;
+  if (vq && vq->type == VECSIM_QT_KNN) {
+    effectiveK = vq->knn.k;
+    double shardWindowRatio = vq->knn.shardWindowRatio;
+    if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO) {
+      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+      size_t numShards = GetNumShards_UnSafe();
+      if (numShards > 1) {
+        effectiveK = calculateEffectiveK(vq->knn.k, shardWindowRatio, numShards);
+      }
+    }
+  }
+  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, effectiveK);
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
@@ -598,7 +641,14 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, &hybridParams);
+    // Get the VectorQuery from the vector request's AST for SHARD_K_RATIO
+    // optimization
+    // Note: parsedVectorData is only set on shards, not on coordinator
+    // The coordinator has the VectorQuery in the AST after parsing
+    const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
+    const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
+                      ? vectorRequest->ast.root->vn.vq : NULL;
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, vq);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
