@@ -210,31 +210,41 @@ public:
     const char* getQuantizedDataByInternalId(idType internal_id) const;
 
     // =========================================================================
+    // Delete Flow Helper Methods (for tiered integration)
+    // =========================================================================
+
+    // Thread-safe read of element's maxLevel.
+    levelType getElementMaxLevel(idType id) const {
+        std::shared_lock<std::shared_mutex> lock(metadataMutex_);
+        return idToMetaData[id].maxLevel;
+    }
+
+    // Decrement element count after deletion. Thread-safe.
+    void decrementElementCount() { curElementCount_.fetch_sub(1, std::memory_order_relaxed); }
+
+    // Return ID to pool for reuse. Call after markDelete() and disk cleanup.
+    void recycleId(idType id);
+
+    // =========================================================================
     // Test Accessors - Public accessors for testing
     // =========================================================================
     // Test methods are defined in hnsw_disk_test_helpers.h via macro
     // This keeps the main header clean while providing full test access
     HNSW_DISK_TEST_METHODS
 
-    vecsim_stl::vector<idType> markDelete(labelType label) override {
-        vecsim_stl::vector<idType> deleted_ids(this->allocator);
+    vecsim_stl::vector<idType> markDelete(labelType label) override;
 
-        // Look up internal ID by label
-        auto id_opt = this->getIdByLabel(label);
-        if (!id_opt.has_value()) {
-            return deleted_ids; // Label doesn't exist, return empty
-        }
-        idType id = id_opt.value();
-
-        // Mark the element as deleted (uses atomic operation for thread safety)
-        markAs<DISK_DELETE_MARK>(id);
-
-        // Remove from label lookup (thread-safe via mutex in removeLabel)
-        removeLabel(label);
-
-        deleted_ids.push_back(id);
-        return deleted_ids;
-    }
+    // --- Locking ---
+    /**
+     * @brief Acquire lock on a node for edge modifications.
+     *
+     * Used during mutuallyConnectNewElement and repairNode
+     * to protect read-modify-write operations on a node's outgoing edges.
+     *
+     * @param id Internal ID of the node to lock
+     * @return RAII lock guard that releases on destruction
+     */
+    ElementLockGuard lockNode(idType id) const;
 
 protected:
     // =========================================================================
@@ -383,16 +393,6 @@ private:
      */
     [[nodiscard]] idType allocateId();
 
-    /**
-     * @brief Return an ID to the pool for reuse.
-     *
-     * Called after an element is fully deleted and its storage is cleaned up.
-     * Thread-safe.
-     *
-     * @param id The ID to recycle
-     */
-    void recycleId(idType id);
-
     // --- Capacity Management ---
     /**
      * @brief Grow both idToMetaData and nodeLocks_ by blockSize.
@@ -438,15 +438,19 @@ private:
     void replaceEntryPoint(idType newId, levelType newLevel);
 
     /**
-     * @brief Conditionally update entry point if new element has higher level (unsafe version).
+     * @brief Replace entry point when current entry point is deleted.
      *
-     * NOT thread-safe. Caller must hold entryPointMutex_ exclusively.
-     * Updates entryPoint_ and maxLevel_ if this is the first element or newLevel > maxLevel_.
+     * Selection strategy:
+     * 1. Try neighbors of deleted entry point at top level
+     * 2. If no valid neighbor, scan all elements at top level
+     * 3. If no element at top level, decrease maxLevel_ and recurse
+     * 4. If index becomes empty, set entryPoint_ = INVALID_ID
      *
-     * @param newId ID of the new element
-     * @param newLevel Maximum level of the new element
+     * Holds entryPointMutex_ exclusively for the entire operation to avoid
+     * race conditions with concurrent deletes. Cost is minimal since entry
+     * point replacement is rare (only when deleting the entry point itself).
      */
-    void replaceEntryPointUnsafe(idType newId, levelType newLevel);
+    void replaceEntryPointOnDelete();
 
     // --- Distance Computation ---
     /**
@@ -488,18 +492,6 @@ private:
      * @return true if element is marked deleted
      */
     bool isMarkedDeleted(idType id) const;
-
-    // --- Locking ---
-    /**
-     * @brief Acquire lock on a node for edge modifications.
-     *
-     * Used during mutuallyConnectNewElement and repairNode
-     * to protect read-modify-write operations on a node's outgoing edges.
-     *
-     * @param id Internal ID of the node to lock
-     * @return RAII lock guard that releases on destruction
-     */
-    ElementLockGuard lockNode(idType id) const;
 
     // --- Search Algorithms ---
     /**
@@ -645,7 +637,6 @@ private:
      * @return List of nodes needing repair
      */
     [[nodiscard]] GraphNodeList indexVector(const void* querySQ8, labelType label, const HNSWDiskAddVectorState& state);
-
     /**
      * @brief Collect repair candidates for a node.
      *
@@ -847,18 +838,12 @@ GraphNodeType HNSWDiskIndex<DataType, DistType>::safeGetEntryPointState() const 
 }
 
 template <typename DataType, typename DistType>
-void HNSWDiskIndex<DataType, DistType>::replaceEntryPointUnsafe(idType newId, levelType newLevel) {
-    // Update if first element or new element has higher level
+void HNSWDiskIndex<DataType, DistType>::replaceEntryPoint(idType newId, levelType newLevel) {
+    std::unique_lock<std::shared_mutex> lock(entryPointMutex_);
     if (entryPoint_ == INVALID_ID || newLevel > maxLevel_) {
         entryPoint_ = newId;
         maxLevel_ = newLevel;
     }
-}
-
-template <typename DataType, typename DistType>
-void HNSWDiskIndex<DataType, DistType>::replaceEntryPoint(idType newId, levelType newLevel) {
-    std::unique_lock<std::shared_mutex> lock(entryPointMutex_);
-    replaceEntryPointUnsafe(newId, newLevel);
 }
 
 template <typename DataType, typename DistType>
@@ -1562,6 +1547,83 @@ VecSimQueryReply* HNSWDiskIndex<DataType, DistType>::rangeQuery(const void* quer
     (void)radius;
     (void)queryParams;
     return new VecSimQueryReply(this->allocator);
+}
+
+// =============================================================================
+// Delete Flow Implementation
+// =============================================================================
+
+template <typename DataType, typename DistType>
+vecsim_stl::vector<idType> HNSWDiskIndex<DataType, DistType>::markDelete(labelType label) {
+    vecsim_stl::vector<idType> deleted_ids(this->allocator);
+
+    // Atomically remove from label map and get the ID
+    // This prevents TOCTOU race where two threads both try to delete the same label
+    idType internalId;
+    {
+        std::unique_lock<std::shared_mutex> lock(labelLookupMutex_);
+        auto it = labelToIdLookup_.find(label);
+        if (it == labelToIdLookup_.end()) {
+            return deleted_ids; // Label not found (or already deleted)
+        }
+        internalId = it->second;
+        labelToIdLookup_.erase(it);
+    }
+
+    // Mark deleted - entry point replacement is done in executeDeleteInitJob() (worker thread)
+    markAs<DISK_DELETE_MARK>(internalId);
+
+    deleted_ids.push_back(internalId);
+    return deleted_ids;
+}
+
+template <typename DataType, typename DistType>
+void HNSWDiskIndex<DataType, DistType>::replaceEntryPointOnDelete() {
+    // Locks: metadataMutex_ (shared) → entryPointMutex_ (exclusive)
+    std::shared_lock<std::shared_mutex> metaLock(metadataMutex_);
+    std::unique_lock<std::shared_mutex> epLock(entryPointMutex_);
+
+    if (entryPoint_ == INVALID_ID) {
+        return;
+    }
+
+    idType oldEp = entryPoint_;
+
+    while (maxLevel_ != std::numeric_limits<levelType>::max()) {
+        levelType currentLevel = maxLevel_;
+
+        // Try neighbors at current level first
+        vecsim_stl::vector<idType> neighbors(this->allocator);
+        assert(storage_);
+        storage_->get_outgoing_edges(oldEp, currentLevel, neighbors);
+
+        for (idType neighbor : neighbors) {
+            if (!isMarkedAsUnsafe<DISK_DELETE_MARK>(neighbor) && !isMarkedAsUnsafe<DISK_IN_PROCESS>(neighbor)) {
+                entryPoint_ = neighbor;
+                return;
+            }
+        }
+
+        // No valid neighbor - scan all elements at this level
+        for (idType id = 0; id < idToMetaData.size(); ++id) {
+            if (id != oldEp && idToMetaData[id].maxLevel >= currentLevel && !isMarkedAsUnsafe<DISK_DELETE_MARK>(id) &&
+                !isMarkedAsUnsafe<DISK_IN_PROCESS>(id)) {
+                entryPoint_ = id;
+                return;
+            }
+        }
+
+        // Step 3: No element at this level - decrease maxLevel and try next level
+        if (currentLevel > 0) {
+            maxLevel_--;
+        } else {
+            break;
+        }
+    }
+
+    // No valid element found at any level - index is empty
+    entryPoint_ = INVALID_ID;
+    maxLevel_ = std::numeric_limits<levelType>::max();
 }
 
 // =============================================================================

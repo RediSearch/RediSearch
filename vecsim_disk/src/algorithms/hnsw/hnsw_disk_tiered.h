@@ -193,6 +193,8 @@ private:
         auto* hnsw_index = get_hnsw_index();
         auto* storage = hnsw_index->getStorage();
 
+        // TODO (MOD-13797): Replace entry point if deleted_id is the current entry point
+
         // Get the maximum level for this node
         levelType max_level = 0; // TODO: Get actual max level for this node from storage
 

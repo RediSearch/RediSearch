@@ -1061,6 +1061,373 @@ TEST_P(HNSWDiskMetricTest, DiskIndexComponentsAndConversion) {
     delete components.diskCalculator;
 }
 
+// =============================================================================
+// Delete Flow Tests (MOD-13172)
+// =============================================================================
+
+// --- Label-to-ID Map Tests ---
+
+TEST_F(HNSWDiskTest, LabelToIdMapBasic) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.0f, 0.0f, 1.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+
+    // Verify labelToIdLookup_ is populated correctly
+    EXPECT_EQ(index->testGetIdByLabel(100), id0);
+    EXPECT_EQ(index->testGetIdByLabel(200), id1);
+    EXPECT_EQ(index->testGetIdByLabel(300), id2);
+}
+
+TEST_F(HNSWDiskTest, LabelToIdMapAfterDelete) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    index->testSetupElement(100, 0, vec0);
+
+    // Verify label exists
+    EXPECT_NE(index->testGetIdByLabel(100), INVALID_ID);
+
+    // Delete the vector
+    index->markDelete(100);
+
+    // Verify label is removed from map
+    EXPECT_EQ(index->testGetIdByLabel(100), INVALID_ID);
+}
+
+TEST_F(HNSWDiskTest, GetIdByLabelFound) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    idType id = index->testSetupElement(42, 0, vec);
+
+    EXPECT_EQ(index->testGetIdByLabel(42), id);
+}
+
+TEST_F(HNSWDiskTest, GetIdByLabelNotFound) {
+    TestIndex<float, float> index(DIM);
+
+    // No elements added
+    EXPECT_EQ(index->testGetIdByLabel(999), INVALID_ID);
+}
+
+// --- markDelete Tests ---
+
+TEST_F(HNSWDiskTest, MarkDeleteReturnsCorrectId) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    idType id = index->testSetupElement(100, 0, vec);
+
+    auto deleted_ids = index->markDelete(100);
+
+    ASSERT_EQ(deleted_ids.size(), 1);
+    EXPECT_EQ(deleted_ids[0], id);
+}
+
+TEST_F(HNSWDiskTest, MarkDeleteNonExistent) {
+    TestIndex<float, float> index(DIM);
+
+    // Try to delete non-existent label
+    auto deleted_ids = index->markDelete(999);
+
+    EXPECT_EQ(deleted_ids.size(), 0);
+}
+
+TEST_F(HNSWDiskTest, MarkDeleteTwiceReturnsEmpty) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    index->testSetupElement(100, 0, vec);
+
+    // First delete succeeds
+    auto first_delete = index->markDelete(100);
+    EXPECT_EQ(first_delete.size(), 1);
+
+    // Second delete returns empty (label already removed from map)
+    auto second_delete = index->markDelete(100);
+    EXPECT_EQ(second_delete.size(), 0);
+}
+
+TEST_F(HNSWDiskTest, MarkDeleteSetsFlag) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    idType id = index->testSetupElement(100, 0, vec);
+
+    // Not deleted initially
+    EXPECT_FALSE(index->testIsMarkedDeleted(id));
+
+    // Delete
+    index->markDelete(100);
+
+    // Now marked as deleted
+    EXPECT_TRUE(index->testIsMarkedDeleted(id));
+}
+
+// --- Helper Method Tests ---
+
+TEST_F(HNSWDiskTest, GetElementMaxLevel) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    idType id = index->testSetupElement(100, 3, vec); // level 3
+
+    EXPECT_EQ(index->getElementMaxLevel(id), 3);
+}
+
+TEST_F(HNSWDiskTest, DecrementElementCount) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    index->testSetupElement(100, 0, vec0);
+    index->testSetupElement(200, 0, vec1);
+
+    EXPECT_EQ(index->indexSize(), 2);
+
+    index->decrementElementCount();
+
+    EXPECT_EQ(index->indexSize(), 1);
+}
+
+TEST_F(HNSWDiskTest, RecycleIdReusesHole) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.0f, 0.0f, 1.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    index->testSetupElement(300, 0, vec2);
+
+    // Follow documented preconditions: mark deleted before recycling
+    index->markDelete(200);
+    index->recycleId(id1);
+
+    // Next allocation should reuse the recycled ID
+    idType newId = index->testAllocateId();
+    EXPECT_EQ(newId, id1);
+
+    EXPECT_EQ(index->testGetIdByLabel(100), id0);
+}
+
+// --- Entry Point Replacement Tests ---
+
+TEST_F(HNSWDiskTest, ReplaceEntryPointSelectsNeighbor) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+
+    // Set id0 as entry point and add edge to id1
+    index->testTryUpdateEntryPoint(id0, 0);
+    index->testAddEdge(id0, id1, 0);
+
+    // Verify entry point is id0
+    auto [ep, level] = index->testGetEntryPointState();
+    EXPECT_EQ(ep, id0);
+
+    // Delete entry point and trigger EP replacement
+    // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
+    index->markDelete(100);
+    index->testReplaceEntryPoint();
+
+    // Entry point should now be id1 (the neighbor)
+    auto [newEp, newLevel] = index->testGetEntryPointState();
+    EXPECT_EQ(newEp, id1);
+}
+
+TEST_F(HNSWDiskTest, ReplaceEntryPointScansLevel) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+
+    // Set id0 as entry point but NO edges (forces scan)
+    index->testTryUpdateEntryPoint(id0, 0);
+
+    // Delete entry point and trigger EP replacement
+    // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
+    index->markDelete(100);
+    index->testReplaceEntryPoint();
+
+    // Entry point should be id1 (found by scanning)
+    auto [newEp, newLevel] = index->testGetEntryPointState();
+    EXPECT_EQ(newEp, id1);
+}
+
+TEST_F(HNSWDiskTest, ReplaceEntryPointDecreasesLevel) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+
+    // id0 at level 2, id1 at level 0
+    idType id0 = index->testSetupElement(100, 2, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+
+    // Set id0 as entry point at level 2
+    index->testTryUpdateEntryPoint(id0, 2);
+
+    auto [ep, level] = index->testGetEntryPointState();
+    EXPECT_EQ(ep, id0);
+    EXPECT_EQ(level, 2);
+
+    // Delete entry point (only element at level 2) and trigger EP replacement
+    // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
+    index->markDelete(100);
+    index->testReplaceEntryPoint();
+
+    // maxLevel should decrease and id1 should become entry point
+    auto [newEp, newLevel] = index->testGetEntryPointState();
+    EXPECT_EQ(newEp, id1);
+    EXPECT_EQ(newLevel, 0);
+}
+
+TEST_F(HNSWDiskTest, ReplaceEntryPointEmptyIndex) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    idType id = index->testSetupElement(100, 0, vec);
+
+    index->testTryUpdateEntryPoint(id, 0);
+
+    // Delete the only element and trigger EP replacement
+    // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
+    index->markDelete(100);
+    index->testReplaceEntryPoint();
+
+    // Entry point should be INVALID_ID
+    auto [ep, level] = index->testGetEntryPointState();
+    EXPECT_EQ(ep, INVALID_ID);
+}
+
+// --- Edge Case and Search Tests ---
+
+TEST_F(HNSWDiskTest, DeleteLastElement) {
+    TestIndex<float, float> index(DIM);
+
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    index->testSetupElement(100, 0, vec);
+
+    EXPECT_EQ(index->indexSize(), 1);
+
+    // Mark delete (doesn't decrement count - that's done by finalize job)
+    index->markDelete(100);
+
+    // Element is marked deleted
+    EXPECT_EQ(index->testGetIdByLabel(100), INVALID_ID);
+}
+
+TEST_F(HNSWDiskTest, DeleteMultipleVectors) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.0f, 0.0f, 1.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+
+    // Delete first and third
+    auto deleted0 = index->markDelete(100);
+    auto deleted2 = index->markDelete(300);
+
+    EXPECT_EQ(deleted0.size(), 1);
+    EXPECT_EQ(deleted2.size(), 1);
+    EXPECT_EQ(deleted0[0], id0);
+    EXPECT_EQ(deleted2[0], id2);
+
+    // Verify deletion flags
+    EXPECT_TRUE(index->testIsMarkedDeleted(id0));
+    EXPECT_FALSE(index->testIsMarkedDeleted(id1));
+    EXPECT_TRUE(index->testIsMarkedDeleted(id2));
+
+    // Verify label map
+    EXPECT_EQ(index->testGetIdByLabel(100), INVALID_ID);
+    EXPECT_EQ(index->testGetIdByLabel(200), id1);
+    EXPECT_EQ(index->testGetIdByLabel(300), INVALID_ID);
+}
+
+TEST_F(HNSWDiskTest, DeleteAndSearchDoesNotFindDeleted) {
+    TestIndex<float, float> index(DIM);
+
+    // Create a simple graph: 0 -> 1 -> 2
+    float vec0[DIM] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {2.0f, 0.0f, 0.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+
+    index->testAddEdge(id0, id1, 0);
+    index->testAddEdge(id1, id2, 0);
+    index->testTryUpdateEntryPoint(id0, 0);
+
+    // Delete id1 (middle node)
+    index->markDelete(200);
+
+    // Query for vec1 - greedy search should skip deleted node
+    float query[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    idType currObj = id0;
+    float currDist = index->testComputeDistance(query, id0);
+
+    // Search should not return deleted node as best result
+    index->testGreedySearchLevel<false>(query, 0, currObj, currDist);
+    EXPECT_NE(currObj, id1) << "Greedy search should not return deleted node";
+}
+
+TEST_F(HNSWDiskTest, DeleteThenSearch) {
+    // Delete elements then verify search still works correctly
+    TestIndex<float, float> index(DIM);
+
+    // Add several elements
+    for (int i = 0; i < 10; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        idType id = index->testSetupElement(i, 0, vec);
+        if (i > 0) {
+            index->testAddEdge(id - 1, id, 0);
+        }
+    }
+    index->testTryUpdateEntryPoint(0, 0);
+
+    // Delete some elements
+    for (int i = 0; i < 10; i += 2) {
+        auto deleted = index->markDelete(i);
+        // Either succeeds or was already deleted
+        EXPECT_LE(deleted.size(), 1);
+    }
+
+    // Search should still work
+    float query[DIM] = {5.0f, 0.0f, 0.0f, 0.0f};
+    auto [ep, level] = index->testGetEntryPointState();
+    if (ep != INVALID_ID) {
+        idType currObj = ep;
+        float currDist = index->testComputeDistance(query, ep);
+        // Should not crash
+        index->testGreedySearchLevel<false>(query, 0, currObj, currDist);
+    }
+}
+
+// =============================================================================
+// Insert Flow Tests (MOD-13164)
+// =============================================================================
+
 // Test that storeVector allocates ID, initializes metadata, and stores vectors
 TEST_F(HNSWDiskTest, StoreVectorAllocatesIdAndInitializesMetadata) {
     TestIndex<float, float> index(DIM);

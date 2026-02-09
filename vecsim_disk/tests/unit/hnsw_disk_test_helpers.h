@@ -24,6 +24,7 @@
     void testRecycleId(idType id) { recycleId(id); }                                                                   \
     GraphNodeType testGetEntryPointState() const { return safeGetEntryPointState(); }                                  \
     void testTryUpdateEntryPoint(idType id, size_t level) { replaceEntryPoint(id, level); }                            \
+    void testReplaceEntryPoint() { replaceEntryPointOnDelete(); }                                                      \
     idType testGetNextId() const { return nextId_.load(); }                                                            \
     size_t testGetHolesCount() const {                                                                                 \
         std::lock_guard<std::mutex> lock(holesMutex_);                                                                 \
@@ -180,6 +181,11 @@
         if (storage_) {                                                                                                \
             /* Store original FP32 vector to disk for reranking */                                                     \
             storage_->put_vector(id, vectorData, this->getInputBlobSize());                                            \
+        }                                                                                                              \
+        /* Populate label-to-ID map for delete flow */                                                                 \
+        {                                                                                                              \
+            std::unique_lock<std::shared_mutex> lock(labelLookupMutex_);                                               \
+            labelToIdLookup_[label] = id;                                                                              \
         }                                                                                                              \
         unmarkAs<DISK_IN_PROCESS>(id);                                                                                 \
         curElementCount_++;                                                                                            \
