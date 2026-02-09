@@ -8,8 +8,10 @@
 */
 
 use crate::{RLookup, RLookupKey, RLookupKeyFlags};
-use std::ptr;
 use std::{ffi::CStr, pin::Pin, ptr::NonNull};
+
+#[cfg(any(debug_assertions, test))]
+use std::ptr;
 
 #[derive(Debug)]
 #[repr(C)]

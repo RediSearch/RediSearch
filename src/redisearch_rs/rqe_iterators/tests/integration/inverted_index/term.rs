@@ -13,7 +13,7 @@ use ffi::{
     t_docId, t_fieldMask,
 };
 use field::FieldMaskOrIndex;
-use inverted_index::{FilterMaskReader, IndexReader, RSIndexResult, RSOffsetVector, full::Full};
+use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
 use rqe_iterators::{NoOpChecker, inverted_index::Term};
 
 use crate::{

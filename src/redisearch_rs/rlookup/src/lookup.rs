@@ -1438,14 +1438,17 @@ mod tests {
 
         assert_eq!(actual[0].name(), c"ff0");
         assert_eq!(actual[0].path(), &None);
+        #[cfg(debug_assertions)]
         assert_eq!(actual[0].rlookup_id(), lookup.id());
 
         assert_eq!(actual[1].name(), c"fn0");
         assert_eq!(actual[1].path(), &Some(c"fp0".into()));
+        #[cfg(debug_assertions)]
         assert_eq!(actual[1].rlookup_id(), lookup.id());
 
         assert_eq!(actual[2].name(), c"fn1");
         assert_eq!(actual[2].path(), &Some(c"fp1".into()));
+        #[cfg(debug_assertions)]
         assert_eq!(actual[2].rlookup_id(), lookup.id());
 
         // Clean up

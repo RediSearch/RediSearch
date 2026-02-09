@@ -343,3 +343,40 @@ fn revalidate() {
     let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
     assert_eq!(it.revalidate().unwrap(), RQEValidateStatus::Ok);
 }
+
+#[test]
+fn metric_type_returns_vector_distance() {
+    let it = MetricSortedById::new(vec![1], vec![0.5]);
+    assert_eq!(
+        it.metric_type(),
+        rqe_iterators::metric::MetricType::VectorDistance
+    );
+}
+
+#[test]
+fn key_mut_ref_initially_null() {
+    let mut it = MetricSortedById::new(vec![1], vec![0.5]);
+    assert!(it.key_mut_ref().is_null());
+}
+
+#[cfg(not(miri))]
+#[test]
+fn set_handle_non_null_invalidates_on_drop() {
+    use ffi::RLookupKeyHandle;
+
+    let mut handle = RLookupKeyHandle {
+        key_ptr: std::ptr::null_mut(),
+        is_valid: true,
+    };
+    let handle_ptr: *mut RLookupKeyHandle = &mut handle;
+
+    {
+        let mut it = MetricSortedById::new(vec![1], vec![0.5]);
+        // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
+        unsafe { it.set_handle(handle_ptr) };
+        // it is dropped here
+    }
+
+    // After drop, the handle should be invalidated
+    assert!(!handle.is_valid);
+}
