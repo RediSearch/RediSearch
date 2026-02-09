@@ -59,6 +59,7 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
  * @param index Pointer to the index to close
  */
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
+// Note: Internally calls disk->basic.closeIndexSpec(disk_db, index) to allow metrics cleanup
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
@@ -240,9 +241,10 @@ bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, u
  * @param results_capacity Size of results buffer
  * @param failed_user_data Buffer to fill with user_data from failed reads
  * @param failed_capacity Size of failed_user_data buffer
+ * @param expiration_point Current time for expiration check.
  * @return Number of pending reads after the poll
  */
-uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data);
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data, const t_expirationTimePoint *expiration_point);
 
 /**
  * @brief Free the async read pool
@@ -330,19 +332,22 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
 // Metrics API wrappers
 
 /**
- * @brief Collect metrics for the doc_table column family
+ * @brief Collect metrics for an index and store them in the disk context
+ *
+ * Collects metrics for both doc_table and inverted_index column families
+ * and stores them in an internal map keyed by the index pointer.
  *
  * @param index Pointer to the index spec
- * @param metrics Pointer to the metrics structure to populate
- * @return true if successful, false on error
+ * @return The total memory used by this index's disk components
  */
-bool SearchDisk_CollectDocTableMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Collect metrics for the inverted_index (fulltext) column family
+ * @brief Output aggregated disk metrics to Redis INFO
  *
- * @param index Pointer to the index spec
- * @param metrics Pointer to the metrics structure to populate
- * @return true if successful, false on error
+ * Iterates over all collected index metrics, aggregates them, and outputs
+ * to the Redis INFO context.
+ *
+ * @param ctx Redis module info context
  */
-bool SearchDisk_CollectTextInvertedIndexMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);

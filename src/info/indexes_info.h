@@ -18,8 +18,10 @@ extern "C" {
 
 typedef struct {
   // Vector Indexing
-  size_t total_vector_idx_mem;        // Total memory used by the vector index
-  size_t total_mark_deleted_vectors;  // Number of vectors marked as deleted
+  size_t total_vector_idx_mem;            // Total memory used by the vector index
+  size_t total_mark_deleted_vectors;      // Number of vectors marked as deleted
+  size_t total_direct_hnsw_insertions;    // Total vectors inserted directly to HNSW (bypassing flat buffer)
+  size_t total_flat_buffer_size;          // Total flat buffer size across all tiered indexes
 } TotalIndexesFieldsInfo;
 
 typedef struct {
@@ -49,10 +51,6 @@ typedef struct {
   // of threads)
   size_t total_num_docs_in_indexes;      // Total number of documents in all indexes
   size_t total_active_queries;         // Total number of active queries (reads)
-
-  // Disk metrics
-  DiskColumnFamilyMetrics disk_doc_table;      // Aggregated doc_table metrics
-  DiskColumnFamilyMetrics disk_inverted_index; // Aggregated inverted_index metrics
 } TotalIndexesInfo;
 
 // Returns an aggregated statistics of all the currently existing indexes

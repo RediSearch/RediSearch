@@ -10,7 +10,7 @@
 #include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"
-#include "iterators/inverted_index_iterator.h"
+#include "inverted_index.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
@@ -93,16 +93,18 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // can not find inverted index key, score is 0.
     goto end;
   }
-  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  QueryIterator *iter = NewInvIndIterator_TermQuery(invidx, scCtx->sctx, fieldMaskOrIndex, NULL, 1);
-  if (iter->Read(iter) == ITERATOR_OK) {
+  IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = fieldMask};
+  IndexReader *reader = NewIndexReader(invidx, ctx);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  if (IndexReader_Next(reader, res)) {
     // we have at least one result, the suggestion is relevant.
     retVal = InvertedIndex_NumDocs(invidx);
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
   }
-  iter->Free(iter);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
 
 end:
   return retVal;

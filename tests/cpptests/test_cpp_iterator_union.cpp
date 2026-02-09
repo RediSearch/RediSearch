@@ -8,6 +8,7 @@
 
 #include "gtest/gtest.h"
 #include "iterator_util.h"
+#include "index_utils.h"
 
 #include "src/iterators/union_iterator.h"
 #include "iterators_rs.h"
@@ -333,18 +334,17 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithWildcard) {
 TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(Index_DocIdsOnly), &memsize);
   ASSERT_TRUE(idx != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
-      .fieldMask = 1,
-      .freq = 1,
-      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
+      .data = {.tag = RSResultData_Virtual},
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  QueryIterator *iterator = NewInvIndIterator_WildcardQuery(idx, nullptr, 1.0);
+  MockQueryEvalCtx mockQctx(1000, 1000);
+  QueryIterator *iterator = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   children[1] = iterator;
   children[2] = nullptr;

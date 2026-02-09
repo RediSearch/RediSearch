@@ -15,6 +15,7 @@ use inverted_index::{
 mod c_mocks;
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_inverted_index_usage() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
 

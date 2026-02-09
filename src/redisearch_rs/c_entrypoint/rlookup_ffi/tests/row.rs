@@ -40,8 +40,11 @@ fn rlookuprow_move() {
         .unwrap();
     src.write_key(key, RSValueFFI::create_num(42.0));
 
-    src.assert_valid("tests::row::rlookuprow_move");
-    dst.assert_valid("tests::row::rlookuprow_move");
+    #[cfg(debug_assertions)]
+    {
+        src.assert_valid("tests::row::rlookuprow_move");
+        dst.assert_valid("tests::row::rlookuprow_move");
+    }
 
     unsafe {
         RLookupRow_MoveFieldsFrom(

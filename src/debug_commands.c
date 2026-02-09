@@ -58,6 +58,37 @@ bool QueryDebugCtx_HasDebugRP(void) {
   return globalDebugCtx.query.debugRP != NULL;
 }
 
+#ifdef ENABLE_ASSERT
+// Global coordinator reduce debug context (separate from DebugCTX since it uses atomics)
+static CoordReduceDebugCtx globalCoordReduceDebugCtx = {0};
+
+bool CoordReduceDebugCtx_IsPaused(void) {
+  return atomic_load(&globalCoordReduceDebugCtx.pause);
+}
+
+void CoordReduceDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalCoordReduceDebugCtx.pause, pause);
+}
+
+int CoordReduceDebugCtx_GetPauseBeforeN(void) {
+  return atomic_load(&globalCoordReduceDebugCtx.pauseBeforeN);
+}
+
+void CoordReduceDebugCtx_SetPauseBeforeN(int n) {
+  atomic_store(&globalCoordReduceDebugCtx.pauseBeforeN, n);
+  // Reset reduce count when setting a new pause point
+  atomic_store(&globalCoordReduceDebugCtx.reduceCount, 0);
+}
+
+void CoordReduceDebugCtx_IncrementReduceCount(void) {
+  atomic_fetch_add(&globalCoordReduceDebugCtx.reduceCount, 1);
+}
+
+int CoordReduceDebugCtx_GetReduceCount(void) {
+  return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
+}
+#endif
+
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
   // Should be called after each debug command that changes the debugCtx
@@ -1508,7 +1539,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 
 /**
- * FT.DEBUG COORD_THREADS [PAUSE / RESUME ]
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME / STATS]
  *
  */
 DEBUG_COMMAND(CoordThreadsSwitch) {
@@ -1531,6 +1562,13 @@ DEBUG_COMMAND(CoordThreadsSwitch) {
     }
   } else if (!strcasecmp(op, "is_paused")) {
     return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
+  } else if (!strcasecmp(op, "stats")) {
+    thpool_stats stats = ConcurrentSearch_getStats();
+    START_POSTPONED_LEN_ARRAY(num_stats_fields);
+    REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    END_POSTPONED_LEN_ARRAY(num_stats_fields);
+    return REDISMODULE_OK;
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
   }
@@ -2028,6 +2066,80 @@ DEBUG_COMMAND(getIsRPPaused) {
   return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
 }
 
+#ifdef ENABLE_ASSERT
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REDUCE <N>
+ * N=0: no pause
+ * N=-1: pause after the last result is reduced
+ * N>0: pause before the Nth result is reduced (1-based)
+ */
+DEBUG_COMMAND(setPauseBeforeReduce) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_REDUCE'");
+  }
+
+  CoordReduceDebugCtx_SetPauseBeforeN((int)n);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_COORD_REDUCE_PAUSED
+ */
+DEBUG_COMMAND(getIsCoordReducePaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, CoordReduceDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_COORD_REDUCE_RESUME
+ */
+DEBUG_COMMAND(setCoordReduceResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!CoordReduceDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Coordinator reduce is not paused");
+  }
+
+  CoordReduceDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_COORD_REDUCE_COUNT
+ */
+DEBUG_COMMAND(getCoordReduceCount) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
+}
+#endif
+
 /**
  * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
  */
@@ -2078,7 +2190,7 @@ DEBUG_COMMAND(queryController) {
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
-  // Check here all background indexing possible commands
+  // Query pause RP commands
   if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
     return setPauseRPResume(ctx, argv + 1, argc - 1);
   }
@@ -2088,6 +2200,21 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("PRINT_RP_STREAM", op)) {
     return printRPStream(ctx, argv + 1, argc - 1);
   }
+#ifdef ENABLE_ASSERT
+  // Coordinator reduce pause commands (only available with ENABLE_ASSERT)
+  if (!strcmp("SET_PAUSE_BEFORE_REDUCE", op)) {
+    return setPauseBeforeReduce(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_COORD_REDUCE_PAUSED", op)) {
+    return getIsCoordReducePaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_COORD_REDUCE_RESUME", op)) {
+    return setCoordReduceResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
+    return getCoordReduceCount(ctx, argv + 1, argc - 1);
+  }
+#endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
 }
 

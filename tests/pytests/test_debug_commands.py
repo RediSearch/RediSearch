@@ -371,6 +371,53 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').error().contains('Topology updater is already running')
 
+@skip(cluster=False)
+def testCoordThreadsStats(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    # Get initial stats
+    orig_stats = getCoordThpoolStats(env)
+
+    env.assertEqual(orig_stats['totalJobsDone'], 0)
+    env.assertEqual(orig_stats['totalPendingJobs'], 0)
+
+    # Pause coordinator thread pool
+    env.expect(debug_cmd(), 'COORD_THREADS', 'pause').ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+        'Timeout waiting for coordinator threads to pause')
+
+    # Run a search query in background (will be queued)
+    def run_search():
+        try:
+            env.cmd('FT.SEARCH', 'idx', '*')
+        except:
+            pass
+    t = threading.Thread(target=run_search)
+    t.start()
+
+
+    # Wait for pending jobs to increase by 1
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == orig_stats['totalPendingJobs'] + 1, {}),
+        'Timeout waiting for pending jobs to increase')
+
+    # Resume and wait for job to complete
+    env.expect(debug_cmd(), 'COORD_THREADS', 'resume').ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+        'Timeout waiting for coordinator threads to resume')
+    t.join(timeout=10)
+
+    # Wait for totalJobsDone to increase and totalPendingJobs to decrease
+    # Total jobs done should increase by 2 (fanout to shards + reduce)
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalJobsDone'] == orig_stats['totalJobsDone'] + 2, {}),
+        'Timeout waiting for totalJobsDone to increase')
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == 0, {}),
+        'Timeout waiting for totalPendingJobs to decrease')
+
 @skip(cluster=True)
 def testSpecIndexesInfo(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()

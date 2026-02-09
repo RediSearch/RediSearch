@@ -49,7 +49,7 @@ typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
   void (*close)(RedisSearchDisk *disk);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
-  void (*closeIndexSpec)(RedisSearchDiskIndexSpec *index);
+  void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
@@ -155,11 +155,11 @@ typedef struct DocTableDiskAPI {
    * @param handle Handle to the document table
    * @param docId Document ID
    * @param dmd Pointer to the document metadata structure to populate
-   * @param allocateKey Callback to allocate memory for the key
-   * @param current_time Current time for expiration check.
+   * @param allocate_key Callback to allocate memory for the key
+   * @param expiration_point Current time for expiration check.
    * @return true if found and not expired, false if not found, expired, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey, struct timespec current_time);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, t_expirationTimePoint expiration_point);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -228,13 +228,15 @@ typedef struct DocTableDiskAPI {
    * @param results_capacity Size of the results buffer (must be > 0)
    * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
    * @param failed_capacity Size of the failed_user_data buffer (must be > 0)
-   * @param allocateDMD Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
+   * @param expiration_point Current time for expiration check.
+   * @param allocate_dmd Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
    * @return AsyncPollResult with counts of ready, failed, and pending reads
    */
   AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
                                     AsyncReadResult* results, uint16_t results_capacity,
                                     uint64_t* failed_user_data, uint16_t failed_capacity,
-                                    AllocateDMDCallback allocateDMD);
+                                    t_expirationTimePoint expiration_point,
+                                    AllocateDMDCallback allocate_dmd);
 
   /**
    * @brief Frees the async read pool and cancels any pending reads
@@ -265,64 +267,29 @@ typedef struct VectorDiskAPI {
   void (*freeVectorIndex)(void* vecIndex);
 } VectorDiskAPI;
 
-/**
- * @brief Column family metrics for RocksDB/SpeeDB
- *
- * All metrics are non-string (integer) properties that can be queried efficiently.
- * These metrics are specific to individual column families (doc_table or inverted_index).
- */
-typedef struct DiskColumnFamilyMetrics {
-  // Memtable metrics
-  uint64_t num_immutable_memtables;
-  uint64_t num_immutable_memtables_flushed;
-  uint64_t mem_table_flush_pending;
-  uint64_t active_memtable_size;
-  uint64_t size_all_mem_tables;
-  uint64_t num_entries_active_memtable;
-  uint64_t num_entries_imm_memtables;
-  uint64_t num_deletes_active_memtable;
-  uint64_t num_deletes_imm_memtables;
-
-  // Compaction metrics
-  uint64_t compaction_pending;
-  uint64_t num_running_compactions;
-  uint64_t num_running_flushes;
-  uint64_t estimate_pending_compaction_bytes;
-
-  // Data size estimates
-  uint64_t estimate_num_keys;
-  uint64_t estimate_live_data_size;
-  uint64_t live_sst_files_size;
-
-  // Version tracking
-  uint64_t num_live_versions;
-
-  // Memory usage
-  uint64_t estimate_table_readers_mem;
-
-  // TODO: Add field for deleted-ids.
-} DiskColumnFamilyMetrics;
-
 typedef struct MetricsDiskAPI {
   /**
-   * @brief Collect metrics for the doc_table column family
+   * @brief Collect metrics for an index and store them in the disk context
    *
+   * Collects metrics for both doc_table and inverted_index column families
+   * and stores them in an internal map keyed by the index pointer.
+   *
+   * @param disk Pointer to the disk context
    * @param index Pointer to the index spec
-   * @param metrics Pointer to the metrics structure to populate
-   * @return true if successful, false on error
+   * @return The total memory used by this index's disk components (for accumulation into total_mem)
    */
-  bool (*collectDocTableMetrics)(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+  uint64_t (*collectIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Collect metrics for the inverted_index (fulltext) column family
+   * @brief Output aggregated disk metrics to Redis INFO
    *
-   * @param index Pointer to the index spec
-   * @param metrics Pointer to the metrics structure to populate
-   * @return true if successful, false on error
+   * Iterates over all collected index metrics, aggregates them, and outputs
+   * to the Redis INFO context using RedisModule_Info* functions.
+   *
+   * @param disk Pointer to the disk context
+   * @param ctx Redis module info context
    */
-  bool (*collectTextInvertedIndexMetrics)(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
-
-  // TODO: Add db-level metrics exposure (num-snapshots etc..)
+  void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {

@@ -109,9 +109,9 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
         offsets = VVW_GetByteData(entry->vw);
         offsetsLen = VVW_GetByteLength(entry->vw);
       }
-      SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId,
-                              entry->fieldMask, entry->freq, offsets, offsetsLen);
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
+      if (SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen)) {
+        IndexSpec_AddTerm(spec, entry->term, entry->len);
+      }
     } else {
       bool isNew;
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);

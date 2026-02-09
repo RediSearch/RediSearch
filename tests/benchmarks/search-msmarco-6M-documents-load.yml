@@ -19,6 +19,7 @@ remote:
   - setup: redisearch-msmarco
 
 dbconfig:
+  - dataset_name: "6M-msmarco-documents"
   - init_commands:
     - '"FT.CREATE" "ms_marco_idx" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "url" "TEXT" "title" "TEXT" "WEIGHT" "2.0" "headings" "TEXT" "WEIGHT" "1.5" "body" "TEXT" "tags" "TAG" "SEPARATOR" ","'
 clientconfig:

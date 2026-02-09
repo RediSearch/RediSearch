@@ -47,6 +47,7 @@ fn test_add_duplicate_elements() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_add_many_distinct_elements() {
     let mut hll = TestHll10::new();
     let n = 10000u32;
@@ -135,6 +136,7 @@ fn test_hash_distribution() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_register_distribution() {
     let mut hll = TestHll10::new();
     let n = 10000u32;
@@ -258,6 +260,7 @@ fn test_type_aliases() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_murmur3_accuracy() {
     type Murmur3HyperLogLog10 = HyperLogLog10<Murmur3Hasher>;
 
