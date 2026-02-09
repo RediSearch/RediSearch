@@ -925,6 +925,7 @@ dependencies = [
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
+ "rand",
  "redis-module",
  "redis_mock",
  "workspace_hack",
