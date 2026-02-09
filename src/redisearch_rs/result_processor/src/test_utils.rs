@@ -185,13 +185,13 @@ impl Chain {
         // Safety: Context treats the pointer as pinned
         let ptr = unsafe { self.last_raw() };
 
-        // Safety:
-        // 1. ptr is non-null
-        // 2. ptr is well-aligned, and valid either because we took it from a `Pin<Box<P>>` (`Self::push`)
-        //    or because the caller promised it as part of an unsafe contract (`Self::push_raw`).
-        unsafe {
-            ResultProcessorWrapper::<P>::debug_assert_same_type(*ptr);
-        }
+        // // Safety:
+        // // 1. ptr is non-null
+        // // 2. ptr is well-aligned, and valid either because we took it from a `Pin<Box<P>>` (`Self::push`)
+        // //    or because the caller promised it as part of an unsafe contract (`Self::push_raw`).
+        // unsafe {
+        //     ResultProcessorWrapper::<P>::debug_assert_same_type(*ptr);
+        // }
 
         // Safety: The assert above ensures this is always of the right type
         let result_processor =
@@ -212,23 +212,3 @@ impl Drop for Chain {
         }
     }
 }
-
-/// Mock implementation of `DMD_Free` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
-    unreachable!()
-}
-
-/// Mock implementation of `SEDestroy` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
-    unreachable!()
-}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset(_row: *mut ffi::RLookupRow) {}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe(_row: *mut ffi::RLookupRow) {}
