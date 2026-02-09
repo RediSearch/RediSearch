@@ -12,7 +12,6 @@
 #include "trie/trie.h"
 #include "trie/trie_type.h"
 #include "redismock/redismock.h"
-#include "redisearch_rs/headers/triemap.h"
 
 #include <set>
 #include <string>
