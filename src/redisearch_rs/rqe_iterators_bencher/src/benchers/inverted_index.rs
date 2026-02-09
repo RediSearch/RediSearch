@@ -15,9 +15,8 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use field::{self, FieldExpirationPredicate};
 use inverted_index::RSIndexResult;
-use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Numeric};
+use rqe_iterators::{NoOpChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
 
 use crate::ffi::QueryIterator;
 
@@ -271,14 +270,11 @@ impl NumericBencher {
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
         group.bench_function("Rust", |b| {
             let ii = context.numeric_inverted_index().as_numeric();
-            let fs = context.field_spec();
 
             b.iter(|| {
                 let mut it = Numeric::new(
                     ii.reader(),
-                    context.sctx,
-                    fs.index,
-                    FieldExpirationPredicate::Default,
+                    NoOpChecker,
                     None,
                     None,
                     None,
@@ -324,14 +320,11 @@ impl NumericBencher {
     ) {
         group.bench_function("Rust", |b| {
             let ii = context.numeric_inverted_index().as_numeric();
-            let fs = context.field_spec();
 
             b.iter(|| {
                 let mut it = Numeric::new(
                     ii.reader(),
-                    context.sctx,
-                    fs.index,
-                    FieldExpirationPredicate::Default,
+                    NoOpChecker,
                     None,
                     None,
                     None,
