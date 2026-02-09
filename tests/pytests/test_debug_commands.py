@@ -797,8 +797,12 @@ class TestQueryDebugCommands(object):
 
         # Test ON_TIMEOUT FAIL
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+        if env.shardsCount > 1:
+            err_msg = "Timeout limit was reached"
+        else:
+            err_msg = "TIMEOUT_AFTER_N is only supported with ON_TIMEOUT RETURN"
 
-        with env.assertResponseError(contained="Timeout limit was reached"):
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N is only supported with ON_TIMEOUT RETURN"):
             runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
         # restore the default policy
