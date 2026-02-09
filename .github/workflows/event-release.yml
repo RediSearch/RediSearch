@@ -44,7 +44,7 @@ jobs:
       - name: Get version branch
         id: get_version_branch
         run: |
-          version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
+          version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+(-GA)?$' | sed 's|.*/||')
           if [ -z "$version_branch" ]; then
             echo "Error: No version branch found"
             exit 1
@@ -79,7 +79,7 @@ jobs:
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            return branch == f"{release_branch}"
+            return branch in {f"{release_branch}", f"{release_branch}-GA"}
           tag = os.environ["INPUT_TAG"]
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
@@ -160,6 +160,7 @@ jobs:
 
   set-artifacts:
     needs: [validate-tag, generate-matrix]
+    if: false
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Configure AWS Credentials Using Role
