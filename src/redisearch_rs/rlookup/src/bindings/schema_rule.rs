@@ -152,5 +152,10 @@ mod test {
         assert_eq!(ff.next().unwrap(), c"aaa");
         assert_eq!(ff.next().unwrap(), c"bbb");
         assert_eq!(ffi, [10, 20]);
+
+        unsafe {
+            ffi::array_free(schema_rule.filter_fields.cast());
+            ffi::array_free(schema_rule.filter_fields_index.cast());
+        }
     }
 }

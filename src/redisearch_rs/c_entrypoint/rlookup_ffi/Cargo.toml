@@ -16,6 +16,12 @@ sorting_vector.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 workspace_hack.workspace = true
 
+[dev-dependencies]
+# Crate required to invoke C symbols
+rlookup_ffi = { path = "." }
+redisearch_rs = { path = "../redisearch_rs" }
+redis_mock.workspace = true
+
 [build-dependencies]
 cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
