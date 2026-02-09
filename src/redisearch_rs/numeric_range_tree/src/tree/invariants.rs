@@ -81,12 +81,12 @@ impl NumericRangeTree {
 
         // num_records cross-check
         let expected_total_records =
-            apply_signed_delta(total_records_before, result.num_records as i64);
+            apply_signed_delta(total_records_before, result.num_records_delta as i64);
         let actual_total_records = self.total_records();
         assert_eq!(
             expected_total_records, actual_total_records,
             "total_records mismatch: before={total_records_before}, delta={}, actual={actual_total_records}",
-            result.num_records,
+            result.num_records_delta,
         );
     }
 

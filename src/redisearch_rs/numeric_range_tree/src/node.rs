@@ -84,12 +84,15 @@ impl InternalNode {
     /// With arena allocation, rotation is performed by swapping data between
     /// arena slots and reassigning indices. No allocation or deallocation occurs.
     ///
-    /// Returns the dropped range from the promoted node (if any), so the caller
-    /// can update tree statistics.
+    /// Returns the dropped ranges from the promoted node and the demoted node (if any),
+    /// so the caller can update tree statistics.
     ///
     /// If the right child is a [`Leaf`](NumericRangeNode::Leaf), rotation is
     /// impossible and the node is left unchanged.
-    pub(crate) fn rotate_left(nodes: &mut NodeArena, node_idx: NodeIndex) -> Option<NumericRange> {
+    pub(crate) fn rotate_left(
+        nodes: &mut NodeArena,
+        node_idx: NodeIndex,
+    ) -> Option<(Option<NumericRange>, Option<NumericRange>)> {
         let NumericRangeNode::Internal(node) = &nodes[node_idx] else {
             return None;
         };
@@ -106,8 +109,8 @@ impl InternalNode {
         };
         let promoted_value = right_node.value;
         let promoted_range = right_node.range;
-        let right_left = right_node.left; // y
-        let right_right = right_node.right; // z
+        let promoted_right_left = right_node.left; // y
+        let promoted_right_right = right_node.right; // z
 
         // Extract data from the current node (A).
         let NumericRangeNode::Internal(current_node) = std::mem::take(&mut nodes[node_idx]) else {
@@ -115,42 +118,48 @@ impl InternalNode {
         };
         let demoted_value = current_node.value;
         let demoted_range = current_node.range;
-        let left = current_node.left; // x
+        let demoted_left = current_node.left; // x
 
         // Build demoted node (old A) in right_idx's slot.
-        let demoted_depth = nodes[left].max_depth().max(nodes[right_left].max_depth()) + 1;
+        let demoted_depth = nodes[demoted_left]
+            .max_depth()
+            .max(nodes[promoted_right_left].max_depth())
+            + 1;
         nodes[right_idx] = NumericRangeNode::Internal(InternalNode {
             value: demoted_value,
             max_depth: demoted_depth,
-            left,
-            right: right_left,
-            range: demoted_range,
+            left: demoted_left,
+            right: promoted_right_left,
+            range: None,
         });
 
         // Build promoted node (old B) in node_idx's slot.
         // The promoted node's range is discarded because it no longer covers
-        // the full subtree. Example:
+        // the full subtree. We must also discard the demoted node's range.
+        // Example:
         //
-        //   Before:                     After:
-        //         A [10,80]                   B [50,80] ← INVALID
-        //        / \                         / \
-        //       x   B [50,80]               A   z
-        //    [10,30]  / \                  / \  [70,80]
-        //            y   z                x   y
-        //         [50,60] [70,80]      [10,30] [50,60]
+        //   Before:                                 After:
+        //         A [10,80]                               B [50,80] ← INVALID
+        //        / \                                     / \
+        //       x   B [50,80]        TOO BROAD->[10,80] A   z
+        //    [10,30]  / \                              / \  [70,80]
+        //            y   z                            x   y
+        //         [50,60] [70,80]                  [10,30] [50,60]
         //
         // B's range [50,80] was for {y,z}. After rotation it governs {x,y,z},
         // so a query for [10,20] would see no overlap and skip x's results.
-        let promoted_depth = demoted_depth.max(nodes[right_right].max_depth()) + 1;
+        // A's range [10,80] was for {B,y,z}. After rotation, it governs {x,y},
+        // which is a smaller range than before.
+        let promoted_depth = demoted_depth.max(nodes[promoted_right_right].max_depth()) + 1;
         nodes[node_idx] = NumericRangeNode::Internal(InternalNode {
             value: promoted_value,
             max_depth: promoted_depth,
             left: right_idx, // demoted node is now left child
-            right: right_right,
+            right: promoted_right_right,
             range: None,
         });
 
-        promoted_range
+        Some((promoted_range, demoted_range))
     }
 
     /// Perform a right rotation on the node at `node_idx`.
@@ -172,7 +181,10 @@ impl InternalNode {
     ///
     /// If the left child is a [`Leaf`](NumericRangeNode::Leaf), rotation is
     /// impossible and the node is left unchanged.
-    pub(crate) fn rotate_right(nodes: &mut NodeArena, node_idx: NodeIndex) -> Option<NumericRange> {
+    pub(crate) fn rotate_right(
+        nodes: &mut NodeArena,
+        node_idx: NodeIndex,
+    ) -> Option<(Option<NumericRange>, Option<NumericRange>)> {
         let NumericRangeNode::Internal(node) = &nodes[node_idx] else {
             return None;
         };
@@ -189,8 +201,8 @@ impl InternalNode {
         };
         let promoted_value = left_node.value;
         let promoted_range = left_node.range;
-        let left_left = left_node.left; // x
-        let left_right = left_node.right; // y
+        let promoted_left_left = left_node.left; // x
+        let promoted_left_right = left_node.right; // y
 
         // Extract data from the current node (A).
         let NumericRangeNode::Internal(current_node) = std::mem::take(&mut nodes[node_idx]) else {
@@ -198,42 +210,47 @@ impl InternalNode {
         };
         let demoted_value = current_node.value;
         let demoted_range = current_node.range;
-        let right = current_node.right; // z
+        let demoted_right = current_node.right; // z
 
         // Build demoted node (old A) in left_idx's slot.
-        let demoted_depth = nodes[left_right].max_depth().max(nodes[right].max_depth()) + 1;
+        let demoted_depth = nodes[promoted_left_right]
+            .max_depth()
+            .max(nodes[demoted_right].max_depth())
+            + 1;
         nodes[left_idx] = NumericRangeNode::Internal(InternalNode {
             value: demoted_value,
             max_depth: demoted_depth,
-            left: left_right,
-            right,
-            range: demoted_range,
+            left: promoted_left_right,
+            right: demoted_right,
+            range: None,
         });
 
         // Build promoted node (old B) in node_idx's slot.
         // The promoted node's range is discarded because it no longer covers
         // the full subtree. Example:
         //
-        //   Before:                     After:
-        //         A [10,80]                   B [10,50] ← INVALID
-        //        / \                         / \
-        //   [10,50] B   z                   x   A
-        //      / \   [60,80]             [10,30]  / \
-        //     x   y                             y   z
-        //  [10,30] [40,50]                   [40,50] [60,80]
+        //   Before:                         After:
+        //             A [10,80]                      B [10,50] ← INVALID
+        //            / \                            / \
+        //   [10,50] B   z [60,80]         [10, 30] x   A [10,80] ← TOO BROAD
+        //          / \                                / \
+        //         x   y                              y   z
+        //    [10,30] [40,50]                    [40,50] [60,80]
         //
         // B's range [10,50] was for {x,y}. After rotation it governs {x,y,z},
         // so a query for [70,80] would see no overlap and skip z's results.
-        let promoted_depth = nodes[left_left].max_depth().max(demoted_depth) + 1;
+        // A's range [10,80] was for {x,y,z}. After rotation it governs {y,z},
+        // a smaller range.
+        let promoted_depth = nodes[promoted_left_left].max_depth().max(demoted_depth) + 1;
         nodes[node_idx] = NumericRangeNode::Internal(InternalNode {
             value: promoted_value,
             max_depth: promoted_depth,
-            left: left_left,
+            left: promoted_left_left,
             right: left_idx, // demoted node is now right child
             range: None,
         });
 
-        promoted_range
+        Some((promoted_range, demoted_range))
     }
 }
 
@@ -291,11 +308,11 @@ impl NumericRangeNode {
 
     /// Get the split value.
     ///
-    /// Returns `0.0` for leaf nodes.
-    pub const fn split_value(&self) -> f64 {
+    /// Returns `None` for leaf nodes.
+    pub const fn split_value(&self) -> Option<f64> {
         match self {
-            Self::Leaf(_) => 0.0,
-            Self::Internal(internal) => internal.value,
+            Self::Leaf(_) => None,
+            Self::Internal(internal) => Some(internal.value),
         }
     }
 
@@ -338,7 +355,7 @@ impl NumericRangeNode {
         match self {
             Self::Leaf(leaf) => {
                 // Replace with a default range; callers are expected to replace the whole node.
-                Some(std::mem::replace(&mut leaf.range, NumericRange::new(false)))
+                Some(std::mem::take(&mut leaf.range))
             }
             Self::Internal(internal) => internal.range.take(),
         }

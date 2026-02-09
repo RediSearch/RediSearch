@@ -23,7 +23,6 @@ use ffi::t_docId;
 
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
-use crate::range::Hll;
 use crate::unique_id::TreeUniqueId;
 
 /// Result of adding a value to the tree.
@@ -41,17 +40,16 @@ pub struct AddResult {
     /// The net change in the number of records (document, value entries).
     /// When splitting, this counts re-added entries to child ranges.
     /// When trimming, this is negative for removed entries.
-    pub num_records: i32,
+    pub num_records_delta: i32,
     /// Whether the tree structure changed (splits or rotations occurred).
     /// When true, the tree's `revision_id` should be incremented to
     /// invalidate any concurrent iterators.
     pub changed: bool,
     /// The net change in the number of ranges (nodes with inverted indexes).
-    /// Splitting a leaf adds 2 new ranges. Trimming removes ranges.
+    /// Splitting a leaf adds one or two new ranges. Trimming removes ranges.
     pub num_ranges_delta: i32,
     /// The net change in the number of leaf nodes.
-    /// Splitting a leaf into two children adds 1 leaf (+2 new, -0 since parent
-    /// becomes internal but was already counted). Trimming decreases this.
+    /// Splitting a leaf adds one new leaf. Trimming decreases this.
     pub num_leaves_delta: i32,
 }
 
@@ -85,7 +83,8 @@ pub(crate) struct TreeStats {
 /// All nodes are stored in a [`NodeArena`]. Children are referenced by
 /// [`NodeIndex`] instead of `Box<NumericRangeNode>`. This provides better
 /// cache locality, eliminates per-node heap allocation overhead, and makes
-/// rotations cheaper (index swaps instead of alloc/dealloc).
+/// pruning cheaper (index swaps and a single `realloc` rather than a dealloc
+/// for every deleted node).
 ///
 /// # Splitting Strategy
 ///
@@ -168,10 +167,10 @@ impl NumericRangeTree {
         let mut nodes = NodeArena::new();
         let root_node = NumericRangeNode::leaf(compress_floats);
         let inverted_indexes_size = root_node.range().map(|r| r.memory_usage()).unwrap_or(0);
-        let root = nodes.insert(root_node);
+        let root_index = nodes.insert(root_node);
 
         Self {
-            root,
+            root: root_index,
             nodes,
             stats: TreeStats {
                 num_ranges: 1,
@@ -259,15 +258,11 @@ impl NumericRangeTree {
         crate::PreOrderDfsIterator::new(self)
     }
 
-    /// Calculate the total memory usage of the tree.
-    pub const fn mem_usage(&self) -> usize {
+    /// Calculate the total memory usage of the tree, in bytes.
+    pub fn mem_usage(&self) -> usize {
         let base_size = std::mem::size_of::<Self>();
-        // Our tree is a full binary tree, so #nodes = 2 * #leaves - 1
-        let nodes_count = 2 * self.stats.num_leaves.saturating_sub(1) + 1;
-        let nodes_size = nodes_count * std::mem::size_of::<NumericRangeNode>();
-        let hll_size = self.stats.num_ranges * Hll::size();
-
-        base_size + self.stats.inverted_indexes_size + nodes_size + hll_size
+        let nodes_size = (self.nodes.len() as usize) * std::mem::size_of::<NumericRangeNode>();
+        base_size + self.stats.inverted_indexes_size + nodes_size
     }
 }
 

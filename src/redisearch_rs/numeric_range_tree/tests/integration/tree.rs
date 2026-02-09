@@ -157,7 +157,7 @@ fn test_add_result_fields() {
 
     let result = AddResult::default();
     assert_eq!(result.size_delta, 0);
-    assert_eq!(result.num_records, 0);
+    assert_eq!(result.num_records_delta, 0);
     assert!(!result.changed);
     assert_eq!(result.num_ranges_delta, 0);
     assert_eq!(result.num_leaves_delta, 0);

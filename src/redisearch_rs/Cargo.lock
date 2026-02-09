@@ -1245,6 +1245,7 @@ dependencies = [
  "redisearch_rs",
  "rstest",
  "slab",
+ "tracing",
  "workspace_hack",
 ]
 

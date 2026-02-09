@@ -46,6 +46,15 @@ impl NumericRangeTree {
     /// If `is_multivalued` is true, the same document ID can be provided multiple times
     /// in a row.
     /// Returns information about what changed during the add operation.
+    ///
+    /// # Range Retention
+    ///
+    /// `max_depth_range` is the maximum depth at which a range will be retained on internal nodes.
+    /// Different invocations of `add` can use different `max_depth_range` values.
+    /// If a later invocation uses a smaller `max_depth_range`, `add` won't eagerly prune ranges
+    /// that are higher than the threshold; pruning will only occur opportunistically,
+    /// when the tree structure changes (i.e. a node is split) and it will only affect nodes
+    /// that are an ancestor of the node that stored the new value.
     pub fn add(
         &mut self,
         doc_id: t_docId,
@@ -82,6 +91,12 @@ impl NumericRangeTree {
         // The underlying assumption is that insertions are ordered by doc_id.
         // Skip if out of order or duplicate on a single-valued field
         if doc_id < self.last_doc_id || (doc_id == self.last_doc_id && !is_multivalued) {
+            tracing::warn!(
+                doc_id = %doc_id,
+                last_doc_id = %self.last_doc_id,
+                is_multivalued = %is_multivalued,
+                "Skipping non-monotonic insertion",
+            );
             return AddResult::default();
         }
         self.last_doc_id = doc_id;
@@ -136,7 +151,6 @@ impl NumericRangeTree {
     /// Cardinality is ONLY updated at leaf nodes. When adding to retained
     /// ranges in internal nodes, we call `add_without_cardinality` because
     /// the cardinality is already tracked by the leaf descendants.
-    ///
     #[expect(clippy::too_many_arguments)]
     fn node_add(
         nodes: &mut NodeArena,
@@ -179,7 +193,7 @@ impl NumericRangeTree {
                 {
                     let size = range.add_without_cardinality(doc_id, value);
                     rv.size_delta += size as i64;
-                    rv.num_records += 1;
+                    rv.num_records_delta += 1;
                 }
 
                 // Balance the node if the tree structure changed, and update depth.
@@ -210,7 +224,7 @@ impl NumericRangeTree {
                 let size = leaf.range.add(doc_id, value);
                 *rv = AddResult {
                     size_delta: size as i64,
-                    num_records: 1,
+                    num_records_delta: 1,
                     changed: false,
                     num_ranges_delta: 0,
                     num_leaves_delta: 0,
@@ -263,35 +277,18 @@ impl NumericRangeTree {
         rv: &mut AddResult,
         compress_floats: bool,
     ) {
-        // First compute the split point and collect entries before mutating the node
-        let (split, entries) = {
-            let range = nodes[node_idx]
-                .range()
-                .expect("node to split must have a range");
-
-            // Compute the median to use as split point
-            let split = Self::compute_median(range);
-
-            // Adjust split if it equals the minimum value
-            let split = if split == range.min_val() {
+        let parent_range = nodes[node_idx]
+            .take_range()
+            .expect("node to split must have a range");
+        let split = {
+            let split = Self::compute_median(&parent_range);
+            if split == parent_range.min_val() {
                 // Make sure the split is not the same as the min value
                 // Use next representable f64 greater than split
                 split.next_up()
             } else {
                 split
-            };
-
-            // Collect all entries from the range
-            let mut entries: Vec<(ffi::t_docId, f64)> = Vec::new();
-            let mut reader = range.reader();
-            let mut result = inverted_index::RSIndexResult::numeric(0.0);
-            while reader.next_record(&mut result).unwrap_or(false) {
-                // SAFETY: We know the result contains numeric data
-                let entry_value = unsafe { result.as_numeric_unchecked() };
-                entries.push((result.doc_id, entry_value));
             }
-
-            (split, entries)
         };
 
         // Create new leaf children and insert into the arena
@@ -312,7 +309,11 @@ impl NumericRangeTree {
         let right_idx = nodes.insert(right_node);
 
         // Redistribute entries to children
-        for (doc_id, entry_value) in entries {
+        let mut reader = parent_range.reader();
+        let mut result = inverted_index::RSIndexResult::numeric(0.0);
+        while reader.next_record(&mut result).unwrap_or(false) {
+            // SAFETY: We know the result contains numeric data
+            let entry_value = unsafe { result.as_numeric_unchecked() };
             let target_idx = if entry_value < split {
                 left_idx
             } else {
@@ -320,17 +321,21 @@ impl NumericRangeTree {
             };
 
             if let Some(target_range) = nodes[target_idx].range_mut() {
-                let size = target_range.add(doc_id, entry_value);
+                let size = target_range.add(result.doc_id, entry_value);
                 rv.size_delta += size as i64;
             }
-            rv.num_records += 1;
+            rv.num_records_delta += 1;
         }
+        drop(result);
 
-        // Take the existing range from the leaf and convert to an internal node.
-        let old_range = nodes[node_idx].take_range();
-        let new_node =
-            NumericRangeNode::internal_indexed(split, left_idx, right_idx, old_range, nodes);
-        nodes[node_idx] = new_node;
+        // Replace the old leaf with a new internal node.
+        nodes[node_idx] = NumericRangeNode::internal_indexed(
+            split,
+            left_idx,
+            right_idx,
+            Some(parent_range),
+            nodes,
+        );
 
         rv.changed = true;
         rv.num_ranges_delta += 2;
@@ -363,7 +368,7 @@ impl NumericRangeTree {
     fn remove_range(nodes: &mut NodeArena, node_idx: NodeIndex, rv: &mut AddResult) {
         if let Some(range) = nodes[node_idx].take_range() {
             rv.size_delta -= range.memory_usage() as i64;
-            rv.num_records -= range.num_entries() as i32;
+            rv.num_records_delta -= range.num_entries() as i32;
             rv.num_ranges_delta -= 1;
         }
     }
@@ -397,7 +402,7 @@ impl NumericRangeTree {
         let left_depth = nodes[internal.left_index()].max_depth();
         let right_depth = nodes[internal.right_index()].max_depth();
 
-        let dropped_range = if right_depth > left_depth + Self::MAXIMUM_DEPTH_IMBALANCE {
+        let dropped_ranges = if right_depth > left_depth + Self::MAXIMUM_DEPTH_IMBALANCE {
             InternalNode::rotate_left(nodes, node_idx)
         } else if left_depth > right_depth + Self::MAXIMUM_DEPTH_IMBALANCE {
             InternalNode::rotate_right(nodes, node_idx)
@@ -405,11 +410,16 @@ impl NumericRangeTree {
             return left_depth.max(right_depth) + 1;
         };
 
-        // If a rotation dropped a range, update stats.
-        if let Some(range) = dropped_range {
-            rv.size_delta -= range.memory_usage() as i64;
-            rv.num_records -= range.num_entries() as i32;
-            rv.num_ranges_delta -= 1;
+        // If a rotation dropped ranges, update stats.
+        if let Some((r1, r2)) = dropped_ranges {
+            for range in [r1, r2] {
+                let Some(range) = range else {
+                    continue;
+                };
+                rv.size_delta -= range.memory_usage() as i64;
+                rv.num_records_delta -= range.num_entries() as i32;
+                rv.num_ranges_delta -= 1;
+            }
         }
 
         // Return the correct depth. After rotation, read from node (set by rotate).

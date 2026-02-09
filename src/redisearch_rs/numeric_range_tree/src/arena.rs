@@ -61,6 +61,17 @@ impl NodeArena {
         Self { nodes: Slab::new() }
     }
 
+    /// Get the number of nodes currently stored in the arena.
+    ///
+    /// This is not to be confused with the current _capacity_
+    /// of the arena, i.e. the size of the underlying currently-allocated
+    /// slab.
+    pub fn len(&self) -> u32 {
+        // Safe to truncate because `Self::insert` ensures that the arena
+        // never grows beyond `u32::MAX`.
+        self.nodes.len() as u32
+    }
+
     /// Insert a node into the arena, returning its index.
     ///
     /// # Panics
@@ -68,7 +79,11 @@ impl NodeArena {
     /// Debug-asserts that the resulting key fits in `u32`.
     pub fn insert(&mut self, node: NumericRangeNode) -> NodeIndex {
         let key = self.nodes.insert(node);
-        debug_assert!(key <= u32::MAX as usize);
+        assert!(
+            key <= u32::MAX as usize,
+            "Tried to store more than {} nodes in the arena",
+            u32::MAX
+        );
         NodeIndex(key as u32)
     }
 

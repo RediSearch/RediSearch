@@ -41,13 +41,13 @@ fn test_default_impl() {
 #[test]
 fn test_split_value() {
     let leaf = NumericRangeNode::leaf(false);
-    assert_eq!(leaf.split_value(), 0.0);
+    assert_eq!(leaf.split_value(), None);
 
     // Build a tree with enough entries to split — the root becomes internal
     // and has a non-zero split value.
     let tree = build_tree(SPLIT_TRIGGER, false, 0);
     assert!(!tree.root().is_leaf());
-    assert!(tree.root().split_value() > 0.0);
+    assert!(tree.root().split_value().unwrap() > 0.0);
 }
 
 #[test]
