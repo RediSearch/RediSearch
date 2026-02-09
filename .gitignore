@@ -34,3 +34,5 @@ tests/deps/RedisJSON
 **/target/*
 compile_commands.json
 .claude/worktrees/
+/build
+/tests/pytests/rspytests.egg-info
