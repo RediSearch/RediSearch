@@ -57,26 +57,6 @@ system_genrule_toolchain(
 
 ---
 
-## Step 2: Code Generation (command_info)
-
-**File: `src/command_info/BUCK`**
-
-Use `genrule` to run the Python script that generates `command_info.h` and `command_info.c` from `commands.json`:
-
-```python
-genrule(
-    name = "generate_command_info",
-    srcs = ["//srcutil:gen_command_info.py", "//:commands.json"],
-    out = ".",
-    cmd = "python3 $(location //srcutil:gen_command_info.py) -j $(location //:commands.json) -f $OUT/command_info -i command_info",
-    visibility = ["//src/..."],
-)
-```
-
-Then reference the generated files from the main C library target.
-
----
-
 ## Step 3: C/C++ Dependencies (`deps/`)
 
 **File: `deps/BUCK`** (single BUCK file for all simple deps)
@@ -107,7 +87,6 @@ These are built externally via CMake and referenced as prebuilt:
 |--------|---------|-------|
 | `//deps:vectorsimilarity` | `libVectorSimilarity.a` | C++20, complex build with spaces subdir, optional SVS |
 | `//deps:libuv` | `libuv_a.a` | Async I/O, complex platform-specific build |
-| `//deps:hiredis` | `libhiredis.a`, `libhiredis_ssl.a` | Redis client with SSL |
 | `//deps:boost` | (headers only) | Header-only, needs fetch/path |
 
 For Phase 1, we'll use `prebuilt_cxx_library` pointing to CMake-built artifacts. These can be migrated to native Buck2 builds later.

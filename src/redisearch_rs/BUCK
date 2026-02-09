@@ -1,0 +1,13 @@
+rust_library(
+    name = "document",
+    srcs = glob(["document/**/*.rs"]),
+    deps = [
+        "//third_party:strum",
+        "//third_party:thiserror",
+    ],
+    visibility = ["PUBLIC"],
+
+    # "//src/redisearch_rs:document"
+    # document.workspace = true
+    # workspace_hack.workspace = true
+)
