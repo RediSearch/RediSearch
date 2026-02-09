@@ -1660,9 +1660,13 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 name = "result_processor"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "libc",
  "pin-project",
+ "redis_mock",
+ "redisearch_rs",
+ "result_processor",
  "search_result",
  "workspace_hack",
 ]
@@ -1723,10 +1727,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
- "redis_mock",
- "redisearch_rs",
  "rlookup",
- "rlookup_ffi",
  "sorting_vector",
  "value",
  "workspace_hack",

@@ -10,6 +10,13 @@
 use crate::ResultProcessor;
 use search_result::SearchResult;
 
+// Link both Rust-provided and C-provided symbols
+#[cfg(all(test, feature = "unittest"))]
+extern crate redisearch_rs;
+// Mock or stub the ones that aren't provided by the line above
+#[cfg(all(test, feature = "unittest"))]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 /// A processor to track the number of entries yielded by the previous processor in the chain.
 #[derive(Debug)]
 pub struct Counter {
@@ -84,14 +91,6 @@ pub(crate) mod test {
     };
 
     static PROFILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    /// Mock implementation of `RPProfile_IncrementCount` for tests
-    ///
-    // FIXME: replace with `Profile::increment_count` once the profile result processor is ported.
-    #[unsafe(no_mangle)]
-    unsafe extern "C" fn RPProfile_IncrementCount(_r: *mut ffi::ResultProcessor) {
-        PROFILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    }
 
     #[test]
     fn basically_works() {
