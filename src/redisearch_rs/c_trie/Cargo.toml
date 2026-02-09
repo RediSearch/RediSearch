@@ -10,5 +10,5 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+strum.workspace = true
 workspace_hack.workspace = true
-

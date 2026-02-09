@@ -14,7 +14,7 @@
 use std::ffi::c_char;
 
 /// Result of a decrement operation on the C Trie.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::FromRepr)]
 #[repr(u32)]
 pub enum CTrieDecrResult {
     /// Term not found in the trie.
@@ -23,17 +23,6 @@ pub enum CTrieDecrResult {
     Updated = 1,
     /// numDocs reached 0, term was deleted from the trie.
     Deleted = 2,
-}
-
-impl From<u32> for CTrieDecrResult {
-    fn from(val: u32) -> Self {
-        match val {
-            0 => CTrieDecrResult::NotFound,
-            1 => CTrieDecrResult::Updated,
-            2 => CTrieDecrResult::Deleted,
-            _ => CTrieDecrResult::NotFound, // Fallback for unexpected values
-        }
-    }
 }
 
 /// Wrapper around the C Trie pointer for safe FFI operations.
@@ -91,7 +80,7 @@ impl CTrieRef {
                 delta as usize,
             )
         };
-        CTrieDecrResult::from(result)
+        CTrieDecrResult::from_repr(result).unwrap_or(CTrieDecrResult::NotFound)
     }
 
     /// Get the raw pointer to the C Trie.
@@ -107,10 +96,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_c_trie_decr_result_from() {
-        assert_eq!(CTrieDecrResult::from(0), CTrieDecrResult::NotFound);
-        assert_eq!(CTrieDecrResult::from(1), CTrieDecrResult::Updated);
-        assert_eq!(CTrieDecrResult::from(2), CTrieDecrResult::Deleted);
-        assert_eq!(CTrieDecrResult::from(99), CTrieDecrResult::NotFound); // Unknown
+    fn test_c_trie_decr_result_from_repr() {
+        assert_eq!(
+            CTrieDecrResult::from_repr(0),
+            Some(CTrieDecrResult::NotFound)
+        );
+        assert_eq!(
+            CTrieDecrResult::from_repr(1),
+            Some(CTrieDecrResult::Updated)
+        );
+        assert_eq!(
+            CTrieDecrResult::from_repr(2),
+            Some(CTrieDecrResult::Deleted)
+        );
+        assert_eq!(CTrieDecrResult::from_repr(99), None); // Unknown
     }
 }
