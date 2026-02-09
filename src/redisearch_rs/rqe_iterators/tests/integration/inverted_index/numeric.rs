@@ -345,7 +345,33 @@ fn numeric_range() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{ExpirationTest, RevalidateIndexType, RevalidateTest};
-    use rqe_iterators::RQEValidateStatus;
+    use rqe_iterators::{ExpirationChecker, RQEValidateStatus};
+    use std::collections::HashSet;
+
+    /// A mock expiration checker for testing.
+    ///
+    /// This allows testing expiration logic without requiring a full TestContext
+    /// with TTL tables and FFI overhead.
+    #[derive(Debug, Clone)]
+    struct MockExpirationChecker {
+        expired_docs: HashSet<t_docId>,
+    }
+
+    impl MockExpirationChecker {
+        fn new(expired_docs: HashSet<t_docId>) -> Self {
+            Self { expired_docs }
+        }
+    }
+
+    impl ExpirationChecker for MockExpirationChecker {
+        fn has_expiration(&self) -> bool {
+            !self.expired_docs.is_empty()
+        }
+
+        fn is_expired(&self, doc_id: t_docId, _result: &RSIndexResult) -> bool {
+            self.expired_docs.contains(&doc_id)
+        }
+    }
 
     struct NumericExpirationTest {
         test: ExpirationTest,
@@ -434,6 +460,127 @@ mod not_miri {
     #[test]
     fn numeric_skip_to_expiration_multi() {
         NumericExpirationTest::new(10, true).test_skip_to_expiration();
+    }
+
+    // Simplified expiration tests using MockExpirationChecker
+    // These tests are faster and simpler than the ones above because they don't
+    // require TestContext with TTL tables and FFI overhead.
+
+    #[test]
+    fn numeric_read_with_mock_expiration() {
+        // BaseTest creates (0..=n_docs) documents, so n_docs=9 creates 10 documents
+        let n_docs = 9;
+        let test: BaseTest<inverted_index::numeric::Numeric> = BaseTest::new(
+            IndexFlags_Index_StoreNumeric,
+            Box::new(|doc_id| RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)),
+            n_docs,
+        );
+
+        let reader = test.ii.reader();
+
+        // BaseTest creates odd doc IDs: 1, 3, 5, 7, 9, 11, 13, 15, 17, 19
+        // Mark even doc IDs as expired (but BaseTest only has odd IDs, so this won't match anything)
+        // Instead, let's mark specific odd IDs as expired
+        let expired_docs: HashSet<t_docId> = [3, 7, 11, 15, 19].iter().copied().collect();
+        let checker = MockExpirationChecker::new(expired_docs);
+
+        let mut it = Numeric::new(
+            reader,
+            checker,
+            Some(test.mock_ctx.numeric_range_tree()),
+            None,
+            None,
+        );
+
+        // Should only see non-expired odd doc IDs: 1, 5, 9, 13, 17
+        let expected_ids = vec![1, 5, 9, 13, 17];
+        let mut count = 0;
+        while let Ok(Some(result)) = it.read() {
+            assert_eq!(result.doc_id, expected_ids[count], "Unexpected doc ID");
+            count += 1;
+        }
+        assert_eq!(count, 5, "Expected 5 non-expired documents");
+    }
+
+    #[test]
+    fn numeric_skip_to_with_mock_expiration() {
+        // BaseTest creates (0..=n_docs) documents, so n_docs=9 creates 10 documents
+        let n_docs = 9;
+        let test: BaseTest<inverted_index::numeric::Numeric> = BaseTest::new(
+            IndexFlags_Index_StoreNumeric,
+            Box::new(|doc_id| RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)),
+            n_docs,
+        );
+
+        let reader = test.ii.reader();
+
+        // BaseTest creates odd doc IDs: 1, 3, 5, 7, 9, 11, 13, 15, 17, 19
+        // Mark some as expired: 3, 7, 11
+        let expired_docs: HashSet<t_docId> = [3, 7, 11].iter().copied().collect();
+        let checker = MockExpirationChecker::new(expired_docs);
+
+        let mut it = Numeric::new(
+            reader,
+            checker,
+            Some(test.mock_ctx.numeric_range_tree()),
+            None,
+            None,
+        );
+
+        // Skip to doc 3 (expired) - should land on doc 5
+        match it.skip_to(3).unwrap().unwrap() {
+            rqe_iterators::SkipToOutcome::Found(result)
+            | rqe_iterators::SkipToOutcome::NotFound(result) => {
+                assert_eq!(result.doc_id, 5);
+            }
+        }
+
+        // Skip to doc 7 (expired) - should land on doc 9
+        match it.skip_to(7).unwrap().unwrap() {
+            rqe_iterators::SkipToOutcome::Found(result)
+            | rqe_iterators::SkipToOutcome::NotFound(result) => {
+                assert_eq!(result.doc_id, 9);
+            }
+        }
+
+        // Skip to doc 13 (not expired) - should land on doc 13
+        match it.skip_to(13).unwrap().unwrap() {
+            rqe_iterators::SkipToOutcome::Found(result)
+            | rqe_iterators::SkipToOutcome::NotFound(result) => {
+                assert_eq!(result.doc_id, 13);
+            }
+        }
+    }
+
+    #[test]
+    fn numeric_no_expiration_with_empty_mock() {
+        // BaseTest creates (0..=n_docs) documents, so n_docs=9 creates 10 documents
+        let n_docs = 9;
+        let test: BaseTest<inverted_index::numeric::Numeric> = BaseTest::new(
+            IndexFlags_Index_StoreNumeric,
+            Box::new(|doc_id| RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)),
+            n_docs,
+        );
+
+        let reader = test.ii.reader();
+
+        // Create mock checker with no expired docs
+        let checker = MockExpirationChecker::new(HashSet::new());
+
+        let mut it = Numeric::new(
+            reader,
+            checker,
+            Some(test.mock_ctx.numeric_range_tree()),
+            None,
+            None,
+        );
+
+        // Should see all 10 doc IDs
+        let mut count = 0;
+        while let Ok(Some(_)) = it.read() {
+            count += 1;
+        }
+        assert_eq!(count, 10, "Expected all 10 documents");
     }
 
     struct NumericRevalidateTest {

@@ -51,11 +51,9 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where
     R: IndexReader<'index>,
-    E: ExpirationChecker + 'static,
+    E: ExpirationChecker,
 {
     /// Creates a new inverted index iterator with the given expiration checker.
-    ///
-    /// The caller is responsible for creating and providing the appropriate expiration checker.
     pub fn new(reader: R, result: RSIndexResult<'static>, expiration_checker: E) -> Self {
         // no need to manually skip duplicates if there is none in the II.
         let skip_multi = reader.has_duplicates();
@@ -351,7 +349,7 @@ struct RangeTreeInfo {
 impl<'index, R, E> Numeric<'index, R, E>
 where
     R: NumericReader<'index>,
-    E: ExpirationChecker + 'static,
+    E: ExpirationChecker,
 {
     /// Create an iterator returning results from a numeric inverted index.
     ///
@@ -430,7 +428,7 @@ where
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
     R: NumericReader<'index>,
-    E: ExpirationChecker + 'static,
+    E: ExpirationChecker,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -496,7 +494,7 @@ pub struct Term<'index, R, E = NoOpChecker> {
 impl<'index, R, E> Term<'index, R, E>
 where
     R: TermReader<'index>,
-    E: ExpirationChecker + 'static,
+    E: ExpirationChecker,
 {
     /// Create an iterator returning results from a term inverted index.
     ///
@@ -515,7 +513,7 @@ where
 impl<'index, R, E> RQEIterator<'index> for Term<'index, R, E>
 where
     R: TermReader<'index>,
-    E: ExpirationChecker + 'static,
+    E: ExpirationChecker,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
