@@ -393,21 +393,68 @@ When computing union scores, low-contribution blocks can be deferred or skipped.
 
 ## Implementation Plan
 
-### Phase 1: Add Block Metadata Fields (Rust)
+This section outlines a phased approach to implementing block-max score optimization. The plan prioritizes simplicity and correctness first, with tighter bounds as a future enhancement.
 
-1. Add fields to `IndexBlock` struct:
-   - `max_freq: u16`
-   - `max_doc_score: f32`
-   - `min_doc_len: u32`
-2. Update `IndexBlock::new()` to initialize with neutral values:
-   - `max_freq = 0`
-   - `max_doc_score = 0.0`
-   - `min_doc_len = u32::MAX`
-3. Update serialization/deserialization (RDB compatibility)
+### Design Decisions
 
-### Phase 2: Update Block Writing
+**Single Block Type Approach**: Rather than creating multiple block type variants (one with metadata, one without), we add the metadata fields to `IndexBlock` unconditionally. All new blocks will have valid metadata. This avoids combinatorial explosion of block types.
 
-In `InvertedIndex::write_entry()`, update block metadata when adding entries:
+**Note on Persistence**: The inverted index data is NOT persisted in RDB - it is rebuilt from Redis keys on load. Therefore, no RDB versioning or backward compatibility handling is needed. Every time an index is rebuilt, the new metadata fields will be populated correctly.
+
+---
+
+### Phase 1: Block Metadata Infrastructure
+
+**Goal**: Add scoring metadata fields to `IndexBlock` and ensure they are correctly initialized and serialized.
+
+#### 1.1 Add Fields to `IndexBlock`
+
+```rust
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IndexBlock {
+    first_doc_id: t_docId,
+    last_doc_id: t_docId,
+    num_entries: u16,
+
+    // NEW: Block-level scoring metadata
+    // max_freq = 0 indicates metadata is not available (old index)
+    max_freq: u16,
+    max_doc_score: f32,
+    min_doc_len: u32,
+
+    buffer: Vec<u8>,
+}
+```
+
+#### 1.2 Update `IndexBlock::new()`
+
+```rust
+impl IndexBlock {
+    fn new(doc_id: t_docId) -> Self {
+        Self {
+            first_doc_id: doc_id,
+            last_doc_id: doc_id,
+            num_entries: 0,
+            // Initialize with values that will be updated on first entry
+            max_freq: 0,           // Will be set to actual max on first write
+            max_doc_score: 0.0,    // Will be set to actual max on first write
+            min_doc_len: u32::MAX, // Will be set to actual min on first write
+            buffer: Vec::new(),
+        }
+    }
+
+    /// Returns true if this block has valid scoring metadata
+    pub fn has_scoring_metadata(&self) -> bool {
+        // max_freq = 0 with num_entries > 0 would be invalid for a real block
+        // (every entry has freq >= 1), so we use max_freq = 0 as sentinel
+        self.max_freq > 0 || self.num_entries == 0
+    }
+}
+```
+
+#### 1.3 Update Block Writing
+
+Modify `InvertedIndex::write_entry()` to update block metadata:
 
 ```rust
 fn write_entry(
@@ -417,11 +464,12 @@ fn write_entry(
     doc_len: u32,
     same_doc: bool,
 ) -> std::io::Result<usize> {
-    // ... existing code ...
+    // ... existing code to get/create block ...
+
+    let block = self.blocks.last_mut().unwrap();
 
     // Update block scoring metadata
-    let block = self.blocks.last_mut().unwrap();
-    block.max_freq = block.max_freq.max(entry.freq as u16);
+    block.max_freq = block.max_freq.max(entry.freq() as u16);
     block.max_doc_score = block.max_doc_score.max(doc_score);
     block.min_doc_len = block.min_doc_len.min(doc_len);
 
@@ -429,32 +477,421 @@ fn write_entry(
 }
 ```
 
-### Phase 3: Add Score Computation Helpers
+#### 1.4 Serialization (Fork GC)
 
-Create utility functions to compute score upper bounds:
-- `compute_tfidf_upper_bound(block, idf)` → uses `max_freq`, `min_doc_len`, `max_doc_score`
-- `compute_bm25_upper_bound(block, idf, avg_doc_len)` → uses all three fields with BM25 formula
+The `IndexBlock` struct uses serde for fork GC serialization (messagepack via `rmp_serde`), not for RDB persistence. The inverted index data is rebuilt from Redis keys on load, not persisted in RDB.
 
-### Phase 4: Extend Iterator Interface
+- Update the `Serialize`/`Deserialize` implementations to include the new fields
+- The custom `Deserialize` impl for `IndexBlock` already exists (for tracking total blocks) - extend it to handle the new fields
+- No RDB version changes needed
 
-Add threshold-aware methods to `IndexReader` trait:
+#### 1.5 Unit Tests
+
+- [ ] Test that `max_freq`, `min_doc_len`, `max_doc_score` are correctly tracked during indexing
+- [ ] Test `has_scoring_metadata()` returns correct values
+- [ ] Test serde round-trip preserves metadata (for fork GC)
+
+---
+
+### Phase 2: Score Computation Helpers
+
+**Goal**: Create utilities to compute block-level score upper bounds for each supported scorer.
+
+#### 2.1 Score Context Structure
+
 ```rust
-trait IndexReader<'index> {
-    // Existing methods...
-
-    /// Skip to doc_id, but also skip blocks that can't contribute >= min_score
-    fn skip_to_with_score_threshold(
-        &mut self,
-        doc_id: t_docId,
-        min_score: f64,
-        score_params: &ScoreParams,
-    ) -> bool;
+/// Parameters needed to compute block max scores
+pub struct BlockScoreContext {
+    /// Inverse Document Frequency for the term
+    pub idf: f64,
+    /// Average document length in the index
+    pub avg_doc_len: f64,
+    /// BM25 k1 parameter (term frequency saturation)
+    pub bm25_k1: f64,
+    /// BM25 b parameter (length normalization)
+    pub bm25_b: f64,
 }
 ```
 
-### Phase 5: Integration with Query Execution
+#### 2.2 Block Max Score Trait
 
-Modify the result accumulator to pass `minScore` thresholds down to iterators.
+```rust
+/// Trait for computing block-level score upper bounds
+pub trait BlockMaxScorer {
+    /// Compute the maximum possible score for any document in this block
+    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64;
+}
+
+/// TF-IDF scorer: Score = (TF / DocLen) × IDF × DocScore
+pub struct TfIdfBlockScorer;
+
+impl BlockMaxScorer for TfIdfBlockScorer {
+    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64 {
+        if !block.has_scoring_metadata() {
+            return f64::MAX; // No skipping possible
+        }
+        (block.max_freq as f64 / block.min_doc_len as f64)
+            * ctx.idf
+            * block.max_doc_score as f64
+    }
+}
+
+/// BM25 scorer
+pub struct Bm25BlockScorer;
+
+impl BlockMaxScorer for Bm25BlockScorer {
+    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64 {
+        if !block.has_scoring_metadata() {
+            return f64::MAX;
+        }
+        let tf = block.max_freq as f64;
+        let len_norm = 1.0 - ctx.bm25_b
+            + ctx.bm25_b * (block.min_doc_len as f64 / ctx.avg_doc_len);
+        let tf_saturation = (tf * (ctx.bm25_k1 + 1.0)) / (tf + ctx.bm25_k1 * len_norm);
+
+        ctx.idf * tf_saturation * block.max_doc_score as f64
+    }
+}
+
+/// DOCSCORE scorer: Score = DocScore (ignores term frequency)
+pub struct DocScoreBlockScorer;
+
+impl BlockMaxScorer for DocScoreBlockScorer {
+    fn block_max_score(block: &IndexBlock, _ctx: &BlockScoreContext) -> f64 {
+        if !block.has_scoring_metadata() {
+            return f64::MAX;
+        }
+        block.max_doc_score as f64
+    }
+}
+```
+
+#### 2.3 Unit Tests
+
+- [ ] Test TF-IDF upper bound computation
+- [ ] Test BM25 upper bound computation
+- [ ] Test DOCSCORE upper bound computation
+- [ ] Test that blocks without metadata return `f64::MAX`
+
+---
+
+### Phase 3: Iterator Interface Extension
+
+**Goal**: Add threshold-aware skip methods to the `IndexReader` trait and implement block skipping.
+
+#### 3.1 Extend `IndexReader` Trait
+
+```rust
+pub trait IndexReader<'index> {
+    // ... existing methods ...
+
+    /// Skip to the first block containing doc_id >= target, but also skip
+    /// any blocks whose max score is below min_score.
+    ///
+    /// Returns `true` if positioned at a valid block, `false` if EOF.
+    ///
+    /// When `min_score = 0.0`, this behaves identically to `skip_to()`.
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        score_ctx: &BlockScoreContext,
+    ) -> bool;
+
+    /// Get the max score for the current block, or `f64::MAX` if unknown.
+    fn current_block_max_score(&self, score_ctx: &BlockScoreContext) -> f64;
+}
+```
+
+#### 3.2 Implement in `IndexReaderCore`
+
+```rust
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
+    for IndexReaderCore<'index, E>
+{
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        score_ctx: &BlockScoreContext,
+    ) -> bool {
+        // First, find the block containing doc_id (existing logic)
+        let mut target_block_idx = self.find_block_containing(doc_id);
+
+        // Then, skip blocks that can't contribute enough score
+        while target_block_idx < self.ii.blocks.len() {
+            let block = &self.ii.blocks[target_block_idx];
+            let block_max = self.compute_block_max_score(block, score_ctx);
+
+            if block_max >= min_score {
+                break;
+            }
+            target_block_idx += 1;
+        }
+
+        if target_block_idx >= self.ii.blocks.len() {
+            return false;
+        }
+
+        self.set_current_block(target_block_idx);
+        true
+    }
+
+    fn current_block_max_score(&self, score_ctx: &BlockScoreContext) -> f64 {
+        if self.current_block_idx >= self.ii.blocks.len() {
+            return 0.0;
+        }
+        let block = &self.ii.blocks[self.current_block_idx];
+        self.compute_block_max_score(block, score_ctx)
+    }
+}
+```
+
+#### 3.3 Default Implementation for Compatibility
+
+For readers that don't support block skipping (e.g., filtered readers), provide a default:
+
+```rust
+/// Default implementation that falls back to regular skip_to
+fn skip_to_with_threshold(
+    &mut self,
+    doc_id: t_docId,
+    _min_score: f64,
+    _score_ctx: &BlockScoreContext,
+) -> bool {
+    self.skip_to(doc_id)
+}
+
+fn current_block_max_score(&self, _score_ctx: &BlockScoreContext) -> f64 {
+    f64::MAX // Conservative: never skip
+}
+```
+
+#### 3.4 Wire Through FFI Layer
+
+Update `inverted_index_ffi` to expose the new methods to C code.
+
+#### 3.5 Unit Tests
+
+- [ ] Test `skip_to_with_threshold` skips low-score blocks
+- [ ] Test `skip_to_with_threshold` with `min_score = 0.0` behaves like `skip_to`
+- [ ] Test correctness: results with skipping == results without skipping
+- [ ] Test filtered readers fall back to regular skip
+
+---
+
+### Phase 4: Integration Testing
+
+**Goal**: Ensure block skipping produces identical results to full scan.
+
+#### 4.1 Correctness Tests
+
+Create comprehensive tests that:
+1. Index a set of documents with known scores
+2. Run top-K queries with block skipping enabled
+3. Run the same queries with block skipping disabled
+4. Verify identical results
+
+```rust
+#[test]
+fn test_block_skipping_correctness() {
+    // Create index with documents having varying TF, doc_len, doc_score
+    let index = create_test_index_with_varied_scores();
+
+    // Query with skipping
+    let results_with_skip = query_top_k(&index, "term", 10, true);
+
+    // Query without skipping
+    let results_without_skip = query_top_k(&index, "term", 10, false);
+
+    assert_eq!(results_with_skip, results_without_skip);
+}
+```
+
+#### 4.2 Edge Case Tests
+
+- [ ] Empty blocks
+- [ ] Single-entry blocks
+- [ ] All blocks skipped (no results)
+- [ ] No blocks skipped (all pass threshold)
+- [ ] Threshold exactly equals block max score
+
+#### 4.3 RDB Compatibility Tests
+
+- [ ] Load old RDB → no skipping (sentinel values)
+- [ ] Save new RDB → load → skipping works
+- [ ] Mixed old/new blocks after partial reindex
+
+---
+
+### Phase 5: Microbenchmarks
+
+**Goal**: Validate the core block-skipping mechanism with simulated index structures before full integration.
+
+Microbenchmarks test the isolated components (block metadata tracking, score computation, block skipping logic) without running the full query execution pipeline. This allows us to:
+1. Validate the optimization potential before investing in full integration
+2. Identify performance bottlenecks in the core mechanism
+3. Tune parameters (block size, threshold computation) based on data
+
+#### 5.1 Block Score Computation Benchmarks
+
+Benchmark the overhead of computing block max scores:
+
+```rust
+fn bench_block_max_score_computation(c: &mut Criterion) {
+    let blocks = create_test_blocks(1000); // Simulated blocks with varied metadata
+    let ctx = BlockScoreContext {
+        idf: 5.67,
+        avg_doc_len: 100.0,
+        bm25_k1: 1.2,
+        bm25_b: 0.75,
+    };
+
+    c.bench_function("tfidf_block_max_score", |b| {
+        b.iter(|| {
+            for block in &blocks {
+                black_box(TfIdfBlockScorer::block_max_score(block, &ctx));
+            }
+        })
+    });
+
+    c.bench_function("bm25_block_max_score", |b| {
+        b.iter(|| {
+            for block in &blocks {
+                black_box(Bm25BlockScorer::block_max_score(block, &ctx));
+            }
+        })
+    });
+}
+```
+
+#### 5.2 Block Skipping Simulation Benchmarks
+
+Simulate block skipping decisions without full index iteration:
+
+```rust
+fn bench_block_skipping_decisions(c: &mut Criterion) {
+    // Create simulated block metadata with realistic distributions
+    let blocks = create_blocks_with_zipfian_tf_distribution(10_000);
+    let ctx = create_score_context();
+
+    // Simulate different threshold scenarios
+    for threshold_percentile in [0.5, 0.75, 0.9, 0.95] {
+        let min_score = compute_percentile_score(&blocks, &ctx, threshold_percentile);
+
+        c.bench_function(
+            &format!("skip_decision_p{}", (threshold_percentile * 100.0) as u32),
+            |b| {
+                b.iter(|| {
+                    let mut skipped = 0;
+                    for block in &blocks {
+                        let block_max = TfIdfBlockScorer::block_max_score(block, &ctx);
+                        if block_max < min_score {
+                            skipped += 1;
+                        }
+                    }
+                    black_box(skipped)
+                })
+            },
+        );
+    }
+}
+```
+
+#### 5.3 Reader Skip-To Benchmarks
+
+Benchmark the `skip_to_with_threshold` implementation on simulated indexes:
+
+```rust
+fn bench_skip_to_with_threshold(c: &mut Criterion) {
+    // Create a simulated inverted index with 1000 blocks
+    let index = create_simulated_index(1000, 100); // 1000 blocks, 100 entries each
+    let ctx = create_score_context();
+
+    c.bench_function("skip_to_no_threshold", |b| {
+        b.iter(|| {
+            let mut reader = index.reader();
+            for target_doc in (0..100_000).step_by(1000) {
+                reader.skip_to(target_doc);
+            }
+        })
+    });
+
+    c.bench_function("skip_to_with_threshold", |b| {
+        let min_score = 0.5; // Threshold that skips ~50% of blocks
+        b.iter(|| {
+            let mut reader = index.reader();
+            for target_doc in (0..100_000).step_by(1000) {
+                reader.skip_to_with_threshold(target_doc, min_score, &ctx);
+            }
+        })
+    });
+}
+```
+
+#### 5.4 Metrics to Measure
+
+- **Score computation overhead**: Time to compute block max score (should be < 10ns per block)
+- **Skip decision overhead**: Time to compare threshold (negligible)
+- **Skip rate by threshold**: % of blocks skipped at various threshold percentiles
+- **Memory overhead**: Additional 10 bytes per block
+
+#### 5.5 Simulated Workload Variations
+
+Test with different simulated distributions:
+
+| Distribution | Description | Expected Skip Rate |
+|--------------|-------------|-------------------|
+| Uniform TF | All blocks have similar max_freq | Low (blocks are similar) |
+| Zipfian TF | Few blocks have high max_freq, most have low | High (many low-score blocks) |
+| Bimodal DocScore | Two clusters of doc scores | Medium |
+| Skewed DocLen | Most docs short, few very long | Depends on scorer |
+
+---
+
+### Phase 6: End-to-End Benchmarks (Future)
+
+**Goal**: Validate performance improvements with realistic query workloads after full integration.
+
+This phase runs after the optimization is fully integrated into the query execution pipeline.
+
+#### 6.1 Full Query Benchmarks
+
+```rust
+fn bench_full_query_execution(c: &mut Criterion) {
+    // Load a realistic test dataset
+    let index = load_wikipedia_sample_index();
+
+    c.bench_function("top_10_query_no_skip", |b| {
+        b.iter(|| execute_query(&index, "redis database", 10, SkipMode::Disabled))
+    });
+
+    c.bench_function("top_10_query_with_skip", |b| {
+        b.iter(|| execute_query(&index, "redis database", 10, SkipMode::Enabled))
+    });
+}
+```
+
+#### 6.2 Realistic Workload Metrics
+
+- **Query latency reduction**: p50, p95, p99 latency with vs. without skipping
+- **Throughput improvement**: Queries per second
+- **Skip rate in practice**: Actual % of blocks skipped on real queries
+- **Result quality**: Verify identical results with and without skipping
+
+---
+
+### Future Enhancements
+
+Once the basic implementation is validated, consider:
+
+1. **Tighter Bounds with (TF, DocLen) Pairs**: Store actual (tf, doc_len) pairs instead of just extrema for tighter upper bounds (see [Alternative 2](#alternative-2-tf-doclen-pairs))
+
+2. **Pre-computed Scores**: For deployments with fixed scorers, store pre-computed max scores for zero query-time computation
+
+3. **Dynamic Threshold Adjustment**: Track running statistics during query execution to dynamically adjust skip thresholds
+
+4. **Multi-term Optimization**: Extend block skipping to intersection and union queries
 
 ## Memory Overhead Analysis
 
@@ -468,15 +905,21 @@ Modify the result accumulator to pass `minScore` thresholds down to iterators.
 
 ## Backward Compatibility
 
-### RDB Versioning
-- Increment RDB version for inverted index format
-- Old RDB files: blocks load with `max_freq = u16::MAX` (conservative, no skipping)
-- New RDB files: blocks include actual `max_freq`
+### No RDB Changes Required
+
+The inverted index data is **not persisted in RDB**. It is rebuilt from Redis keys (the actual document data) when loading. Therefore:
+- No RDB version changes are needed
+- No migration path is required
+- Every time an index is rebuilt, the new metadata fields will be populated correctly
+
+### Fork GC Serialization
+
+The `IndexBlock` struct uses serde for fork GC serialization (messagepack). The new fields will be included in the serialization automatically via the `Serialize`/`Deserialize` derives.
 
 ### Gradual Rollout
 - Feature can be disabled via config flag
-- Old indexes work correctly (no optimization, but correct results)
-- Optimization activates automatically after reindex
+- All indexes work correctly (no optimization when disabled, but correct results)
+- Optimization activates automatically when enabled
 
 ## Future Extensions
 
