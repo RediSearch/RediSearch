@@ -110,6 +110,17 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut R
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewStringWithoutNulTerminator(
+    str: *mut c_char,
+    len: u32,
+) -> *mut RsValue {
+    let string = unsafe { RsString::rm_alloc_string_without_nul_terminator(str, len) };
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw() as *mut _
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewConstString(str: *const c_char, len: u32) -> *mut RsValue {
     // Safety: ensured by caller (1., 2., 3.)
     let string = unsafe { RsString::const_string(str, len) };

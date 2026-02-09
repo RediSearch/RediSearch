@@ -249,6 +249,8 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
+struct RsValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
+
 struct RsValue *RSValue_NewConstString(const char *str, uint32_t len);
 
 /**
@@ -355,8 +357,28 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  * # Panic
  *
  * Panics if the value is not a `String` type.
+ * Panics if the string data might not be nul-terminated.
  */
 char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
+
+/**
+ * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+ * length to `lenp`.
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if the value is not a `String` type.
+ */
+char *RSValue_String_GetTrusted(const struct RsValue *value, uint32_t *lenp);
 
 /**
  * Returns a pointer to the underlying [`RedisModuleString`] of an [`RsValue`].
