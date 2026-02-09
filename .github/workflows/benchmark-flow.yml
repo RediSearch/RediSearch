@@ -5,6 +5,10 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
+      git_ref:
+        type: string
+        description: 'Git reference (tag, branch, or commit SHA) to checkout for benchmarking'
+        default: ''
       container:
         type: string
         default: redisfab/rmbuilder:6.2.7-x64-bullseye
@@ -47,6 +51,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.git_ref || github.sha }}
           submodules: recursive
       - name: Setup specific  # assuming node20 supported
         working-directory: .install

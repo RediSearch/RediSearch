@@ -5,6 +5,10 @@ name: Run RediSearch Benchmarks
 on:
   workflow_dispatch:
     inputs:
+      git_ref:
+        type: string
+        description: 'Git reference (tag, branch, or commit SHA) to checkout for benchmarking'
+        default: ''
       extended:
         type: boolean
         description: 'Run extended benchmarks'
@@ -23,6 +27,10 @@ on:
         description: 'branch to use for rejson'
   workflow_call:
     inputs:
+      git_ref:
+        type: string
+        description: 'Git reference (tag, branch, or commit SHA) to checkout for benchmarking'
+        default: ''
       extended:
         type: boolean
         default: false
@@ -47,6 +55,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       benchmark_glob: "search*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
@@ -59,6 +68,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       benchmark_glob: "vecsim*.yml"
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
@@ -71,6 +81,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
@@ -87,6 +98,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
@@ -103,6 +115,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
@@ -119,6 +132,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
@@ -136,6 +150,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
@@ -153,6 +168,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       cluster_env: 1
       benchmark_glob: "search*.yml"
       module_path: bin/linux-x64-release/coord-oss/module-oss.so
@@ -169,6 +185,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
@@ -186,6 +203,7 @@ jobs:
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
+      git_ref: ${{ inputs.git_ref }}
       profile_env: 1
       # TODO: change to "github-actions.profilers" when ready on grafana
       triggering_env: "circleci.profilers" # results generated with profilers attached are not mixed with the ones without it
