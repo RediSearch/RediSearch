@@ -41,30 +41,44 @@ pub mod opaque {
 
     mod __opaque {
         use super::*;
+
         impl<'a> c_ffi_utils::opaque::IntoOpaque for super::super::RLookupRow<'a, value::RSValueFFI> {
             type Opaque = OpaqueRLookupRow<'a>;
+
             fn into_opaque(self) -> Self::Opaque {
+                // Safety:
+                // Self::Opaque is validated to implement
+                // `Transmute<Self>` in _ASSERT_IMPL_TRANSMUTE
                 unsafe { std::mem::transmute(self) }
             }
+
             fn as_opaque_ptr(&self) -> *const Self::Opaque {
                 std::ptr::from_ref(self).cast()
             }
+
             fn as_opaque_mut_ptr(&mut self) -> *mut Self::Opaque {
                 std::ptr::from_mut(self).cast()
             }
+
             unsafe fn from_opaque(opaque: Self::Opaque) -> Self {
+                // Safety: see trait's safety requirement.
                 unsafe { std::mem::transmute(opaque) }
             }
+
             unsafe fn from_opaque_ptr<'b>(opaque: *const Self::Opaque) -> Option<&'b Self> {
+                // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_ref() }
             }
+
             unsafe fn from_opaque_mut_ptr<'b>(opaque: *mut Self::Opaque) -> Option<&'b mut Self> {
+                // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_mut() }
             }
         }
         const _ASSERT_SIZE_AND_ALIGN: () = {
             #[allow(unreachable_code, clippy::never_loop)]
             loop {
+                // Safety: this code never runs
                 unsafe {
                     std::mem::transmute::<
                         OpaqueRLookupRow<'_>,
