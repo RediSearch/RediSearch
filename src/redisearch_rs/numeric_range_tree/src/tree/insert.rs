@@ -101,13 +101,11 @@ impl NumericRangeTree {
         }
         self.last_doc_id = doc_id;
 
-        let mut rv = AddResult::default();
-        Self::node_add(
+        let rv = Self::node_add(
             &mut self.nodes,
             self.root,
             doc_id,
             value,
-            &mut rv,
             0,
             max_depth_range,
             self.compress_floats,
@@ -157,12 +155,11 @@ impl NumericRangeTree {
         node_idx: NodeIndex,
         doc_id: t_docId,
         value: f64,
-        rv: &mut AddResult,
         depth: usize,
         max_depth_range: usize,
         compress_floats: bool,
         empty_leaves: &mut usize,
-    ) {
+    ) -> AddResult {
         match &nodes[node_idx] {
             NumericRangeNode::Internal(_) => {
                 // Read the split value and child index.
@@ -175,12 +172,11 @@ impl NumericRangeTree {
                     internal.right_index()
                 };
 
-                Self::node_add(
+                let mut rv = Self::node_add(
                     nodes,
                     child_idx,
                     doc_id,
                     value,
-                    rv,
                     depth + 1,
                     max_depth_range,
                     compress_floats,
@@ -198,16 +194,18 @@ impl NumericRangeTree {
 
                 // Balance the node if the tree structure changed, and update depth.
                 if rv.changed {
-                    let new_depth = Self::balance_node(nodes, node_idx, rv);
+                    let new_depth = Self::balance_node(nodes, node_idx, &mut rv);
                     if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx] {
                         internal.max_depth = new_depth;
                     }
 
                     // Check if we're too high up to retain this node's range
                     if new_depth > max_depth_range as u32 {
-                        Self::remove_range(nodes, node_idx, rv);
+                        Self::remove_range(nodes, node_idx, &mut rv);
                     }
                 }
+
+                rv
             }
             NumericRangeNode::Leaf(_) => {
                 // Leaf node: add and check if we need to split
@@ -222,7 +220,7 @@ impl NumericRangeTree {
                 }
 
                 let size = leaf.range.add(doc_id, value);
-                *rv = AddResult {
+                let mut rv = AddResult {
                     size_delta: size as i64,
                     num_records_delta: 1,
                     changed: false,
@@ -237,13 +235,15 @@ impl NumericRangeTree {
                 if card >= Self::get_split_cardinality(depth)
                     || (num_entries > Self::MAXIMUM_RANGE_SIZE && card > 1)
                 {
-                    Self::split_node(nodes, node_idx, rv, compress_floats);
+                    Self::split_node(nodes, node_idx, &mut rv, compress_floats);
 
                     // Check if we're too high up to retain this node's range
                     if nodes[node_idx].max_depth() > max_depth_range as u32 {
-                        Self::remove_range(nodes, node_idx, rv);
+                        Self::remove_range(nodes, node_idx, &mut rv);
                     }
                 }
+
+                rv
             }
         }
     }
