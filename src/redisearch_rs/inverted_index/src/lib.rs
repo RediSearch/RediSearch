@@ -29,6 +29,7 @@ pub use index_result::{
 };
 use smallvec::SmallVec;
 
+pub mod block_max_score;
 pub mod controlled_cursor;
 pub mod debug;
 pub mod doc_ids_only;
@@ -455,6 +456,25 @@ impl IndexBlock {
     /// Returns the total number of index blocks in existence.
     pub fn total_blocks() -> usize {
         TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Create a test block with specific scoring metadata.
+    ///
+    /// This is intended for testing block max score computation without
+    /// needing to add actual records to the block.
+    #[cfg(test)]
+    pub(crate) fn test_with_scoring_metadata(
+        max_freq: u32,
+        min_doc_len: u32,
+        max_doc_score: f32,
+    ) -> Self {
+        let mut block = Self::new(1);
+        block.max_freq = max_freq;
+        block.min_doc_len = min_doc_len;
+        block.max_doc_score = max_doc_score;
+        // Set num_entries > 0 so has_scoring_metadata() works correctly
+        block.num_entries = 1;
+        block
     }
 
     /// Repair a block by removing records which no longer exists according to `doc_exists`. If a

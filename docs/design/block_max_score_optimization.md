@@ -403,7 +403,7 @@ This section outlines a phased approach to implementing block-max score optimiza
 
 ---
 
-### Phase 1: Block Metadata Infrastructure
+### Phase 1: Block Metadata Infrastructure ✅ COMPLETE
 
 **Goal**: Add scoring metadata fields to `IndexBlock` and ensure they are correctly initialized and serialized.
 
@@ -487,13 +487,13 @@ The `IndexBlock` struct uses serde for fork GC serialization (messagepack via `r
 
 #### 1.5 Unit Tests
 
-- [ ] Test that `max_freq`, `min_doc_len`, `max_doc_score` are correctly tracked during indexing
-- [ ] Test `has_scoring_metadata()` returns correct values
-- [ ] Test serde round-trip preserves metadata (for fork GC)
+- [x] Test that `max_freq`, `min_doc_len`, `max_doc_score` are correctly tracked during indexing
+- [x] Test `has_scoring_metadata()` returns correct values
+- [x] Test serde round-trip preserves metadata (for fork GC)
 
 ---
 
-### Phase 2: Score Computation Helpers
+### Phase 2: Score Computation Helpers ✅ COMPLETE
 
 **Goal**: Create utilities to compute block-level score upper bounds for each supported scorer.
 
@@ -568,10 +568,11 @@ impl BlockMaxScorer for DocScoreBlockScorer {
 
 #### 2.3 Unit Tests
 
-- [ ] Test TF-IDF upper bound computation
-- [ ] Test BM25 upper bound computation
-- [ ] Test DOCSCORE upper bound computation
-- [ ] Test that blocks without metadata return `f64::MAX`
+- [x] Test TF-IDF upper bound computation
+- [x] Test BM25 upper bound computation
+- [x] Test DOCSCORE upper bound computation
+- [x] Test that blocks without metadata return `f64::MAX`
+- [x] Test that empty blocks return 0.0 (no documents to contribute)
 
 ---
 
