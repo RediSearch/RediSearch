@@ -9,12 +9,11 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IndexFlags_Index_StoreNumeric, RS_INVALID_FIELD_INDEX, t_docId, t_fieldIndex};
-use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
 use inverted_index::{
     FilterNumericReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
 };
-use rqe_iterators::{FieldExpirationChecker, NoOpChecker, RQEIterator, inverted_index::Numeric};
+use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Numeric};
 
 use crate::inverted_index::utils::{BaseTest, MockContext};
 
@@ -22,9 +21,6 @@ use crate::inverted_index::utils::{BaseTest, MockContext};
 #[allow(dead_code)]
 struct NumericBuilder<'index, R> {
     reader: R,
-    context: NonNull<ffi::RedisSearchCtx>,
-    index: t_fieldIndex,
-    predicate: FieldExpirationPredicate,
     range_tree: Option<NonNull<ffi::NumericRangeTree>>,
     range_min: Option<f64>,
     range_max: Option<f64>,
@@ -39,34 +35,17 @@ where
     /// Create a new builder with the required parameters.
     ///
     /// All other parameters are optional and will use sensible defaults:
-    /// - `field_index`: RS_INVALID_FIELD_INDEX
-    /// - `predicate`: FieldExpirationPredicate::Default
     /// - `range_tree`: None
     /// - `range_min`: None
     /// - `range_max`: None
-    fn new(reader: R, context: NonNull<ffi::RedisSearchCtx>) -> Self {
+    fn new(reader: R) -> Self {
         Self {
             reader,
-            context,
-            index: RS_INVALID_FIELD_INDEX,
-            predicate: FieldExpirationPredicate::Default,
             range_tree: None,
             range_min: None,
             range_max: None,
             _marker: std::marker::PhantomData,
         }
-    }
-
-    /// Set the field index for checking field expiration.
-    fn field_index(mut self, index: t_fieldIndex) -> Self {
-        self.index = index;
-        self
-    }
-
-    /// Set the field expiration predicate.
-    fn predicate(mut self, predicate: FieldExpirationPredicate) -> Self {
-        self.predicate = predicate;
-        self
     }
 
     /// Set the numeric range tree.
@@ -92,33 +71,6 @@ where
         Numeric::new(
             self.reader,
             NoOpChecker,
-            self.range_tree,
-            self.range_min,
-            self.range_max,
-        )
-    }
-
-    /// Build the Numeric iterator with memory-based expiration checking.
-    ///
-    /// # Safety
-    ///
-    /// 1. `self.context` is a valid pointer to a `RedisSearchCtx`.
-    /// 2. `self.context.spec` is a valid pointer to an `IndexSpec`.
-    /// 3. 1 and 2 must stay valid during the iterator's lifetime.
-    fn build_with_expiration(self) -> Numeric<'index, R, FieldExpirationChecker> {
-        let reader_flags = self.reader.flags();
-        // Note: The caller guarantees the context pointer is valid (see safety contract in new())
-        let checker = FieldExpirationChecker::new(
-            self.context,
-            FieldFilterContext {
-                field: FieldMaskOrIndex::Index(self.index),
-                predicate: self.predicate,
-            },
-            reader_flags,
-        );
-        Numeric::new(
-            self.reader,
-            checker,
             self.range_tree,
             self.range_min,
             self.range_max,
@@ -151,7 +103,7 @@ impl NumericBaseTest {
     ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>> {
         let reader = self.test.ii.reader();
 
-        NumericBuilder::new(reader, self.test.mock_ctx.sctx())
+        NumericBuilder::new(reader)
             .range_tree(self.test.mock_ctx.numeric_range_tree())
             .build()
     }
@@ -169,7 +121,7 @@ fn numeric_read() {
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
     let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = NumericBuilder::new(reader, test.test.mock_ctx.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
     test.test.read(&mut it, test.test.docs_ids_iter());
@@ -194,7 +146,7 @@ fn numeric_filter() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
-    let mut it = NumericBuilder::new(reader, test.test.mock_ctx.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
     let docs_ids = test
@@ -215,7 +167,7 @@ fn skip_multi_id() {
     let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(ii.reader(), context.sctx())
+    let mut it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -244,7 +196,7 @@ fn skip_multi_id_and_value() {
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(ii.reader(), context.sctx())
+    let mut it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -281,7 +233,7 @@ fn get_correct_value() {
     let reader = FilterNumericReader::new(&filter, ii.reader());
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(reader, context.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -318,7 +270,7 @@ fn eof_after_filtering() {
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(reader, context.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -331,7 +283,7 @@ fn numeric_range() {
     let ii = InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
     let context = MockContext::new(0, 0);
 
-    let it = NumericBuilder::new(ii.reader(), context.sctx())
+    let it = NumericBuilder::new(ii.reader())
         .range_min(1.0)
         .range_max(10.0)
         .build();
@@ -465,10 +417,8 @@ mod not_miri {
         {
             let ii = self.test.context.numeric_inverted_index().as_numeric();
             let context = &self.test.context;
-            let fs = context.field_spec();
 
-            NumericBuilder::new(ii.reader(), context.sctx)
-                .field_index(fs.index)
+            NumericBuilder::new(ii.reader())
                 .range_tree(context.numeric_range_tree())
                 .build()
         }

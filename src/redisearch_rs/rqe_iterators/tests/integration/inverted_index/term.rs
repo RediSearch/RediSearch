@@ -12,9 +12,9 @@ use ffi::{
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
     t_docId, t_fieldMask,
 };
-use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use field::FieldMaskOrIndex;
 use inverted_index::{FilterMaskReader, IndexReader, RSIndexResult, RSOffsetVector, full::Full};
-use rqe_iterators::{FieldExpirationChecker, NoOpChecker, inverted_index::Term};
+use rqe_iterators::{NoOpChecker, inverted_index::Term};
 
 use crate::{
     ffi::query_term::QueryTermBuilder,
