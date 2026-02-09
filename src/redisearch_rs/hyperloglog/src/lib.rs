@@ -299,6 +299,7 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
     }
 
     /// Panics if any of the register values exceeds the expected cap.
+    #[cfg(debug_assertions)]
     fn validate_register_values(registers: &[u8]) {
         let max_value = Self::RANK_BITS + 1;
         for (i, entry) in registers.iter().enumerate() {
