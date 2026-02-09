@@ -74,17 +74,17 @@ impl TrieCount {
     }
 
     /// Returns the number of unique keys tracked.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.inner.n_unique_keys()
     }
 
     /// Returns `true` if no keys are being tracked.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns the memory usage of this structure in bytes.
-    pub fn mem_usage(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         self.inner.mem_usage()
     }
 
