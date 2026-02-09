@@ -7,11 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbindgen;
-
 fn main() {
-    run_cbindgen("../../headers/rlookup_rs.h").unwrap();
-
     #[cfg(feature = "unittest")]
     build_utils::bind_foreign_c_symbols();
 }
