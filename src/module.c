@@ -57,7 +57,7 @@
 #include "coord/rmr/redise.h"
 #include "coord/config.h"
 #include "coord/debug_commands.h"
-#include "libuv/include/uv.h"
+#include "uv.h"
 #include "profile/profile.h"
 #include "profile/options.h"
 #include "coord/dist_profile.h"

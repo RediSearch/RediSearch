@@ -42,6 +42,7 @@ fn main() {
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
         let trie = src.join("trie");
+        let rmalloc = deps.join("rmalloc");
 
         [
             redis_modules,
@@ -53,6 +54,7 @@ fn main() {
             buffer,
             ttl_table,
             trie,
+            rmalloc,
         ]
     };
 

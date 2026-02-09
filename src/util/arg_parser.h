@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "deps/rmutil/args.h"
+#include "rmutil/args.h"
 #include "redismodule.h"
 #include <stdint.h>
 #include <stdbool.h>

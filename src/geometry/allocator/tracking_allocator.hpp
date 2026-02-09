@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "../../rmalloc.h"
+#include "rmalloc.h"
 #include "allocator.hpp"
 
 namespace RediSearch {
