@@ -34,6 +34,7 @@
 #include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
+#include "query_error.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -822,7 +823,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(
@@ -842,7 +843,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -860,7 +861,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   // Make sure there is no pending timer
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
@@ -881,7 +882,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   if (sp->gc->timerID) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
@@ -944,7 +945,7 @@ DEBUG_COMMAND(ttl) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -975,7 +976,7 @@ DEBUG_COMMAND(ttlPause) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -1012,7 +1013,7 @@ DEBUG_COMMAND(ttlExpire) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -1052,7 +1053,7 @@ DEBUG_COMMAND(setMonitorExpiration) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   MonitorExpirationOptions options = {0};
@@ -1744,7 +1745,7 @@ DEBUG_COMMAND(getDebugScannerStatus) {
 
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!sp->scanner) {
@@ -1873,7 +1874,7 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
 
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!sp->scanner) {

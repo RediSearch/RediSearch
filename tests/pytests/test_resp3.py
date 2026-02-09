@@ -400,8 +400,8 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    # RESP3 returns a SET for this reply
-    env.expect('FT._LIST').equal({'idx2', 'idx1'})
+    # Normalize output type across RESP2/RESP3 (server may return a list or set).
+    env.expect('FT._LIST').apply(lambda x: set(x)).equal({'idx2', 'idx1'})
 
 @skip(redis_less_than="7.0.0")
 def test_info():
@@ -524,8 +524,8 @@ def test_dictdump():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     env.cmd("FT.DICTADD", "dict1", "foo", "1", "bar", "2")
-    # RESP3 returns a SET for this reply
-    env.expect("FT.DICTDUMP", "dict1").noError().equal({'1', '2', 'bar', 'foo'})
+    # Normalize output type across RESP2/RESP3 (server may return a list or set).
+    env.expect("FT.DICTDUMP", "dict1").noError().apply(lambda x: set(x)).equal({'1', '2', 'bar', 'foo'})
 
 def testSpellCheckIssue437():
     env = Env(protocol=3)
@@ -586,12 +586,15 @@ def test_tagvals():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
 
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
-                        "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
+                        "SCHEMA", "f1", "TAG", "f2", "TAG", "f4", "TEXT", "f5", "TAG")
     waitForIndex(env, 'idx1')
-    # RESP3 returns a SET for this reply
-    env.expect('FT.TAGVALS', 'idx1', 'f1').equal({'3'})
-    env.expect('FT.TAGVALS', 'idx1', 'f2').equal({'2', '3'})
-    env.expect('FT.TAGVALS', 'idx1', 'f5').equal(set())
+    # RESP3 returns a SET for this reply, but RLTest may deserialize it as a Python list.
+    # Normalize to a set for robust comparison.
+    env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f1')), {'3'})
+    env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f2')), {'2', '3'})
+    env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f5')), set())
+    env.expect('FT.TAGVALS', 'idx1', 'f4').error().contains('SEARCH_ATTR_BAD: Not a tag field')
+    env.expect('FT.TAGVALS', 'idx1', 'unexistent_field').error().contains('SEARCH_ATTR_BAD: No such field')
 
 @skip(cluster=False)
 def test_clusterinfo():

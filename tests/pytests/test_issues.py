@@ -38,6 +38,7 @@ def test_1502(env):
 
   env.expect('FT.ALTER idx1 SKIPINITIALSCAN SCHEMA ADD bar TEXT').ok()
   env.expect('FT.ALTER idx2 SCHEMA ADD bar TEXT').ok()
+
   waitForIndex(env, 'idx2')
 
   env.expect('ft.search idx1 *').equal([0])
@@ -1142,8 +1143,8 @@ def test_unsafe_simpleString_values():
 
   # Test creating an index with unsafe name
   env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
-  # RESP3 returns a SET for this reply
-  env.expect('FT._LIST').equal({escape(unsafe_index)})
+  # Normalize output type across RESP2/RESP3 (server may return a list or set).
+  env.expect('FT._LIST').apply(lambda x: set(x)).equal({escape(unsafe_index)})
   info = index_info(env, unsafe_index)
   env.assertEqual(info['index_name'], escape(unsafe_index))
   env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])
@@ -1844,3 +1845,5 @@ def test_mod_13010(env):
     env.assertEqual(
         length1, length2,
         message=f"Different number of messages: {length1} vs {length2}")
+
+

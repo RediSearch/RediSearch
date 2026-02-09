@@ -60,6 +60,15 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     code.to_c_str().as_ptr()
 }
 
+/// Returns the maximum valid numeric value for [`QueryErrorCode`].
+///
+/// This is intended for C/C++ tests/tools that want to iterate over all codes without
+/// hardcoding the current "last" variant.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
+    query_error::query_error_code_max_value()
+}
+
 /// Returns a [`QueryErrorCode`] given an error message.
 ///
 /// This only supports the query error codes [`QueryErrorCode::TimedOut`] and

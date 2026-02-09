@@ -213,7 +213,7 @@ def testGet(env):
         env.assertEqual(set(['foo', 'hello world', 'bar', 'wat wat']), set(res))
         env.assertIsNone(env.cmd(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
-    env.expect('ft.get', 'no_idx', 'doc0').error().contains("Index not found")
+    env.expect('ft.get', 'no_idx', 'doc0').error().contains("SEARCH_INDEX_NOT_FOUND")
 
     rr = env.cmd(
         'ft.mget', 'idx', *(f"doc{i}" for i in range(100)))
@@ -4091,7 +4091,7 @@ def test_missing_schema(env):
     # make sure the index successfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
-    env.expect('FT.SEARCH', 'idx2', '*').error().contains('Index not found: idx2')
+    env.expect('FT.SEARCH', 'idx2', '*').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found: idx2')
 
 
 @skip(cluster=False) # this test is only relevant on cluster

@@ -47,6 +47,7 @@
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
+#include "query_error.h"
 #include "coord/rmr/rmr.h"
 #include "shard_window_ratio.h"
 
@@ -91,7 +92,7 @@
     StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);                                                    \
     IndexSpec *sp = StrongRef_Get(spec_ref);                                                                \
     if (!sp) {                                                                                              \
-      return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idxName); \
+      return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idxName); \
     }                                                                                                       \
     if (!ACLUserMayAccessIndex(ctx, sp)) {                                                                  \
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                                                   \
@@ -235,7 +236,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
@@ -274,7 +275,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!ACLUserMayAccessIndex(ctx, sctx->spec)) {
@@ -325,7 +326,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
   QueryError status = QueryError_Default();
@@ -474,7 +475,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (sp == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   // Validate ACL permission to the index
@@ -507,6 +508,13 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * Return all the values of a tag field.
  * There is no sorting or paging, so be careful with high-cradinality tag fields */
 
+static inline void ReplyWithQueryErrorNoDetail(RedisModuleCtx *ctx, QueryErrorCode code,
+                                              const char *message) {
+  QueryError status = QueryError_Default();
+  QueryError_SetWithUserDataFmt(&status, code, message, "");
+  (void)QueryError_ReplyAndClear(ctx, &status);
+}
+
 int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 3) {
@@ -516,7 +524,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
@@ -525,11 +533,11 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
   if (!fs) {
-    RedisModule_ReplyWithError(ctx, "No such field");
+    ReplyWithQueryErrorNoDetail(ctx, QUERY_ERROR_CODE_BAD_ATTR, "No such field");
     goto cleanup;
   }
   if (!FIELD_IS(fs, INDEXFLD_T_TAG)) {
-    RedisModule_ReplyWithError(ctx, "Not a tag field");
+    ReplyWithQueryErrorNoDetail(ctx, QUERY_ERROR_CODE_BAD_ATTR, "Not a tag field");
     goto cleanup;
   }
 
@@ -651,7 +659,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef global_ref = IndexSpec_LoadUnsafe(spec_name);
   IndexSpec *sp = StrongRef_Get(global_ref);
   if (!sp) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", spec_name);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), spec_name);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -669,7 +677,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
     } else {
-      return RedisModule_ReplyWithError(ctx, "SEARCH_ARG_UNRECOGNIZED: Unknown argument");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
     }
   }
 
@@ -766,7 +774,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -822,7 +830,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef ref = IndexSpec_LoadUnsafe(idx);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   // Verify ACL keys permission
@@ -878,7 +886,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   StrongRef ref = IndexSpec_LoadUnsafe(ixname);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", ixname);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), ixname);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -3597,7 +3605,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
 
@@ -3658,7 +3666,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   // Check ACL permissions
@@ -4225,7 +4233,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);

@@ -12,6 +12,7 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "query_error.h"
 
 // Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
@@ -229,7 +230,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   // Validate ACL permission to the index

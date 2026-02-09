@@ -9,11 +9,21 @@
 
 use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Display};
-use strum::FromRepr;
+use strum::{EnumCount, FromRepr};
+
+/// Returns the maximum valid numeric value for [`QueryErrorCode`].
+///
+/// This is intended for C/C++ tests/tools that want to iterate over all codes without
+/// hardcoding the current "last" variant.
+///
+/// NOTE: This assumes [`QueryErrorCode`] uses a contiguous `repr(u8)` starting at 0.
+pub const fn query_error_code_max_value() -> u8 {
+    (QueryErrorCode::COUNT - 1) as u8
+}
 
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Clone, Copy, Default, FromRepr, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, EnumCount, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryErrorCode {
     #[default]

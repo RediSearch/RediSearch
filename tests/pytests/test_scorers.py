@@ -801,7 +801,7 @@ def testNormalizedBM25TanhValidations():
 
     # Float
     env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "1.5").error().contains("argument couldn't be parsed into an integer")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "1.5").error().contains("Could not convert argument to expected type")
+    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "1.5").error().contains("SEARCH_PARSE_ARGS: Could not convert argument to expected type")
 
     # Below minimum value
     env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "-1").error().contains("argument must be between 1 and 10000 inclusive")

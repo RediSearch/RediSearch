@@ -188,6 +188,14 @@ bool QueryError_HasError(const struct QueryError *query_error);
 const char *QueryError_Strerror(uint8_t maybe_code);
 
 /**
+ * Returns the maximum valid numeric value for [`QueryErrorCode`].
+ *
+ * This is intended for C/C++ tests/tools that want to iterate over all codes without
+ * hardcoding the current "last" variant.
+ */
+uint8_t QueryError_CodeMaxValue(void);
+
+/**
  * Returns a [`QueryErrorCode`] given an error message.
  *
  * This only supports the query error codes [`QueryErrorCode::TimedOut`] and

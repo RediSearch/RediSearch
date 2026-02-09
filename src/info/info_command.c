@@ -21,6 +21,7 @@
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
+#include "query_error.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -344,7 +345,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "SEARCH_INDEX_NOT_FOUND: Index not found: %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   CurrentThread_SetIndexSpec(sp->own_ref);
   const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));

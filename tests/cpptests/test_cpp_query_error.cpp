@@ -23,6 +23,14 @@ TEST_F(QueryErrorTest, testQueryErrorStrerror) {
   ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_NO_RESULTS), "SEARCH_NO_RESULTS: Query matches no results");
   ASSERT_STREQ(QueryError_Strerror(QUERY_ERROR_CODE_BAD_ATTR), "SEARCH_ATTR_BAD: Attribute not supported for term");
 
+  // Ensure all known QueryErrorCode values return a non-"unknown" string.
+  // We derive the "unknown" sentinel from QueryError_Strerror() itself to avoid hardcoding.
+  const uint8_t max_code = QueryError_CodeMaxValue();
+  const char *unknown = QueryError_Strerror((uint8_t)(max_code + 1));
+  for (uint8_t code = QUERY_ERROR_CODE_OK; code <= max_code; ++code) {
+    ASSERT_STRNE(QueryError_Strerror(code), unknown);
+  }
+
   // Test unknown error code
   ASSERT_STREQ(QueryError_Strerror((QueryErrorCode)-1), "Unknown status code");
 }
