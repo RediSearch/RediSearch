@@ -13,7 +13,7 @@ use ffi::{
     t_docId, t_fieldMask,
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
+use inverted_index::{FilterMaskReader, IndexReader, RSIndexResult, RSOffsetVector, full::Full};
 use rqe_iterators::{inverted_index::Term, FieldExpirationChecker, NoOpChecker};
 
 use crate::{
@@ -181,6 +181,7 @@ mod not_miri {
         > {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
+            let reader_flags = reader.flags();
             // SAFETY: sctx is valid for the lifetime of the test
             let checker = unsafe {
                 FieldExpirationChecker::new(
@@ -189,6 +190,7 @@ mod not_miri {
                         field: FieldMaskOrIndex::Mask(field_mask),
                         predicate: FieldExpirationPredicate::Default,
                     },
+                    reader_flags,
                 )
             };
             Term::new(reader, checker)
@@ -205,6 +207,7 @@ mod not_miri {
         > {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
+            let reader_flags = reader.flags();
             // SAFETY: sctx is valid for the lifetime of the test
             let checker = unsafe {
                 FieldExpirationChecker::new(
@@ -213,6 +216,7 @@ mod not_miri {
                         field: FieldMaskOrIndex::Mask(field_mask),
                         predicate: FieldExpirationPredicate::Default,
                     },
+                    reader_flags,
                 )
             };
             Term::new(reader, checker)

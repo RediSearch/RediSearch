@@ -59,9 +59,8 @@ where
     pub fn new(reader: R, result: RSIndexResult<'static>, expiration_checker: E) -> Self {
         // no need to manually skip duplicates if there is none in the II.
         let skip_multi = reader.has_duplicates();
-        // Check if the expiration checker is the no-op type
-        let has_expiration = !std::any::TypeId::of::<E>()
-            .eq(&std::any::TypeId::of::<NoOpChecker>());
+        // Check if expiration checking is enabled
+        let has_expiration = expiration_checker.has_expiration();
 
         let read_impl = match (skip_multi, has_expiration) {
             (true, true) => Self::read_skip_multi_check_expiration,

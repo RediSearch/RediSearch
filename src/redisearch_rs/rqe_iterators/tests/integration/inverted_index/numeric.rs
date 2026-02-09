@@ -108,6 +108,7 @@ where
     /// 2. `self.context.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
     fn build_with_expiration(self) -> Numeric<'index, R, FieldExpirationChecker> {
+        let reader_flags = self.reader.flags();
         // SAFETY: Guaranteed by the caller's safety contract.
         let checker = unsafe {
             FieldExpirationChecker::new(
@@ -116,6 +117,7 @@ where
                     field: FieldMaskOrIndex::Index(self.index),
                     predicate: self.predicate,
                 },
+                reader_flags,
             )
         };
         Numeric::new(

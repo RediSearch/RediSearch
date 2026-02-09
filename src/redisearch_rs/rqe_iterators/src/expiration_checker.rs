@@ -9,9 +9,7 @@
 
 //! Expiration checking strategies for inverted index iterators.
 //!
-//! This module provides different strategies for checking if documents have expired,
-//! allowing the inverted index iterator to work with both memory-based and disk-based
-//! storage systems.
+//! This module provides different strategies for checking if documents have expired.
 
 use std::ptr::NonNull;
 
@@ -22,8 +20,14 @@ use inverted_index::RSIndexResult;
 /// Trait for checking if a document has expired.
 ///
 /// This trait allows different expiration checking strategies to be used
-/// with the inverted index iterator, such as memory-based or disk-based expiration.
+/// with the inverted index iterator.
 pub trait ExpirationChecker {
+    /// Returns `true` if expiration checking is enabled for this checker.
+    ///
+    /// This is used to determine whether to use the fast path (no expiration checks)
+    /// or the slow path (with expiration checks) in the iterator.
+    fn has_expiration(&self) -> bool;
+
     /// Returns `true` if the document with the given ID and result is expired.
     fn is_expired(&self, doc_id: t_docId, result: &RSIndexResult) -> bool;
 }
@@ -35,6 +39,11 @@ pub trait ExpirationChecker {
 pub struct NoOpChecker;
 
 impl ExpirationChecker for NoOpChecker {
+    #[inline(always)]
+    fn has_expiration(&self) -> bool {
+        false
+    }
+
     #[inline(always)]
     fn is_expired(&self, _doc_id: t_docId, _result: &RSIndexResult) -> bool {
         false
@@ -49,7 +58,8 @@ pub struct FieldExpirationChecker {
     sctx: NonNull<RedisSearchCtx>,
     /// The context for the field/s filter, used to determine if the field/s is/are expired.
     filter_ctx: FieldFilterContext,
-    /// Whether the index uses wide schema (more than 32 fields).
+    /// Whether the inverted index uses wide schema (more than 32 fields).
+    /// Derived from the reader flags at construction time.
     is_wide_schema: bool,
 }
 
@@ -61,10 +71,12 @@ impl FieldExpirationChecker {
     /// 1. `sctx` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `sctx.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the checker's lifetime.
-    pub unsafe fn new(sctx: NonNull<RedisSearchCtx>, filter_ctx: FieldFilterContext) -> Self {
-        // SAFETY: Guaranteed by the caller's safety contract.
-        let spec = unsafe { *sctx.as_ref().spec };
-        let is_wide_schema = (spec.flags & IndexFlags_Index_WideSchema) != 0;
+    pub unsafe fn new(
+        sctx: NonNull<RedisSearchCtx>,
+        filter_ctx: FieldFilterContext,
+        reader_flags: ffi::IndexFlags,
+    ) -> Self {
+        let is_wide_schema = (reader_flags & IndexFlags_Index_WideSchema) != 0;
         Self {
             sctx,
             filter_ctx,
@@ -74,18 +86,33 @@ impl FieldExpirationChecker {
 }
 
 impl ExpirationChecker for FieldExpirationChecker {
-    fn is_expired(&self, doc_id: t_docId, result: &RSIndexResult) -> bool {
+    fn has_expiration(&self) -> bool {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
         let spec = unsafe { *(sctx.spec) };
 
-        // If TTL is not configured or field expiration monitoring is disabled, no documents are expired
-        if spec.docs.ttl.is_null() || !spec.monitorFieldExpiration {
-            return false;
-        }
+        // Expiration is enabled if TTL is configured and field expiration monitoring is enabled
+        !spec.docs.ttl.is_null() && spec.monitorFieldExpiration
+    }
+
+    fn is_expired(&self, doc_id: t_docId, result: &RSIndexResult) -> bool {
+        // `has_expiration()` should have been checked before calling this method.
+        // If TTL is not configured, the iterator should use the fast path without expiration checks.
+        debug_assert!(
+            self.has_expiration(),
+            "is_expired() should not be called when has_expiration() returns false"
+        );
+
+        // SAFETY: Guaranteed by the safety contract of `new`.
+        let sctx = unsafe { self.sctx.as_ref() };
+        // SAFETY: Guaranteed by the safety contract of `new`.
+        let spec = unsafe { *(sctx.spec) };
 
         let current_time = &sctx.time.current as *const _;
+
+        // Check if the inverted index uses wide schema format based on the reader flags
+        let is_wide_schema = (self.reader_flags & IndexFlags_Index_WideSchema) != 0;
 
         match self.filter_ctx.field {
             // SAFETY:
@@ -100,7 +127,7 @@ impl ExpirationChecker for FieldExpirationChecker {
                     current_time,
                 )
             },
-            FieldMaskOrIndex::Mask(mask) if !self.is_wide_schema => {
+            FieldMaskOrIndex::Mask(mask) if !is_wide_schema => {
                 // SAFETY:
                 // - The safety contract of `new` guarantees that the ttl pointer is valid.
                 // - We just allocated `current_time` on the stack so its pointer is valid.

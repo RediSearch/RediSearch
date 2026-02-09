@@ -326,6 +326,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
                 field: FieldMaskOrIndex::Index(field_index),
                 predicate: field_ctx.predicate,
             },
+            reader.flags(),
         )
     };
 
