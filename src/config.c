@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
-#include "deps/thpool/thpool.h"
+#include "thpool/thpool.h"
 #include "err.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"

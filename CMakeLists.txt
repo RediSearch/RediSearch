@@ -228,6 +228,7 @@ include_directories(
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
+    ${root}/deps/rmalloc
     ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})

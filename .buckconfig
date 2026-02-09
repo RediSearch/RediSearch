@@ -24,3 +24,7 @@
 
 [build]
   execution_platforms = prelude//platforms:default
+
+[rust]
+default_edition = 2024
+remap_src_paths = yes

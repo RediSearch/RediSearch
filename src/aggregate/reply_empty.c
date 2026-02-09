@@ -14,7 +14,7 @@
 #include "../module.h"
 #include "../aggregate/aggregate.h"
 #include "../hybrid/hybrid_exec.h"
-#include "../rmutil/util.h"
+#include "rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
 #include "../profile/options.h"
