@@ -11,20 +11,6 @@ use std::sync::atomic::Ordering;
 // TODO [MOD-10342] remove once IndexSpecCache is ported to Rust
 pub struct IndexSpecCache(NonNull<ffi::IndexSpecCache>);
 
-impl fmt::Debug for IndexSpecCache {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let inner = unsafe { self.0.as_ref() };
-
-        let fields =
-            unsafe { slice::from_raw_parts(inner.fields.cast::<FieldSpec>(), inner.nfields) };
-
-        f.debug_struct("IndexSpecCache")
-            .field("refcount", &inner.refcount)
-            .field("fields", &fields)
-            .finish()
-    }
-}
-
 impl Clone for IndexSpecCache {
     fn clone(&self) -> Self {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
@@ -53,27 +39,24 @@ impl Drop for IndexSpecCache {
 
 impl IndexSpecCache {
     /// Creates an [`IndexSpecCache`] from a slice of [`ffi::FieldSpec`].
-    ///
-    /// # Safety
-    ///
-    /// 1. Every
-    ///
-    /// The caller must ensure the slice outlived the [`IndexSpecCache`].
-    pub unsafe fn from_fields<const N: usize>(fields: [ffi::FieldSpec; N]) -> Self {
+    pub fn from_fields<const N: usize>(fields: [ffi::FieldSpec; N]) -> Self {
+        // Safety: the redis module is always initialized at this point
         let alloc = unsafe { ffi::RedisModule_Alloc.unwrap() };
 
+        // Safety: the size is non-zero, and doesn't overflow isize or any other common allocator invariants
         let ptr = NonNull::new(unsafe { alloc(size_of::<ffi::IndexSpecCache>()) })
             .unwrap()
             .cast::<ffi::IndexSpecCache>();
 
-        let (nfields, fields) = if fields.len() > 0 {
+        let (nfields, fields) = if fields.is_empty() {
+            (0, ptr::null_mut())
+        } else {
             let arr = RmArray::new(fields);
 
             (arr.len(), arr.into_raw())
-        } else {
-            (0, ptr::null_mut())
         };
 
+        // Safety: we just allocated the pointer above
         unsafe {
             ptr.write(ffi::IndexSpecCache {
                 nfields,
@@ -105,7 +88,7 @@ impl IndexSpecCache {
             debug_assert_eq!(me.nfields, 0);
             &[]
         } else {
-            // Safety: we have to trust that these two values are correct
+            // Safety: we correctly allocated and set the fields pointer and length above
             unsafe { slice::from_raw_parts(me.fields, me.nfields) }
         }
     }
@@ -121,10 +104,29 @@ impl IndexSpecCache {
     }
 }
 
+impl fmt::Debug for IndexSpecCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        let inner = unsafe { self.0.as_ref() };
+
+        let fields = if inner.fields.is_null() {
+            debug_assert_eq!(inner.nfields, 0);
+            &[]
+        } else {
+            // Safety: we correctly allocated and set the fields pointer and length above
+            unsafe { slice::from_raw_parts(inner.fields.cast::<FieldSpec>(), inner.nfields) }
+        };
+
+        f.debug_struct("IndexSpecCache")
+            .field("refcount", &inner.refcount)
+            .field("fields", &fields)
+            .finish()
+    }
+}
+
 impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
     fn as_ref(&self) -> &ffi::IndexSpecCache {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
-        // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
         unsafe { self.0.as_ref() }
     }
 }

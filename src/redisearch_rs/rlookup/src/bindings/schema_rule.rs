@@ -77,7 +77,7 @@ impl SchemaRule {
 
         // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { slice::from_raw_parts(self.0.filter_fields, len) }
-            .into_iter()
+            .iter()
             .map(|ptr| unsafe { CStr::from_ptr(*ptr) })
     }
 
