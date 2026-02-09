@@ -52,17 +52,21 @@ pub struct IndexBlock {
 
 **Why store these three values?**
 
-The TF-IDF score formula is:
+These three values (`max_freq`, `min_doc_len`, `max_doc_score`) are chosen because they provide the necessary building blocks to compute **upper bound scores** for all commonly used scoring functions:
 
-$$
-\text{Score} = \frac{\text{TF}}{\text{DocLen}} \times \text{IDF} \times \text{DocScore}
-$$
+- **TF-IDF and TFIDF.DOCNORM**: Use term frequency normalized by document length. `max_freq / min_doc_len` gives the maximum possible TF/DocLen ratio.
+- **BM25**: Uses term frequency with saturation and length normalization. The same three values enable computing the BM25 upper bound by plugging in the best-case values.
+- **DOCSCORE**: Simply uses the document score, so `max_doc_score` directly provides the block maximum.
 
-To compute the **maximum possible score** from a block, we need upper bounds on each factor:
-- **max_freq**: Upper bound on TF (the numerator)
-- **min_doc_len**: Lower bound on DocLen (minimizing the denominator maximizes the fraction)
+By storing extrema (maximums and minimums) rather than averages, we ensure the computed upper bound is **never lower** than the actual maximum score in the block—a requirement for correctness. The specific values are:
+
+- **max_freq**: Upper bound on term frequency (maximizes the TF component)
+- **min_doc_len**: Lower bound on document length (minimizes the normalization denominator, maximizing the score)
 - **max_doc_score**: Upper bound on the document score multiplier
-- **IDF**: Computed at query time from index statistics (same for all blocks of a term)
+
+**IDF** is computed at query time from index statistics. Since all blocks within an inverted index belong to the same term, they share the same IDF value.
+
+See [Deriving Block Max Score for Each Scoring Function](#deriving-block-max-score-for-each-scoring-function) for the detailed formulas.
 
 **Storage overhead:** 10 bytes per block (2 + 4 + 4)
 
