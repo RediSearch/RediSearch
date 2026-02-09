@@ -437,11 +437,13 @@ where
 
         // Check if current block's max score is below threshold
         // If so, skip to the next promising block
-        if self.reader.current_block_max_score(scorer) < min_score {
-            if !self.reader.advance_to_next_promising_block(min_score, scorer) {
-                self.at_eos = true;
-                return Ok(None);
-            }
+        if self.reader.current_block_max_score(scorer) < min_score
+            && !self
+                .reader
+                .advance_to_next_promising_block(min_score, scorer)
+        {
+            self.at_eos = true;
+            return Ok(None);
         }
 
         // Now read using the normal read implementation

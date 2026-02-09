@@ -10,8 +10,8 @@
 use ffi::t_docId;
 use thiserror::Error;
 
-use ::inverted_index::block_max_score::BlockScorer;
 use ::inverted_index::RSIndexResult;
+use ::inverted_index::block_max_score::BlockScorer;
 
 pub mod empty;
 pub mod id_list;

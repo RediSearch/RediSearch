@@ -1729,8 +1729,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         min_score: f64,
         scorer: &block_max_score::BlockScorer,
     ) -> bool {
-        self.inner
-            .skip_to_with_threshold(doc_id, min_score, scorer)
+        self.inner.skip_to_with_threshold(doc_id, min_score, scorer)
     }
 
     fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
@@ -1880,8 +1879,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
         min_score: f64,
         scorer: &block_max_score::BlockScorer,
     ) -> bool {
-        self.inner
-            .skip_to_with_threshold(doc_id, min_score, scorer)
+        self.inner.skip_to_with_threshold(doc_id, min_score, scorer)
     }
 
     fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
@@ -2058,8 +2056,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         min_score: f64,
         scorer: &block_max_score::BlockScorer,
     ) -> bool {
-        self.inner
-            .skip_to_with_threshold(doc_id, min_score, scorer)
+        self.inner.skip_to_with_threshold(doc_id, min_score, scorer)
     }
 
     fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {

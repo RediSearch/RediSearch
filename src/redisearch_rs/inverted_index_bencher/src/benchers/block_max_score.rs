@@ -12,17 +12,15 @@
 //! This module provides data generators and benchmark setup for testing
 //! the block-max score optimization in Top-K query scenarios.
 
-use std::collections::{BinaryHeap, HashMap};
 use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 
 use ffi::t_docId;
 use inverted_index::{
-    InvertedIndex, IndexReader, RSIndexResult,
-    block_max_score::BlockScorer,
-    freqs_only::FreqsOnly,
+    IndexReader, InvertedIndex, RSIndexResult, block_max_score::BlockScorer, freqs_only::FreqsOnly,
 };
-use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 /// Document metadata stored in a simulated DocTable.
 #[derive(Clone, Copy, Debug)]
@@ -135,7 +133,12 @@ fn compute_score(freq: u32, doc_meta: &DocMetadata, scorer: &BlockScorer) -> f64
         BlockScorer::TfIdf { idf } => {
             (freq as f64 / doc_meta.doc_len as f64) * idf * doc_meta.doc_score as f64
         }
-        BlockScorer::Bm25 { idf, avg_doc_len, k1, b } => {
+        BlockScorer::Bm25 {
+            idf,
+            avg_doc_len,
+            k1,
+            b,
+        } => {
             let tf = freq as f64;
             let doc_len = doc_meta.doc_len as f64;
             let numerator = tf * (k1 + 1.0);
@@ -161,10 +164,16 @@ pub fn query_top_k_baseline(
         let score = compute_score(result.freq, doc_meta, scorer);
 
         if heap.len() < k {
-            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+            heap.push(Reverse(HeapEntry {
+                score,
+                doc_id: result.doc_id,
+            }));
         } else if score > heap.peek().unwrap().0.score {
             heap.pop();
-            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+            heap.push(Reverse(HeapEntry {
+                score,
+                doc_id: result.doc_id,
+            }));
         }
     }
 
@@ -190,10 +199,16 @@ pub fn query_top_k_with_skipping(
         let score = compute_score(result.freq, doc_meta, scorer);
 
         if heap.len() < k {
-            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+            heap.push(Reverse(HeapEntry {
+                score,
+                doc_id: result.doc_id,
+            }));
         } else if score > heap.peek().unwrap().0.score {
             heap.pop();
-            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+            heap.push(Reverse(HeapEntry {
+                score,
+                doc_id: result.doc_id,
+            }));
         }
 
         // Update threshold and skip to next promising block

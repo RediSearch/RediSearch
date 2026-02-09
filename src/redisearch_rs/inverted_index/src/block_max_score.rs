@@ -60,12 +60,12 @@ impl Default for BlockScorer {
 
 impl BlockScorer {
     /// Create a TF-IDF scorer with the given IDF value.
-    pub fn tfidf(idf: f64) -> Self {
+    pub const fn tfidf(idf: f64) -> Self {
         Self::TfIdf { idf }
     }
 
     /// Create a BM25 scorer with the given parameters.
-    pub fn bm25(idf: f64, avg_doc_len: f64, k1: f64, b: f64) -> Self {
+    pub const fn bm25(idf: f64, avg_doc_len: f64, k1: f64, b: f64) -> Self {
         Self::Bm25 {
             idf,
             avg_doc_len,
@@ -75,12 +75,12 @@ impl BlockScorer {
     }
 
     /// Create a BM25 scorer with default k1=1.2 and b=0.75 parameters.
-    pub fn bm25_default(idf: f64, avg_doc_len: f64) -> Self {
+    pub const fn bm25_default(idf: f64, avg_doc_len: f64) -> Self {
         Self::bm25(idf, avg_doc_len, 1.2, 0.75)
     }
 
     /// Create a DocScore scorer.
-    pub fn doc_score() -> Self {
+    pub const fn doc_score() -> Self {
         Self::DocScore
     }
 
@@ -145,7 +145,7 @@ impl BlockScorer {
     }
 
     /// DocScore: just returns max_doc_score
-    fn compute_docscore(block: &IndexBlock) -> f64 {
+    const fn compute_docscore(block: &IndexBlock) -> f64 {
         if !block.has_scoring_metadata() {
             return f64::MAX;
         }

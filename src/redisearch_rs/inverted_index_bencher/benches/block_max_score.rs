@@ -15,7 +15,7 @@
 use std::hint::black_box;
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use inverted_index::block_max_score::BlockScorer;
 use inverted_index_bencher::benchers::block_max_score::{
     DataDistribution, TopKBenchmarkSetup, query_top_k_baseline, query_top_k_with_skipping,
@@ -70,9 +70,7 @@ fn bench_different_k_values(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("baseline", k),
             &(&setup, &scorer, k),
-            |b, (setup, scorer, k)| {
-                b.iter(|| black_box(query_top_k_baseline(setup, *k, scorer)))
-            },
+            |b, (setup, scorer, k)| b.iter(|| black_box(query_top_k_baseline(setup, *k, scorer))),
         );
 
         group.bench_with_input(
@@ -96,7 +94,10 @@ fn bench_different_scorers(c: &mut Criterion) {
 
     let scorers = [
         ("tfidf", BlockScorer::tfidf(setup.idf)),
-        ("bm25", BlockScorer::bm25(setup.idf, setup.avg_doc_len, 1.2, 0.75)),
+        (
+            "bm25",
+            BlockScorer::bm25(setup.idf, setup.avg_doc_len, 1.2, 0.75),
+        ),
         ("docscore", BlockScorer::doc_score()),
     ];
 
@@ -104,9 +105,7 @@ fn bench_different_scorers(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("baseline", name),
             &(&setup, scorer, k),
-            |b, (setup, scorer, k)| {
-                b.iter(|| black_box(query_top_k_baseline(setup, *k, scorer)))
-            },
+            |b, (setup, scorer, k)| b.iter(|| black_box(query_top_k_baseline(setup, *k, scorer))),
         );
 
         group.bench_with_input(
