@@ -1208,7 +1208,7 @@ mod tests {
              // NB: we need to keep the spec cache alive here for the scope of this test
              // otherwise the underlying hidden strings that the keys borrow their names from are freed
              // and we use-after-free. In production code this cannot happen as - once set - the spec cache
-             // we never be removed the rlookup.
+             // will never be removed from the rlookup.
              let _spec_cache = rlookup.index_spec_cache.take();
 
              let key = rlookup
