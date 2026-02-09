@@ -1928,3 +1928,155 @@ fn test_refresh_buffer_pointers_after_reallocation() {
     assert_eq!(doc_count, 990);
     assert_eq!(expected_doc_id, 1000);
 }
+
+// ============================================================================
+// Block Max Score Optimization Tests
+// ============================================================================
+
+use crate::block_max_score::BlockScorer;
+use thin_vec::ThinVec;
+
+/// Helper function to create an `IndexBlock` with scoring metadata for testing.
+fn test_block_with_scoring(
+    first_doc_id: t_docId,
+    last_doc_id: t_docId,
+    num_entries: u16,
+    max_freq: u32,
+    min_doc_len: u32,
+    max_doc_score: f32,
+) -> IndexBlock {
+    IndexBlock {
+        first_doc_id,
+        last_doc_id,
+        num_entries,
+        max_freq,
+        max_doc_score,
+        min_doc_len,
+        buffer: Vec::new(),
+    }
+}
+
+/// Create a test index with multiple blocks having different scoring metadata.
+/// Returns an index with 3 blocks:
+/// - Block 0: docs 1-10, max_freq=5, min_doc_len=100, max_doc_score=1.0
+/// - Block 1: docs 11-20, max_freq=2, min_doc_len=200, max_doc_score=0.5
+/// - Block 2: docs 21-30, max_freq=10, min_doc_len=50, max_doc_score=2.0
+fn create_test_index_with_scoring_metadata() -> InvertedIndex<Dummy> {
+    InvertedIndex::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        ThinVec::from(vec![
+            test_block_with_scoring(1, 10, 10, 5, 100, 1.0),
+            test_block_with_scoring(11, 20, 10, 2, 200, 0.5),
+            test_block_with_scoring(21, 30, 10, 10, 50, 2.0),
+        ]),
+    )
+}
+
+#[test]
+fn skip_to_with_threshold_skips_low_score_blocks() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::tfidf(1.0);
+
+    // With TF-IDF scorer (idf=1.0), block 1 has the lowest score (low freq, high doc_len)
+    // Block 0: (5/100) * 1.0 * 1.0 = 0.05
+    // Block 1: (2/200) * 1.0 * 1.0 = 0.01
+    // Block 2: (10/50) * 1.0 * 2.0 = 0.4
+
+    // Skip to doc 1 with threshold 0.02 - should skip block 1 when we get there
+    let found = reader.skip_to_with_threshold(1, 0.02, &scorer);
+    assert!(found);
+
+    // Now skip to doc 11 (block 1) with threshold 0.02
+    // Block 1's max score is 0.01, which is below threshold, so it should skip to block 2
+    let found = reader.skip_to_with_threshold(11, 0.02, &scorer);
+    assert!(found);
+
+    // We should now be at block 2 (docs 21-30)
+    let block_score = reader.current_block_max_score(&scorer);
+    assert!((block_score - 0.4).abs() < 0.001);
+}
+
+#[test]
+fn skip_to_with_threshold_zero_behaves_like_skip_to() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::tfidf(1.0);
+
+    // With min_score = 0.0, should behave like regular skip_to
+    let found = reader.skip_to_with_threshold(15, 0.0, &scorer);
+    assert!(found);
+
+    // Should be at block 1 (docs 11-20) since we asked for doc 15
+    let block_score = reader.current_block_max_score(&scorer);
+    // Block 1: (2/200) * 1.0 * 1.0 = 0.01
+    assert!((block_score - 0.01).abs() < 0.001);
+}
+
+#[test]
+fn skip_to_with_threshold_returns_false_when_all_blocks_below_threshold() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::tfidf(1.0);
+
+    // Set threshold higher than any block's max score
+    // Block 2 has the highest score at 0.4
+    let found = reader.skip_to_with_threshold(1, 1.0, &scorer);
+    assert!(!found);
+}
+
+#[test]
+fn current_block_max_score_returns_correct_value() {
+    let ii = create_test_index_with_scoring_metadata();
+    let reader = ii.reader();
+    let scorer = BlockScorer::tfidf(1.0);
+
+    // Initially at block 0
+    // Block 0: (5/100) * 1.0 * 1.0 = 0.05
+    let score = reader.current_block_max_score(&scorer);
+    assert!((score - 0.05).abs() < 0.001);
+}
+
+#[test]
+fn skip_to_with_threshold_with_bm25_scorer() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::bm25(2.0, 100.0, 1.2, 0.75);
+
+    // BM25 scores:
+    // Block 0: tf=5, doc_len=100, len_norm = 1.0
+    //   score = 2.0 * (5 * 2.2) / (5 + 1.2 * 1.0) = 22/6.2 ≈ 3.55
+    // Block 1: tf=2, doc_len=200, len_norm = 1.75
+    //   score = 2.0 * (2 * 2.2) / (2 + 1.2 * 1.75) = 8.8/4.1 ≈ 2.15
+    // Block 2: tf=10, doc_len=50, len_norm = 0.625
+    //   score = 2.0 * (10 * 2.2) / (10 + 1.2 * 0.625) = 44/10.75 ≈ 4.09
+
+    // Skip to doc 11 with threshold 3.0 - should skip block 1 (score 2.15) to block 2
+    let found = reader.skip_to_with_threshold(11, 3.0, &scorer);
+    assert!(found);
+
+    // Should have skipped to block 2
+    let score = reader.current_block_max_score(&scorer);
+    // Block 2 score ≈ 4.09
+    assert!(score > 4.0, "Expected score > 4.0, got {}", score);
+}
+
+#[test]
+fn skip_to_with_threshold_with_docscore_scorer() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::doc_score();
+
+    // DocScore only considers max_doc_score
+    // Block 0: 1.0
+    // Block 1: 0.5
+    // Block 2: 2.0
+
+    // Skip to doc 11 with threshold 0.6 - should skip block 1 (score 0.5)
+    let found = reader.skip_to_with_threshold(11, 0.6, &scorer);
+    assert!(found);
+
+    // Should be at block 2
+    let score = reader.current_block_max_score(&scorer);
+    assert!((score - 2.0).abs() < 0.001);
+}

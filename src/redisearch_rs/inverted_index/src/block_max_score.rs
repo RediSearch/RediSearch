@@ -16,58 +16,93 @@
 
 use crate::IndexBlock;
 
-/// Parameters needed to compute block max scores.
+/// Block scorer with embedded scoring parameters.
 ///
-/// This structure holds the scoring parameters that are constant for a given
-/// term/query but needed to compute the maximum possible score for a block.
+/// Each variant contains the parameters needed for that specific scoring function.
+/// This design unifies the scorer type and its context, ensuring type safety
+/// (e.g., BM25 parameters can't be accidentally used with TF-IDF scorer).
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BlockScoreContext {
-    /// Inverse Document Frequency for the term.
-    /// IDF = log(N / df) where N is total docs and df is document frequency.
-    pub idf: f64,
+pub enum BlockScorer {
+    /// TF-IDF scoring: (TF / DocLen) × IDF × DocScore
+    ///
+    /// Parameters:
+    /// - `idf`: Inverse Document Frequency for the term
+    TfIdf {
+        /// Inverse Document Frequency: log(N / df)
+        idf: f64,
+    },
 
-    /// Average document length in the index.
-    pub avg_doc_len: f64,
+    /// BM25 scoring with length normalization.
+    ///
+    /// Formula: IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × docLen/avgDocLen))
+    Bm25 {
+        /// Inverse Document Frequency: log(N / df)
+        idf: f64,
+        /// Average document length in the index
+        avg_doc_len: f64,
+        /// Term frequency saturation parameter (typical: 1.2)
+        k1: f64,
+        /// Document length normalization parameter (typical: 0.75)
+        b: f64,
+    },
 
-    /// BM25 k1 parameter (term frequency saturation).
-    /// Typical value: 1.2
-    pub bm25_k1: f64,
-
-    /// BM25 b parameter (document length normalization).
-    /// Typical value: 0.75
-    pub bm25_b: f64,
+    /// Document score only (ignores term frequency).
+    ///
+    /// Simply returns the document's a-priori score.
+    DocScore,
 }
 
-impl Default for BlockScoreContext {
+impl Default for BlockScorer {
     fn default() -> Self {
-        Self {
-            idf: 1.0,
-            avg_doc_len: 100.0,
-            bm25_k1: 1.2,
-            bm25_b: 0.75,
-        }
+        Self::TfIdf { idf: 1.0 }
     }
 }
 
-/// Trait for computing block-level score upper bounds.
-///
-/// Different scoring functions (TF-IDF, BM25, DOCSCORE) have different formulas
-/// for computing scores. This trait abstracts over those differences.
-pub trait BlockMaxScorer {
+impl BlockScorer {
+    /// Create a TF-IDF scorer with the given IDF value.
+    pub fn tfidf(idf: f64) -> Self {
+        Self::TfIdf { idf }
+    }
+
+    /// Create a BM25 scorer with the given parameters.
+    pub fn bm25(idf: f64, avg_doc_len: f64, k1: f64, b: f64) -> Self {
+        Self::Bm25 {
+            idf,
+            avg_doc_len,
+            k1,
+            b,
+        }
+    }
+
+    /// Create a BM25 scorer with default k1=1.2 and b=0.75 parameters.
+    pub fn bm25_default(idf: f64, avg_doc_len: f64) -> Self {
+        Self::bm25(idf, avg_doc_len, 1.2, 0.75)
+    }
+
+    /// Create a DocScore scorer.
+    pub fn doc_score() -> Self {
+        Self::DocScore
+    }
+
     /// Compute the maximum possible score for any document in this block.
     ///
     /// Returns `f64::MAX` if the block doesn't have scoring metadata,
     /// indicating that no skipping is possible for this block.
-    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64;
-}
+    pub fn block_max_score(&self, block: &IndexBlock) -> f64 {
+        match self {
+            Self::TfIdf { idf } => Self::compute_tfidf(block, *idf),
+            Self::Bm25 {
+                idf,
+                avg_doc_len,
+                k1,
+                b,
+            } => Self::compute_bm25(block, *idf, *avg_doc_len, *k1, *b),
+            Self::DocScore => Self::compute_docscore(block),
+        }
+    }
 
-/// TF-IDF scorer: Score = (TF / DocLen) × IDF × DocScore
-///
-/// To maximize: use max_freq, min_doc_len, max_doc_score
-pub struct TfIdfBlockScorer;
-
-impl BlockMaxScorer for TfIdfBlockScorer {
-    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64 {
+    /// TF-IDF: (TF / DocLen) × IDF × DocScore
+    fn compute_tfidf(block: &IndexBlock, idf: f64) -> f64 {
         if !block.has_scoring_metadata() {
             return f64::MAX; // No skipping possible
         }
@@ -81,19 +116,11 @@ impl BlockMaxScorer for TfIdfBlockScorer {
             return f64::MAX;
         }
 
-        (tf / doc_len) * ctx.idf * doc_score.max(1.0)
+        (tf / doc_len) * idf * doc_score.max(1.0)
     }
-}
 
-/// BM25 scorer.
-///
-/// BM25 formula: IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × docLen/avgDocLen))
-///
-/// To maximize: use max_freq for TF, min_doc_len for docLen
-pub struct Bm25BlockScorer;
-
-impl BlockMaxScorer for Bm25BlockScorer {
-    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64 {
+    /// BM25: IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × docLen/avgDocLen))
+    fn compute_bm25(block: &IndexBlock, idf: f64, avg_doc_len: f64, k1: f64, b: f64) -> f64 {
         if !block.has_scoring_metadata() {
             return f64::MAX;
         }
@@ -102,29 +129,23 @@ impl BlockMaxScorer for Bm25BlockScorer {
         let doc_len = block.min_doc_len() as f64;
 
         // Avoid division by zero
-        if ctx.avg_doc_len == 0.0 {
+        if avg_doc_len == 0.0 {
             return f64::MAX;
         }
 
-        let len_norm = 1.0 - ctx.bm25_b + ctx.bm25_b * (doc_len / ctx.avg_doc_len);
-        let denominator = tf + ctx.bm25_k1 * len_norm;
+        let len_norm = 1.0 - b + b * (doc_len / avg_doc_len);
+        let denominator = tf + k1 * len_norm;
 
         // Avoid division by zero
         if denominator == 0.0 {
             return f64::MAX;
         }
 
-        ctx.idf * (tf * (ctx.bm25_k1 + 1.0)) / denominator
+        idf * (tf * (k1 + 1.0)) / denominator
     }
-}
 
-/// DOCSCORE scorer: Score = DocScore (ignores term frequency).
-///
-/// This scorer only considers the document's a-priori score.
-pub struct DocScoreBlockScorer;
-
-impl BlockMaxScorer for DocScoreBlockScorer {
-    fn block_max_score(block: &IndexBlock, _ctx: &BlockScoreContext) -> f64 {
+    /// DocScore: just returns max_doc_score
+    fn compute_docscore(block: &IndexBlock) -> f64 {
         if !block.has_scoring_metadata() {
             return f64::MAX;
         }
@@ -135,4 +156,3 @@ impl BlockMaxScorer for DocScoreBlockScorer {
 
 #[cfg(test)]
 mod tests;
-

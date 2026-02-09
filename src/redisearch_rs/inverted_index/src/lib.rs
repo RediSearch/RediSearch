@@ -1302,6 +1302,33 @@ pub trait IndexReader<'index> {
 
     /// Refresh buffer pointers in case blocks were reallocated without GC changes
     fn refresh_buffer_pointers(&mut self);
+
+    /// Skip to the first block containing doc_id >= target, but also skip
+    /// any blocks whose max score is below `min_score`.
+    ///
+    /// Returns `true` if positioned at a valid block, `false` if EOF.
+    ///
+    /// When `min_score = 0.0`, this behaves identically to [`skip_to`](Self::skip_to).
+    ///
+    /// The default implementation falls back to regular `skip_to`, ignoring the threshold.
+    /// Readers that support block-level scoring metadata can override this to skip
+    /// low-scoring blocks.
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        _min_score: f64,
+        _scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.skip_to(doc_id)
+    }
+
+    /// Get the max score for the current block, or `f64::MAX` if unknown.
+    ///
+    /// The default implementation returns `f64::MAX`, indicating that no
+    /// block-level score information is available (conservative: never skip).
+    fn current_block_max_score(&self, _scorer: &block_max_score::BlockScorer) -> f64 {
+        f64::MAX
+    }
 }
 
 /// Marker trait for readers producing numeric values.
@@ -1437,6 +1464,65 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             self.current_buffer = Cursor::new(&current_block.buffer);
             self.current_buffer.set_position(position);
         }
+    }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        if self.ii.blocks.is_empty() {
+            return false;
+        }
+
+        // First, find the block containing doc_id using the existing skip_to logic
+        let mut target_block_idx = if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
+            // We are already in a block that could contain doc_id
+            self.current_block_idx
+        } else if self.ii.blocks.last().unwrap().last_doc_id < doc_id {
+            // The document ID is greater than the last document ID in the index
+            return false;
+        } else {
+            // Find the block containing doc_id
+            let search_start = self.current_block_idx + 1;
+            if let Some(next_block) = self.ii.blocks.get(search_start)
+                && next_block.last_doc_id >= doc_id
+            {
+                search_start
+            } else {
+                let relative_idx = self.ii.blocks[search_start..]
+                    .binary_search_by_key(&doc_id, |b| b.last_doc_id)
+                    .unwrap_or_else(|insertion_point| insertion_point);
+                search_start + relative_idx
+            }
+        };
+
+        // Now skip blocks whose max score is below the threshold
+        while target_block_idx < self.ii.blocks.len() {
+            let block = &self.ii.blocks[target_block_idx];
+            let block_max = scorer.block_max_score(block);
+
+            if block_max >= min_score {
+                break;
+            }
+            target_block_idx += 1;
+        }
+
+        if target_block_idx >= self.ii.blocks.len() {
+            return false;
+        }
+
+        self.set_current_block(target_block_idx);
+        true
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        if self.current_block_idx >= self.ii.blocks.len() {
+            return 0.0;
+        }
+        let block = &self.ii.blocks[self.current_block_idx];
+        scorer.block_max_score(block)
     }
 }
 
@@ -1590,6 +1676,20 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     fn refresh_buffer_pointers(&mut self) {
         self.inner.refresh_buffer_pointers();
     }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.inner
+            .skip_to_with_threshold(doc_id, min_score, scorer)
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        self.inner.current_block_max_score(scorer)
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReaderCore<'index, E>> {
@@ -1726,6 +1826,20 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
 
     fn refresh_buffer_pointers(&mut self) {
         self.inner.refresh_buffer_pointers();
+    }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.inner
+            .skip_to_with_threshold(doc_id, min_score, scorer)
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        self.inner.current_block_max_score(scorer)
     }
 }
 
@@ -1890,6 +2004,20 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
 
     fn refresh_buffer_pointers(&mut self) {
         self.inner.refresh_buffer_pointers();
+    }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.inner
+            .skip_to_with_threshold(doc_id, min_score, scorer)
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        self.inner.current_block_max_score(scorer)
     }
 }
 

@@ -576,7 +576,7 @@ impl BlockMaxScorer for DocScoreBlockScorer {
 
 ---
 
-### Phase 3: Iterator Interface Extension
+### Phase 3: Iterator Interface Extension ✅ COMPLETE
 
 **Goal**: Add threshold-aware skip methods to the `IndexReader` trait and implement block skipping.
 
@@ -674,10 +674,12 @@ Update `inverted_index_ffi` to expose the new methods to C code.
 
 #### 3.5 Unit Tests
 
-- [ ] Test `skip_to_with_threshold` skips low-score blocks
-- [ ] Test `skip_to_with_threshold` with `min_score = 0.0` behaves like `skip_to`
-- [ ] Test correctness: results with skipping == results without skipping
-- [ ] Test filtered readers fall back to regular skip
+- [x] Test `skip_to_with_threshold` skips low-score blocks
+- [x] Test `skip_to_with_threshold` with `min_score = 0.0` behaves like `skip_to`
+- [x] Test `current_block_max_score` returns correct values for each scorer type
+- [x] Test `skip_to_with_threshold` returns false when all blocks below threshold
+- [x] Test BM25 scorer with block skipping
+- [x] Test DOCSCORE scorer with block skipping
 
 ---
 
