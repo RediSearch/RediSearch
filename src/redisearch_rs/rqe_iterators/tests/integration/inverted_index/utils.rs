@@ -115,10 +115,6 @@ impl MockContext {
         }
     }
 
-    pub(crate) fn sctx(&self) -> ptr::NonNull<RedisSearchCtx> {
-        ptr::NonNull::new(self.sctx).expect("mock context should not be null")
-    }
-
     pub(crate) fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
         ptr::NonNull::new(self.numeric_range_tree).expect("NumericRangeTree should not be null")
     }
