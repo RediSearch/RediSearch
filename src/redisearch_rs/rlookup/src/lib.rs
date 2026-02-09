@@ -8,14 +8,10 @@
 */
 
 mod bindings;
-// mod field_spec;
-// mod hidden_string_ref;
-// mod index_spec;
 mod lookup;
 #[cfg(debug_assertions)]
 mod rlookup_id;
 mod row;
-// mod schema_rule;
 
 // Link both Rust-provided and C-provided symbols
 #[cfg(all(test, feature = "unittest"))]

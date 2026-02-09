@@ -1,5 +1,3 @@
-use std::slice;
-
 #[cfg(test)]
 pub fn rs_array<const N: usize, T: Copy>(fields: [T; N]) -> *mut T {
     let arr = unsafe {
@@ -10,7 +8,7 @@ pub fn rs_array<const N: usize, T: Copy>(fields: [T; N]) -> *mut T {
     };
 
     unsafe {
-        let elements = slice::from_raw_parts_mut(arr, fields.len());
+        let elements = std::slice::from_raw_parts_mut(arr, fields.len());
 
         elements.copy_from_slice(&fields);
     }
