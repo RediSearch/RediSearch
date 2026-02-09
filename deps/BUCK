@@ -1,0 +1,885 @@
+cxx_library(
+    name = "rmalloc",
+    exported_headers = {
+        "rmalloc.h": "rmalloc/rmalloc.h",
+    },
+    header_namespace = "",
+    exported_deps = [
+        ":redismodules_sdk",
+    ],
+)
+
+cxx_library(
+    name = "rmutil",
+    srcs = [
+        "rmutil/alloc.c",
+        "rmutil/args.c",
+        "rmutil/cmdparse.c",
+        "rmutil/heap.c",
+        "rmutil/priority_queue.c",
+        "rmutil/strings.c",
+        "rmutil/util.c",
+        "rmutil/vector.c",
+    ],
+    exported_headers = {
+        "rm_assert.h": "rmutil/rm_assert.h",
+    },
+    headers = glob(["rmutil/*.h"]),
+    header_namespace = "rmutil",
+    deps = [
+        ":hiredis",
+        ":rmalloc"
+    ],
+    preferred_linkage = "static",
+    compiler_flags = ["-g", "-fPIC", "-O3", "-std=gnu99", "-Wall", "-Wno-unused-function"],
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "friso",
+    srcs = [
+        "friso/friso.c",
+        "friso/friso_array.c",
+        "friso/friso_ctype.c",
+        "friso/friso_GBK.c",
+        "friso/friso_hash.c",
+        "friso/friso_lexicon.c",
+        "friso/friso_link.c",
+        "friso/friso_string.c",
+        "friso/friso_UTF8.c",
+    ],
+    headers = glob(["friso/*.h"]),
+    header_namespace = "",
+    exported_headers = glob(["friso/*.h"]),
+    compiler_flags = [
+        "-Wno-tautological-compare",
+    ],
+    exported_deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "cndict",
+    srcs = [
+        "cndict/cndict_data.c",
+    ],
+    header_namespace = "",
+    deps = [
+        ":friso"
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "snowball",
+    srcs = glob([
+        "snowball/src_c/*.c",
+        "snowball/runtime/*.c",
+    ]) + [
+        "snowball/libstemmer/libstemmer.c",
+    ],
+    headers = glob([
+        "snowball/include/*.h",
+        "snowball/runtime/*.h",
+        "snowball/src_c/*.h",
+        "snowball/libstemmer/*.h",
+    ]),
+    header_namespace = "",
+    exported_headers = glob(["snowball/include/*.h"]),
+    include_directories = [
+        "snowball/include",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "phonetics",
+    srcs = [
+        "phonetics/double_metaphone.c",
+    ],
+    headers = [
+        "phonetics/double_metaphone.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "phonetics/double_metaphone.h",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "miniz",
+    srcs = [
+        "miniz/miniz.c",
+    ],
+    headers = [
+        "miniz/miniz.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "miniz/miniz.h",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "thpool",
+    srcs = [
+        "thpool/thpool.c",
+        "thpool/barrier.c",
+    ],
+    headers = [
+        "thpool/thpool.h",
+        "thpool/barrier.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "thpool/thpool.h",
+        "thpool/barrier.h",
+    ],
+    deps = [
+        ":rmutil",
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "geohash",
+    srcs = [
+        "geohash/geohash.c",
+        "geohash/geohash_helper.c",
+    ],
+    headers = [
+        "geohash/geohash.h",
+        "geohash/geohash_helper.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "geohash/geohash.h",
+        "geohash/geohash_helper.h",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+
+cxx_library(
+    name = "redismodules_sdk",
+    exported_headers = {
+        "redismodule.h": "RedisModulesSDK/redismodule.h",
+        "redismodule-rlec.h": "RedisModulesSDK/redismodule-rlec.h",
+    },
+    header_namespace = "",
+    exported_preprocessor_flags = [
+        "-DREDIS_MODULE_TARGET",
+        "-DREDISMODULE_SDK_RLEC",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "hiredis",
+    srcs = [
+        "hiredis/alloc.c",
+        "hiredis/async.c",
+        "hiredis/hiredis.c",
+        "hiredis/net.c",
+        "hiredis/read.c",
+        "hiredis/sds.c",
+        "hiredis/sockcompat.c",
+    ],
+    headers = glob(["hiredis/*.h", "hiredis/adapters/*.h"]),
+    exported_headers = {
+        "hiredis/hiredis.h": "hiredis/hiredis.h",
+        "hiredis/async.h": "hiredis/async.h",
+        "hiredis/read.h": "hiredis/read.h",
+        "hiredis/sds.h": "hiredis/sds.h",
+        "hiredis/alloc.h": "hiredis/alloc.h",
+        "hiredis/sockcompat.h": "hiredis/sockcompat.h",
+    },
+    header_namespace = "",
+    compiler_flags = [
+        "-std=c99",
+        "-pedantic",
+        "-Wall",
+        "-Wextra",
+        "-Wstrict-prototypes",
+        "-Wwrite-strings",
+        "-Wno-missing-field-initializers",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "hiredis_ssl",
+    srcs = [
+        "hiredis/ssl.c",
+    ],
+    headers = glob(["hiredis/*.h"]),
+    exported_headers = {
+        "hiredis/hiredis_ssl.h": "hiredis/hiredis_ssl.h",
+    },
+    compiler_flags = [
+        "-std=c99",
+        "-pedantic",
+        "-Wall",
+        "-Wextra",
+        "-Wstrict-prototypes",
+        "-Wwrite-strings",
+        "-Wno-missing-field-initializers",
+    ],
+    header_namespace = "",
+    deps = [
+        ":hiredis",
+        ":openssl",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "fast_float",
+    srcs = [
+        "fast_float/fast_float_strtod.cpp",
+    ],
+    headers = [
+        "fast_float/fast_float.h",
+        "fast_float/fast_float_strtod.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "fast_float/fast_float_strtod.h",
+    ],
+    preprocessor_flags = [
+        "-DFASTFLOAT_SKIP_WHITE_SPACE",
+        "-DFASTFLOAT_ALLOWS_LEADING_PLUS",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# ================================= libuv ======================================
+# Async I/O library used by the cluster coordinator.
+# Translates the CMake build from deps/libuv/CMakeLists.txt into a native
+# Buck2 cxx_library, supporting macOS and Linux.
+
+cxx_library(
+    name = "libuv",
+    srcs = [
+        # Common (cross-platform) sources
+        "libuv/src/fs-poll.c",
+        "libuv/src/idna.c",
+        "libuv/src/inet.c",
+        "libuv/src/random.c",
+        "libuv/src/strscpy.c",
+        "libuv/src/strtok.c",
+        "libuv/src/thread-common.c",
+        "libuv/src/threadpool.c",
+        "libuv/src/timer.c",
+        "libuv/src/uv-common.c",
+        "libuv/src/uv-data-getter-setters.c",
+        "libuv/src/version.c",
+        # Unix sources (shared across all Unix platforms)
+        "libuv/src/unix/async.c",
+        "libuv/src/unix/core.c",
+        "libuv/src/unix/dl.c",
+        "libuv/src/unix/fs.c",
+        "libuv/src/unix/getaddrinfo.c",
+        "libuv/src/unix/getnameinfo.c",
+        "libuv/src/unix/loop-watcher.c",
+        "libuv/src/unix/loop.c",
+        "libuv/src/unix/pipe.c",
+        "libuv/src/unix/poll.c",
+        "libuv/src/unix/process.c",
+        "libuv/src/unix/random-devurandom.c",
+        "libuv/src/unix/signal.c",
+        "libuv/src/unix/stream.c",
+        "libuv/src/unix/tcp.c",
+        "libuv/src/unix/thread.c",
+        "libuv/src/unix/tty.c",
+        "libuv/src/unix/udp.c",
+    ] + select({
+        "prelude//os:macos": [
+            "libuv/src/unix/bsd-ifaddrs.c",
+            "libuv/src/unix/darwin-proctitle.c",
+            "libuv/src/unix/darwin.c",
+            "libuv/src/unix/fsevents.c",
+            "libuv/src/unix/kqueue.c",
+            "libuv/src/unix/proctitle.c",
+            "libuv/src/unix/random-getentropy.c",
+        ],
+        "prelude//os:linux": [
+            "libuv/src/unix/linux.c",
+            "libuv/src/unix/procfs-exepath.c",
+            "libuv/src/unix/proctitle.c",
+            "libuv/src/unix/random-getrandom.c",
+            "libuv/src/unix/random-sysctl-linux.c",
+        ],
+    }),
+    headers = glob([
+        "libuv/src/*.h",
+        "libuv/src/unix/*.h",
+    ]),
+    exported_headers = glob([
+        "libuv/include/*.h",
+        "libuv/include/uv/*.h",
+    ]),
+    header_namespace = "",
+    include_directories = [
+        "libuv/include",
+        "libuv/src",
+    ],
+    preprocessor_flags = [
+        "-D_FILE_OFFSET_BITS=64",
+        "-D_LARGEFILE_SOURCE",
+    ] + select({
+        "prelude//os:macos": [
+            "-D_DARWIN_UNLIMITED_SELECT=1",
+            "-D_DARWIN_USE_64_BIT_INODE=1",
+        ],
+        "prelude//os:linux": [
+            "-D_GNU_SOURCE",
+            "-D_POSIX_C_SOURCE=200112",
+        ],
+    }),
+    compiler_flags = [
+        "-Wall",
+        "-Wextra",
+        "-Wstrict-prototypes",
+        "-Wno-unused-parameter",
+        "-fno-strict-aliasing",
+        "-std=gnu90",
+    ],
+    exported_linker_flags = select({
+        "prelude//os:macos": ["-lpthread"],
+        "prelude//os:linux": ["-lpthread", "-ldl", "-lrt"],
+    }),
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "libnu",
+    srcs = glob(["libnu/*.c"]),
+    headers = glob(["libnu/*.h"]),
+    header_namespace = "",
+    exported_headers = glob(["libnu/*.h"]),
+    visibility = ["PUBLIC"],
+)
+
+# ================================= OpenSSL ====================================
+# These rules expose the `libssl` and `libcrypto` libraries from the
+# **system installed** openssl build. It would be much better if this was
+# hermetically build from a known version, but this at least compiles
+
+genrule(
+    name = "openssl_raw",
+    cmd = select({
+        "prelude//os:macos": "cp -r /opt/homebrew/opt/openssl/include ${OUT}/include; cp -r /opt/homebrew/opt/openssl/lib ${OUT}/lib",
+        "DEFAULT": "cp -r /usr/local/opt/openssl/include ${OUT}/include; cp -r /usr/local/opt/openssl/lib ${OUT}/lib"
+    }),
+    outs = {
+        "include": ["include"],
+        "libssl.a": ["lib/libssl.a"],
+        "libssl.dylib": ["lib/libssl.dylib"],
+        "libcrypto.a": ["lib/libcrypto.a"],
+        "libcrypto.dylib": ["lib/libcrypto.dylib"],
+    }
+)
+
+prebuilt_cxx_library(
+    name = "openssl_ssl",
+    header_dirs = [":openssl_raw[include]"],
+    static_lib = ":openssl_raw[libssl.a]",
+    shared_lib = ":openssl_raw[libssl.dylib]",
+    visibility = ["PUBLIC"],
+)
+
+prebuilt_cxx_library(
+    name = "openssl_crypto",
+    header_dirs = [":openssl_raw[include]"],
+    static_lib = ":openssl_raw[libcrypto.a]",
+    shared_lib = ":openssl_raw[libcrypto.dylib]",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "openssl",
+    exported_deps = [
+        ":openssl_ssl",
+        ":openssl_crypto",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# ========================== cpu_features (Google) =============================
+# Runtime CPU feature detection library used by VectorSimilarity.
+# Same version as CMake FetchContent: v0.10.1.
+#
+# All impl_*.c files are compiled on every platform — they self-guard with
+# #ifdef CPU_FEATURES_ARCH_* / CPU_FEATURES_OS_* preprocessor checks, so
+# we compile everything and let the preprocessor sort it out.
+#
+# Built inside a genrule because the sources are fetched from GitHub (not
+# vendored). The genrule produces a static archive and an include directory
+# which are then exposed via prebuilt_cxx_library.
+
+genrule(
+    name = "cpu_features_build",
+    srcs = ["build_cpu_features.py"],
+    outs = {
+        "include": ["include"],
+        "libcpu_features.a": ["lib/libcpu_features.a"],
+    },
+    cmd = "python3 $SRCS",
+    type = "cxx_genrule",
+)
+
+prebuilt_cxx_library(
+    name = "cpu_features",
+    static_lib = ":cpu_features_build[libcpu_features.a]",
+    header_dirs = [":cpu_features_build[include]"],
+    exported_linker_flags = select({
+        "prelude//os:linux": ["-ldl"],
+        "DEFAULT": [],
+    }),
+    visibility = ["PUBLIC"],
+)
+
+# ========================== VectorSimilarity ==================================
+# C++20 vector similarity search library with SIMD-optimized distance functions.
+#
+# The build mirrors the CMake structure:
+#   VectorSimilaritySpaces_no_optimization  (baseline L2/IP without SIMD)
+#   VectorSimilaritySpaces                  (SIMD-optimized distance functions)
+#   VectorSimilarity                        (main library: algorithms + index)
+#
+# Each SIMD optimization file needs its own compiler flags (e.g. -mavx2, -msse4.1).
+# Since Buck2 has no per-file compiler flags, each gets its own cxx_library target.
+#
+# SVS (ScalableVectorSearch) is NOT enabled — it requires specific glibc versions
+# and is primarily an x86 optimization. Can be added later.
+
+# Common headers and include paths shared by all VectorSimilarity sub-targets.
+# The CMake build does `include_directories(../)` from src/VecSim/, meaning the
+# include root is deps/VectorSimilarity/src/ so that `#include "VecSim/foo.h"` works.
+
+_VECSIM_SRC = "VectorSimilarity/src"
+
+_VECSIM_HEADERS = glob([
+    "VectorSimilarity/src/VecSim/**/*.h",
+])
+
+_VECSIM_COMPILER_FLAGS = [
+    "-std=gnu++20",
+    "-fexceptions",
+    "-fPIC",
+]
+
+_VECSIM_PREPROCESSOR_FLAGS = [
+    "-DHAVE_SVS=0",
+]
+
+# ---- VectorSimilaritySpaces_no_optimization ----
+# Baseline (non-optimized) L2 and IP distance implementations.
+
+cxx_library(
+    name = "VectorSimilaritySpaces_no_optimization",
+    srcs = [
+        "VectorSimilarity/src/VecSim/spaces/L2/L2.cpp",
+        "VectorSimilarity/src/VecSim/spaces/IP/IP.cpp",
+    ],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS,
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ---- SIMD optimization micro-libraries ----
+# Each SIMD variant is compiled with its specific instruction set flags.
+# On aarch64 (ARM): NEON, NEON_HP, NEON_BF16, NEON_DOTPROD, SVE, SVE_BF16, SVE2
+# On x86_64:        SSE, SSE3, SSE4, AVX, AVX2, AVX2_FMA, F16C, AVX512F, etc.
+#
+# The preprocessor defines (OPT_NEON, OPT_AVX2, etc.) are needed so that the
+# space selector code (spaces.cpp) knows which implementations are available
+# at runtime via cpu_features.
+
+# --- ARM aarch64 SIMD optimizations ---
+
+cxx_library(
+    name = "_vecsim_simd_neon",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8-a"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_neon_hp",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON_HP.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+fp16fml"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_neon_bf16",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON_BF16.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+bf16"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_neon_dotprod",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON_DOTPROD.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+dotprod"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_sve",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SVE.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8-a+sve"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_sve_bf16",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SVE_BF16.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+sve+bf16"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_sve2",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SVE2.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv9-a+sve2"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+# --- x86_64 SIMD optimizations ---
+
+cxx_library(
+    name = "_vecsim_simd_sse",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SSE.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-msse"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_sse3",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SSE3.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-msse3"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_sse4",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SSE4.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-msse4.1"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx2",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX2.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx2"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx2_fma",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX2_FMA.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx2", "-mfma"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_f16c",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/F16C.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mf16c", "-mfma", "-mavx"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512f",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512F.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512f"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512f_bw_vl_vnni",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512F_BW_VL_VNNI.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512f", "-mavx512bw", "-mavx512vl", "-mavx512vnni"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512bw_vbmi2",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512BW_VBMI2.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512bw", "-mavx512vbmi2"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512bf16_vl",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512BF16_VL.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512bf16", "-mavx512vl"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512fp16_vl",
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512FP16_VL.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512fp16", "-mavx512vl"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+)
+
+# ---- VectorSimilaritySpaces ----
+# Combines the space selector logic with all platform-appropriate SIMD
+# optimization libraries. The preprocessor defines (OPT_*) tell the space
+# selector which SIMD implementations are available at runtime.
+
+cxx_library(
+    name = "VectorSimilaritySpaces",
+    srcs = [
+        "VectorSimilarity/src/VecSim/spaces/L2_space.cpp",
+        "VectorSimilarity/src/VecSim/spaces/IP_space.cpp",
+        "VectorSimilarity/src/VecSim/spaces/spaces.cpp",
+        "VectorSimilarity/src/VecSim/spaces/computer/preprocessor_container.cpp",
+    ],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-Werror", "-Wall"],
+    # The OPT_* defines must match exactly what the CMake build detects.
+    # On aarch64 macOS: NEON, NEON_HP, NEON_BF16, NEON_DOTPROD are typical.
+    # On x86_64 Linux: SSE through AVX512 depending on compiler support.
+    # We define all — the space selector checks cpu_features at runtime anyway,
+    # and the SIMD function files are compiled with their respective flags above.
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS + select({
+        "prelude//os:macos": [
+            "-DOPT_NEON",
+            "-DOPT_NEON_HP",
+            "-DOPT_NEON_BF16",
+            "-DOPT_NEON_DOTPROD",
+            # SVE/SVE2 not available on Apple Silicon
+        ],
+        "prelude//os:linux": [
+            # On x86_64 Linux, define all — runtime detection picks the right one.
+            # If building on aarch64 Linux, these x86 defines are harmless (guarded).
+            "-DOPT_SSE",
+            "-DOPT_SSE3",
+            "-DOPT_SSE4",
+            "-DOPT_AVX",
+            "-DOPT_AVX2",
+            "-DOPT_AVX2_FMA",
+            "-DOPT_F16C",
+            "-DOPT_AVX512F",
+            "-DOPT_AVX512_F_BW_VL_VNNI",
+            "-DOPT_AVX512_BW_VBMI2",
+            "-DOPT_AVX512_BF16_VL",
+            "-DOPT_AVX512_FP16_VL",
+            "-DOPT_NEON",
+            "-DOPT_NEON_HP",
+            "-DOPT_NEON_BF16",
+            "-DOPT_NEON_DOTPROD",
+            "-DOPT_SVE",
+            "-DOPT_SVE_BF16",
+            "-DOPT_SVE2",
+        ],
+    }),
+    exported_deps = [
+        ":cpu_features",
+    ],
+    deps = [
+        ":VectorSimilaritySpaces_no_optimization",
+    ] + select({
+        "prelude//os:macos": [
+            ":_vecsim_simd_neon",
+            ":_vecsim_simd_neon_hp",
+            ":_vecsim_simd_neon_bf16",
+            ":_vecsim_simd_neon_dotprod",
+        ],
+        "prelude//os:linux": [
+            # Include both ARM and x86 targets — Buck2 will skip ones that
+            # fail to compile on the wrong architecture (or we can refine
+            # with a cpu select later). For now, include all.
+            ":_vecsim_simd_sse",
+            ":_vecsim_simd_sse3",
+            ":_vecsim_simd_sse4",
+            ":_vecsim_simd_avx",
+            ":_vecsim_simd_avx2",
+            ":_vecsim_simd_avx2_fma",
+            ":_vecsim_simd_f16c",
+            ":_vecsim_simd_avx512f",
+            ":_vecsim_simd_avx512f_bw_vl_vnni",
+            ":_vecsim_simd_avx512bw_vbmi2",
+            ":_vecsim_simd_avx512bf16_vl",
+            ":_vecsim_simd_avx512fp16_vl",
+            ":_vecsim_simd_neon",
+            ":_vecsim_simd_neon_hp",
+            ":_vecsim_simd_neon_bf16",
+            ":_vecsim_simd_neon_dotprod",
+            ":_vecsim_simd_sve",
+            ":_vecsim_simd_sve_bf16",
+            ":_vecsim_simd_sve2",
+        ],
+    }),
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ---- VectorSimilarity (main library) ----
+# Contains the search algorithms (brute force, HNSW), index factories,
+# data containers, and the public C API.
+
+cxx_library(
+    name = "VectorSimilarity",
+    srcs = [
+        "VectorSimilarity/src/VecSim/index_factories/brute_force_factory.cpp",
+        "VectorSimilarity/src/VecSim/index_factories/hnsw_factory.cpp",
+        "VectorSimilarity/src/VecSim/index_factories/tiered_factory.cpp",
+        "VectorSimilarity/src/VecSim/index_factories/svs_factory.cpp",
+        "VectorSimilarity/src/VecSim/index_factories/index_factory.cpp",
+        "VectorSimilarity/src/VecSim/algorithms/hnsw/visited_nodes_handler.cpp",
+        "VectorSimilarity/src/VecSim/vec_sim.cpp",
+        "VectorSimilarity/src/VecSim/vec_sim_debug.cpp",
+        "VectorSimilarity/src/VecSim/vec_sim_interface.cpp",
+        "VectorSimilarity/src/VecSim/query_results.cpp",
+        "VectorSimilarity/src/VecSim/info_iterator.cpp",
+        "VectorSimilarity/src/VecSim/utils/vec_utils.cpp",
+        "VectorSimilarity/src/VecSim/containers/data_block.cpp",
+        "VectorSimilarity/src/VecSim/containers/data_blocks_container.cpp",
+        "VectorSimilarity/src/VecSim/memory/vecsim_malloc.cpp",
+        "VectorSimilarity/src/VecSim/memory/vecsim_base.cpp",
+    ],
+    headers = _VECSIM_HEADERS,
+    exported_headers = {
+        "VecSim/vec_sim.h": "VectorSimilarity/src/VecSim/vec_sim.h",
+        "VecSim/vec_sim_common.h": "VectorSimilarity/src/VecSim/vec_sim_common.h",
+        "VecSim/vec_sim_debug.h": "VectorSimilarity/src/VecSim/vec_sim_debug.h",
+        "VecSim/query_results.h": "VectorSimilarity/src/VecSim/query_results.h",
+        "VecSim/query_result_definitions.h": "VectorSimilarity/src/VecSim/query_result_definitions.h",
+        "VecSim/info_iterator.h": "VectorSimilarity/src/VecSim/info_iterator.h",
+        "VecSim/info_iterator_struct.h": "VectorSimilarity/src/VecSim/info_iterator_struct.h",
+        "VecSim/vec_sim_interface.h": "VectorSimilarity/src/VecSim/vec_sim_interface.h",
+        "VecSim/vec_sim_index.h": "VectorSimilarity/src/VecSim/vec_sim_index.h",
+        "VecSim/vec_sim_tiered_index.h": "VectorSimilarity/src/VecSim/vec_sim_tiered_index.h",
+        "VecSim/batch_iterator.h": "VectorSimilarity/src/VecSim/batch_iterator.h",
+        "VecSim/tombstone_interface.h": "VectorSimilarity/src/VecSim/tombstone_interface.h",
+        "VecSim/memory/vecsim_malloc.h": "VectorSimilarity/src/VecSim/memory/vecsim_malloc.h",
+        "VecSim/memory/vecsim_base.h": "VectorSimilarity/src/VecSim/memory/vecsim_base.h",
+        "VecSim/friend_test_decl.h": "VectorSimilarity/src/VecSim/friend_test_decl.h",
+        "VecSim/version.h": "VectorSimilarity/src/VecSim/version.h",
+    },
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-Werror", "-Wall"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    deps = [
+        ":VectorSimilaritySpaces",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
