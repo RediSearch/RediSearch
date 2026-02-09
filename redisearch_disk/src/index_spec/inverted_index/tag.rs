@@ -6,10 +6,8 @@ use speedb::{
 };
 use std::mem::size_of;
 
-use super::{
-    InvertedIndexKey, Speedb, SpeedbMultithreadedDatabase, TagPostingsListReader, block_traits,
-    generic_index, generic_reader,
-};
+use super::{InvertedIndexKey, TagPostingsListReader, block_traits, generic_index, generic_reader};
+use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
 
 pub mod archive;

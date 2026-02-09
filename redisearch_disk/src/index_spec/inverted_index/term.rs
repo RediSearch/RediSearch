@@ -69,6 +69,9 @@ impl block_traits::IndexConfig for TermIndexConfig {
 
         let mut cf_options = SpeedbDbOptions::default();
 
+        cf_options.set_disable_auto_compactions(true);
+        cf_options.set_merge_values(true);
+
         // Term indexes require a merge operator for handling deleted IDs
         let deleted_ids =
             deleted_ids.expect("Term index requires DeletedIdsStore for merge operator");
@@ -186,5 +189,16 @@ impl InvertedIndex {
     pub fn collect_metrics(&self) -> crate::metrics::ColumnFamilyMetrics {
         let cf = self.inner.cf_handle();
         crate::metrics::ColumnFamilyMetrics::collect(self.inner.database(), &cf)
+    }
+
+    /// Triggers a full compaction on the fulltext column family.
+    pub fn compact_full(&self) {
+        tracing::info!("Starting full compaction on inverted index column family");
+        self.inner.database().compact_range_cf(
+            &self.inner.cf_handle(),
+            None::<&[u8]>,
+            None::<&[u8]>,
+        );
+        tracing::info!("Completed full compaction on inverted index column family");
     }
 }

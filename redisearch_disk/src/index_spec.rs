@@ -185,6 +185,11 @@ impl IndexSpec {
     pub fn database(&self) -> SpeedbMultithreadedDatabase {
         self.database.clone()
     }
+
+    /// Triggers a full compaction on the inverted index.
+    pub fn compact_text_inverted_index(&self) {
+        self.inverted_index.compact_full();
+    }
 }
 
 /// RDB format version for index disk-related state serialization.

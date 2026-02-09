@@ -1,11 +1,75 @@
+use std::collections::HashSet;
+
 use document::DocumentType;
+use ffi::{NewQueryTerm, RSToken, t_docId, t_fieldMask};
 use redisearch_disk::disk_context::DiskContext;
 use redisearch_disk::index_spec::{IndexSpec, deleted_ids::DeletedIdsStore};
+use rqe_iterators::RQEIterator;
 use tempfile::TempDir;
+
+const FIELD_MASK_ALL: t_fieldMask = t_fieldMask::MAX;
 
 /// Helper function to create a temporary directory for testing
 fn get_temp_dir() -> TempDir {
     TempDir::new().unwrap()
+}
+
+/// Helper to create a full IndexSpec for testing.
+/// Returns the TempDir (to keep it alive) and the IndexSpec.
+fn create_test_index(name: &str) -> (TempDir, IndexSpec) {
+    let temp_dir = get_temp_dir();
+    let base_path = temp_dir.path().join(name);
+    let disk_context = DiskContext::new(&base_path, false);
+    let deleted_ids = DeletedIdsStore::new();
+
+    let index = IndexSpec::new(
+        name.to_string(),
+        DocumentType::Hash,
+        &disk_context,
+        deleted_ids,
+    )
+    .expect("Failed to create IndexSpec");
+
+    (temp_dir, index)
+}
+
+/// Creates an RSQueryTerm for testing purposes.
+/// The caller does not need to free the term - it will be freed when the iterator is dropped.
+fn create_query_term(term_str: &str) -> *mut ffi::RSQueryTerm {
+    let token = RSToken {
+        str_: term_str.as_ptr() as *mut _,
+        len: term_str.len(),
+        _bitfield_align_1: Default::default(),
+        _bitfield_1: Default::default(),
+        __bindgen_padding_0: Default::default(),
+    };
+    let token_ptr = Box::into_raw(Box::new(token));
+    // SAFETY: token_ptr is a valid pointer to an RSToken
+    let query_term = unsafe { NewQueryTerm(token_ptr as *mut _, 0) };
+    // Now that NewQueryTerm copied tok->str into ret->str,
+    // the temporary token struct is no longer needed.
+    // SAFETY: We just created this box above
+    unsafe {
+        drop(Box::from_raw(token_ptr));
+    }
+    query_term
+}
+
+/// Collects all doc_ids from an inverted index term using the term iterator.
+fn collect_term_doc_ids(index: &IndexSpec, term: &str) -> HashSet<t_docId> {
+    let mut doc_ids = HashSet::new();
+    let query_term = create_query_term(term);
+    // SAFETY: query_term is a valid pointer created by create_query_term
+    let mut it = unsafe {
+        index
+            .inverted_index()
+            .term_iterator(query_term, FIELD_MASK_ALL, 1.0)
+    }
+    .unwrap();
+    while let Ok(Some(result)) = it.read() {
+        doc_ids.insert(result.doc_id);
+    }
+    doc_ids
 }
 
 #[test]
@@ -94,4 +158,50 @@ fn test_index_spec_marked_for_deletion_deletes_files() {
         !db_path.exists(),
         "Database directory should be deleted after marking for deletion and dropping"
     );
+}
+
+#[test]
+fn compact_text_inverted_index_removes_deleted_documents() {
+    let (_temp_dir, index) = create_test_index("compact_ii_test");
+
+    // Add documents to the inverted index
+    let term = "hello";
+    let all_doc_ids: Vec<u64> = (1..=100).collect();
+    let docs_to_delete: HashSet<u64> = [5, 10, 25, 50, 75, 99].into_iter().collect();
+
+    for &doc_id in &all_doc_ids {
+        index
+            .inverted_index()
+            .insert(term.to_string(), doc_id, 0b1, 1)
+            .unwrap();
+    }
+
+    // Mark some documents as deleted
+    for &doc_id in &docs_to_delete {
+        index.doc_table().delete_document(doc_id).unwrap();
+    }
+
+    // Verify deleted docs exist before compaction
+    let docs_before = collect_term_doc_ids(&index, term);
+    for &doc_id in &all_doc_ids {
+        assert!(
+            docs_before.contains(&doc_id),
+            "Doc {} should exist before compaction",
+            doc_id
+        );
+    }
+
+    // Trigger compaction directly via IndexSpec method
+    index.compact_text_inverted_index();
+
+    // Verify deleted docs are removed
+    let docs_after = collect_term_doc_ids(&index, term);
+
+    // Verify non-deleted docs still exist
+    let expected_remaining: HashSet<u64> = all_doc_ids
+        .iter()
+        .copied()
+        .filter(|id| !docs_to_delete.contains(id))
+        .collect();
+    assert_eq!(docs_after, expected_remaining);
 }

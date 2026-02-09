@@ -25,7 +25,6 @@ use crate::key_traits::AsKeyExt;
 
 // Re-export for internal use by term and tag modules
 pub(crate) use super::deleted_ids::DeletedIdsStore;
-use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 
 /// Key structure for inverted index entries.
 ///

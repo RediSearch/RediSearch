@@ -167,7 +167,7 @@ fn basic() {
     assert_eq!(it.last_doc_id(), 0);
 }
 
-unsafe fn drain_iterator<'index>(mut it: impl RQEIterator<'index>) -> Vec<t_docId> {
+fn drain_iterator<'index>(mut it: impl RQEIterator<'index>) -> Vec<t_docId> {
     let mut doc_ids = Vec::new();
 
     while let Ok(Some(result)) = it.read() {
@@ -178,7 +178,6 @@ unsafe fn drain_iterator<'index>(mut it: impl RQEIterator<'index>) -> Vec<t_docI
 }
 
 #[test]
-#[allow(clippy::undocumented_unsafe_blocks)]
 fn field_mask() {
     let (_temp_dir, ii) = get_temp_inverted_index();
 
@@ -197,7 +196,7 @@ fn field_mask() {
     // SAFETY: query_term is a valid pointer created by create_query_term
     let it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23) }.unwrap();
 
-    let doc_ids = unsafe { drain_iterator(it) };
+    let doc_ids = drain_iterator(it);
     assert_eq!(&doc_ids, &[1, 2, 3, 4, 5, 6, 7, 8]);
 
     // Get the iterator for a term, for some fields.
@@ -205,7 +204,7 @@ fn field_mask() {
     // SAFETY: query_term is a valid pointer created by create_query_term
     let it = unsafe { ii.term_iterator(query_term, 0b10101010, 4.56) }.unwrap();
 
-    let doc_ids = unsafe { drain_iterator(it) };
+    let doc_ids = drain_iterator(it);
     assert_eq!(&doc_ids, &[2, 4, 6, 8]);
 
     // Get the iterator for a term, for no fields.
@@ -213,7 +212,7 @@ fn field_mask() {
     // SAFETY: query_term is a valid pointer created by create_query_term
     let it = unsafe { ii.term_iterator(query_term, FIELD_MASK_NONE, 7.89) }.unwrap();
 
-    let doc_ids = unsafe { drain_iterator(it) };
+    let doc_ids = drain_iterator(it);
     assert_eq!(doc_ids.len(), 0);
 }
 
