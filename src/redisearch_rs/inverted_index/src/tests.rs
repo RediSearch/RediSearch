@@ -2080,3 +2080,54 @@ fn skip_to_with_threshold_with_docscore_scorer() {
     let score = reader.current_block_max_score(&scorer);
     assert!((score - 2.0).abs() < 0.001);
 }
+
+#[test]
+fn advance_to_next_promising_block_skips_low_score_blocks() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::tfidf(1.0);
+
+    // Block scores with TF-IDF (idf=1.0):
+    // Block 0: (5/100) * 1.0 * 1.0 = 0.05
+    // Block 1: (2/200) * 1.0 * 1.0 = 0.01
+    // Block 2: (10/50) * 1.0 * 2.0 = 0.4
+
+    // Start at block 0, advance with threshold 0.02
+    // Should skip block 1 (score 0.01) and land on block 2 (score 0.4)
+    let found = reader.advance_to_next_promising_block(0.02, &scorer);
+    assert!(found);
+
+    // Should now be at block 2
+    let score = reader.current_block_max_score(&scorer);
+    assert!((score - 0.4).abs() < 0.001);
+}
+
+#[test]
+fn advance_to_next_promising_block_returns_false_at_eof() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::tfidf(1.0);
+
+    // Skip to block 2 first
+    reader.skip_to(25);
+
+    // Now try to advance with any threshold - should return false (no more blocks)
+    let found = reader.advance_to_next_promising_block(0.0, &scorer);
+    assert!(!found);
+}
+
+#[test]
+fn advance_to_next_promising_block_with_zero_threshold() {
+    let ii = create_test_index_with_scoring_metadata();
+    let mut reader = ii.reader();
+    let scorer = BlockScorer::tfidf(1.0);
+
+    // With threshold 0.0, should advance to the very next block
+    let found = reader.advance_to_next_promising_block(0.0, &scorer);
+    assert!(found);
+
+    // Should be at block 1
+    let score = reader.current_block_max_score(&scorer);
+    // Block 1: (2/200) * 1.0 * 1.0 = 0.01
+    assert!((score - 0.01).abs() < 0.001);
+}

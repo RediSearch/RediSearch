@@ -10,6 +10,7 @@
 use ffi::t_docId;
 use thiserror::Error;
 
+use ::inverted_index::block_max_score::BlockScorer;
 use ::inverted_index::RSIndexResult;
 
 pub mod empty;
@@ -121,6 +122,36 @@ pub trait RQEIterator<'index> {
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
     fn at_eof(&self) -> bool;
+
+    /// Read the next entry, skipping blocks whose max score is below `min_score`.
+    ///
+    /// This method enables block-max score optimization: when the current block's
+    /// maximum possible score is below the threshold, the iterator skips to the
+    /// next block that could potentially contribute to the top-K results.
+    ///
+    /// # Arguments
+    ///
+    /// * `min_score` - The minimum score threshold. Blocks with max score below this are skipped.
+    /// * `scorer` - The scorer used to compute block-level score upper bounds.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(&mut RSIndexResult))` - The next entry from a block with sufficient score
+    /// * `Ok(None)` - No more entries (all remaining blocks are below threshold or EOF)
+    /// * `Err(...)` - Error during iteration
+    ///
+    /// # Default Implementation
+    ///
+    /// Falls back to regular `read()`, ignoring the threshold. This is appropriate for
+    /// iterators that don't support block-level scoring (e.g., intersection, union).
+    fn read_with_threshold(
+        &mut self,
+        _min_score: f64,
+        _scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // Default: ignore threshold, just read
+        self.read()
+    }
 }
 
 // Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
@@ -158,5 +189,13 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn at_eof(&self) -> bool {
         (**self).at_eof()
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read_with_threshold(min_score, scorer)
     }
 }

@@ -1329,6 +1329,25 @@ pub trait IndexReader<'index> {
     fn current_block_max_score(&self, _scorer: &block_max_score::BlockScorer) -> f64 {
         f64::MAX
     }
+
+    /// Advance to the next block that has `max_score >= min_score`.
+    ///
+    /// This is called internally by `read_with_threshold` when the current
+    /// block's score is below threshold. It skips blocks until finding one
+    /// with sufficient max score.
+    ///
+    /// Returns `true` if positioned at a valid block, `false` if EOF.
+    ///
+    /// The default implementation returns `true` (no skipping), since most
+    /// readers don't support block-level scoring.
+    fn advance_to_next_promising_block(
+        &mut self,
+        _min_score: f64,
+        _scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        // Default: no block skipping, just return true to continue reading
+        true
+    }
 }
 
 /// Marker trait for readers producing numeric values.
@@ -1523,6 +1542,33 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
         let block = &self.ii.blocks[self.current_block_idx];
         scorer.block_max_score(block)
+    }
+
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        // Start from the next block
+        let mut target_block_idx = self.current_block_idx + 1;
+
+        // Skip blocks whose max score is below the threshold
+        while target_block_idx < self.ii.blocks.len() {
+            let block = &self.ii.blocks[target_block_idx];
+            let block_max = scorer.block_max_score(block);
+
+            if block_max >= min_score {
+                break;
+            }
+            target_block_idx += 1;
+        }
+
+        if target_block_idx >= self.ii.blocks.len() {
+            return false;
+        }
+
+        self.set_current_block(target_block_idx);
+        true
     }
 }
 

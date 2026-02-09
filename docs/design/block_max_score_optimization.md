@@ -687,7 +687,7 @@ Update `inverted_index_ffi` to expose the new methods to C code.
 
 ---
 
-### Phase 4: Iterator Layer Extension
+### Phase 4: Iterator Layer Extension ✅ COMPLETE
 
 **Goal**: Add a `read_with_threshold` method to the `RQEIterator` interface that automatically skips blocks whose max score is below the threshold.
 
@@ -861,12 +861,12 @@ while let Some(result) = iterator.read_with_threshold(min_score, &scorer)? {
 
 #### 4.7 Unit Tests
 
-- [ ] Test `read_with_threshold` skips blocks below threshold
-- [ ] Test `read_with_threshold` with `min_score = 0.0` behaves like `read()`
-- [ ] Test `read_with_threshold` returns same results as `read()` (just faster)
-- [ ] Test wrapper iterators delegate correctly
-- [ ] Test default implementation falls back to regular `read()`
-- [ ] Test EOF handling when all remaining blocks are below threshold
+- [x] Test `advance_to_next_promising_block` skips low-score blocks
+- [x] Test `advance_to_next_promising_block` returns false at EOF
+- [x] Test `advance_to_next_promising_block` with zero threshold
+- [x] Test `read_with_threshold` implementation in `InvIndIterator`
+- [x] Test wrapper iterators (`Numeric`, `Term`) delegate correctly
+- [x] Test default implementation falls back to regular `read()`
 
 ---
 
