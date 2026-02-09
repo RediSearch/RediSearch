@@ -70,6 +70,133 @@ See [Deriving Block Max Score for Each Scoring Function](#deriving-block-max-sco
 
 **Storage overhead:** 10 bytes per block (2 + 4 + 4)
 
+### Alternative Storage Strategies
+
+The approach described above (storing `max_freq`, `min_doc_len`, `max_doc_score`) is one of several strategies used in the industry. This section discusses two alternative approaches that could be considered for future enhancements.
+
+#### Alternative 1: Pre-computed Impact Scores
+
+**Approach:** Store the pre-computed maximum score directly in each block, rather than the raw components.
+
+```rust
+pub struct IndexBlock {
+    // ... existing fields ...
+
+    // Pre-computed maximum score for this block
+    precomputed_max_score: f32,
+}
+```
+
+**How it works:**
+- At indexing time, compute the maximum score for each block using the configured scoring function
+- Store this single value per block
+- At query time, compare directly against the threshold without computation
+
+**Advantages:**
+- **Fastest query-time evaluation**: No computation needed—just compare `precomputed_max_score >= minScore`
+- **Minimal storage**: Only 4 bytes per block
+
+**Disadvantages:**
+- **Fixed scoring function**: The pre-computed score is tied to the scorer used at index time. Changing scorers (e.g., from TF-IDF to BM25) requires reindexing
+- **Parameter sensitivity**: BM25 parameters (k1, b) are baked into the pre-computed score. Tuning these parameters requires reindexing
+- **Less flexibility**: Cannot support multiple scoring functions from the same index
+
+**When to use:** Best for deployments with a fixed, well-tuned scoring function that rarely changes.
+
+---
+
+#### Alternative 2: (TF, DocLen) Pairs
+
+**Approach:** Store the actual (term_frequency, doc_length) pairs that could yield the maximum score, rather than just the extrema.
+
+```rust
+pub struct IndexBlock {
+    // ... existing fields ...
+
+    // Pairs of (tf, doc_len) that could yield max score
+    // Pruned during indexing to only keep "dominant" pairs
+    max_impact_pairs: SmallVec<[(u16, u32); 4]>,
+    max_doc_score: f32,
+}
+```
+
+**How it works:**
+- During indexing, track all (tf, doc_len) pairs seen in the block
+- Prune dominated pairs: if we have `(tf₁, dl₁)`, we can remove `(tf₂, dl₂)` where `tf₂ ≤ tf₁` AND `dl₂ ≥ dl₁` (since they're guaranteed to yield lower scores for any reasonable scoring function)
+- At query time, compute the upper bound by evaluating the scoring function on each remaining pair and taking the maximum
+
+**Example of pair pruning:**
+
+Consider a block with these documents:
+
+| DocID | TF | DocLen |
+|-------|-----|--------|
+| 1     | 3   | 100    |
+| 2     | 5   | 200    |
+| 3     | 4   | 80     |
+| 4     | 2   | 50     |
+
+Initial pairs: `[(3, 100), (5, 200), (4, 80), (2, 50)]`
+
+Pruning analysis:
+- `(3, 100)` is dominated by `(4, 80)` because 4 > 3 and 80 < 100 → remove `(3, 100)`
+- `(5, 200)` is NOT dominated: it has the highest TF
+- `(4, 80)` is NOT dominated: better TF/DocLen ratio than `(5, 200)`
+- `(2, 50)` is NOT dominated: has the shortest doc length
+
+Final pairs: `[(5, 200), (4, 80), (2, 50)]`
+
+**Advantages:**
+- **Tighter bounds**: Uses actual (tf, doc_len) combinations that exist in the block, rather than assuming the document with `max_freq` might also have `min_doc_len`
+- **Flexible scoring**: Can compute bounds for any scoring function at query time
+- **No reindexing needed**: Changing scoring functions or parameters doesn't require reindexing
+
+**Disadvantages:**
+- **Higher storage**: Typically 1-4 pairs per block, so 6-24 bytes vs. 6 bytes for (max_freq, min_doc_len)
+- **Query-time computation**: Must evaluate the scoring function on each pair
+
+**Why bounds are tighter:**
+
+With our current approach (storing extrema), we compute:
+```
+BlockMaxScore = score(max_freq, min_doc_len, max_doc_score)
+```
+
+But `max_freq` and `min_doc_len` might come from different documents! The actual maximum score in the block could be significantly lower.
+
+With (tf, doc_len) pairs, we compute:
+```
+BlockMaxScore = max(score(tf₁, dl₁), score(tf₂, dl₂), ...) × max_doc_score
+```
+
+Each pair represents an actual document, so the bound is tighter.
+
+**When to use:** Best when bound tightness is critical and storage overhead is acceptable.
+
+---
+
+#### Comparison of Approaches
+
+| Aspect | Current Proposal | Pre-computed Scores | (TF, DocLen) Pairs |
+|--------|------------------|---------------------|---------------------|
+| **Storage per block** | 10 bytes | 4 bytes | 10-28 bytes |
+| **Query-time computation** | Moderate | None | Moderate |
+| **Bound tightness** | Loose (upper bound) | Exact | Tight (upper bound) |
+| **Scoring flexibility** | High | None | High |
+| **Reindex on scorer change** | No | Yes | No |
+| **Implementation complexity** | Low | Low | Medium |
+
+#### Recommendation
+
+The **current proposal** (storing `max_freq`, `min_doc_len`, `max_doc_score`) offers a good balance:
+- Flexible enough to support multiple scoring functions
+- Simple to implement and maintain
+- Reasonable storage overhead
+
+For future optimization, consider:
+1. **Hybrid approach**: Store both raw components AND pre-computed scores for the default scorer
+2. **Adaptive pairs**: Use (tf, doc_len) pairs for high-value indexes where tighter bounds justify the overhead
+
 ### Deriving Block Max Score for Each Scoring Function
 
 The key insight is that we want to find the **maximum possible score** any document in a block could achieve. To do this, we analyze each scoring formula and determine which combination of block metadata produces the highest score.
@@ -352,6 +479,35 @@ Modify the result accumulator to pass `minScore` thresholds down to iterators.
 - Optimization activates automatically after reindex
 
 ## Future Extensions
+
+### Tighter Bounds with (TF, DocLen) Pairs
+
+As discussed in [Alternative Storage Strategies](#alternative-storage-strategies), storing actual (tf, doc_len) pairs instead of just extrema can provide tighter upper bounds. This could be implemented as an optional enhancement for high-value indexes where the storage overhead (10-28 bytes vs. 10 bytes per block) is justified by improved skip rates.
+
+### Hybrid Storage: Raw Components + Pre-computed Scores
+
+A hybrid approach could offer the best of both worlds:
+- Store raw components (`max_freq`, `min_doc_len`, `max_doc_score`) for flexibility
+- Additionally store pre-computed max scores for the most common scorers (BM25, TF-IDF)
+
+```rust
+pub struct IndexBlock {
+    // Flexible components (current proposal)
+    max_freq: u16,
+    max_doc_score: f32,
+    min_doc_len: u32,
+
+    // Optional: Pre-computed for common scorers
+    // Updated at index time using the default scorer
+    precomputed_max_bm25: Option<f32>,
+}
+```
+
+This allows:
+- **Fast path**: Use pre-computed score when query uses the default scorer
+- **Flexible path**: Compute from raw components when using a different scorer
+
+Trade-off: Additional 4 bytes per block for each pre-computed scorer.
 
 ### Additional Block Statistics
 Consider storing more block-level stats for advanced optimizations:
