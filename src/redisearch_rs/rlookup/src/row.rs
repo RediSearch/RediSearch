@@ -16,6 +16,82 @@ use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
 
+pub mod opaque {
+    use std::marker::PhantomData;
+
+    use c_ffi_utils::opaque::{Size, Transmute};
+    use value::RSValueFFI;
+
+    /// An opaque query error which can be passed by value to C.
+    ///
+    /// The size and alignment of this struct must match the Rust `RLookupRow`
+    /// structure exactly.
+    #[repr(C, align(8))]
+    pub struct OpaqueRLookupRow<'a>(Size<SIZE>, PhantomData<&'a ()>);
+
+    #[cfg(debug_assertions)]
+    const SIZE: usize = 48;
+    #[cfg(not(debug_assertions))]
+    const SIZE: usize = 40;
+
+    // Safety: `OpaqueRLookupRow` is defined as a `MaybeUninit` slice of
+    // bytes with the same size and alignment as `RLookupRow`, so any valid
+    // `OpaqueRLookupRow` has a bit pattern which is a valid `RLookupRow`.
+    unsafe impl<'a> Transmute<super::RLookupRow<'a, RSValueFFI>> for OpaqueRLookupRow<'a> {}
+
+    mod __opaque {
+        use super::*;
+        impl<'a> c_ffi_utils::opaque::IntoOpaque for super::super::RLookupRow<'a, value::RSValueFFI> {
+            type Opaque = OpaqueRLookupRow<'a>;
+            fn into_opaque(self) -> Self::Opaque {
+                unsafe { std::mem::transmute(self) }
+            }
+            fn as_opaque_ptr(&self) -> *const Self::Opaque {
+                std::ptr::from_ref(self).cast()
+            }
+            fn as_opaque_mut_ptr(&mut self) -> *mut Self::Opaque {
+                std::ptr::from_mut(self).cast()
+            }
+            unsafe fn from_opaque(opaque: Self::Opaque) -> Self {
+                unsafe { std::mem::transmute(opaque) }
+            }
+            unsafe fn from_opaque_ptr<'b>(opaque: *const Self::Opaque) -> Option<&'b Self> {
+                unsafe { opaque.cast::<Self>().as_ref() }
+            }
+            unsafe fn from_opaque_mut_ptr<'b>(opaque: *mut Self::Opaque) -> Option<&'b mut Self> {
+                unsafe { opaque.cast::<Self>().as_mut() }
+            }
+        }
+        const _ASSERT_SIZE_AND_ALIGN: () = {
+            #[allow(unreachable_code, clippy::never_loop)]
+            loop {
+                unsafe {
+                    std::mem::transmute::<
+                        OpaqueRLookupRow<'_>,
+                        super::super::RLookupRow<'_, value::RSValueFFI>,
+                    >(break)
+                };
+            }
+            assert!(
+                std::mem::align_of::<OpaqueRLookupRow<'_>>()
+                    == std::mem::align_of::<super::super::RLookupRow<'_, value::RSValueFFI>>()
+            );
+        };
+        const _ASSERT_IMPL_TRANSMUTE: () = {
+            const fn assert_impl_transmute_size<
+                T: c_ffi_utils::opaque::Transmute<
+                        super::super::RLookupRow<'static, value::RSValueFFI>,
+                    >,
+            >() {
+            }
+
+            assert_impl_transmute_size::<OpaqueRLookupRow<'_>>();
+        };
+    }
+}
+
+//
+
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
 /// or from dynamic values stored in the row during processing.
 ///

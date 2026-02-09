@@ -6,13 +6,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-// forward declarations for bitflags type names
+
+// declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
-// forward declarations for types that are only used as a pointer
-typedef struct RLookupRow RLookupRow;
+// Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
+
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
 
 
 enum RLookupKeyFlag
@@ -106,18 +110,16 @@ typedef uint32_t RLookupOption;
 typedef struct IndexSpecCache IndexSpecCache;
 
 /**
- * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
- * or from dynamic values stored in the row during processing.
+ * [`RSSortingVector`] acts as a cache for sortable fields in a document.
  *
- * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
- * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
+ * It has a constant length, determined upfront on creation. It can't be resized.
+ * The [`RSSortingVector`] may contain values of different types, such as numbers, strings, or references to other values.
+ * This depends on the fields in the source document.
  *
- * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
- * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
- *
- * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
+ * The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
+ * are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
  */
-typedef struct RLookupRow RLookupRow;
+typedef struct RSSortingVector RSSortingVector;
 
 typedef struct RLookupKey {
   /**
@@ -167,7 +169,20 @@ typedef struct RLookup {
   struct KeyList keys;
 } RLookup;
 
-typedef struct RLookupRow RLookupRow;
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_SIZE[SIZE];
+
+/**
+ * An opaque query error which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `RLookupRow`
+ * structure exactly.
+ */
+typedef struct ALIGNED(8) RLookupRow {
+  Size_SIZE _0;
+} RLookupRow;
 
 #ifdef __cplusplus
 extern "C" {
@@ -393,7 +408,7 @@ struct RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t RLookup_GetLength(const struct RLookup *lookup,
-                         const RLookupRow *row,
+                         const struct RLookupRow *row,
                          bool *skip_field_index,
                          size_t skip_field_index_len,
                          uint32_t required_flags,
@@ -451,7 +466,7 @@ void RLookup_Cleanup(struct RLookup *lookup);
  */
 int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                struct RLookup *lookup,
-                               RLookupRow *dst_row,
+                               struct RLookupRow *dst_row,
                                IndexSpec *index_spec,
                                const char *key,
                                QueryError *status);
@@ -462,13 +477,13 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
-                      RLookupRow *row,
+                      struct RLookupRow *row,
                       RSValue *value);
 
 /**
@@ -477,13 +492,13 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
-                         RLookupRow *row,
+                         struct RLookupRow *row,
                          RSValue *value);
 
 /**
@@ -491,11 +506,11 @@ void RLookup_WriteOwnKey(const struct RLookupKey *key,
  *
  * # Safety
  *
- * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Wipe(RLookupRow *row);
+void RLookupRow_Wipe(struct RLookupRow *row);
 
 /**
  * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
@@ -504,11 +519,11 @@ void RLookupRow_Wipe(RLookupRow *row);
  *
  * # Safety
  *
- * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_Reset(RLookupRow *row);
+void RLookupRow_Reset(struct RLookupRow *row);
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.
@@ -516,13 +531,15 @@ void RLookupRow_Reset(RLookupRow *row);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. `src` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `dst` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `src` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+ * 3. `dst` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 4. `src` and `dst` must not be the same lookup row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
+void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup,
+                               struct RLookupRow *src,
+                               struct RLookupRow *dst);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -541,7 +558,7 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RL
  *     1. `name_len` must be same as `strlen(name)`
  *     2. The entire memory range of this cstr must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
- * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 4. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -549,7 +566,7 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, RLookupRow *src, RL
 void RLookupRow_WriteByName(struct RLookup *lookup,
                             const char *name,
                             size_t name_len,
-                            RLookupRow *row,
+                            struct RLookupRow *row,
                             RSValue *value);
 
 /**
@@ -569,7 +586,7 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
  *     1. `name_len` must be same as `strlen(name)`
  *     2. The entire memory range of this cstr must be contained within a single allocation!
  *     3. `name` must be non-null even for a zero-length cstr.
- * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 4. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -577,7 +594,7 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
 void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
                                  const char *name,
                                  size_t name_len,
-                                 RLookupRow *row,
+                                 struct RLookupRow *row,
                                  RSValue *value);
 
 /**
@@ -593,23 +610,23 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
  *
  * # Safety
  *
- * 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 1. `src_row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 2. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `dst_row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
+ * 5. `src_row` and `dst_row` must not point to the same [`OpaqueRLookupRow`].
  * 6. `src_lookup` and `dst_lookup` must not point to the same [`RLookup`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
+void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row,
                                 const struct RLookup *src_lookup,
-                                RLookupRow *dst_row,
+                                struct RLookupRow *dst_row,
                                 struct RLookup *dst_lookup,
                                 bool create_missing_keys);
 
 /**
- * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
+ * Retrieves an item from the given `OpaqueRLookupRow` based on the provided `RLookupKey`.
  *
  * The function first checks for dynamic values, and if not found, it checks the sorting vector
  * if the `SvSrc` flag is set in the key.
@@ -619,35 +636,35 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
+RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
 
 /**
  * Returns the sorting vector for the row, or null if none exists.
  *
  * # Safety
  *
- * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const RSSortingVector<RSValueFFI> *RLookupRow_GetSortingVector(const RLookupRow *row);
+const struct RSSortingVector *RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
  * Sets the sorting vector for the row.
  *
  * # Safety
  *
- * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
  * 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_SetSortingVector(RLookupRow *row,
-                                 const RSSortingVector<RSValueFFI> *sv);
+void RLookupRow_SetSortingVector(struct RLookupRow *row,
+                                 const struct RSSortingVector *sv);
 
 #ifdef __cplusplus
 }  // extern "C"
