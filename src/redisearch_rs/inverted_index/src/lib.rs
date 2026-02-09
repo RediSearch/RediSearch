@@ -287,7 +287,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -299,6 +299,18 @@ pub struct IndexBlock {
 
     /// The total number of non-unique entries in this block
     num_entries: u16,
+
+    /// Maximum term frequency in this block. Used to compute block-level score upper bounds
+    /// for block-max score optimization. A value of 0 with num_entries > 0 indicates that
+    /// scoring metadata is not available (e.g., for indexes that don't track frequency).
+    max_freq: u32,
+
+    /// Maximum document score in this block. Used to compute block-level score upper bounds.
+    max_doc_score: f32,
+
+    /// Minimum document length in this block. Used to compute block-level score upper bounds.
+    /// Shorter documents with the same term frequency get higher TF-IDF/BM25 scores.
+    min_doc_len: u32,
 
     /// The encoded entries in this block
     buffer: Vec<u8>,
@@ -317,6 +329,9 @@ impl<'de> Deserialize<'de> for IndexBlock {
             first_doc_id: t_docId,
             last_doc_id: t_docId,
             num_entries: u16,
+            max_freq: u32,
+            max_doc_score: f32,
+            min_doc_len: u32,
             buffer: Vec<u8>,
         }
 
@@ -331,13 +346,16 @@ impl<'de> Deserialize<'de> for IndexBlock {
             first_doc_id: ib.first_doc_id,
             last_doc_id: ib.last_doc_id,
             num_entries: ib.num_entries,
+            max_freq: ib.max_freq,
+            max_doc_score: ib.max_doc_score,
+            min_doc_len: ib.min_doc_len,
             buffer: ib.buffer,
         })
     }
 }
 
 /// The type of repair needed for a block after a garbage collection scan.
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 enum RepairType {
     /// This block can be deleted completely.
     Delete {
@@ -365,6 +383,13 @@ impl IndexBlock {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
             num_entries: 0,
+            // Initialize scoring metadata with values that will be updated on first entry.
+            // max_freq = 0 with num_entries > 0 would be invalid for a real block
+            // (every entry has freq >= 1), so we can use max_freq = 0 as a sentinel
+            // to indicate "no metadata available" if needed.
+            max_freq: 0,
+            max_doc_score: 0.0,
+            min_doc_len: u32::MAX,
             buffer: Vec::new(),
         };
         TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
@@ -395,6 +420,32 @@ impl IndexBlock {
     /// Get a reference to the encoded data in this block. This is only needed for some C tests.
     pub fn data(&self) -> &[u8] {
         &self.buffer
+    }
+
+    /// Returns `true` if this block has valid scoring metadata for block-max score optimization.
+    ///
+    /// Scoring metadata is considered valid if `max_freq > 0` or `num_entries == 0` (empty block).
+    /// A block with `max_freq == 0` and `num_entries > 0` indicates that scoring metadata was
+    /// not tracked during indexing (e.g., for index types that don't store frequency).
+    pub const fn has_scoring_metadata(&self) -> bool {
+        // Every real entry has freq >= 1, so max_freq = 0 with num_entries > 0
+        // indicates metadata is not available.
+        self.max_freq > 0 || self.num_entries == 0
+    }
+
+    /// Get the maximum term frequency in this block.
+    pub const fn max_freq(&self) -> u32 {
+        self.max_freq
+    }
+
+    /// Get the maximum document score in this block.
+    pub const fn max_doc_score(&self) -> f32 {
+        self.max_doc_score
+    }
+
+    /// Get the minimum document length in this block.
+    pub const fn min_doc_len(&self) -> u32 {
+        self.min_doc_len
     }
 
     const fn writer(&mut self) -> ControlledCursor<'_> {
@@ -578,6 +629,13 @@ impl<E: Encoder> InvertedIndex<E> {
         block.num_entries += 1;
         block.last_doc_id = doc_id;
 
+        // Update block-level scoring metadata for block-max score optimization.
+        // Note: max_doc_score and min_doc_len are not tracked here because they require
+        // document metadata that is not available in the record. These would need to be
+        // passed separately if we want to track them during indexing.
+        // For now, we track max_freq which is available from the record.
+        block.max_freq = block.max_freq.max(record.freq);
+
         // We took ownership of the block so put it back
         mem_growth += self.add_block(block);
 
@@ -699,7 +757,7 @@ impl<E: Encoder> InvertedIndex<E> {
 }
 
 /// Result of scanning the index for garbage collection
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct GcScanDelta {
     /// The index of the last block in the index at the time of the scan. This is used to ensure
     /// that the index has not changed since the scan was performed.
@@ -721,7 +779,7 @@ impl GcScanDelta {
 }
 
 /// Result of scanning a block for garbage collection
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct BlockGcScanResult {
     /// The index of the block in the inverted index
     index: usize,
