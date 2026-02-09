@@ -29,6 +29,70 @@ Blocks are ordered by document ID, enabling efficient `skip_to` operations via b
 
 During top-K retrieval, we often maintain a `minScore` threshold—the minimum score a document must achieve to enter the result heap. If we knew the **maximum possible score contribution** any document in a block could achieve, we could skip entire blocks where `maxBlockScore < minScore`.
 
+### Key Insight: Term Contributions vs. Final Scores
+
+A critical concept to understand is the distinction between a **term's score contribution** and a **document's final score**.
+
+#### Single-Term Queries
+
+For a query like `FT.SEARCH idx "redis" LIMIT 0 10`, the final document score equals the term's contribution:
+
+$$
+\text{FinalScore}_{\text{doc}} = \text{TermContribution}(\text{"redis"}, \text{doc})
+$$
+
+In this case, the block's max score directly bounds the final score. If `BlockMaxScore < minScore`, no document in that block can enter the top-K results.
+
+#### Multi-Term Queries
+
+For a query like `FT.SEARCH idx "redis database" LIMIT 0 10`, the final score is the **sum** of contributions from each term:
+
+$$
+\text{FinalScore}_{\text{doc}} = \text{TermContribution}(\text{"redis"}, \text{doc}) + \text{TermContribution}(\text{"database"}, \text{doc})
+$$
+
+Here, a single term's block max score does **not** bound the final score—a document might have a low "redis" contribution but a high "database" contribution.
+
+#### How Block Skipping Still Works for Multi-Term Queries
+
+The optimization leverages a key property: **we're iterating through one term's posting list at a time**. When processing the "redis" term:
+
+1. We know the document must also match "database" (for AND queries) or might match it (for OR queries)
+2. We can compute an **upper bound on the remaining contribution** from other terms
+3. If `BlockMaxScore("redis") + MaxPossibleContribution(other terms) < minScore`, we can skip the block
+
+For **intersection (AND) queries**, this is particularly powerful:
+- We process the rarest term first (fewest documents)
+- For each candidate document, we check if it exists in other terms' posting lists
+- The block max score tells us: "Even if this document has the maximum possible 'redis' contribution from this block, can it possibly beat the threshold when combined with contributions from other terms?"
+
+For **union (OR) queries**, the logic is similar but we track partial scores:
+- Documents accumulate scores as we iterate through each term
+- A block can be skipped if its max contribution, added to the document's current partial score, cannot exceed the threshold
+
+#### Practical Example
+
+Consider a top-10 query where the 10th-best document so far has score 5.0 (our threshold).
+
+**Scenario A: Single-term query "redis"**
+- Block 3 has `max_freq=2`, `min_doc_len=1000`, `max_doc_score=1.0`
+- Computed `BlockMaxScore = 0.8`
+- Since `0.8 < 5.0`, skip the entire block
+
+**Scenario B: Multi-term AND query "redis database"**
+- We're iterating through "redis" posting list
+- Block 3 has `BlockMaxScore("redis") = 0.8`
+- We know `MaxPossibleContribution("database") = 3.0` (from global term statistics)
+- Upper bound for any doc in this block: `0.8 + 3.0 = 3.8`
+- Since `3.8 < 5.0`, skip the entire block
+
+**Scenario C: Multi-term AND query where we can't skip**
+- Block 4 has `BlockMaxScore("redis") = 2.5`
+- Upper bound: `2.5 + 3.0 = 5.5`
+- Since `5.5 >= 5.0`, we must process this block (some documents might qualify)
+
+This is why storing **per-term, per-block** metadata is valuable: it allows fine-grained skipping decisions even when the final score depends on multiple terms.
+
 ## Proposed Design
 
 ### New Block Metadata
