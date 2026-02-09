@@ -33,3 +33,5 @@ callgrind.out.*
 tests/deps/RedisJSON
 **/target/*
 compile_commands.json
+/build
+/tests/pytests/rspytests.egg-info
