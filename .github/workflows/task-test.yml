@@ -34,26 +34,11 @@ jobs:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
 
-      # Get Installation Mode (sudo when not in container), like RS
-      - name: Get Installation Mode
-        id: mode
-        run: |
-          echo "mode=sudo" >> $GITHUB_OUTPUT
-
-      # Setup via RediSearch install scripts
-      - name: Setup
-        working-directory: deps/RediSearch/.install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-
-      - name: Setup tests dependencies
-        working-directory: deps/RediSearch
-        run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-
-      - name: Install speedb related packages (for async API enablement)
-        run: |
-          ${{ steps.mode.outputs.mode }} apt install -y liburing-dev
+      # Setup build environment (dependencies, disk space, sccache)
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          install-mode: sudo
 
       # Install Python test dependencies early
       - name: Install Python test dependencies
@@ -61,86 +46,13 @@ jobs:
         run: |
           python3 -m pip install --break-system-packages -e .
 
-      # Free up disk space for the build
-      - name: Free Disk Space
-        run: |
-          echo "Disk space before cleanup:"
-          df -h
-          # Remove unnecessary packages and files
-          ${{ steps.mode.outputs.mode }} apt-get clean
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/share/dotnet
-          ${{ steps.mode.outputs.mode }} rm -rf /usr/local/lib/android
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/ghc
-          ${{ steps.mode.outputs.mode }} rm -rf /opt/hostedtoolcache/CodeQL
-          ${{ steps.mode.outputs.mode }} docker system prune -af || true
-          echo "Disk space after cleanup:"
-          df -h
-
-      # Setup sccache for Rust compilation caching
-      # This action automatically handles GitHub Actions cache for sccache
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.8
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: "sccache"
-
-      # Checkout private fork big redis branch to get SHA for cache key
-      - name: Checkout Redis with the app token
-        id: checkout-redis
-        uses: actions/checkout@v4
+      # Setup Redis (checkout, build, cache)
+      - name: Setup Redis
+        uses: ./.github/actions/setup-redis
         with:
-          repository: redislabsdev/Redis
-          path: Redis
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 1
-          ref: RediSearchDisk
-          submodules: recursive
-
-      # Cache Redis compilation and bs_speedb.so library
-      # Cache to a temporary location since GitHub Actions can't restore directly to /usr/local
-      - name: Restore Cached Redis Installation
-        id: cache-redis
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/redis-cache
-          key: Redis-${{ runner.os }}-${{ steps.checkout-redis.outputs.commit }}
-
-      # Install cached Redis binaries (only if cache hit)
-      - name: Install cached Redis binaries
-        if: steps.cache-redis.outputs.cache-hit == 'true'
-        run: |
-          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-server /usr/local/bin/
-          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-cli /usr/local/bin/
-          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/bs_speedb.so /usr/local/lib/
-          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/libspeedb.so.2 /usr/local/lib/
-          ${{ steps.mode.outputs.mode }} chmod +x /usr/local/bin/redis-server /usr/local/bin/redis-cli
-
-      # Build and install Redis (only if cache miss)
-      - name: Build Redis (install)
-        if: steps.cache-redis.outputs.cache-hit != 'true'
-        working-directory: Redis
-        run: |
-          # Build Redis with speedb support
-          ${{ steps.mode.outputs.mode }} make install -j$(nproc) \
-            BUILD_TLS=yes \
-            SANITIZER=${{ env.SAN }}
-          # Copy bs_speedb.so to /usr/local/lib for runtime use
-          ${{ steps.mode.outputs.mode }} cp src/bs_speedb.so /usr/local/lib/
-          ${{ steps.mode.outputs.mode }} cp src/libspeedb.so.2 /usr/local/lib/
-          # Copy binaries to cache directory for saving
-          mkdir -p ~/redis-cache
-          cp /usr/local/bin/redis-server ~/redis-cache/
-          cp /usr/local/bin/redis-cli ~/redis-cache/
-          cp /usr/local/lib/bs_speedb.so ~/redis-cache/
-          cp /usr/local/lib/libspeedb.so.2 ~/redis-cache/
-
-      # Save Redis to cache (only if cache miss)
-      - name: Cache Redis (save)
-        if: steps.cache-redis.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          key: ${{ steps.cache-redis.outputs.cache-primary-key }}
-          path: ~/redis-cache
+          github-token: ${{ steps.app-token.outputs.token }}
+          install-mode: sudo
+          checkout-path: Redis
 
       # Build the module
       - name: Build

@@ -1,0 +1,67 @@
+name: 'Setup Build Environment'
+description: 'Setup common build environment for RediSearchDisk - installs dependencies, frees disk space, and configures sccache'
+
+inputs:
+  install-mode:
+    description: 'Installation mode (sudo or empty for container)'
+    required: false
+    default: 'sudo'
+  install-python-deps:
+    description: 'Whether to install Python dependencies'
+    required: false
+    default: 'false'
+  python-requirements-file:
+    description: 'Path to Python requirements file (relative to repo root)'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    # Setup via RediSearch install scripts
+    - name: Install build dependencies
+      shell: bash
+      working-directory: deps/RediSearch/.install
+      run: ./install_script.sh ${{ inputs.install-mode }}
+
+    - name: Setup tests dependencies
+      shell: bash
+      working-directory: deps/RediSearch
+      run: .install/test_deps/common_installations.sh ${{ inputs.install-mode }}
+
+    - name: Install speedb related packages (for async API enablement)
+      shell: bash
+      run: ${{ inputs.install-mode }} apt install -y liburing-dev
+
+    # Install Python dependencies if requested
+    - name: Install Python dependencies
+      if: inputs.install-python-deps == 'true' && inputs.python-requirements-file != ''
+      shell: bash
+      run: |
+        pip3 install --upgrade pip
+        python3 -m pip install -r ${{ inputs.python-requirements-file }}
+
+    # Free up disk space for the build
+    - name: Free Disk Space
+      shell: bash
+      run: |
+        echo "Disk space before cleanup:"
+        df -h
+        # Remove unnecessary packages and files
+        ${{ inputs.install-mode }} apt-get clean
+        ${{ inputs.install-mode }} rm -rf /usr/share/dotnet
+        ${{ inputs.install-mode }} rm -rf /usr/local/lib/android
+        ${{ inputs.install-mode }} rm -rf /opt/ghc
+        ${{ inputs.install-mode }} rm -rf /opt/hostedtoolcache/CodeQL
+        ${{ inputs.install-mode }} docker system prune -af || true
+        echo "Disk space after cleanup:"
+        df -h
+
+    # Setup sccache for Rust compilation caching
+    # This action automatically handles GitHub Actions cache for sccache
+    - name: Run sccache-cache
+      uses: mozilla-actions/sccache-action@v0.0.8
+      env:
+        SCCACHE_GHA_ENABLED: "true"
+        RUSTC_WRAPPER: "sccache"
+

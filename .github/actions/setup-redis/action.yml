@@ -1,0 +1,91 @@
+name: 'Setup Redis'
+description: 'Checkout, build, and cache Redis from the private RediSearchDisk fork'
+
+inputs:
+  github-token:
+    description: 'GitHub token for private repo access'
+    required: true
+  install-mode:
+    description: 'Installation mode (sudo or empty for container)'
+    required: false
+    default: 'sudo'
+  redis-ref:
+    description: 'Git ref to checkout for Redis'
+    required: false
+    default: 'RediSearchDisk'
+  checkout-path:
+    description: 'Path to checkout Redis to'
+    required: false
+    default: 'redis'
+
+outputs:
+  redis-commit:
+    description: 'The commit SHA of the checked out Redis'
+    value: ${{ steps.checkout-redis.outputs.commit }}
+  cache-hit:
+    description: 'Whether the Redis cache was hit'
+    value: ${{ steps.cache-redis.outputs.cache-hit }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Checkout private fork big redis branch
+    - name: Checkout Redis with the app token
+      id: checkout-redis
+      uses: actions/checkout@v4
+      with:
+        repository: redislabsdev/Redis
+        path: ${{ inputs.checkout-path }}
+        token: ${{ inputs.github-token }}
+        fetch-depth: 1
+        ref: ${{ inputs.redis-ref }}
+        submodules: recursive
+
+    # Cache Redis compilation and bs_speedb.so library
+    # Cache to a temporary location since GitHub Actions can't restore directly to /usr/local
+    - name: Restore Cached Redis Installation
+      id: cache-redis
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/redis-cache
+        key: Redis-${{ runner.os }}-${{ steps.checkout-redis.outputs.commit }}
+
+    # Install cached Redis binaries (only if cache hit)
+    - name: Install cached Redis binaries
+      if: steps.cache-redis.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        ${{ inputs.install-mode }} cp ~/redis-cache/redis-server /usr/local/bin/
+        ${{ inputs.install-mode }} cp ~/redis-cache/redis-cli /usr/local/bin/
+        ${{ inputs.install-mode }} cp ~/redis-cache/bs_speedb.so /usr/local/lib/
+        ${{ inputs.install-mode }} cp ~/redis-cache/libspeedb.so.2 /usr/local/lib/
+        ${{ inputs.install-mode }} chmod +x /usr/local/bin/redis-server /usr/local/bin/redis-cli
+
+    # Build and install Redis (only if cache miss)
+    - name: Build Redis (install)
+      if: steps.cache-redis.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.checkout-path }}
+      run: |
+        # Build Redis with speedb support
+        ${{ inputs.install-mode }} make install -j$(nproc) \
+          BUILD_TLS=yes \
+          SANITIZER=${{ env.SAN }}
+        # Copy bs_speedb.so to /usr/local/lib for runtime use
+        ${{ inputs.install-mode }} cp src/bs_speedb.so /usr/local/lib/
+        ${{ inputs.install-mode }} cp src/libspeedb.so.2 /usr/local/lib/
+        # Copy binaries to cache directory for saving
+        mkdir -p ~/redis-cache
+        cp /usr/local/bin/redis-server ~/redis-cache/
+        cp /usr/local/bin/redis-cli ~/redis-cache/
+        cp /usr/local/lib/bs_speedb.so ~/redis-cache/
+        cp /usr/local/lib/libspeedb.so.2 ~/redis-cache/
+
+    # Save Redis to cache (only if cache miss)
+    - name: Cache Redis (save)
+      if: steps.cache-redis.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        key: ${{ steps.cache-redis.outputs.cache-primary-key }}
+        path: ~/redis-cache
+

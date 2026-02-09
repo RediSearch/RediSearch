@@ -1,6 +1,11 @@
-# Orchestrates multiple benchmark configurations in parallel - defines strategy matrices for different
-# Redis setups (standalone, cluster variants) and benchmark types (search, vecsim). Each job calls
-# benchmark-flow.yml with specific parameters to distribute the workload across multiple runners.
+# Orchestrates benchmark configurations - each job calls benchmark-flow.yml with specific parameters.
+#
+# IMPORTANT: Only define jobs for setups that have matching tests in benchmarks/*.yml
+# Current tests and their supported setups:
+#   - search-ftsb-1M-enwiki_abstract-*: oss-standalone, oss-cluster-02/04/08/16/20/24/32-primaries
+#   - search-msmarco-6M-*: oss-cluster-08-primaries-250gb-threads-8
+#
+# When adding new benchmark tests, update this file to include jobs for the setups they support.
 name: Run RediSearch Benchmarks
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
@@ -35,187 +40,96 @@ on:
         description: 'if true, will notify failure on slack'
 
 jobs:
+  # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-standalone
   benchmark-search-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
 
-  benchmark-search-oss-standalone-threads-6:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2]
-    uses: ./.github/workflows/benchmark-flow.yml
-    secrets: inherit
-    with:
-      benchmark_glob: "search*.yml"
-      allowed_envs: oss-standalone
-      allowed_setups: oss-standalone-threads-6
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
-
-  benchmark-vecsim-oss-standalone:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2]
-    uses: ./.github/workflows/benchmark-flow.yml
-    secrets: inherit
-    with:
-      benchmark_glob: "vecsim*.yml"
-      allowed_envs: oss-standalone
-      allowed_setups: oss-standalone
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
-
-  benchmark-vecsim-oss-standalone-threads-6:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2]
-    uses: ./.github/workflows/benchmark-flow.yml
-    secrets: inherit
-    with:
-      benchmark_glob: "vecsim*.yml"
-      allowed_envs: oss-standalone
-      allowed_setups: oss-standalone-threads-6
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
-
+  # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-02-primaries
   benchmark-search-oss-cluster-02-primaries:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-02-primaries
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
 
+  # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-04-primaries
   benchmark-search-oss-cluster-04-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
 
-
-  benchmark-search-oss-cluster-04-primaries-threads-6:
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1]
-    uses: ./.github/workflows/benchmark-flow.yml
-    secrets: inherit
-    with:
-      benchmark_glob: "search*.yml"
-      allowed_envs: oss-cluster
-      allowed_setups: oss-cluster-04-primaries-threads-6
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
-
+  # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-08-primaries
   benchmark-search-oss-cluster-08-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
 
+  # Tests: search-msmarco-6M-* supports oss-cluster-08-primaries-250gb-threads-8
+  benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
+    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search-msmarco*.yml"
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-08-primaries-250gb-threads-8
+
+  # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-16-primaries
   benchmark-search-oss-cluster-16-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-16-primaries
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
 
-
+  # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-20-primaries
   benchmark-search-oss-cluster-20-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-20-primaries
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
 
-
+  # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-24-primaries
   benchmark-search-oss-cluster-24-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        member_id: [1]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-24-primaries
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
 
   notify-failure:
     needs:
       - benchmark-search-oss-standalone
-      - benchmark-search-oss-standalone-threads-6
-      - benchmark-vecsim-oss-standalone
-      - benchmark-vecsim-oss-standalone-threads-6
       - benchmark-search-oss-cluster-02-primaries
       - benchmark-search-oss-cluster-04-primaries
-      - benchmark-search-oss-cluster-04-primaries-threads-6
       - benchmark-search-oss-cluster-08-primaries
       - benchmark-search-oss-cluster-16-primaries
       - benchmark-search-oss-cluster-20-primaries
       - benchmark-search-oss-cluster-24-primaries
+      - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
     if: ${{ failure() && inputs.notify_failure }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:

@@ -61,6 +61,27 @@ jobs:
             rust-speedb
             speedb-ent
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_REGION }}
+
+      - name: Ensure perf key exists and has correct permissions
+        run: |
+          # Ensure perf key exists and has correct permissions
+          PEM_FILE="/tmp/benchmarks.redislabs.pem"
+          if [ ! -f "$PEM_FILE" ]; then
+            echo "Private key not found, retrieving from AWS Secrets Manager..."
+            aws secretsmanager get-secret-value \
+              --secret-id perf-cto-us-east-2 \
+              --query SecretString \
+              --output text > "$PEM_FILE"
+          fi
+          chmod 400 "$PEM_FILE"
+          ls -la "$PEM_FILE"
+
       # Full checkout (submodules) similar to RS
       - name: Checkout repository (with submodules)
         uses: actions/checkout@v4
@@ -68,44 +89,35 @@ jobs:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Install build dependencies
-        working-directory: deps/RediSearch/.install
-        run: ./install_script.sh sudo
+      # Setup build environment (dependencies, disk space, sccache)
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          install-mode: sudo
+          install-python-deps: 'true'
+          python-requirements-file: deps/RediSearch/tests/benchmarks/requirements.txt
 
-      - name: Setup tests dependencies
-        working-directory: deps/RediSearch/
-        run: .install/test_deps/common_installations.sh sudo
-
-      - name: Install speedb related packages (for async API enablement)
+      # Install latest without pin, to avoid the back-and-forth of releasing new redisbench-admin and needing a PR
+      - name: Install latest redisbench-admin
         run: |
-          sudo apt install -y liburing-dev
+          pip install --upgrade pip
+          pip install -U redisbench-admin
 
       - name: Build RediSearchDisk module
         run: PROFILE=Release ./build.sh build
 
-      - name: Install Python dependencies
-        run: |
-          pip3 install --upgrade pip
-          python3 -m pip install -r deps/RediSearch/tests/benchmarks/requirements.txt
-
-      # Checkout private fork big redis branch
-      - name: Checkout Redis with the app token
-        uses: actions/checkout@v4
+      # Setup Redis (checkout, build, cache)
+      - name: Setup Redis
+        uses: ./.github/actions/setup-redis
         with:
-          repository: redislabsdev/Redis
-          path: redis
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 1
-          ref: RediSearchDisk
-          submodules: recursive
+          github-token: ${{ steps.app-token.outputs.token }}
+          install-mode: sudo
+          checkout-path: redis
 
-      # Build and install Redis
-      - name: Build Redis (install)
-        working-directory: redis
-        run: |
-          sudo make install \
-            BUILD_TLS=yes \
-            SANITIZER=${{ env.SAN }}
+      # Show sccache statistics
+      - name: Show sccache stats
+        if: always()
+        run: sccache --show-stats
 
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v2
@@ -117,7 +129,7 @@ jobs:
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./deps/RediSearch/tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
-        timeout-minutes: 240
+        timeout-minutes: 480
         working-directory: benchmarks
         env:
           PERF_CALLGRAPH_MODE: dwarf
@@ -130,38 +142,74 @@ jobs:
           BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
-        run: |
-          redisbench-admin run-remote \
-            --module_path ../${{ inputs.module_path }} \
-            --required-module search \
-            --github_actor ${{ github.triggering_actor }} \
-            --github_repo ${{ github.event.repository.name }} \
-            --github_org ${{ github.repository_owner }} \
-            --module_path ../${{ inputs.rejson_module_path }} \
-            --required-module ReJSON \
-            --github_sha ${{ github.sha }} \
-            --github_branch ${{ github.head_ref || github.ref_name }} \
-            --upload_results_s3 \
-            --triggering_env ${{ inputs.triggering_env }} \
-            --allowed-envs ${{ inputs.allowed_envs }} \
-            --allowed-setups ${{ inputs.allowed_setups }} \
-            --push_results_redistimeseries \
-            --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
-            --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
-            --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+          SEARCH_MEMORY_ENABLED: 1
+          REDIS_SERVER_BINARY: /usr/local/bin/redis-server
+          MODULE_PATH: ${{ inputs.module_path }}
+          REJSON_MODULE_PATH: ${{ inputs.rejson_module_path }}
+          GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_ORG_NAME: ${{ github.repository_owner }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
+          GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          TRIGGERING_ENV: ${{ inputs.triggering_env }}
+          ALLOWED_ENVS: ${{ inputs.allowed_envs }}
+          ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
+          REDISTIMESERIES_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          REDISTIMESERIES_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          REDISTIMESERIES_PASS: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+          LD_LIBRARY_PATH_VALUE: /tmp
+          REMOTE_SYMLINK: /tmp/libspeedb.so.2.6.2:/tmp/libspeedb.so.2
+          LIB_SPEEDB: ../build/speedb-build/libspeedb.so.2.6.2
+          LIB_BS_SPEEDB: /usr/local/lib/bs_speedb.so
+          BIGREDIS_ENABLED: 1
+          BIGREDIS_USE_ASYNC: "no"
+          BIGREDIS_MAX_RAM: "4GB"
+          SEARCH_CLUSTERSET: 1
+          CLUSTER_NODE_TIMEOUT: 240000
+
+        run: redisbench-admin run-remote
+              --redis-server-binary "${REDIS_SERVER_BINARY}"
+              --module_path "../${MODULE_PATH}"
+              --module_path "../${REJSON_MODULE_PATH}"
+              --extra_lib "${LIB_SPEEDB}"
+              --extra_lib "${LIB_BS_SPEEDB}"
+              --required-module search
+              --github_actor "${GITHUB_ACTOR_NAME}"
+              --github_repo "${GITHUB_REPO_NAME}"
+              --github_org "${GITHUB_ORG_NAME}"
+              --required-module ReJSON
+              --github_sha "${GITHUB_SHA_VALUE}"
+              --github_branch "${GITHUB_BRANCH_NAME}"
+              --upload_results_s3
+              --triggering_env "${TRIGGERING_ENV}"
+              --allowed-envs "${ALLOWED_ENVS}"
+              --allowed-setups "${ALLOWED_SETUPS}"
+              --push_results_redistimeseries
+              --redistimeseries_host "${REDISTIMESERIES_HOST}"
+              --redistimeseries_port "${REDISTIMESERIES_PORT}"
+              --redistimeseries_pass "${REDISTIMESERIES_PASS}"
+              --collect_search_memory True
+              --ld_library_path "${LD_LIBRARY_PATH_VALUE}"
+              --remote_symlink "${REMOTE_SYMLINK}"
 
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
-        run: |
-          redisbench-admin compare \
-            --defaults_filename ./benchmarks/defaults.yml \
-            --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
-            --baseline-branch ${{ github.event.pull_request.base.ref }} \
-            --auto-approve \
-            --pull-request ${{ github.event.number }} \
-            --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
-            --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
-            --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+          COMPARISON_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          BASELINE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          PULL_REQUEST_NUMBER: ${{ github.event.number }}
+          REDISTIMESERIES_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          REDISTIMESERIES_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          REDISTIMESERIES_PASS: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+
+        run: redisbench-admin compare
+              --defaults_filename ./benchmarks/defaults.yml
+              --comparison-branch "${COMPARISON_BRANCH}"
+              --baseline-branch "${BASELINE_BRANCH}"
+              --auto-approve
+              --pull-request "${PULL_REQUEST_NUMBER}"
+              --redistimeseries_host "${REDISTIMESERIES_HOST}"
+              --redistimeseries_port "${REDISTIMESERIES_PORT}"
+              --redistimeseries_pass "${REDISTIMESERIES_PASS}"
