@@ -9,8 +9,8 @@
 
 #include "hybrid_cursor_mappings.h"
 #include "redismodule.h"
-#include "../../rmalloc.h"
-#include "../../../deps/rmutil/rm_assert.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 #include "query_error.h"
 #include <string.h>
 #include "info/global_stats.h"

@@ -40,6 +40,7 @@ fn main() {
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
+        let rmalloc = deps.join("rmalloc");
 
         [
             redis_modules,
@@ -50,6 +51,7 @@ fn main() {
             vecsim,
             buffer,
             ttl_table,
+            rmalloc,
         ]
     };
 
