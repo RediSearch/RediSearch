@@ -43,7 +43,7 @@ impl<'a> PreOrderDfsIterator<'a> {
 
     /// Create a new iterator starting from the given node index in the tree.
     pub fn from_node(tree: &'a NumericRangeTree, node_idx: NodeIndex) -> Self {
-        let mut stack = Vec::with_capacity(tree.node(node_idx).max_depth() as usize);
+        let mut stack = Vec::with_capacity(tree.node(node_idx).max_depth() as usize + 1);
         stack.push(node_idx);
         Self { tree, stack }
     }

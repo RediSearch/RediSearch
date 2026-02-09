@@ -66,10 +66,22 @@ impl NodeArena {
     /// This is not to be confused with the current _capacity_
     /// of the arena, i.e. the size of the underlying currently-allocated
     /// slab.
+    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub fn len(&self) -> u32 {
         // Safe to truncate because `Self::insert` ensures that the arena
         // never grows beyond `u32::MAX`.
         self.nodes.len() as u32
+    }
+
+    /// Get the capacity of the arena.
+    ///
+    /// This is the maximum number of nodes that can be stored in the arena
+    /// without reallocating.
+    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
+    pub fn capacity(&self) -> u32 {
+        // Safe to truncate because `Self::insert` ensures that the arena
+        // never grows beyond `u32::MAX`.
+        self.nodes.capacity() as u32
     }
 
     /// Insert a node into the arena, returning its index.
@@ -118,6 +130,22 @@ impl NodeArena {
         self.nodes
             .iter_mut()
             .map(|(key, node)| (NodeIndex(key as u32), node))
+    }
+
+    /// Get the memory usage of the arena, in bytes.
+    pub fn mem_usage(&self) -> usize {
+        // This is the way `slab::Slab` stores, internally, entries.
+        // The type isn't exposed via its public API, but add it here
+        // as a reference to allow the compiler to give us an accurate
+        // memory usage estimate.
+        // Future versions of `slab` may change this, but for now,
+        // this is the best we can do.
+        #[expect(dead_code)]
+        enum Entry<T> {
+            Vacant(usize),
+            Occupied(T),
+        }
+        self.nodes.capacity() * std::mem::size_of::<Entry<NumericRangeNode>>()
     }
 }
 
