@@ -1036,6 +1036,8 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
+  atomic_flag_clear(&req->timedOut);
+  atomic_flag_clear(&req->replying);
   return req;
 }
 

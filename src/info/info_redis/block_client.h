@@ -17,7 +17,11 @@ extern "C" {
 struct IndexSpec;
 struct AREQ;
 struct Cursor;
-RedisModuleBlockedClient* BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req, int timeoutMS);
+
+typedef int (*BlockedClientTimeoutCB)(RedisModuleCtx *, RedisModuleString **, int);
+
+RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req,
+                                                      int timeoutMS, BlockedClientTimeoutCB timeoutCallback);
 RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, Cursor* cursor, size_t count, int timeoutMS);
 
 #ifdef __cplusplus

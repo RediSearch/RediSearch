@@ -47,17 +47,18 @@ static size_t PrintActiveCursors(BlockedQueries *blockedQueries) {
 void BlockedQueries_Free(BlockedQueries *blockedQueries) {
   const size_t numQueries = PrintActiveQueries(blockedQueries);
   const size_t numCursors = PrintActiveCursors(blockedQueries);
-  RS_LOG_ASSERT_FMT(numQueries == 0 && numCursors == 0, 
-    "There are %zu active queries and %zu active cursors. This is a bug. Please report it to https://github.com/RediSearch/RediSearch/issues", 
+  RS_LOG_ASSERT_FMT(numQueries == 0 && numCursors == 0,
+    "There are %zu active queries and %zu active cursors. This is a bug. Please report it to https://github.com/RediSearch/RediSearch/issues",
     numQueries, numCursors);
   rm_free(blockedQueries);
 }
 
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast) {
+BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast, void *privdata) {
   BlockedQueryNode* blockedQueryNode = rm_calloc(1, sizeof(BlockedQueryNode));
   blockedQueryNode->spec = StrongRef_Clone(spec);
   blockedQueryNode->start = time(NULL);
   blockedQueryNode->query = QAST_DumpExplain(ast, StrongRef_Get(spec));
+  blockedQueryNode->privdata = privdata;
   dllist_prepend(&blockedQueries->queries, &blockedQueryNode->llnode);
   return blockedQueryNode;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006-Present, Redis Ltd.
+* Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
  * Licensed under your choice of the Redis Source Available License 2.0
@@ -10,6 +10,12 @@
 #define RS_AGGREGATE_H__
 
 #include <stdbool.h>
+#ifdef __cplusplus
+#include <atomic>
+using atomic_flag = std::atomic_flag;
+#else
+#include <stdatomic.h>
+#endif
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
@@ -282,6 +288,11 @@ typedef struct AREQ {
   size_t prefixesOffset;
 
   ProfilePrinterCtx profileCtx;
+
+  // Timeout signaling flag for Run in Threads mode (set by timeout callback on main thread)
+  atomic_flag timedOut;
+  // Reply ownership flag for Run in Threads mode (coordinates reply between main and background thread)
+  atomic_flag replying;
 } AREQ;
 
 /**

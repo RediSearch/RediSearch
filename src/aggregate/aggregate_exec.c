@@ -23,6 +23,7 @@
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "info/info_redis/block_client.h"
+#include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
@@ -891,9 +892,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
-    // Notify the client that the query was aborted
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    QueryError_ReplyAndClear(outctx, &status);
+    // Try to claim reply ownership before replying
+    if (!atomic_flag_test_and_set(&req->replying)) {
+      QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
+      QueryError_ReplyAndClear(outctx, &status);
+      atomic_flag_clear(&req->replying);
+    }
+    // If we didn't claim it, timeout callback will reply
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -919,7 +924,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
       goto error;
     }
   } else {
+    // Try to claim reply ownership before replying
+    if (atomic_flag_test_and_set(&req->replying)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      goto cleanup;
+    }
     AREQ_Execute(req, outctx);
+    atomic_flag_clear(&req->replying);
   }
 
   // If the execution was successful, we either:
@@ -930,7 +941,14 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  QueryError_ReplyAndClear(outctx, &status);
+  // Try to claim reply ownership before replying with error
+  if (!atomic_flag_test_and_set(&req->replying)) {
+    QueryError_ReplyAndClear(outctx, &status);
+    atomic_flag_clear(&req->replying);
+  } else {
+    // Timeout callback owns reply - just clear the error
+    QueryError_ClearError(&status);
+  }
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
@@ -1083,11 +1101,56 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
+// Timeout callback for AREQ execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (FAIL policy only).
+static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+  // Signal timeout to background thread
+  atomic_flag_test_and_set(&req->timedOut);
+
+  // Try to claim reply ownership
+  if (!atomic_flag_test_and_set(&req->replying)) {
+    // We claimed it - reply with timeout error
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    atomic_flag_clear(&req->replying);
+  } else {
+    // Background thread is replying - wait for it to finish
+    while (atomic_flag_test_and_set(&req->replying)) {
+      // Busy wait until background thread clears the flag
+    }
+    atomic_flag_clear(&req->replying);
+    // Don't reply - background thread already did
+  }
+
+  return REDISMODULE_OK;
+}
+
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, 0);
+
+    // Determine timeout callback based on policy
+    BlockedClientTimeoutCB timeoutCB = NULL;
+    int timeoutMS = 0;
+    if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      timeoutCB = QueryTimeoutFailCallback;
+      timeoutMS = r->reqConfig.queryTimeoutMS;
+    }
+
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, r, timeoutMS, timeoutCB);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
