@@ -71,7 +71,7 @@ impl FieldExpirationChecker {
     /// 1. `sctx` is a valid pointer to a `RedisSearchCtx`.
     /// 2. `sctx.spec` is a valid pointer to an `IndexSpec`.
     /// 3. 1 and 2 must stay valid during the checker's lifetime.
-    pub unsafe fn new(
+    pub const unsafe fn new(
         sctx: NonNull<RedisSearchCtx>,
         filter_ctx: FieldFilterContext,
         reader_flags: ffi::IndexFlags,
