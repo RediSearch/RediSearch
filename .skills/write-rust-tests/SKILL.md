@@ -30,6 +30,6 @@ Before writing each test, explicitly identify which branch or code path it will 
 Two tests are redundant if they exercise the same set of branches in the code under test. Differing only in input values that don't change control flow is not a distinct scenario.
 
 Do not write standalone tests for:
-- **Trivial trait delegations** — `Default`, `From`, or similar trait impls that are single-line delegations to an already-tested constructor are covered transitively.
+- **Trivial trait delegations** — `Default`, `From`, or similar trait impls that are single-line delegations to an already-tested constructor, since they will be covered transitively.
 
 After adding tests, double check that every new test covers at least one branch that no other test (existing or new) covers. Remove any that don't.
