@@ -107,17 +107,15 @@ where
     /// 3. 1 and 2 must stay valid during the iterator's lifetime.
     fn build_with_expiration(self) -> Numeric<'index, R, FieldExpirationChecker> {
         let reader_flags = self.reader.flags();
-        // SAFETY: Guaranteed by the caller's safety contract.
-        let checker = unsafe {
-            FieldExpirationChecker::new(
-                self.context,
-                FieldFilterContext {
-                    field: FieldMaskOrIndex::Index(self.index),
-                    predicate: self.predicate,
-                },
-                reader_flags,
-            )
-        };
+        // Note: The caller guarantees the context pointer is valid (see safety contract in new())
+        let checker = FieldExpirationChecker::new(
+            self.context,
+            FieldFilterContext {
+                field: FieldMaskOrIndex::Index(self.index),
+                predicate: self.predicate,
+            },
+            reader_flags,
+        );
         Numeric::new(
             self.reader,
             checker,

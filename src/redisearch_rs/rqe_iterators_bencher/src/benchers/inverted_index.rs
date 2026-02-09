@@ -276,16 +276,14 @@ impl NumericBencher {
             b.iter(|| {
                 let reader = ii.reader();
                 let reader_flags = reader.flags();
-                let checker = unsafe {
-                    FieldExpirationChecker::new(
-                        context.sctx,
-                        FieldFilterContext {
-                            field: FieldMaskOrIndex::Index(fs.index),
-                            predicate: FieldExpirationPredicate::Default,
-                        },
-                        reader_flags,
-                    )
-                };
+                let checker = FieldExpirationChecker::new(
+                    context.sctx,
+                    FieldFilterContext {
+                        field: FieldMaskOrIndex::Index(fs.index),
+                        predicate: FieldExpirationPredicate::Default,
+                    },
+                    reader_flags,
+                );
 
                 let mut it = Numeric::new(reader, checker, None, None, None);
 
@@ -334,16 +332,14 @@ impl NumericBencher {
             b.iter(|| {
                 let reader = ii.reader();
                 let reader_flags = reader.flags();
-                let checker = unsafe {
-                    FieldExpirationChecker::new(
-                        context.sctx,
-                        FieldFilterContext {
-                            field: FieldMaskOrIndex::Index(fs.index),
-                            predicate: FieldExpirationPredicate::Default,
-                        },
-                        reader_flags,
-                    )
-                };
+                let checker = FieldExpirationChecker::new(
+                    context.sctx,
+                    FieldFilterContext {
+                        field: FieldMaskOrIndex::Index(fs.index),
+                        predicate: FieldExpirationPredicate::Default,
+                    },
+                    reader_flags,
+                );
 
                 let mut it = Numeric::new(reader, checker, None, None, None);
 

@@ -328,17 +328,15 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
     };
 
     // Create the expiration checker
-    // SAFETY: 3. guarantees sctx is valid and non-null
-    let expiration_checker = unsafe {
-        FieldExpirationChecker::new(
-            sctx,
-            FieldFilterContext {
-                field: FieldMaskOrIndex::Index(field_index),
-                predicate: field_ctx.predicate,
-            },
-            reader.flags(),
-        )
-    };
+    // Note: The caller guarantees sctx is valid and non-null (see safety contract in new())
+    let expiration_checker = FieldExpirationChecker::new(
+        sctx,
+        FieldFilterContext {
+            field: FieldMaskOrIndex::Index(field_index),
+            predicate: field_ctx.predicate,
+        },
+        reader.flags(),
+    );
 
     let iterator = match filter {
         Some(filter) => {
