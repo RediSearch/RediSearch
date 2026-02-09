@@ -22,6 +22,7 @@
 #include "graph_node_type.h"
 
 #include <cmath>
+#include <optional>
 #include <random>
 #include <shared_mutex>
 
@@ -219,7 +220,7 @@ public:
         vecsim_stl::vector<idType> deleted_ids(this->allocator);
 
         // Look up internal ID by label
-        auto id_opt = getIdByLabel(label);
+        auto id_opt = this->getIdByLabel(label);
         if (!id_opt.has_value()) {
             return deleted_ids; // Label doesn't exist, return empty
         }
