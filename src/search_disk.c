@@ -152,9 +152,9 @@ static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
     return dmd;
 }
 
-uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data) {
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data, const t_expirationTimePoint* expiration_point) {
     RS_ASSERT(disk && pool);
-    AsyncPollResult pollResult = disk->docTable.pollAsyncReads(pool, timeout_ms, results, array_cap(results), failed_user_data, array_cap(failed_user_data), &allocateDMD);
+    AsyncPollResult pollResult = disk->docTable.pollAsyncReads(pool, timeout_ms, results, array_cap(results), failed_user_data, array_cap(failed_user_data), *expiration_point, &allocateDMD);
     array_set_len(results, pollResult.ready_count);
     array_set_len(failed_user_data, pollResult.failed_count);
     return pollResult.pending_count;

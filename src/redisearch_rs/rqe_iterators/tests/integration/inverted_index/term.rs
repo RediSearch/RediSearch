@@ -10,7 +10,7 @@
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
-    t_docId, t_fieldMask,
+    RS_FIELDMASK_ALL, t_docId, t_fieldMask,
 };
 use field::{FieldExpirationPredicate, FieldMaskOrIndex};
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
@@ -75,14 +75,26 @@ impl TermBaseTest {
             ),
         }
     }
+
+    fn create_iterator(
+        &self,
+    ) -> Term<'_, inverted_index::IndexReaderCore<'_, inverted_index::full::Full>> {
+        let reader = self.test.ii.reader();
+
+        Term::new(
+            reader,
+            self.test.mock_ctx.sctx(),
+            RS_FIELDMASK_ALL,
+            FieldExpirationPredicate::Default,
+        )
+    }
 }
 
 #[test]
 /// test reading from Term iterator
 fn term_read() {
     let test = TermBaseTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = Term::new_simple(reader);
+    let mut it = test.create_iterator();
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -90,8 +102,7 @@ fn term_read() {
 /// test skipping from Term iterator
 fn term_skip_to() {
     let test = TermBaseTest::new(100);
-    let reader = test.test.ii.reader();
-    let mut it = Term::new_simple(reader);
+    let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
 
@@ -100,7 +111,12 @@ fn term_skip_to() {
 fn term_filter() {
     let test = TermBaseTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new_simple(reader);
+    let mut it = Term::new(
+        reader,
+        test.test.mock_ctx.sctx(),
+        RS_FIELDMASK_ALL,
+        FieldExpirationPredicate::Default,
+    );
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);

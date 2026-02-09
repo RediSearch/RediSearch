@@ -151,6 +151,7 @@ fn numeric_read() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 /// test skipping from Numeric iterator
 fn numeric_skip_to() {
     let test = NumericBaseTest::new(100);

@@ -494,6 +494,7 @@ fn skip_to_propagates_child_timeout() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn read_timeout_via_timeout_ctx() {
     let child = Mock::new([5_001]);
     let mut data = child.data();
@@ -538,11 +539,12 @@ fn read_timeout_via_timeout_ctx() {
             .doc_id,
         "rewind should have allowed us to start reading again from start, despites earlier timeout"
     )
-    // that said... internal timeout context is _not_ resetted,
+    // that said... internal timeout context is _not_ reset,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn skip_to_timeout_via_timeout_ctx() {
     let child = Mock::new([5_001]);
     let mut data = child.data();
@@ -589,6 +591,6 @@ fn skip_to_timeout_via_timeout_ctx() {
             .doc_id,
         "rewind should have allowed us to start reading again from start, despites earlier timeout"
     )
-    // that said... internal timeout context is _not_ resetted,
+    // that said... internal timeout context is _not_ reset,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }

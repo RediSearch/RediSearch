@@ -29,6 +29,8 @@
 #include <pthread.h>
 #include <sys/param.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
@@ -82,6 +84,13 @@ typedef struct MRCtx {
    * needs to unblock the client.
    */
   MRReduceFunc fn;
+
+  /* State tracking for partial timeout support */
+  _Atomic(bool) timedOut;
+  _Atomic(bool) reducing;
+  bool reducerDone;
+  pthread_mutex_t reducingLock;
+  pthread_cond_t reducingCond;
 } MRCtx;
 
 // Data structure to pass iterator and private data to callback
@@ -107,16 +116,13 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->fn = NULL;
   ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   ret->status = QueryError_Default();
-  return ret;
-}
 
-/* Create a new MapReduce context for bailout.
-  Used when we need to send an error to the client, and we don't expect any replies.
-  The status parameter is used to pass the error to the client after we unblock it, must not be NULL or OK.*/
-MRCtx *MR_CreateBailoutCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, QueryError *status) {
-  RS_ASSERT(status && QueryError_HasError(status));
-  MRCtx *ret = MR_CreateCtx(ctx, bc, NULL, 0);
-  QueryError_CloneFrom(status, &ret->status);
+  atomic_init(&ret->timedOut, false);
+  atomic_init(&ret->reducing, false);
+  ret->reducerDone = false;
+  pthread_mutex_init(&ret->reducingLock, NULL);
+  pthread_cond_init(&ret->reducingCond, NULL);
+
   return ret;
 }
 
@@ -136,6 +142,10 @@ void MRCtx_Free(MRCtx *ctx) {
     }
   }
   rm_free(ctx->replies);
+
+  // Destroy state tracking synchronization primitives
+  pthread_mutex_destroy(&ctx->reducingLock);
+  pthread_cond_destroy(&ctx->reducingCond);
 
   // free the context
   rm_free(ctx);
@@ -174,6 +184,37 @@ int MRCtx_GetCommandProtocol(struct MRCtx *ctx) {
   return ctx->cmd.protocol;
 }
 
+void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
+  ctx->bc = bc;
+}
+
+void MRCtx_SetTimedOut(struct MRCtx *ctx) {
+  atomic_store(&ctx->timedOut, true);
+}
+
+bool MRCtx_IsTimedOut(struct MRCtx *ctx) {
+  return atomic_load(&ctx->timedOut);
+}
+
+bool MRCtx_TryClaimReducing(struct MRCtx *ctx) {
+  bool expected = false;
+  return atomic_compare_exchange_strong(&ctx->reducing, &expected, true);
+}
+
+void MRCtx_SignalReducerComplete(struct MRCtx *ctx) {
+  pthread_mutex_lock(&ctx->reducingLock);
+  ctx->reducerDone = true;
+  pthread_cond_broadcast(&ctx->reducingCond);
+  pthread_mutex_unlock(&ctx->reducingLock);
+}
+
+void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
+  pthread_mutex_lock(&ctx->reducingLock);
+  while (!ctx->reducerDone) {
+    pthread_cond_wait(&ctx->reducingCond, &ctx->reducingLock);
+  }
+  pthread_mutex_unlock(&ctx->reducingLock);
+}
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   if (p) {
@@ -202,9 +243,16 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
 
-  if (!r) {
+  // Check if timed out - discard reply.
+  // Currently, timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
+  bool timedOut = MRCtx_IsTimedOut(ctx);
+  if (timedOut) {
+    if (r) {
+      MRReply_Free(r);
+    }
     ctx->numErrored++;
-
+  } else if (!r) {
+    ctx->numErrored++;
   } else {
     /* If needed - double the capacity for replies */
     if (ctx->numReplied == ctx->repliesCap) {
@@ -216,7 +264,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    if (ctx->fn) {
+    if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;

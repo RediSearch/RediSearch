@@ -79,8 +79,13 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
     switch (fieldType) {
         case INDEXFLD_T_VECTOR:
             for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
-                size_t metricValue = MRReply_Integer(MRReply_MapElement(reply, VectorIndexStats_Metrics[i]));
-                VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+                // Handle missing metrics gracefully (e.g., during rolling upgrades when
+                // old shards don't output new metrics). Missing metrics default to 0.
+                MRReply *metricReply = MRReply_MapElement(reply, VectorIndexStats_Metrics[i]);
+                if (metricReply) {
+                    size_t metricValue = MRReply_Integer(metricReply);
+                    VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+                }
             }
             stats.type = INDEXFLD_T_VECTOR;
             break;
@@ -194,6 +199,8 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(FieldSpec *fs){
   const VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
   stats.memory += info.memory;
   stats.marked_deleted += info.numberOfMarkedDeleted;
+  stats.direct_hnsw_insertions += info.directHNSWInsertions;
+  stats.flat_buffer_size += info.flatBufferSize;
   return stats;
 }
 
@@ -206,6 +213,8 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
       VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(fs);
       stats.memory += field_stats.memory;
       stats.marked_deleted += field_stats.marked_deleted;
+      stats.direct_hnsw_insertions += field_stats.direct_hnsw_insertions;
+      stats.flat_buffer_size += field_stats.flat_buffer_size;
     }
   }
   return stats;

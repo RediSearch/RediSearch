@@ -138,6 +138,7 @@ fn test_seek_raw_doc_ids_only() {
 /// Test InvertedIndex<RawDocIdsOnly> with GC operations to ensure complete coverage
 /// for raw DocID encoding when removing the second test run with RAW_DOCID_ENCODING.
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_inverted_index_raw_doc_ids_gc() {
     use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
     use inverted_index::{IndexBlock, IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
