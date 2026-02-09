@@ -316,7 +316,8 @@ private:
     mutable vecsim_stl::deque<std::atomic_bool> nodeLocks_;
 
     // Protects idToMetaData and nodeLocks_ from concurrent access during resize.
-    // Shared lock for reads (isMarkedAs, lockNode), exclusive lock for writes (growByBlock, initElementMetadata).
+    // Shared lock for reads and writes to existing elements (isMarkedAs, lockNode, initElementMetadata).
+    // Exclusive lock only for structural changes (growByBlock resize).
     mutable std::shared_mutex metadataMutex_;
 
     // --- Label-to-ID Reverse Lookup (as per design doc) ---
@@ -604,7 +605,8 @@ private:
      * 5. Stores FP32 original vector on disk for reranking
      * 6. Updates entry point if this element has higher max level
      *
-     * Thread safety: Uses exclusive locks where needed for metadata updates.
+     * Thread safety: Uses shared lock for metadata initialization (element is not yet
+     * visible to other threads). Exclusive lock only used if capacity growth is needed.
      *
      * @param vector_data Raw FP32 vector data
      * @param label User-provided label for this vector
@@ -829,7 +831,7 @@ void HNSWDiskIndex<DataType, DistType>::recycleId(idType id) {
 
 template <typename DataType, typename DistType>
 void HNSWDiskIndex<DataType, DistType>::initElementMetadata(idType id, labelType label, levelType level) {
-    std::unique_lock<std::shared_mutex> lock(metadataMutex_);
+    std::shared_lock<std::shared_mutex> lock(metadataMutex_);
     assert(id < maxElements_.load(std::memory_order_relaxed) && "initElementMetadata: id exceeds capacity");
     // Direct assignment - capacity was pre-allocated by growByBlock()
     idToMetaData[id] = DiskElementMetaData(label, level);
