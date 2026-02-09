@@ -79,8 +79,11 @@ impl ExpirationChecker for FieldExpirationChecker {
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
         let spec = unsafe { *(sctx.spec) };
-        // `has_expiration` should disable the expiration code paths if `ttl` is not set.
-        debug_assert!(!spec.docs.ttl.is_null());
+
+        // If TTL is not configured or field expiration monitoring is disabled, no documents are expired
+        if spec.docs.ttl.is_null() || !spec.monitorFieldExpiration {
+            return false;
+        }
 
         let current_time = &sctx.time.current as *const _;
 
