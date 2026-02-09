@@ -125,46 +125,14 @@ impl FieldSpecBuilder {
         self
     }
 
-    // /// ID used to identify the field within the field mask
-    // pub fn with_ft_id(mut self, ft_id: u16) -> Self {
-    //     self.result.ftId = ft_id;
-    //     self
-    // }
-
-    // /// weight in frequency calculations
-    // pub fn with_ft_weight(mut self, ft_weight: f64) -> Self {
-    //     self.result.ftWeight = ft_weight;
-    //     self
-    // }
-
-    // /// Unique field index. Each field has a unique index regardless of its type
-    // pub fn with_index(mut self, index: u16) -> Self {
-    //     self.result.index = index;
-    //     self
-    // }
-
-    // /// The index error for this field
-    // pub fn with_index_error(mut self, error: ffi::IndexError) -> Self {
-    //     self.result.indexError = error;
-    //     self
-    // }
-
-    // pub fn with_tree(mut self, tree: *mut ffi::NumericRangeTree) -> Self {
-    //     self.result.tree = tree;
-    //     self
-    // }
-
+    #[cfg_attr(miri, allow(unused))]
     pub fn with_options(mut self, options: FieldSpecOptions) -> Self {
         self.result.set_options(options.bits());
         self
     }
 
-    // pub fn with_type(mut self, options: FieldSpecTypes) -> Self {
-    //     self.result.set_types(options.bits());
-    //     self
-    // }
-
     /// If this field is sortable, the sortable index. Otherwise -1
+    #[cfg_attr(miri, allow(unused))]
     pub fn with_sort_idx(mut self, sort_idx: i16) -> Self {
         self.result.sortIdx = sort_idx;
         self
@@ -184,6 +152,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn field_name_and_path() {
         let name = c"name";
         let path = c"path";
@@ -195,8 +164,8 @@ mod test {
         assert_eq!(sut.field_path().into_secret_value(), path);
 
         unsafe {
-            ffi::HiddenString_Free(fs.fieldName, false);
-            ffi::HiddenString_Free(fs.fieldPath, false);
+            ffi::HiddenString_Free(fs.fieldName, true);
+            ffi::HiddenString_Free(fs.fieldPath, true);
         }
     }
 }

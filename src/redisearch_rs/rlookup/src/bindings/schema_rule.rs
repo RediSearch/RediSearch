@@ -137,6 +137,7 @@ mod test {
 
     /// Test filter_fields and filter_fields_index together since their lengths are coupled.
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn fields_and_indices() {
         let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
 

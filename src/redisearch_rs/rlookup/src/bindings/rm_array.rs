@@ -46,7 +46,7 @@ impl<T> RmArray<T> {
         let alloc = unsafe { ffi::RedisModule_Alloc.unwrap() };
 
         // Safety: the size is non-zero, and doesn't overflow isize or any other common allocator invariants
-        let ptr = NonNull::new(unsafe { alloc(size_of::<T>() * src.len()) })
+        let ptr = NonNull::new(unsafe { alloc(size_of::<T>().strict_mul(src.len())) })
             .expect("RedisModule_Alloc returned NULL")
             .cast::<T>();
 

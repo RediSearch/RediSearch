@@ -19,6 +19,7 @@ mod rs_array;
 mod schema_rule;
 
 #[cfg(test)]
+#[cfg_attr(miri, allow(unused))]
 pub use field_spec::FieldSpecBuilder;
 pub use field_spec::{FieldSpec, FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
 pub use hidden_string_ref::HiddenStringRef;

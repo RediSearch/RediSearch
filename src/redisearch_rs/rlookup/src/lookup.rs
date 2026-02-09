@@ -12,7 +12,7 @@ mod key_list;
 
 use crate::{
     IndexSpec, OpaqueRLookupRow,
-    bindings::{FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+    bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
 };
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
@@ -70,7 +70,17 @@ impl<'a> RLookup<'a> {
         }
     }
 
+    /// Set the [`IndexSpecCache`] associated with this [`RLookup`].
+    ///
+    /// # Panics
+    ///
+    /// Panics this lookup already has an index spec cache.
     pub fn set_cache(&mut self, spcache: Option<IndexSpecCache>) {
+        debug_assert!(
+            self.index_spec_cache.is_none(),
+            "cannot replace an existing index_spec_cache"
+        );
+
         self.index_spec_cache = spcache;
     }
 
@@ -486,6 +496,7 @@ pub mod opaque {
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use super::*;
+    #[cfg_attr(miri, allow(unused))]
     use crate::bindings::FieldSpecBuilder;
     use crate::bindings::rs_array;
     use enumflags2::make_bitflags;
@@ -574,6 +585,7 @@ mod tests {
 
     // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_key_load_override_no_field_in_cache() {
         // setup:
         let key_name = c"key_no_cache";
@@ -717,6 +729,7 @@ mod tests {
 
     // Assert the the cases in which None is returned also the key could be found
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_key_load_returns_none_although_key_is_available() {
         // setup:
         let key_name = c"key_no_cache";
@@ -760,6 +773,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_load_key_on_empty_rlookup_and_cache() {
         // setup:
         let key_name = c"key_no_cache";
@@ -787,6 +801,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_load_key_name_equals_field_name() {
         // setup:
         let key_name = c"key_no_cache";
@@ -1184,6 +1199,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn create_keys_from_spec() {
         // Arrange
         let mut index_spec = unsafe { MaybeUninit::<ffi::IndexSpec>::zeroed().assume_init() };

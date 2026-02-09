@@ -529,6 +529,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn update_from_field_spec() {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
@@ -563,6 +564,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn update_from_field_spec_sortable() {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
@@ -604,6 +606,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn update_from_field_spec_numeric() {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 

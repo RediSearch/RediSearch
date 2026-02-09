@@ -1830,9 +1830,13 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 name = "result_processor"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "libc",
  "pin-project",
+ "redis_mock",
+ "redisearch_rs",
+ "result_processor",
  "search_result",
  "workspace_hack",
 ]
@@ -1844,7 +1848,10 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "result_processor",
+ "result_processor_ffi",
  "workspace_hack",
 ]
 
@@ -2032,7 +2039,7 @@ checksum = "b3a8fb4672e840a587a66fc577a5491375df51ddb88f2a2c2a792598c326fe14"
 dependencies = [
  "quote 1.0.44",
  "rand 0.8.5",
- "syn 2.0.114",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -3190,7 +3197,6 @@ dependencies = [
  "clap_builder",
  "either",
  "getrandom 0.2.17",
- "getrandom 0.3.4",
  "insta",
  "itertools 0.13.0",
  "libc",
