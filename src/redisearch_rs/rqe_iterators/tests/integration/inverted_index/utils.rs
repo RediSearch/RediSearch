@@ -298,12 +298,43 @@ pub(super) mod not_miri {
     };
     use field::FieldMaskOrIndex;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult};
-    use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
+    use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
+    use std::collections::HashSet;
 
     // Re-export TestContext and GlobalGuard from the main library's test_utils module
     pub use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     /// ---------- Expiration Tests ----------
+
+    /// A mock expiration checker for testing.
+    ///
+    /// This allows testing expiration logic without requiring TTL tables.
+    /// The `ExpirationTest` will mark documents as expired in this mock checker
+    /// instead of in the TTL tables.
+    #[derive(Debug, Clone)]
+    pub struct MockExpirationChecker {
+        expired_docs: HashSet<t_docId>,
+    }
+
+    impl MockExpirationChecker {
+        pub fn new(expired_docs: HashSet<t_docId>) -> Self {
+            Self { expired_docs }
+        }
+
+        pub fn mark_expired(&mut self, doc_id: t_docId) {
+            self.expired_docs.insert(doc_id);
+        }
+    }
+
+    impl ExpirationChecker for MockExpirationChecker {
+        fn has_expiration(&self) -> bool {
+            !self.expired_docs.is_empty()
+        }
+
+        fn is_expired(&self, doc_id: t_docId, _result: &RSIndexResult) -> bool {
+            self.expired_docs.contains(&doc_id)
+        }
+    }
 
     /// The type of index used in the expiration test.
     enum ExpirationIndexType {
@@ -314,11 +345,13 @@ pub(super) mod not_miri {
 
     /// Test fields expiration using TestContext's inverted index.
     /// Supports both numeric and term index types.
+    /// Uses a `MockExpirationChecker` instead of TTL tables for expiration tracking.
     pub struct ExpirationTest {
         pub(crate) doc_ids: Vec<t_docId>,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
         pub(crate) context: TestContext,
         index_type: ExpirationIndexType,
+        mock_checker: MockExpirationChecker,
         _guard: GlobalGuard,
     }
 
@@ -341,6 +374,7 @@ pub(super) mod not_miri {
                 expected_record,
                 context,
                 index_type: ExpirationIndexType::Numeric,
+                mock_checker: MockExpirationChecker::new(HashSet::new()),
                 _guard: GlobalGuard::default(),
             }
         }
@@ -371,6 +405,7 @@ pub(super) mod not_miri {
                 expected_record,
                 context,
                 index_type,
+                mock_checker: MockExpirationChecker::new(HashSet::new()),
                 _guard: GlobalGuard::default(),
             }
         }
@@ -409,6 +444,12 @@ pub(super) mod not_miri {
             self.context.sctx
         }
 
+        /// Create a mock expiration checker.
+        /// Returns a clone of the internal mock checker with all currently expired documents.
+        pub(crate) fn create_mock_checker(&self) -> MockExpirationChecker {
+            self.mock_checker.clone()
+        }
+
         /// Get the number of unique documents in the index.
         fn unique_docs(&self) -> u32 {
             match self.index_type {
@@ -419,8 +460,11 @@ pub(super) mod not_miri {
         }
 
         /// Mark the index as expired for the given document IDs.
-        pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, field: FieldMaskOrIndex) {
-            self.context.mark_index_expired(ids, field);
+        /// This updates the mock expiration checker instead of the TTL tables.
+        pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, _field: FieldMaskOrIndex) {
+            for id in ids {
+                self.mock_checker.mark_expired(id);
+            }
         }
 
         /// test read of expired documents.
@@ -716,4 +760,4 @@ pub(super) mod not_miri {
 }
 
 #[cfg(not(miri))]
-pub use not_miri::{ExpirationTest, RevalidateIndexType, RevalidateTest};
+pub use not_miri::{ExpirationTest, MockExpirationChecker, RevalidateIndexType, RevalidateTest};

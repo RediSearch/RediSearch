@@ -116,7 +116,7 @@ fn term_filter() {
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
-    use crate::inverted_index::utils::ExpirationTest;
+    use crate::inverted_index::utils::{ExpirationTest, MockExpirationChecker};
     use rqe_iterators::{RQEIterator, RQEValidateStatus};
 
     struct TermExpirationTest {
@@ -178,22 +178,11 @@ mod not_miri {
             inverted_index::FilterMaskReader<
                 inverted_index::IndexReaderCore<'_, inverted_index::full::Full>,
             >,
-            FieldExpirationChecker,
+            MockExpirationChecker,
         > {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
-            let reader_flags = reader.flags();
-            // SAFETY: sctx is valid for the lifetime of the test
-            let checker = unsafe {
-                FieldExpirationChecker::new(
-                    self.test.sctx(),
-                    FieldFilterContext {
-                        field: FieldMaskOrIndex::Mask(field_mask),
-                        predicate: FieldExpirationPredicate::Default,
-                    },
-                    reader_flags,
-                )
-            };
+            let checker = self.test.create_mock_checker();
             Term::new(reader, checker)
         }
 
@@ -204,22 +193,11 @@ mod not_miri {
             inverted_index::FilterMaskReader<
                 inverted_index::IndexReaderCore<'_, inverted_index::full::FullWide>,
             >,
-            FieldExpirationChecker,
+            MockExpirationChecker,
         > {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
-            let reader_flags = reader.flags();
-            // SAFETY: sctx is valid for the lifetime of the test
-            let checker = unsafe {
-                FieldExpirationChecker::new(
-                    self.test.sctx(),
-                    FieldFilterContext {
-                        field: FieldMaskOrIndex::Mask(field_mask),
-                        predicate: FieldExpirationPredicate::Default,
-                    },
-                    reader_flags,
-                )
-            };
+            let checker = self.test.create_mock_checker();
             Term::new(reader, checker)
         }
 
