@@ -6,7 +6,7 @@ edition = "2024"
 [features]
 # feature enabled when building tests so they can link on the C code in build.rs
 # see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
-unittest = []
+link_oss = []
 
 # feature to use the memory allocator from Redis. We don't want tests to use this hence why it is
 # behind a feature flag
@@ -30,9 +30,10 @@ tracing = "0.1.42"
 tokio = { version = "1.49.0", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
-redis_mock = { path = "../deps/RediSearch/src/redisearch_rs/redis_mock" }
-tempfile = "3.23.0"
 criterion = "0.5"
+redis_mock = { path = "../deps/RediSearch/src/redisearch_rs/redis_mock" }
+redisearch_rs = { path = "../deps/RediSearch/src/redisearch_rs/c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+tempfile = "3.23.0"
 tokio = { version = "1.49.0", features = ["rt", "macros"] }
 
 [[bench]]

@@ -1,8 +1,3 @@
-// Skip this entire test file when running with Miri since it uses FFI (RocksDB)
-#![cfg(not(miri))]
-
-mod c_mocks;
-
 use document::DocumentType;
 use redisearch_disk::{
     database::SpeedbMultithreadedDatabase,

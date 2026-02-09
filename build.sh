@@ -301,8 +301,10 @@ cmd_test() {
   export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C link-arg=-Wl,-rpath,${speedb_lib_dir_abs}"
   echo "[test] Setting rpath to speedb library: ${speedb_lib_dir_abs}"
   
-  # Enable unittest feature to link C static libraries needed by tests
-  cargo test --profile="${rust_profile}" --features unittest --color=always "$@"
+  # Test the library and documentation separately because they don't need the link_oss feature
+  cargo test --profile="${rust_profile}" --lib --color=always "$@"
+  cargo test --profile="${rust_profile}" --doc --color=always "$@"
+  cargo test --profile="${rust_profile}" --test '*' --features link_oss --color=always "$@"
 }
 
 cmd_test_vecsim() {

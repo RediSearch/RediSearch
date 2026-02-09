@@ -1,9 +1,4 @@
 //! Tests for DiskContext, particularly output_info_metrics with mock InfoSink.
-//!
-//! These tests are excluded from Miri because they use FFI calls to SpeedB/RocksDB.
-
-#![cfg(not(miri))]
-
 use std::ffi::CStr;
 
 use redisearch_disk::disk_context::DiskContext;
