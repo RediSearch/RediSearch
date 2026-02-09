@@ -671,7 +671,7 @@ TEST_F(ExprTest, testEvalCtxEvalExprNullExpr) {
   ASSERT_NE(ctx, nullptr);
 
   // Calling EvalCtx_EvalExpr with NULL should set _expr to NULL and return error
-  int rc = EvalCtx_EvalExpr(ctx, NULL);
+  int rc = EvalCtx_EvalExpr(ctx, nullptr);
   ASSERT_EQ(EXPR_EVAL_ERR, rc);
 
   EvalCtx_Destroy(ctx);
