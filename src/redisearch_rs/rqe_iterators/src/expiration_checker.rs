@@ -111,9 +111,6 @@ impl ExpirationChecker for FieldExpirationChecker {
 
         let current_time = &sctx.time.current as *const _;
 
-        // Check if the inverted index uses wide schema format based on the reader flags
-        let is_wide_schema = (self.reader_flags & IndexFlags_Index_WideSchema) != 0;
-
         match self.filter_ctx.field {
             // SAFETY:
             // - The safety contract of `new` guarantees that the ttl pointer is valid.
@@ -127,7 +124,7 @@ impl ExpirationChecker for FieldExpirationChecker {
                     current_time,
                 )
             },
-            FieldMaskOrIndex::Mask(mask) if !is_wide_schema => {
+            FieldMaskOrIndex::Mask(mask) if !self.is_wide_schema => {
                 // SAFETY:
                 // - The safety contract of `new` guarantees that the ttl pointer is valid.
                 // - We just allocated `current_time` on the stack so its pointer is valid.
