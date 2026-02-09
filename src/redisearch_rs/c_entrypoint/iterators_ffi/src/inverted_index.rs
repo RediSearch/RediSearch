@@ -9,12 +9,13 @@
 
 use std::ptr::NonNull;
 
-use field::FieldFilterContext;
+use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, IndexReaderCore, NumericFilter,
     NumericReader, RSIndexResult, t_docId,
 };
 use rqe_iterators::inverted_index::Numeric;
+use rqe_iterators::FieldExpirationChecker;
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different numeric reader types to avoid generics in FFI code.
@@ -107,11 +108,13 @@ impl<'index> NumericReader<'index> for NumericIndexReader<'index> {}
 /// This allows all iterator types to share the same iterator wrapper structure.
 enum IteratorVariant<'index> {
     /// Numeric iterator without a filter (uses the reader directly).
-    Numeric(Numeric<'index, NumericIndexReader<'index>>),
+    Numeric(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
     /// Numeric iterator with a user filter applied.
-    NumericFiltered(Numeric<'index, FilterNumericReader<'index, NumericIndexReader<'index>>>),
+    NumericFiltered(
+        Numeric<'index, FilterNumericReader<'index, NumericIndexReader<'index>>, FieldExpirationChecker>,
+    ),
     /// Geo iterator (always has a filter).
-    Geo(Numeric<'index, FilterGeoReader<'index, NumericIndexReader<'index>>>),
+    Geo(Numeric<'index, FilterGeoReader<'index, NumericIndexReader<'index>>, FieldExpirationChecker>),
 }
 
 /// Wrapper around the actual Numeric iterator.
@@ -314,7 +317,17 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
         _ => panic!("Unsupported inverted index type"),
     };
 
-    let predicate = field_ctx.predicate;
+    // Create the expiration checker
+    // SAFETY: 3. guarantees sctx is valid and non-null
+    let expiration_checker = unsafe {
+        FieldExpirationChecker::new(
+            sctx,
+            FieldFilterContext {
+                field: FieldMaskOrIndex::Index(field_index),
+                predicate: field_ctx.predicate,
+            },
+        )
+    };
 
     let iterator = match filter {
         Some(filter) => {
@@ -325,9 +338,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
                 let filter_reader = FilterGeoReader::new(filter_ref, reader);
                 let iter = Numeric::new(
                     filter_reader,
-                    sctx,
-                    field_index,
-                    predicate,
+                    expiration_checker,
                     range_tree,
                     Some(range_min),
                     Some(range_max),
@@ -341,9 +352,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
                 let filter_reader = FilterNumericReader::new(filter_ref, reader);
                 let iter = Numeric::new(
                     filter_reader,
-                    sctx,
-                    field_index,
-                    predicate,
+                    expiration_checker,
                     range_tree,
                     Some(range_min),
                     Some(range_max),
@@ -358,9 +367,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
             // No filter - use the reader directly
             let iter = Numeric::new(
                 reader,
-                sctx,
-                field_index,
-                predicate,
+                expiration_checker,
                 range_tree,
                 Some(range_min),
                 Some(range_max),

@@ -10,11 +10,13 @@
 use std::ptr::NonNull;
 
 use ffi::{IndexFlags_Index_StoreNumeric, RS_INVALID_FIELD_INDEX, t_docId, t_fieldIndex};
-use field::FieldExpirationPredicate;
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     FilterNumericReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
 };
-use rqe_iterators::{RQEIterator, inverted_index::Numeric};
+use rqe_iterators::{
+    inverted_index::Numeric, FieldExpirationChecker, NoOpChecker, RQEIterator,
+};
 
 use crate::inverted_index::utils::{BaseTest, MockContext};
 
@@ -87,13 +89,38 @@ where
         self
     }
 
-    /// Build the Numeric iterator.
-    fn build(self) -> Numeric<'index, R> {
+    /// Build the Numeric iterator with no expiration checking.
+    fn build(self) -> Numeric<'index, R, NoOpChecker> {
         Numeric::new(
             self.reader,
-            self.context,
-            self.index,
-            self.predicate,
+            NoOpChecker,
+            self.range_tree,
+            self.range_min,
+            self.range_max,
+        )
+    }
+
+    /// Build the Numeric iterator with memory-based expiration checking.
+    ///
+    /// # Safety
+    ///
+    /// 1. `self.context` is a valid pointer to a `RedisSearchCtx`.
+    /// 2. `self.context.spec` is a valid pointer to an `IndexSpec`.
+    /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    fn build_with_expiration(self) -> Numeric<'index, R, FieldExpirationChecker> {
+        // SAFETY: Guaranteed by the caller's safety contract.
+        let checker = unsafe {
+            FieldExpirationChecker::new(
+                self.context,
+                FieldFilterContext {
+                    field: FieldMaskOrIndex::Index(self.index),
+                    predicate: self.predicate,
+                },
+            )
+        };
+        Numeric::new(
+            self.reader,
+            checker,
             self.range_tree,
             self.range_min,
             self.range_max,
@@ -338,15 +365,18 @@ mod not_miri {
 
         fn create_iterator(
             &self,
-        ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
-        {
+        ) -> Numeric<
+            '_,
+            inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>,
+            FieldExpirationChecker,
+        > {
             let reader = self.test.numeric_inverted_index().reader();
             let field_index = self.test.context.field_spec().index;
 
             NumericBuilder::new(reader, self.test.context.sctx)
                 .field_index(field_index)
                 .range_tree(self.test.context.numeric_range_tree())
-                .build()
+                .build_with_expiration()
         }
 
         fn test_read_expiration(&mut self) {
