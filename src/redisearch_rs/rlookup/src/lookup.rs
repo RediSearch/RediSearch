@@ -547,7 +547,7 @@ mod tests {
     fn rlookup_init() {
         let mut rlookup = RLookup::new();
 
-        let spcache = unsafe { IndexSpecCache::from_fields([]) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         rlookup.init(Some(spcache));
 
@@ -559,12 +559,12 @@ mod tests {
     fn rlookup_no_reinit() {
         let mut rlookup = RLookup::new();
 
-        let spcache = unsafe { IndexSpecCache::from_fields([]) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         rlookup.init(Some(spcache));
         assert!(rlookup.index_spec_cache.is_some());
 
-        let spcache = unsafe { IndexSpecCache::from_fields([]) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         // this should panic
         rlookup.init(Some(spcache));
@@ -653,7 +653,7 @@ mod tests {
         let key_name = c"key_no_cache";
         let field_name = c"name_in_doc";
 
-        let spcache = unsafe { IndexSpecCache::from_fields([]) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
@@ -684,15 +684,13 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let spcache = unsafe {
-            IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-                .with_field_name(key_name)
-                .with_sort_idx(12)
-                .with_options(make_bitflags!(FieldSpecOption::{
-                    Sortable
-                }))
-                .finish()])
-        };
+        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
+            .with_field_name(key_name)
+            .with_sort_idx(12)
+            .with_options(make_bitflags!(FieldSpecOption::{
+                Sortable
+            }))
+            .finish()]);
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
@@ -726,15 +724,13 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let spcache = unsafe {
-            IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-                .with_field_name(key_name)
-                .with_sort_idx(12)
-                .with_options(make_bitflags!(FieldSpecOption::{
-                    Sortable | Unf
-                }))
-                .finish()])
-        };
+        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
+            .with_field_name(key_name)
+            .with_sort_idx(12)
+            .with_options(make_bitflags!(FieldSpecOption::{
+                Sortable | Unf
+            }))
+            .finish()]);
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
@@ -761,15 +757,13 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let spcache = unsafe {
-            IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-                .with_field_name(key_name)
-                .with_sort_idx(12)
-                .with_options(make_bitflags!(FieldSpecOption::{
-                    Sortable | Unf
-                }))
-                .finish()])
-        };
+        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
+            .with_field_name(key_name)
+            .with_sort_idx(12)
+            .with_options(make_bitflags!(FieldSpecOption::{
+                Sortable | Unf
+            }))
+            .finish()]);
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
@@ -808,7 +802,7 @@ mod tests {
         ];
 
         for flag in key_flags {
-            let spcache = unsafe { IndexSpecCache::from_fields([]) };
+            let spcache = IndexSpecCache::from_fields([]);
 
             let mut rlookup = RLookup::new();
             rlookup.init(Some(spcache));
@@ -845,7 +839,7 @@ mod tests {
         let key_name = c"key_no_cache";
         let field_name = c"name_in_doc";
 
-        let spcache = unsafe { IndexSpecCache::from_fields([]) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
@@ -872,7 +866,7 @@ mod tests {
         let key_name = c"key_no_cache";
         let field_name = c"key_no_cache";
 
-        let spcache = unsafe { IndexSpecCache::from_fields([]) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
@@ -1184,7 +1178,7 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let spcache = unsafe { IndexSpecCache::from_fields([
+             let spcache = IndexSpecCache::from_fields([
                  FieldSpecBuilder::new(&path)
                  .with_field_name(&name)
                  .with_sort_idx(sort_idx)
@@ -1192,7 +1186,7 @@ mod tests {
                      Sortable | Unf
                  }))
                  .finish()
-             ]) };
+             ]);
 
              rlookup.init(Some(spcache));
 
@@ -1238,9 +1232,9 @@ mod tests {
              rlookup.keys.push(key);
 
              // push a field spec to the cache
-             let spcache = unsafe { IndexSpecCache::from_fields([
+             let spcache = IndexSpecCache::from_fields([
                  FieldSpecBuilder::new(&name2).finish()
-             ]) };
+             ]);
 
              // set the cache as the rlookup cache
              rlookup.init(Some(spcache));
@@ -1269,9 +1263,9 @@ mod tests {
              rlookup.keys.push(key);
 
              // push a field spec to the cache
-             let spcache = unsafe { IndexSpecCache::from_fields([
+             let spcache = IndexSpecCache::from_fields([
                  FieldSpecBuilder::new(&name2).finish()
-             ]) };
+             ]);
 
              // set the cache as the rlookup cache
              rlookup.init(Some(spcache));
