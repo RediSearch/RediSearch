@@ -439,11 +439,6 @@ pub(super) mod not_miri {
             self.context.text_field_bit()
         }
 
-        /// Get the search context from the TestContext.
-        pub(crate) fn sctx(&self) -> std::ptr::NonNull<ffi::RedisSearchCtx> {
-            self.context.sctx
-        }
-
         /// Create a mock expiration checker.
         /// Returns a clone of the internal mock checker with all currently expired documents.
         pub(crate) fn create_mock_checker(&self) -> MockExpirationChecker {
