@@ -120,7 +120,6 @@ jobs:
     secrets: inherit
     with:
       git_ref: ${{ inputs.git_ref }}
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-02-primaries
@@ -137,7 +136,6 @@ jobs:
     secrets: inherit
     with:
       git_ref: ${{ inputs.git_ref }}
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries
@@ -170,7 +168,6 @@ jobs:
     secrets: inherit
     with:
       git_ref: ${{ inputs.git_ref }}
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries
@@ -196,7 +193,6 @@ jobs:
     secrets: inherit
     with:
       git_ref: ${{ inputs.git_ref }}
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-16-primaries
@@ -213,7 +209,6 @@ jobs:
     secrets: inherit
     with:
       git_ref: ${{ inputs.git_ref }}
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-20-primaries
@@ -230,7 +225,6 @@ jobs:
     secrets: inherit
     with:
       git_ref: ${{ inputs.git_ref }}
-      cluster_env: 1
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-24-primaries
