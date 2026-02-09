@@ -497,71 +497,75 @@ The `IndexBlock` struct uses serde for fork GC serialization (messagepack via `r
 
 **Goal**: Create utilities to compute block-level score upper bounds for each supported scorer.
 
-#### 2.1 Score Context Structure
+#### 2.1 BlockScorer Enum (Unified Design)
+
+We use a unified enum that embeds scoring parameters in each variant. This provides:
+- **Type safety**: Can't accidentally use BM25 parameters with TfIdf scorer
+- **No wasted fields**: DocScore doesn't carry unused `avg_doc_len`
+- **Clean API**: One thing to pass instead of separate context + type
 
 ```rust
-/// Parameters needed to compute block max scores
-pub struct BlockScoreContext {
-    /// Inverse Document Frequency for the term
-    pub idf: f64,
-    /// Average document length in the index
-    pub avg_doc_len: f64,
-    /// BM25 k1 parameter (term frequency saturation)
-    pub bm25_k1: f64,
-    /// BM25 b parameter (length normalization)
-    pub bm25_b: f64,
+/// Block scorer with embedded scoring parameters.
+/// Each variant contains only the parameters it needs.
+pub enum BlockScorer {
+    /// TF-IDF scorer: Score = (TF / DocLen) × IDF × DocScore
+    TfIdf { idf: f64 },
+    /// BM25 scorer with length normalization
+    Bm25 { idf: f64, avg_doc_len: f64, k1: f64, b: f64 },
+    /// DOCSCORE scorer: Score = DocScore (ignores term frequency)
+    DocScore,
 }
-```
 
-#### 2.2 Block Max Score Trait
+impl BlockScorer {
+    /// Create a TF-IDF scorer
+    pub fn tfidf(idf: f64) -> Self {
+        Self::TfIdf { idf }
+    }
 
-```rust
-/// Trait for computing block-level score upper bounds
-pub trait BlockMaxScorer {
+    /// Create a BM25 scorer with custom parameters
+    pub fn bm25(idf: f64, avg_doc_len: f64, k1: f64, b: f64) -> Self {
+        Self::Bm25 { idf, avg_doc_len, k1, b }
+    }
+
+    /// Create a BM25 scorer with default k1=1.2, b=0.75
+    pub fn bm25_default(idf: f64, avg_doc_len: f64) -> Self {
+        Self::bm25(idf, avg_doc_len, 1.2, 0.75)
+    }
+
+    /// Create a DOCSCORE scorer
+    pub fn doc_score() -> Self {
+        Self::DocScore
+    }
+
     /// Compute the maximum possible score for any document in this block
-    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64;
-}
-
-/// TF-IDF scorer: Score = (TF / DocLen) × IDF × DocScore
-pub struct TfIdfBlockScorer;
-
-impl BlockMaxScorer for TfIdfBlockScorer {
-    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64 {
+    pub fn block_max_score(&self, block: &IndexBlock) -> f64 {
+        if block.num_entries == 0 {
+            return 0.0; // Empty block
+        }
         if !block.has_scoring_metadata() {
             return f64::MAX; // No skipping possible
         }
-        (block.max_freq as f64 / block.min_doc_len as f64)
-            * ctx.idf
-            * block.max_doc_score as f64
+
+        match self {
+            Self::TfIdf { idf } => {
+                let doc_score = if block.max_doc_score == 0.0 { 1.0 } else { block.max_doc_score as f64 };
+                (block.max_freq as f64 / block.min_doc_len as f64) * idf * doc_score
+            }
+            Self::Bm25 { idf, avg_doc_len, k1, b } => {
+                let tf = block.max_freq as f64;
+                let len_norm = 1.0 - b + b * (block.min_doc_len as f64 / avg_doc_len);
+                let tf_saturation = (tf * (k1 + 1.0)) / (tf + k1 * len_norm);
+                let doc_score = if block.max_doc_score == 0.0 { 1.0 } else { block.max_doc_score as f64 };
+                idf * tf_saturation * doc_score
+            }
+            Self::DocScore => block.max_doc_score as f64,
+        }
     }
 }
 
-/// BM25 scorer
-pub struct Bm25BlockScorer;
-
-impl BlockMaxScorer for Bm25BlockScorer {
-    fn block_max_score(block: &IndexBlock, ctx: &BlockScoreContext) -> f64 {
-        if !block.has_scoring_metadata() {
-            return f64::MAX;
-        }
-        let tf = block.max_freq as f64;
-        let len_norm = 1.0 - ctx.bm25_b
-            + ctx.bm25_b * (block.min_doc_len as f64 / ctx.avg_doc_len);
-        let tf_saturation = (tf * (ctx.bm25_k1 + 1.0)) / (tf + ctx.bm25_k1 * len_norm);
-
-        ctx.idf * tf_saturation * block.max_doc_score as f64
-    }
-}
-
-/// DOCSCORE scorer: Score = DocScore (ignores term frequency)
-pub struct DocScoreBlockScorer;
-
-impl BlockMaxScorer for DocScoreBlockScorer {
-    fn block_max_score(block: &IndexBlock, _ctx: &BlockScoreContext) -> f64 {
-        if !block.has_scoring_metadata() {
-            return f64::MAX;
-        }
-        block.max_doc_score as f64
+impl Default for BlockScorer {
+    fn default() -> Self {
+        Self::tfidf(1.0)
     }
 }
 ```
@@ -596,11 +600,11 @@ pub trait IndexReader<'index> {
         &mut self,
         doc_id: t_docId,
         min_score: f64,
-        score_ctx: &BlockScoreContext,
+        scorer: &BlockScorer,
     ) -> bool;
 
     /// Get the max score for the current block, or `f64::MAX` if unknown.
-    fn current_block_max_score(&self, score_ctx: &BlockScoreContext) -> f64;
+    fn current_block_max_score(&self, scorer: &BlockScorer) -> f64;
 }
 ```
 
@@ -614,7 +618,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         &mut self,
         doc_id: t_docId,
         min_score: f64,
-        score_ctx: &BlockScoreContext,
+        scorer: &BlockScorer,
     ) -> bool {
         // First, find the block containing doc_id (existing logic)
         let mut target_block_idx = self.find_block_containing(doc_id);
@@ -622,7 +626,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         // Then, skip blocks that can't contribute enough score
         while target_block_idx < self.ii.blocks.len() {
             let block = &self.ii.blocks[target_block_idx];
-            let block_max = self.compute_block_max_score(block, score_ctx);
+            let block_max = scorer.block_max_score(block);
 
             if block_max >= min_score {
                 break;
@@ -638,12 +642,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         true
     }
 
-    fn current_block_max_score(&self, score_ctx: &BlockScoreContext) -> f64 {
+    fn current_block_max_score(&self, scorer: &BlockScorer) -> f64 {
         if self.current_block_idx >= self.ii.blocks.len() {
             return 0.0;
         }
         let block = &self.ii.blocks[self.current_block_idx];
-        self.compute_block_max_score(block, score_ctx)
+        scorer.block_max_score(block)
     }
 }
 ```
@@ -658,12 +662,12 @@ fn skip_to_with_threshold(
     &mut self,
     doc_id: t_docId,
     _min_score: f64,
-    _score_ctx: &BlockScoreContext,
+    _scorer: &BlockScorer,
 ) -> bool {
     self.skip_to(doc_id)
 }
 
-fn current_block_max_score(&self, _score_ctx: &BlockScoreContext) -> f64 {
+fn current_block_max_score(&self, _scorer: &BlockScorer) -> f64 {
     f64::MAX // Conservative: never skip
 }
 ```
@@ -743,17 +747,13 @@ Benchmark the overhead of computing block max scores:
 ```rust
 fn bench_block_max_score_computation(c: &mut Criterion) {
     let blocks = create_test_blocks(1000); // Simulated blocks with varied metadata
-    let ctx = BlockScoreContext {
-        idf: 5.67,
-        avg_doc_len: 100.0,
-        bm25_k1: 1.2,
-        bm25_b: 0.75,
-    };
+    let tfidf_scorer = BlockScorer::tfidf(5.67);
+    let bm25_scorer = BlockScorer::bm25(5.67, 100.0, 1.2, 0.75);
 
     c.bench_function("tfidf_block_max_score", |b| {
         b.iter(|| {
             for block in &blocks {
-                black_box(TfIdfBlockScorer::block_max_score(block, &ctx));
+                black_box(tfidf_scorer.block_max_score(block));
             }
         })
     });
@@ -761,7 +761,7 @@ fn bench_block_max_score_computation(c: &mut Criterion) {
     c.bench_function("bm25_block_max_score", |b| {
         b.iter(|| {
             for block in &blocks {
-                black_box(Bm25BlockScorer::block_max_score(block, &ctx));
+                black_box(bm25_scorer.block_max_score(block));
             }
         })
     });
@@ -776,11 +776,11 @@ Simulate block skipping decisions without full index iteration:
 fn bench_block_skipping_decisions(c: &mut Criterion) {
     // Create simulated block metadata with realistic distributions
     let blocks = create_blocks_with_zipfian_tf_distribution(10_000);
-    let ctx = create_score_context();
+    let scorer = BlockScorer::tfidf(5.67);
 
     // Simulate different threshold scenarios
     for threshold_percentile in [0.5, 0.75, 0.9, 0.95] {
-        let min_score = compute_percentile_score(&blocks, &ctx, threshold_percentile);
+        let min_score = compute_percentile_score(&blocks, &scorer, threshold_percentile);
 
         c.bench_function(
             &format!("skip_decision_p{}", (threshold_percentile * 100.0) as u32),
@@ -788,7 +788,7 @@ fn bench_block_skipping_decisions(c: &mut Criterion) {
                 b.iter(|| {
                     let mut skipped = 0;
                     for block in &blocks {
-                        let block_max = TfIdfBlockScorer::block_max_score(block, &ctx);
+                        let block_max = scorer.block_max_score(block);
                         if block_max < min_score {
                             skipped += 1;
                         }
