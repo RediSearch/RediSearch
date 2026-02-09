@@ -494,11 +494,8 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
 }
 
 bool SchemaRule_FilterPasses(EvalCtx *r, const RSExpr *filter_exp) {
-  if (EvalCtx_EvalExpr(r, filter_exp) != EXPR_EVAL_OK ||
-      !RSValue_BoolTest(r->res)) {
-    return false;
-  }
-  return true;
+  return EvalCtx_EvalExpr(r, filter_exp) == EXPR_EVAL_OK &&
+         RSValue_BoolTest(r->res);
 }
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
