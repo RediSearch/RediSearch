@@ -1620,6 +1620,7 @@ dependencies = [
  "quote 1.0.44",
  "redis-module",
  "result_processor_ffi",
+ "rlookup_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -1707,6 +1708,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "document",
  "enumflags2",
  "ffi",
@@ -1728,6 +1730,7 @@ name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "ffi",
  "libc",

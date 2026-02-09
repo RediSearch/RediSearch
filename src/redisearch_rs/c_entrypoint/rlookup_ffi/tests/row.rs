@@ -32,8 +32,8 @@ use value::RSValueTrait;
 fn rlookuprow_move() {
     let mut lookup = RLookup::new();
 
-    let mut src = RLookupRow::new(&lookup);
-    let mut dst = RLookupRow::new(&lookup);
+    let mut src: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut dst: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
 
     let key = lookup
         .get_key_write(c"foo", RLookupKeyFlags::empty())
@@ -49,8 +49,8 @@ fn rlookuprow_move() {
     unsafe {
         RLookupRow_MoveFieldsFrom(
             ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut src)),
-            Some(NonNull::from(&mut dst)),
+            Some(NonNull::from(&mut src).cast::<rlookup::OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut dst).cast::<rlookup::OpaqueRLookupRow>()),
         )
     }
 
@@ -66,7 +66,7 @@ fn rlookuprow_writebyname() {
     let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
-    let mut row = RLookupRow::new(&lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
     assert_eq!(value.refcount(), 1);
@@ -76,7 +76,7 @@ fn rlookuprow_writebyname() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row)),
+            Some(NonNull::from(&mut row).cast::<rlookup::OpaqueRLookupRow>()),
             NonNull::new(value.as_ptr()),
         );
     }
@@ -89,7 +89,7 @@ fn rlookuprow_writebynameowned() {
     let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
-    let mut row = RLookupRow::new(&lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
     assert_eq!(value.refcount(), 1);
@@ -99,7 +99,7 @@ fn rlookuprow_writebynameowned() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row)),
+            Some(NonNull::from(&mut row).cast::<rlookup::OpaqueRLookupRow>()),
             NonNull::new(value.as_ptr()),
         );
     }
