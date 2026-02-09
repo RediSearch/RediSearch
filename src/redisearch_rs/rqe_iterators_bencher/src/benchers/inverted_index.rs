@@ -15,8 +15,9 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::RSIndexResult;
-use rqe_iterators::{NoOpChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use inverted_index::{IndexReader, RSIndexResult};
+use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
 
 use crate::ffi::QueryIterator;
 
@@ -270,15 +271,23 @@ impl NumericBencher {
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
         group.bench_function("Rust", |b| {
             let ii = context.numeric_inverted_index().as_numeric();
+            let fs = context.field_spec();
 
             b.iter(|| {
-                let mut it = Numeric::new(
-                    ii.reader(),
-                    NoOpChecker,
-                    None,
-                    None,
-                    None,
-                );
+                let reader = ii.reader();
+                let reader_flags = reader.flags();
+                let checker = unsafe {
+                    FieldExpirationChecker::new(
+                        context.sctx,
+                        FieldFilterContext {
+                            field: FieldMaskOrIndex::Index(fs.index),
+                            predicate: FieldExpirationPredicate::Default,
+                        },
+                        reader_flags,
+                    )
+                };
+
+                let mut it = Numeric::new(reader, checker, None, None, None);
 
                 while let Ok(Some(current)) = it.read() {
                     black_box(current);
@@ -320,15 +329,23 @@ impl NumericBencher {
     ) {
         group.bench_function("Rust", |b| {
             let ii = context.numeric_inverted_index().as_numeric();
+            let fs = context.field_spec();
 
             b.iter(|| {
-                let mut it = Numeric::new(
-                    ii.reader(),
-                    NoOpChecker,
-                    None,
-                    None,
-                    None,
-                );
+                let reader = ii.reader();
+                let reader_flags = reader.flags();
+                let checker = unsafe {
+                    FieldExpirationChecker::new(
+                        context.sctx,
+                        FieldFilterContext {
+                            field: FieldMaskOrIndex::Index(fs.index),
+                            predicate: FieldExpirationPredicate::Default,
+                        },
+                        reader_flags,
+                    )
+                };
+
+                let mut it = Numeric::new(reader, checker, None, None, None);
 
                 while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                     match outcome {
