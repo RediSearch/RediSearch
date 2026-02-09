@@ -13,7 +13,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IndexFlags_Index_WideSchema, RedisSearchCtx, t_docId};
+use ffi::{IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId};
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::RSIndexResult;
 
@@ -92,8 +92,18 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let spec = unsafe { *(sctx.spec) };
 
-        // Expiration is enabled if TTL is configured and field expiration monitoring is enabled
-        !spec.docs.ttl.is_null() && spec.monitorFieldExpiration
+        // Check if TTL is configured and field expiration monitoring is enabled
+        if spec.docs.ttl.is_null() || !spec.monitorFieldExpiration {
+            return false;
+        }
+
+        // Check if the specific field/fieldMask has expiration
+        // For masks, expiration is always enabled
+        // For indices, expiration is only enabled if the index is valid
+        match self.filter_ctx.field {
+            FieldMaskOrIndex::Mask(_) => true,
+            FieldMaskOrIndex::Index(index) => index != RS_INVALID_FIELD_INDEX,
+        }
     }
 
     fn is_expired(&self, doc_id: t_docId, result: &RSIndexResult) -> bool {
@@ -158,4 +168,3 @@ impl ExpirationChecker for FieldExpirationChecker {
         }
     }
 }
-

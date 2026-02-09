@@ -14,7 +14,7 @@ use ffi::{
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{FilterMaskReader, IndexReader, RSIndexResult, RSOffsetVector, full::Full};
-use rqe_iterators::{inverted_index::Term, FieldExpirationChecker, NoOpChecker};
+use rqe_iterators::{FieldExpirationChecker, NoOpChecker, inverted_index::Term};
 
 use crate::{
     ffi::query_term::QueryTermBuilder,
@@ -78,7 +78,8 @@ impl TermBaseTest {
 
     fn create_iterator(
         &self,
-    ) -> Term<'_, inverted_index::IndexReaderCore<'_, inverted_index::full::Full>, NoOpChecker> {
+    ) -> Term<'_, inverted_index::IndexReaderCore<'_, inverted_index::full::Full>, NoOpChecker>
+    {
         let reader = self.test.ii.reader();
 
         Term::new(reader, NoOpChecker)

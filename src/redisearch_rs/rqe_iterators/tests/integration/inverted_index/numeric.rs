@@ -14,9 +14,7 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     FilterNumericReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
 };
-use rqe_iterators::{
-    inverted_index::Numeric, FieldExpirationChecker, NoOpChecker, RQEIterator,
-};
+use rqe_iterators::{FieldExpirationChecker, NoOpChecker, RQEIterator, inverted_index::Numeric};
 
 use crate::inverted_index::utils::{BaseTest, MockContext};
 

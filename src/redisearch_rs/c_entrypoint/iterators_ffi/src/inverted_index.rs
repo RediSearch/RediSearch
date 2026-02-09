@@ -14,8 +14,8 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, IndexReaderCore, NumericFilter,
     NumericReader, RSIndexResult, t_docId,
 };
-use rqe_iterators::inverted_index::Numeric;
 use rqe_iterators::FieldExpirationChecker;
+use rqe_iterators::inverted_index::Numeric;
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different numeric reader types to avoid generics in FFI code.
@@ -111,10 +111,20 @@ enum IteratorVariant<'index> {
     Numeric(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
     /// Numeric iterator with a user filter applied.
     NumericFiltered(
-        Numeric<'index, FilterNumericReader<'index, NumericIndexReader<'index>>, FieldExpirationChecker>,
+        Numeric<
+            'index,
+            FilterNumericReader<'index, NumericIndexReader<'index>>,
+            FieldExpirationChecker,
+        >,
     ),
     /// Geo iterator (always has a filter).
-    Geo(Numeric<'index, FilterGeoReader<'index, NumericIndexReader<'index>>, FieldExpirationChecker>),
+    Geo(
+        Numeric<
+            'index,
+            FilterGeoReader<'index, NumericIndexReader<'index>>,
+            FieldExpirationChecker,
+        >,
+    ),
 }
 
 /// Wrapper around the actual Numeric iterator.
