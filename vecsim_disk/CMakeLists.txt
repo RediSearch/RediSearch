@@ -66,3 +66,22 @@ if(BUILD_TESTS)
     # Add tests subdirectory
     add_subdirectory(tests)
 endif()
+
+# =============================================================================
+# Benchmarks (optional, enabled via BUILD_VECSIM_BENCHMARKS)
+# =============================================================================
+option(BUILD_VECSIM_BENCHMARKS "Build vecsim_disk benchmarks" OFF)
+
+if(BUILD_VECSIM_BENCHMARKS)
+    # Fetch Google Benchmark if not already available
+    include(FetchContent)
+    option(BENCHMARK_ENABLE_GTEST_TESTS "" OFF)
+    option(BENCHMARK_ENABLE_TESTING "" OFF)
+    FetchContent_Declare(
+        google_benchmark
+        URL https://github.com/google/benchmark/archive/refs/tags/v1.9.5.zip
+    )
+    FetchContent_MakeAvailable(google_benchmark)
+
+    add_subdirectory(benchmarks)
+endif()

@@ -21,6 +21,7 @@ Commands:
   test-miri        Run Rust unit tests with Miri (requires nightly toolchain)
   test-flow        Run integration tests with RLTest
   bench            Run Rust micro benchmarks
+  bench-vecsim     Run C++ vecsim_disk benchmarks (Google Benchmark)
   profile          Profile the module with VTune
 
 Environment Variables:
@@ -107,6 +108,19 @@ Micro Benchmarks (./build.sh bench):
 
   Note: Benchmarks always run in release mode for accurate performance measurement.
         Install critcmp for comparing results: cargo install critcmp
+
+VecSim Disk Benchmarks (./build.sh bench-vecsim):
+  Run all vecsim_disk benchmarks:
+    ./build.sh bench-vecsim
+
+  Filter to specific benchmark:
+    ./build.sh bench-vecsim --benchmark_filter="CreateIndex"
+
+  Run with more iterations:
+    ./build.sh bench-vecsim --benchmark_repetitions=5
+
+  Note: Uses Google Benchmark. Run in release mode for accurate measurements.
+        See https://github.com/google/benchmark for more options.
 
 Profiling (./build.sh profile):
   Profile the module with VTune:
@@ -342,6 +356,48 @@ cmd_bench() {
   cargo bench --benches --color=always "$@"
 }
 
+cmd_bench_vecsim() {
+  echo "[bench-vecsim] Running vecsim_disk benchmarks"
+
+  # Use Release for benchmarks - accurate performance measurement
+  local profile="Release"
+
+  # Configure with benchmarks enabled
+  if [ ! -f "${BUILD_DIR}/CMakeCache.txt" ]; then
+    echo "[configure] CMake configure (profile=${profile}, benchmarks=ON)"
+    cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" -DBUILD_VECSIM_BENCHMARKS=ON ${CMAKE_ARGS:-}
+  else
+    # Reconfigure if BUILD_VECSIM_BENCHMARKS is not already ON
+    if ! grep -q "BUILD_VECSIM_BENCHMARKS:BOOL=ON" "${BUILD_DIR}/CMakeCache.txt" 2>/dev/null; then
+      echo "[configure] Reconfiguring with benchmarks enabled"
+      cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" -DBUILD_VECSIM_BENCHMARKS=ON ${CMAKE_ARGS:-}
+    fi
+  fi
+
+  # Build SpeedB (required by vecsim_disk)
+  build_speedb
+
+  # Build all benchmark executables
+  echo "[bench-vecsim] Building all vecsim_disk benchmarks..."
+  cmake --build "${BUILD_DIR}" --target vecsim_disk_benchmarks -j"$(nproc)" || { echo "[bench-vecsim] Error: Build failed."; exit 1; }
+
+  # Run all benchmarks listed by benchmarks_disk.sh
+  echo "[bench-vecsim] Running benchmarks..."
+  local speedb_lib_dir="${BUILD_DIR}/speedb-build"
+  local benchmark_dir="${BUILD_DIR}/vecsim_disk/benchmarks"
+  local script_dir="${ROOT_DIR}/vecsim_disk/benchmarks"
+
+  # Get list of benchmarks from the script
+  for bm in $("${script_dir}/benchmarks_disk.sh"); do
+    echo "[bench-vecsim] Running ${bm}..."
+    # Each benchmark outputs to its own JSON file (for redisbench-admin)
+    LD_LIBRARY_PATH="${speedb_lib_dir}:${LD_LIBRARY_PATH:-}" "${benchmark_dir}/${bm}" \
+      --benchmark_out_format=json \
+      --benchmark_out="${bm}_results.json" \
+      "$@"
+  done
+}
+
 cmd_profile() {
   # Build in Release mode without tests
   echo "[profile] Building module in Release mode..."
@@ -386,6 +442,7 @@ main() {
     test-miri) shift; cmd_test_miri "$@" ;;
     test-flow) shift; cmd_test_flow "$@" ;;
     bench) shift; cmd_bench "$@" ;;
+    bench-vecsim) shift; cmd_bench_vecsim "$@" ;;
     profile) shift; cmd_profile "$@" ;;
     -h|--help|help|"") usage ;;
     *) echo "Unknown command: ${cmd}"; usage; exit 2 ;;

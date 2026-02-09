@@ -22,22 +22,13 @@
 #include "factory/disk_index_factory.h"
 #include "factory/components/disk_components_factory.h"
 #include "vecsim_disk_api.h"
+#include "speedb_c_wrappers.h"
 
 #include <cstring>
 #include <memory>
 #include <string>
 #include <filesystem>
-#include <iostream>
 #include <unistd.h>
-
-// C API wrapper structures (from rocksdb/c.cc)
-struct rocksdb_t {
-    rocksdb::DB* rep;
-};
-
-struct rocksdb_column_family_handle_t {
-    rocksdb::ColumnFamilyHandle* rep;
-};
 
 namespace fs = std::filesystem;
 
@@ -87,7 +78,12 @@ public:
         }
 
         cf_ = handles[0];
-        std::cout << "[TempSpeeDB] Database created successfully at: " << db_path_ << std::endl;
+
+        // Initialize C API wrappers for FFI
+        db_wrapper_.rep = db_;
+        cf_wrapper_.rep = cf_;
+        handles_.db = &db_wrapper_;
+        handles_.cf = &cf_wrapper_;
     }
 
     ~TempSpeeDB() {
@@ -101,12 +97,14 @@ public:
         // Clean up test directory
         if (!db_path_.empty() && fs::exists(db_path_)) {
             fs::remove_all(db_path_);
-            std::cout << "[TempSpeeDB] Cleaned up directory: " << db_path_ << std::endl;
         }
     }
 
     rocksdb::DB* db() { return db_; }
     rocksdb::ColumnFamilyHandle* cf() { return cf_; }
+
+    // Get SpeeDBHandles for passing to VecSimDisk API
+    SpeeDBHandles* getHandles() { return &handles_; }
 
     template <typename DataType = float>
     std::unique_ptr<HNSWStorage<DataType>> createStorage() {
@@ -122,6 +120,11 @@ private:
     rocksdb::ColumnFamilyHandle* cf_ = nullptr;
     std::string db_path_;
     static inline int counter_ = 0;
+
+    // C API wrappers for FFI
+    rocksdb_t db_wrapper_;
+    rocksdb_column_family_handle_t cf_wrapper_;
+    SpeeDBHandles handles_;
 };
 
 /**
@@ -135,7 +138,7 @@ class TestIndex {
 public:
     TestIndex(size_t dim, VecSimMetric metric = VecSimMetric_L2, size_t M = 16, size_t efConstruction = 200,
               size_t efRuntime = 10)
-        : db_(std::make_unique<TempSpeeDB>()) {
+        : allocator_(VecSimAllocator::newVecsimAllocator()), db_(std::make_unique<TempSpeeDB>()) {
 
         HNSWParams params = {
             .type = VecSimType_FLOAT32,
@@ -152,9 +155,7 @@ public:
         // Create abstract init params for disk backend:
         // - storedDataSize = SQ8 quantized size
         // - inputBlobSize = FP32 size
-        // This creates the allocator that will be used for the index and all its components
-        auto abstractInitParams = VecSimDiskFactory::NewDiskInitParams(&params, nullptr);
-        allocator_ = abstractInitParams.allocator; // Use the same allocator everywhere
+        auto abstractInitParams = VecSimDiskFactory::NewDiskInitParams(&params, nullptr, allocator_);
 
         // Create disk-specific components with multi-mode calculator
         // is_normalized=true: disk backend assumes vectors are already normalized (for Cosine)

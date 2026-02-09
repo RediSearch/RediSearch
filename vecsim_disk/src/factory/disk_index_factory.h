@@ -44,11 +44,12 @@ inline size_t GetSQ8StoredDataSize(size_t dim, VecSimMetric metric) {
 // storedDataSize = SQ8 quantized size (for in-memory RawDataContainer)
 // inputBlobSize = FP32 size (vectors come from frontend in FP32)
 template <typename IndexParams>
-AbstractIndexInitParams NewDiskInitParams(const IndexParams* algo_params, void* logCtx) {
+AbstractIndexInitParams NewDiskInitParams(const IndexParams* algo_params, void* logCtx,
+                                          std::shared_ptr<VecSimAllocator> allocator) {
     size_t storedDataSize = GetSQ8StoredDataSize(algo_params->dim, algo_params->metric);
     size_t inputBlobSize = algo_params->dim * VecSimType_sizeof(algo_params->type);
 
-    AbstractIndexInitParams abstractInitParams = {.allocator = VecSimAllocator::newVecsimAllocator(),
+    AbstractIndexInitParams abstractInitParams = {.allocator = allocator,
                                                   .dim = algo_params->dim,
                                                   .vecType = algo_params->type,
                                                   .storedDataSize = storedDataSize,

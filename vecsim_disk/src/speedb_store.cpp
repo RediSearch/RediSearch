@@ -12,19 +12,9 @@
 
 #include "storage/hnsw_storage.h"
 #include "vecsim_disk_api.h"
-#include "rocksdb/c.h"
+#include "speedb_c_wrappers.h"
 
 #include <memory>
-
-// Internal C API wrapper structures (from rocksdb/c.cc)
-// These wrap the C++ types for the C API
-struct rocksdb_t {
-    rocksdb::DB* rep;
-};
-
-struct rocksdb_column_family_handle_t {
-    rocksdb::ColumnFamilyHandle* rep;
-};
 
 template <typename DataType>
 std::unique_ptr<HNSWStorage<DataType>> CreateHNSWStorage(const SpeeDBHandles* handles) {

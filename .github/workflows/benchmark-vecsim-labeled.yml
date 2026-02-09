@@ -1,0 +1,44 @@
+# PR label trigger workflow for disk-based HNSW benchmarks (vecsim_disk)
+# Following VectorSimilarity's benchmark-labeled.yml pattern
+# Label 'action:benchmark-vecsim' triggers benchmarks
+name: benchmark-vecsim
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+    branches-ignore:
+      - '*docs'
+      - '*noci'
+
+jobs:
+  check-label:
+    name: Check for benchmark label
+    runs-on: ubuntu-latest
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
+    steps:
+      - name: Check Labels
+        id: check
+        shell: python
+        run: |
+          import os
+          if '${{ github.event.action }}' == 'labeled':
+            # Get labels from event
+            labels = ['${{ github.event.label.name }}']
+          else:
+            # Get labels from PR
+            labels = ${{ toJson(github.event.pull_request.labels.*.name) }}
+
+          # Check if the benchmark label is present
+          has_label = 'action:benchmark-vecsim' in labels
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            print(f'should-run={has_label}', file=f)
+
+  bm_invoker:
+    needs: check-label
+    name: Trigger
+    if: needs.check-label.outputs.should-run == 'True'
+    uses: ./.github/workflows/benchmark-vecsim.yml
+    secrets: inherit
+

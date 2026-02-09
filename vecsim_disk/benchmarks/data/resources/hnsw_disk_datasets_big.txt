@@ -1,0 +1,7 @@
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/deep1b/deep.query.public.10K.fbin
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/deep1b/deep.base.10M.fbin
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/deep1b/deep.groundtruth.10M.10K.ibin
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/deep1b/deep.base.100M.fbin
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/deep1b/deep.groundtruth.100M.10K.ibin
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/deep1b/deep.base.1B.fbin
+https://dev.cto.redis.s3.amazonaws.com/VectorSimilarity/deep1b/deep.groundtruth.public.10K.ibin

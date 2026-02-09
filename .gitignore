@@ -51,3 +51,10 @@ target/
 
 # Augment AI feature tracking (local only)
 .augment/*
+
+# vecsim data (ignore data files but not resources)
+vecsim_disk/benchmarks/data/*
+!vecsim_disk/benchmarks/data/resources/
+
+# Benchmark results
+*_results.json

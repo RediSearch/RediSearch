@@ -1,0 +1,77 @@
+# Main benchmark workflow for disk-based HNSW indexes (vecsim_disk)
+# Following VectorSimilarity's benchmark.yml pattern with architecture matrix
+name: Benchmark VecSim Disk
+
+on:
+  workflow_call:
+    inputs:
+      architecture:
+        type: string
+        required: false
+        default: 'all'
+        description: 'Run only on specific architecture'
+  workflow_dispatch:
+    inputs:
+      architecture:
+        type: choice
+        options:
+          - all
+          - arm64
+          - x86_64
+        description: 'Run only on specific architecture'
+        default: 'all'
+
+jobs:
+  prepare_runner_configurations:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # Define the full matrix as a JSON string
+          # Using the same AMIs as VectorSimilarity benchmarks
+          FULL_MATRIX='
+          {
+            "include": [
+              {
+                "architecture": "arm64",
+                "instance-type": "i8g.xlarge",
+                "ami-id": "ami-057f215f87a4f5ae4"
+              },
+              {
+                "architecture": "x86_64",
+                "instance-type": "i7i.xlarge",
+                "ami-id": "ami-06bf852dc064c0ce3"
+              }
+            ]
+          }
+          '
+
+          # Filter the matrix based on architecture
+          if [ "${{ inputs.architecture }}" = "all" ]; then
+            # Use the full matrix
+            FILTERED_MATRIX="$FULL_MATRIX"
+          else
+            # Filter to only the selected architecture
+            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c '{include: [.include[] | select(.architecture | contains("${{ inputs.architecture }}"))]}')
+          fi
+
+          # Use multiline output delimiter syntax for GitHub Actions
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILTERED_MATRIX" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  run_benchmarks:
+    name: Run ${{ matrix.architecture }} benchmarks
+    needs: prepare_runner_configurations
+    uses: ./.github/workflows/benchmark-vecsim-runner.yml
+    secrets: inherit
+    strategy:
+      matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+    with:
+      architecture: ${{ matrix.architecture }}
+      instance-type: ${{ matrix.instance-type }}
+      ami-id: ${{ matrix.ami-id }}
+

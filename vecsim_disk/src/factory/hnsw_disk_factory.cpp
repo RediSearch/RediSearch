@@ -32,7 +32,8 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params, bool is_input_normalized) 
     // Create abstract params for disk backend:
     // - storedDataSize = SQ8 quantized size (for in-memory RawDataContainer)
     // - inputBlobSize = FP32 size (vectors come from frontend in FP32)
-    auto abstractParams = VecSimDiskFactory::NewDiskInitParams(hnswParams, params->indexParams->logCtx);
+    // Pass the same allocator to ensure consistency
+    auto abstractParams = VecSimDiskFactory::NewDiskInitParams(hnswParams, params->indexParams->logCtx, allocator);
 
     // Create disk-specific components with multi-mode calculator (Full, QuantizedVsFull, Quantized)
     // The indexCalculator in components is a DiskDistanceCalculator<float>*
