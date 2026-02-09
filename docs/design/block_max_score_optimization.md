@@ -687,11 +687,567 @@ Update `inverted_index_ffi` to expose the new methods to C code.
 
 ---
 
-### Phase 4: Integration Testing
+### Phase 4: Iterator Layer Extension
+
+**Goal**: Add a `read_with_threshold` method to the `RQEIterator` interface that automatically skips blocks whose max score is below the threshold.
+
+Phase 3 added threshold-aware skipping to `IndexReader` (the low-level reader). However, query execution uses higher-level iterators (`InvIndIterator`, `RQEIterator`). This phase extends those interfaces with a clean API for threshold-aware reading.
+
+#### 4.1 Extend `RQEIterator` Trait
+
+Add the `read_with_threshold` method to the `RQEIterator` trait:
+
+```rust
+pub trait RQEIterator<'index> {
+    // ... existing methods ...
+
+    /// Read the next entry, skipping blocks whose max score is below `min_score`.
+    ///
+    /// This is the primary API for block-max score optimization. It combines
+    /// reading with automatic block skipping:
+    /// 1. If the current block's max score < min_score, skip to the next promising block
+    /// 2. Read the next entry from the current (or newly positioned) block
+    /// 3. Repeat until a valid entry is found or EOF
+    ///
+    /// # Arguments
+    /// * `min_score` - Minimum score threshold. Blocks with max_score < min_score are skipped.
+    /// * `scorer` - The scorer used to compute block max scores.
+    ///
+    /// # Returns
+    /// * `Ok(Some(&mut RSIndexResult))` - Next entry from a block with max_score >= min_score
+    /// * `Ok(None)` - No more entries (all remaining blocks are below threshold or EOF)
+    /// * `Err(...)` - Error during iteration
+    ///
+    /// # Default Implementation
+    /// Falls back to regular `read()`, ignoring the threshold (for iterators that
+    /// don't support block-level scoring).
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // Default: ignore threshold, just read
+        self.read()
+    }
+}
+```
+
+#### 4.2 Extend `IndexReader` Trait
+
+Add a helper method to check if we should skip the current block:
+
+```rust
+pub trait IndexReader<'index> {
+    // ... existing methods from Phase 3 ...
+
+    /// Advance to the next block that has max_score >= min_score.
+    ///
+    /// Returns `true` if positioned at a valid block, `false` if EOF.
+    /// This is called internally by `read_with_threshold` when the current
+    /// block's score is below threshold.
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> bool {
+        // Skip blocks until we find one with sufficient max score
+        while self.current_block_max_score(scorer) < min_score {
+            if !self.advance_to_next_block() {
+                return false; // EOF
+            }
+        }
+        true
+    }
+}
+```
+
+#### 4.3 Implement in `InvIndIterator<R>`
+
+The Rust `InvIndIterator` implements the threshold-aware read:
+
+```rust
+impl<'index, R: IndexReader<'index>> RQEIterator<'index> for InvIndIterator<'index, R> {
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.at_eos {
+            return Ok(None);
+        }
+
+        loop {
+            // Check if current block is worth reading
+            if self.reader.current_block_max_score(scorer) < min_score {
+                // Skip to next promising block
+                if !self.reader.advance_to_next_promising_block(min_score, scorer) {
+                    self.at_eos = true;
+                    return Ok(None);
+                }
+            }
+
+            // Try to read from current block
+            match self.reader.next_record(&mut self.result) {
+                true => {
+                    self.last_doc_id = self.result.doc_id;
+                    return Ok(Some(&mut self.result));
+                }
+                false => {
+                    // Current block exhausted, move to next
+                    if !self.reader.advance_to_next_block() {
+                        self.at_eos = true;
+                        return Ok(None);
+                    }
+                    // Loop will check if new block passes threshold
+                }
+            }
+        }
+    }
+}
+```
+
+#### 4.4 Implement for Wrapper Iterators
+
+Wrapper iterators (e.g., `Term`, `Numeric`) delegate to their inner iterator:
+
+```rust
+impl<'index, R: TermReader<'index>> RQEIterator<'index> for Term<'index, R> {
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
+    }
+}
+```
+
+#### 4.5 Update `Box<dyn RQEIterator>` Implementation
+
+Ensure dynamic dispatch works correctly:
+
+```rust
+impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read_with_threshold(min_score, scorer)
+    }
+}
+```
+
+#### 4.6 Usage Example
+
+```rust
+// Top-K query with block skipping
+let mut iterator = index.iterator();
+let mut heap = MinHeap::with_capacity(k);
+let mut min_score = 0.0;
+let scorer = BlockScorer::tfidf(idf);
+
+// Use read_with_threshold - iterator handles block skipping internally
+while let Some(result) = iterator.read_with_threshold(min_score, &scorer)? {
+    let doc_meta = &doc_table[&result.doc_id];
+    let score = compute_score(result, doc_meta, &scorer);
+
+    if heap.push(result.doc_id, score) {
+        // Heap improved, update threshold for next iteration
+        min_score = heap.min_score();
+    }
+}
+```
+
+#### 4.7 Unit Tests
+
+- [ ] Test `read_with_threshold` skips blocks below threshold
+- [ ] Test `read_with_threshold` with `min_score = 0.0` behaves like `read()`
+- [ ] Test `read_with_threshold` returns same results as `read()` (just faster)
+- [ ] Test wrapper iterators delegate correctly
+- [ ] Test default implementation falls back to regular `read()`
+- [ ] Test EOF handling when all remaining blocks are below threshold
+
+---
+
+### Phase 5: Rust Microbenchmarks
+
+**Goal**: Validate the block-skipping optimization with realistic Top-K query simulation using Criterion benchmarks.
+
+This phase creates benchmarks in the `inverted_index_bencher` crate that simulate end-to-end Top-K query execution, comparing performance with and without block skipping. The benchmarks use the iterator layer (from Phase 4) to measure realistic query performance.
+
+#### 5.1 Benchmark Infrastructure
+
+Add new files to the existing `inverted_index_bencher` crate:
+
+```
+src/redisearch_rs/inverted_index_bencher/
+├── Cargo.toml                          # Add criterion dependency (already exists)
+├── benches/
+│   └── block_max_score.rs              # NEW: Criterion benchmark file
+└── src/
+    └── benchers/
+        └── block_max_score.rs          # NEW: Benchmark helpers and data generators
+```
+
+#### 5.2 Data Generators
+
+Create helpers to generate realistic test data with various distributions:
+
+```rust
+// src/benchers/block_max_score.rs
+
+use rand::distributions::{Distribution, Uniform};
+use rand_distr::Zipf;
+
+/// Document metadata stored in a simulated DocTable
+#[derive(Clone, Copy)]
+pub struct DocMetadata {
+    pub doc_len: u32,
+    pub doc_score: f32,
+}
+
+/// Distribution types for generating test data
+pub enum DataDistribution {
+    /// All values roughly equal
+    Uniform,
+    /// Power-law distribution (few high values, many low)
+    Zipfian,
+    /// High-scoring documents clustered in early blocks
+    ClusteredHighScores,
+    /// High-scoring documents spread evenly across blocks
+    ScatteredHighScores,
+}
+
+/// Generates test data for benchmarking
+pub struct BenchmarkDataGenerator {
+    distribution: DataDistribution,
+    rng: rand::rngs::StdRng,
+}
+
+impl BenchmarkDataGenerator {
+    pub fn new(distribution: DataDistribution, seed: u64) -> Self;
+
+    /// Generate term frequency based on distribution
+    pub fn sample_term_freq(&mut self) -> u32;
+
+    /// Generate document length (typically 50-5000 tokens)
+    pub fn sample_doc_len(&mut self) -> u32;
+
+    /// Generate document score (typically 1.0, occasionally boosted)
+    pub fn sample_doc_score(&mut self) -> f32;
+}
+```
+
+#### 5.3 Benchmark Setup
+
+Create a setup struct that populates both a DocTable and InvertedIndex:
+
+```rust
+use std::collections::HashMap;
+use inverted_index::{InvertedIndex, FreqsOnly, IndexFlags};
+
+/// Complete benchmark setup with DocTable and InvertedIndex
+pub struct TopKBenchmarkSetup {
+    /// Simulated document table: doc_id -> metadata
+    pub doc_table: HashMap<t_docId, DocMetadata>,
+    /// The inverted index with block-level scoring metadata
+    pub index: InvertedIndex<FreqsOnly>,
+    /// Pre-computed IDF for the term
+    pub idf: f64,
+    /// Average document length (for BM25)
+    pub avg_doc_len: f64,
+    /// Total number of documents indexed
+    pub num_docs: usize,
+}
+
+impl TopKBenchmarkSetup {
+    /// Create a new benchmark setup with the given number of documents
+    ///
+    /// # Arguments
+    /// * `num_docs` - Number of documents to index
+    /// * `distribution` - Distribution for generating TF, doc_len, doc_score
+    /// * `seed` - Random seed for reproducibility
+    pub fn new(num_docs: usize, distribution: DataDistribution, seed: u64) -> Self {
+        let mut generator = BenchmarkDataGenerator::new(distribution, seed);
+        let mut doc_table = HashMap::with_capacity(num_docs);
+        let flags = IndexFlags::STORE_FREQS;
+        let mut index = InvertedIndex::<FreqsOnly>::new(flags);
+
+        for doc_id in 1..=num_docs as t_docId {
+            let doc_len = generator.sample_doc_len();
+            let doc_score = generator.sample_doc_score();
+            let tf = generator.sample_term_freq();
+
+            doc_table.insert(doc_id, DocMetadata { doc_len, doc_score });
+
+            // Create record and add to index
+            // Note: add_record_with_metadata tracks min_doc_len and max_doc_score per block
+            let record = RSIndexResult::virt().doc_id(doc_id).frequency(tf);
+            index.add_record_with_metadata(&record, doc_len, doc_score).unwrap();
+        }
+
+        let idf = (1.0 + (num_docs as f64 + 1.0) / (num_docs as f64)).ln();
+        let avg_doc_len = doc_table.values().map(|m| m.doc_len as f64).sum::<f64>() / num_docs as f64;
+
+        Self { doc_table, index, idf, avg_doc_len, num_docs }
+    }
+}
+```
+
+#### 5.4 Top-K Query Simulation
+
+Implement two query variants to compare:
+
+```rust
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
+
+/// Result entry for the min-heap
+#[derive(PartialEq, PartialOrd)]
+struct HeapEntry {
+    score: f64,
+    doc_id: t_docId,
+}
+
+/// Run Top-K query WITHOUT block skipping (baseline)
+pub fn query_top_k_baseline(
+    setup: &TopKBenchmarkSetup,
+    k: usize,
+    scorer: &BlockScorer,
+) -> Vec<(t_docId, f64)> {
+    let mut heap: BinaryHeap<Reverse<HeapEntry>> = BinaryHeap::with_capacity(k);
+    let mut iterator = setup.index.iterator();
+
+    while let Ok(Some(result)) = iterator.read() {
+        let doc_meta = &setup.doc_table[&result.doc_id];
+        let score = compute_score(result.freq, doc_meta, scorer, setup.idf);
+
+        if heap.len() < k {
+            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+        } else if score > heap.peek().unwrap().0.score {
+            heap.pop();
+            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+        }
+    }
+
+    // Extract results sorted by score descending
+    heap.into_sorted_vec().into_iter().map(|Reverse(e)| (e.doc_id, e.score)).collect()
+}
+
+/// Run Top-K query WITH block skipping using read_with_threshold
+pub fn query_top_k_with_skipping(
+    setup: &TopKBenchmarkSetup,
+    k: usize,
+    scorer: &BlockScorer,
+) -> Vec<(t_docId, f64)> {
+    let mut heap: BinaryHeap<Reverse<HeapEntry>> = BinaryHeap::with_capacity(k);
+    let mut iterator = setup.index.iterator();
+    let mut min_score = 0.0;
+
+    // Use read_with_threshold - iterator handles block skipping internally
+    while let Ok(Some(result)) = iterator.read_with_threshold(min_score, scorer) {
+        let doc_meta = &setup.doc_table[&result.doc_id];
+        let score = compute_score(result.freq, doc_meta, scorer, setup.idf);
+
+        if heap.len() < k {
+            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+        } else if score > heap.peek().unwrap().0.score {
+            heap.pop();
+            heap.push(Reverse(HeapEntry { score, doc_id: result.doc_id }));
+        }
+
+        // Update threshold after each heap modification
+        if heap.len() == k {
+            min_score = heap.peek().unwrap().0.score;
+        }
+    }
+
+    heap.into_sorted_vec().into_iter().map(|Reverse(e)| (e.doc_id, e.score)).collect()
+}
+
+/// Compute score based on scorer type
+fn compute_score(freq: u32, doc_meta: &DocMetadata, scorer: &BlockScorer, idf: f64) -> f64 {
+    match scorer {
+        BlockScorer::TfIdf { idf } => {
+            (freq as f64 / doc_meta.doc_len as f64) * idf * doc_meta.doc_score as f64
+        }
+        BlockScorer::Bm25 { idf, avg_doc_len, k1, b } => {
+            let tf = freq as f64;
+            let doc_len = doc_meta.doc_len as f64;
+            let numerator = tf * (k1 + 1.0);
+            let denominator = tf + k1 * (1.0 - b + b * doc_len / avg_doc_len);
+            idf * (numerator / denominator) * doc_meta.doc_score as f64
+        }
+        BlockScorer::DocScore => doc_meta.doc_score as f64,
+    }
+}
+```
+
+#### 5.5 Criterion Benchmark File
+
+Create the benchmark file that uses the helpers:
+
+```rust
+// benches/block_max_score.rs
+
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use inverted_index_bencher::benchers::block_max_score::*;
+
+fn bench_top_k_query(c: &mut Criterion) {
+    let mut group = c.benchmark_group("top_k_query");
+
+    // Test different index sizes
+    for num_docs in [10_000, 100_000] {
+        // Test different distributions
+        for distribution in [DataDistribution::Uniform, DataDistribution::Zipfian] {
+            let setup = TopKBenchmarkSetup::new(num_docs, distribution.clone(), 42);
+            let scorer = BlockScorer::tfidf(setup.idf);
+            let k = 10;
+
+            let dist_name = match distribution {
+                DataDistribution::Uniform => "uniform",
+                DataDistribution::Zipfian => "zipfian",
+                _ => "other",
+            };
+
+            group.bench_with_input(
+                BenchmarkId::new("baseline", format!("{num_docs}_{dist_name}")),
+                &(&setup, &scorer, k),
+                |b, (setup, scorer, k)| {
+                    b.iter(|| black_box(query_top_k_baseline(setup, *k, scorer)))
+                },
+            );
+
+            group.bench_with_input(
+                BenchmarkId::new("with_skipping", format!("{num_docs}_{dist_name}")),
+                &(&setup, &scorer, k),
+                |b, (setup, scorer, k)| {
+                    b.iter(|| black_box(query_top_k_with_skipping(setup, *k, scorer)))
+                },
+            );
+        }
+    }
+
+    group.finish();
+}
+
+fn bench_different_k_values(c: &mut Criterion) {
+    let mut group = c.benchmark_group("top_k_varying_k");
+
+    let setup = TopKBenchmarkSetup::new(100_000, DataDistribution::Zipfian, 42);
+    let scorer = BlockScorer::tfidf(setup.idf);
+
+    for k in [10, 100, 1000] {
+        group.bench_with_input(
+            BenchmarkId::new("baseline", k),
+            &(&setup, &scorer, k),
+            |b, (setup, scorer, k)| {
+                b.iter(|| black_box(query_top_k_baseline(setup, *k, scorer)))
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("with_skipping", k),
+            &(&setup, &scorer, k),
+            |b, (setup, scorer, k)| {
+                b.iter(|| black_box(query_top_k_with_skipping(setup, *k, scorer)))
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn bench_different_scorers(c: &mut Criterion) {
+    let mut group = c.benchmark_group("top_k_scorers");
+
+    let setup = TopKBenchmarkSetup::new(100_000, DataDistribution::Zipfian, 42);
+    let k = 10;
+
+    let scorers = [
+        ("tfidf", BlockScorer::tfidf(setup.idf)),
+        ("bm25", BlockScorer::bm25(setup.idf, setup.avg_doc_len, 1.2, 0.75)),
+        ("docscore", BlockScorer::doc_score()),
+    ];
+
+    for (name, scorer) in &scorers {
+        group.bench_with_input(
+            BenchmarkId::new("baseline", name),
+            &(&setup, scorer, k),
+            |b, (setup, scorer, k)| {
+                b.iter(|| black_box(query_top_k_baseline(setup, *k, scorer)))
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("with_skipping", name),
+            &(&setup, scorer, k),
+            |b, (setup, scorer, k)| {
+                b.iter(|| black_box(query_top_k_with_skipping(setup, *k, scorer)))
+            },
+        );
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_top_k_query,
+    bench_different_k_values,
+    bench_different_scorers,
+);
+criterion_main!(benches);
+```
+
+#### 5.6 Cargo.toml Updates
+
+Add the benchmark to `inverted_index_bencher/Cargo.toml`:
+
+```toml
+[[bench]]
+name = "block_max_score"
+harness = false
+```
+
+#### 5.7 Running the Benchmarks
+
+```bash
+cd src/redisearch_rs
+cargo bench -p inverted_index_bencher --bench block_max_score
+```
+
+#### 5.8 Expected Metrics
+
+| Metric | Description | How to Measure |
+|--------|-------------|----------------|
+| **Query latency** | Time to complete Top-K query | Criterion's built-in timing |
+| **Speedup ratio** | `baseline_time / with_skipping_time` | Compare benchmark results |
+| **Skip rate** | % of blocks skipped | Add instrumentation to iterator |
+
+#### 5.9 Expected Results
+
+Based on the design, we expect:
+
+| Distribution | K=10 Skip Rate | K=100 Skip Rate | K=1000 Skip Rate |
+|--------------|----------------|-----------------|------------------|
+| Zipfian | 60-80% | 40-60% | 20-40% |
+| Uniform | 5-15% | 2-10% | <5% |
+| Clustered High | 70-90% | 50-70% | 30-50% |
+
+**Key insights to validate:**
+- Zipfian distributions benefit most (power-law means few high-score blocks)
+- Smaller K benefits more (threshold rises faster)
+- Overhead when no skipping is minimal (just threshold comparisons)
+
+---
+
+### Phase 6: Integration Testing
 
 **Goal**: Ensure block skipping produces identical results to full scan.
 
-#### 4.1 Correctness Tests
+#### 6.1 Correctness Tests
 
 Create comprehensive tests that:
 1. Index a set of documents with known scores
@@ -715,7 +1271,7 @@ fn test_block_skipping_correctness() {
 }
 ```
 
-#### 4.2 Edge Case Tests
+#### 6.2 Edge Case Tests
 
 - [ ] Empty blocks
 - [ ] Single-entry blocks
@@ -723,7 +1279,7 @@ fn test_block_skipping_correctness() {
 - [ ] No blocks skipped (all pass threshold)
 - [ ] Threshold exactly equals block max score
 
-#### 4.3 RDB Compatibility Tests
+#### 6.3 RDB Compatibility Tests
 
 - [ ] Load old RDB → no skipping (sentinel values)
 - [ ] Save new RDB → load → skipping works
@@ -731,134 +1287,13 @@ fn test_block_skipping_correctness() {
 
 ---
 
-### Phase 5: Microbenchmarks
-
-**Goal**: Validate the core block-skipping mechanism with simulated index structures before full integration.
-
-Microbenchmarks test the isolated components (block metadata tracking, score computation, block skipping logic) without running the full query execution pipeline. This allows us to:
-1. Validate the optimization potential before investing in full integration
-2. Identify performance bottlenecks in the core mechanism
-3. Tune parameters (block size, threshold computation) based on data
-
-#### 5.1 Block Score Computation Benchmarks
-
-Benchmark the overhead of computing block max scores:
-
-```rust
-fn bench_block_max_score_computation(c: &mut Criterion) {
-    let blocks = create_test_blocks(1000); // Simulated blocks with varied metadata
-    let tfidf_scorer = BlockScorer::tfidf(5.67);
-    let bm25_scorer = BlockScorer::bm25(5.67, 100.0, 1.2, 0.75);
-
-    c.bench_function("tfidf_block_max_score", |b| {
-        b.iter(|| {
-            for block in &blocks {
-                black_box(tfidf_scorer.block_max_score(block));
-            }
-        })
-    });
-
-    c.bench_function("bm25_block_max_score", |b| {
-        b.iter(|| {
-            for block in &blocks {
-                black_box(bm25_scorer.block_max_score(block));
-            }
-        })
-    });
-}
-```
-
-#### 5.2 Block Skipping Simulation Benchmarks
-
-Simulate block skipping decisions without full index iteration:
-
-```rust
-fn bench_block_skipping_decisions(c: &mut Criterion) {
-    // Create simulated block metadata with realistic distributions
-    let blocks = create_blocks_with_zipfian_tf_distribution(10_000);
-    let scorer = BlockScorer::tfidf(5.67);
-
-    // Simulate different threshold scenarios
-    for threshold_percentile in [0.5, 0.75, 0.9, 0.95] {
-        let min_score = compute_percentile_score(&blocks, &scorer, threshold_percentile);
-
-        c.bench_function(
-            &format!("skip_decision_p{}", (threshold_percentile * 100.0) as u32),
-            |b| {
-                b.iter(|| {
-                    let mut skipped = 0;
-                    for block in &blocks {
-                        let block_max = scorer.block_max_score(block);
-                        if block_max < min_score {
-                            skipped += 1;
-                        }
-                    }
-                    black_box(skipped)
-                })
-            },
-        );
-    }
-}
-```
-
-#### 5.3 Reader Skip-To Benchmarks
-
-Benchmark the `skip_to_with_threshold` implementation on simulated indexes:
-
-```rust
-fn bench_skip_to_with_threshold(c: &mut Criterion) {
-    // Create a simulated inverted index with 1000 blocks
-    let index = create_simulated_index(1000, 100); // 1000 blocks, 100 entries each
-    let ctx = create_score_context();
-
-    c.bench_function("skip_to_no_threshold", |b| {
-        b.iter(|| {
-            let mut reader = index.reader();
-            for target_doc in (0..100_000).step_by(1000) {
-                reader.skip_to(target_doc);
-            }
-        })
-    });
-
-    c.bench_function("skip_to_with_threshold", |b| {
-        let min_score = 0.5; // Threshold that skips ~50% of blocks
-        b.iter(|| {
-            let mut reader = index.reader();
-            for target_doc in (0..100_000).step_by(1000) {
-                reader.skip_to_with_threshold(target_doc, min_score, &ctx);
-            }
-        })
-    });
-}
-```
-
-#### 5.4 Metrics to Measure
-
-- **Score computation overhead**: Time to compute block max score (should be < 10ns per block)
-- **Skip decision overhead**: Time to compare threshold (negligible)
-- **Skip rate by threshold**: % of blocks skipped at various threshold percentiles
-- **Memory overhead**: Additional 10 bytes per block
-
-#### 5.5 Simulated Workload Variations
-
-Test with different simulated distributions:
-
-| Distribution | Description | Expected Skip Rate |
-|--------------|-------------|-------------------|
-| Uniform TF | All blocks have similar max_freq | Low (blocks are similar) |
-| Zipfian TF | Few blocks have high max_freq, most have low | High (many low-score blocks) |
-| Bimodal DocScore | Two clusters of doc scores | Medium |
-| Skewed DocLen | Most docs short, few very long | Depends on scorer |
-
----
-
-### Phase 6: End-to-End Benchmarks (Future)
+### Phase 7: End-to-End Benchmarks (Future)
 
 **Goal**: Validate performance improvements with realistic query workloads after full integration.
 
 This phase runs after the optimization is fully integrated into the query execution pipeline.
 
-#### 6.1 Full Query Benchmarks
+#### 7.1 Full Query Benchmarks
 
 ```rust
 fn bench_full_query_execution(c: &mut Criterion) {
@@ -875,7 +1310,7 @@ fn bench_full_query_execution(c: &mut Criterion) {
 }
 ```
 
-#### 6.2 Realistic Workload Metrics
+#### 7.2 Realistic Workload Metrics
 
 - **Query latency reduction**: p50, p95, p99 latency with vs. without skipping
 - **Throughput improvement**: Queries per second
