@@ -52,13 +52,13 @@ static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
 
   uint32_t len = MIN(sc->seen, r->len);
-  RSValue **array_ptr = RSValue_AllocateArray(len);
+  RSValue **array_ptr = RSValue_NewArrayBuilder(len);
 
   for (uint32_t i = 0; i < len; i++) {
     array_ptr[i] = RSValue_IncrRef(sc->samplesArray[i]);
   }
 
-  return RSValue_NewArray(array_ptr, len);
+  return RSValue_NewArrayFromBuilder(array_ptr, len);
 }
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {

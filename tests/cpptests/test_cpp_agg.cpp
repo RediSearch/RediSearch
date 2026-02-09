@@ -229,11 +229,11 @@ TEST_F(AggTest, testGroupSplit) {
     SearchResult_SetDocId(res, ++p->counter);
     uint32_t sz = p->values.size();
     char **strs = (char **)&p->values[0];
-    RSValue **arr = RSValue_AllocateArray(sz);
+    RSValue **arr = RSValue_NewArrayBuilder(sz);
     for (uint32_t i = 0; i < sz; i++) {
       arr[i] = RSValue_NewConstString(strs[i], strlen(strs[i]));
     }
-    RSValue *array = RSValue_NewArray(arr, sz);
+    RSValue *array = RSValue_NewArrayFromBuilder(arr, sz);
     RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res), array);
     //* res = * p->res;
     return RS_RESULT_OK;
