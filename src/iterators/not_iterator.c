@@ -58,7 +58,10 @@ static IteratorStatus NI_Read_NotOptimized(QueryIterator *base) {
   while (base->lastDocId < ni->maxDocId) {
     base->lastDocId++;
     if (base->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
-      ni->timeoutCtx.counter = 0;
+      // Reset counter only if not skipping timeout checks (REDISEARCH_UNINITIALIZED)
+      if (ni->timeoutCtx.counter != REDISEARCH_UNINITIALIZED) {
+        ni->timeoutCtx.counter = 0;
+      }
       base->current->docId = base->lastDocId;
       return ITERATOR_OK;
     }
@@ -345,13 +348,13 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
 }
 
 // LCOV_EXCL_START
-QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
+QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout, uint32_t timeoutCounter) {
   NotIterator *ni = rm_calloc(1, sizeof(*ni));
   QueryIterator *ret = &ni->base;
   ni->child = child;
   ni->wcii = wcii;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
-  ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
+  ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = timeoutCounter };
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;
