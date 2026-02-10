@@ -11,9 +11,12 @@
 
 use ffi::{
     IteratorType_METRIC_SORTED_BY_ID_ITERATOR, IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR,
-    QueryIterator, RLookupKey, RLookupKeyHandle, RedisModule_Free, t_docId,
+    QueryIterator, RLookupKey, RLookupKeyHandle, t_docId,
 };
-use rqe_iterators::metric::{Metric, MetricSortedById, MetricSortedByScore, MetricType};
+use rqe_iterators::{
+    metric::{Metric, MetricSortedById, MetricSortedByScore, MetricType},
+    utils::OwnedSlice,
+};
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
@@ -28,8 +31,8 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
 pub unsafe extern "C" fn NewMetricIteratorSortedById(
-    ids: *const t_docId,
-    metric_list: *const f64,
+    ids: *mut t_docId,
+    metric_list: *mut f64,
     num: usize,
     type_: MetricType,
 ) -> *mut QueryIterator {
@@ -48,8 +51,8 @@ pub unsafe extern "C" fn NewMetricIteratorSortedById(
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
 pub unsafe extern "C" fn NewMetricIteratorSortedByScore(
-    ids: *const t_docId,
-    metric_list: *const f64,
+    ids: *mut t_docId,
+    metric_list: *mut f64,
     num: usize,
     type_: MetricType,
 ) -> *mut QueryIterator {
@@ -65,45 +68,40 @@ pub unsafe extern "C" fn NewMetricIteratorSortedByScore(
 /// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that these pointers were allocated in a compatible manner.
 unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
-    ids: *const t_docId,
-    metric_list: *const f64,
+    ids: *mut t_docId,
+    metrics: *mut f64,
     num: usize,
     _type: MetricType,
 ) -> *mut QueryIterator {
-    // TODO: Figure out a mechanism to avoid re-allocating ids and metrics on the Rust side.
-    let mut vec_ids = Vec::with_capacity(num);
-    let mut vec_metrics = Vec::with_capacity(num);
-    if !ids.is_null() {
-        debug_assert!(
-            !metric_list.is_null(),
-            "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null."
-        );
-        // SAFETY: The free function has been initialized at this stage.
-        let free_fn = unsafe { RedisModule_Free.unwrap() };
-        // SAFETY: Safe thanks to 1 + 3.
-        let slice = unsafe { std::slice::from_raw_parts(ids, num) };
-        vec_ids.extend_from_slice(slice);
-        // SAFETY: Safe thanks to 4.
-        unsafe { free_fn(ids as *mut std::ffi::c_void) };
-
-        // SAFETY: Safe thanks to 2 + 3.
-        let slice = unsafe { std::slice::from_raw_parts(metric_list, num) };
-        vec_metrics.extend_from_slice(slice);
-        // SAFETY: Safe thanks to 4.
-        unsafe { free_fn(metric_list as *mut std::ffi::c_void) };
-    } else {
+    let (ids_list, metrics_list) = if ids.is_null() {
+        // Safety: Safe thanks to 3
         debug_assert_eq!(
             num, 0,
             "The pointer to the array of IDs is null, but the number of IDs is non-zero."
         );
-    }
+
+        (OwnedSlice::default(), OwnedSlice::default())
+    } else {
+        debug_assert!(
+            !metrics.is_null(),
+            "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null."
+        );
+
+        // Safety: Safe thanks to 1
+        let ids_list = unsafe { OwnedSlice::from_c(ids, num) };
+        // Safety: Safe thanks to 2
+        let metrics_list = unsafe { OwnedSlice::from_c(metrics, num) };
+
+        (ids_list, metrics_list)
+    };
+
     RQEIteratorWrapper::boxed_new(
         if SORTED_BY_ID {
             IteratorType_METRIC_SORTED_BY_ID_ITERATOR
         } else {
             IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR
         },
-        Metric::<SORTED_BY_ID>::new(vec_ids, vec_metrics),
+        Metric::<SORTED_BY_ID>::new(ids_list, metrics_list),
     )
 }
 
