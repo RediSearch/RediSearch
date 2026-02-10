@@ -362,33 +362,33 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
   return NULL;
 }
 
-RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_READ, flags);
-}
+// RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags) {
+//   return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_READ, flags);
+// }
 
-RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_READ, flags);
-}
+// RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
+//                                   uint32_t flags) {
+//   return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_READ, flags);
+// }
 
-RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_WRITE, flags);
-}
+// RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags) {
+//   return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_WRITE, flags);
+// }
 
-RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
-                                   uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_WRITE, flags);
-}
+// RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
+//                                    uint32_t flags) {
+//   return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_WRITE, flags);
+// }
 
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
-                                uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), field_name, RLOOKUP_M_LOAD, flags);
-}
+// RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
+//                                 uint32_t flags) {
+//   return RLookup_GetKey_common(lookup, name, strlen(name), field_name, RLOOKUP_M_LOAD, flags);
+// }
 
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  const char *field_name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
-}
+// RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
+//                                   const char *field_name, uint32_t flags) {
+//   return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
+// }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -434,25 +434,25 @@ RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name
 //   return nfields;
 // }
 
-void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
-  // memset(lk, 0, sizeof(*lk));
-  // lk->_spcache = spcache;
-}
+// void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
+//   // memset(lk, 0, sizeof(*lk));
+//   // lk->_spcache = spcache;
+// }
 
-void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  // // Find the pointer to write to ...
-  // RSValue **vptr = array_ensure_at(&row->dyn, RLookupKey_GetDstIdx(key), RSValue *);
-  // if (*vptr) {
-  //   RSValue_DecrRef(*vptr);
-  //   row->ndyn--;
-  // }
-  // *vptr = v;
-  // row->ndyn++;
-}
+// void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
+//   // // Find the pointer to write to ...
+//   // RSValue **vptr = array_ensure_at(&row->dyn, RLookupKey_GetDstIdx(key), RSValue *);
+//   // if (*vptr) {
+//   //   RSValue_DecrRef(*vptr);
+//   //   row->ndyn--;
+//   // }
+//   // *vptr = v;
+//   // row->ndyn++;
+// }
 
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
-}
+// void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
+//   RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
+// }
 
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
   // Get the key first
@@ -468,51 +468,51 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
   RSValue_DecrRef(value);
 }
 
-void RLookupRow_Wipe(RLookupRow *r) {
-  // for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
-  //   RSValue **vpp = r->dyn + ii;
-  //   if (*vpp) {
-  //     RSValue_DecrRef(*vpp);
-  //     *vpp = NULL;
-  //     r->ndyn--;
-  //   }
-  // }
-  // r->sv = NULL;
-}
+// void RLookupRow_Wipe(RLookupRow *r) {
+//   // for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
+//   //   RSValue **vpp = r->dyn + ii;
+//   //   if (*vpp) {
+//   //     RSValue_DecrRef(*vpp);
+//   //     *vpp = NULL;
+//   //     r->ndyn--;
+//   //   }
+//   // }
+//   // r->sv = NULL;
+// }
 
-void RLookupRow_Reset(RLookupRow *r) {
-  // RLookupRow_Wipe(r);
-  // if (r->dyn) {
-  //   array_free(r->dyn);
-  // }
-}
+// void RLookupRow_Reset(RLookupRow *r) {
+//   // RLookupRow_Wipe(r);
+//   // if (r->dyn) {
+//   //   array_free(r->dyn);
+//   // }
+// }
 
-void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  RLookupIterator iter = RLookup_Iter(lk);
-  const RLookupKey* k;
+// void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
+//   RLookupIterator iter = RLookup_Iter(lk);
+//   const RLookupKey* k;
 
-  while (RLookupIterator_Next(&iter, &k)) {
-    RSValue *vv = RLookup_GetItem(k, src);
-    if (vv) {
-      RLookup_WriteKey(k, dst, vv);
-    }
-  }
+//   while (RLookupIterator_Next(&iter, &k)) {
+//     RSValue *vv = RLookup_GetItem(k, src);
+//     if (vv) {
+//       RLookup_WriteKey(k, dst, vv);
+//     }
+//   }
 
-  RLookupRow_Wipe(src);
-}
+//   RLookupRow_Wipe(src);
+// }
 
-void RLookup_Cleanup(RLookup *lk) {
-  // RLookupKey *next, *cur = lk->_head;
-  // while (cur) {
-  //   next = RLookupKey_GetNext(cur);
-  //   RLookupKey_Free(cur);
-  //   cur = next;
-  // }
-  // IndexSpecCache_Decref(lk->_spcache);
+// void RLookup_Cleanup(RLookup *lk) {
+//   // RLookupKey *next, *cur = lk->_head;
+//   // while (cur) {
+//   //   next = RLookupKey_GetNext(cur);
+//   //   RLookupKey_Free(cur);
+//   //   cur = next;
+//   // }
+//   // IndexSpecCache_Decref(lk->_spcache);
 
-  // lk->_head = lk->_tail = NULL;
-  // memset(lk, 0xff, sizeof(*lk));
-}
+//   // lk->_head = lk->_tail = NULL;
+//   // memset(lk, 0xff, sizeof(*lk));
+// }
 
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
@@ -1068,65 +1068,65 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
 //   return rv;
 // }
 
-void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
-  RS_ASSERT(dest && src);
-  RS_ASSERT(dest != src);  // Prevent self-addition
+// void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
+//   RS_ASSERT(dest && src);
+//   RS_ASSERT(dest != src);  // Prevent self-addition
 
-  // Iterate through all keys in source lookup
-  RLookupIterator iter = RLookup_Iter(src);
-  const RLookupKey* src_key;
-  while (RLookupIterator_Next(&iter, &src_key)) {
-    if (!RLookupKey_GetName(src_key)) {
-      // Skip overridden keys (they have name == NULL)
-      continue;
-    }
+//   // Iterate through all keys in source lookup
+//   RLookupIterator iter = RLookup_Iter(src);
+//   const RLookupKey* src_key;
+//   while (RLookupIterator_Next(&iter, &src_key)) {
+//     if (!RLookupKey_GetName(src_key)) {
+//       // Skip overridden keys (they have name == NULL)
+//       continue;
+//     }
 
-    // Combine caller's control flags with source key's persistent properties
-    // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
-    // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
-    uint32_t combined_flags = flags | (RLookupKey_GetFlags(src_key) & ~RLOOKUP_TRANSIENT_FLAGS);
-    RLookupKey *dest_key = RLookup_GetKey_Write(dest, RLookupKey_GetName(src_key), combined_flags);
-  }
-}
+//     // Combine caller's control flags with source key's persistent properties
+//     // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
+//     // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
+//     uint32_t combined_flags = flags | (RLookupKey_GetFlags(src_key) & ~RLOOKUP_TRANSIENT_FLAGS);
+//     RLookupKey *dest_key = RLookup_GetKey_Write(dest, RLookupKey_GetName(src_key), combined_flags);
+//   }
+// }
 
-void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup,
-                               bool createMissingKeys) {
-  RS_ASSERT(srcRow && srcLookup);
-  RS_ASSERT(destRow && destLookup);
+// void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
+//                                RLookupRow *destRow, RLookup *destLookup,
+//                                bool createMissingKeys) {
+//   RS_ASSERT(srcRow && srcLookup);
+//   RS_ASSERT(destRow && destLookup);
 
-  // Iterate through all source keys
-  RLookupIterator iter = RLookup_Iter(srcLookup);
-  const RLookupKey* src_key;
-  while (RLookupIterator_Next(&iter, &src_key)) {
-    if (!RLookupKey_GetName(src_key)) {
-      // Skip overridden keys
-      continue;
-    }
+//   // Iterate through all source keys
+//   RLookupIterator iter = RLookup_Iter(srcLookup);
+//   const RLookupKey* src_key;
+//   while (RLookupIterator_Next(&iter, &src_key)) {
+//     if (!RLookupKey_GetName(src_key)) {
+//       // Skip overridden keys
+//       continue;
+//     }
 
-    // Get value from source row
-    RSValue *value = RLookup_GetItem(src_key, srcRow);
-    if (!value) {
-      // No data for this key in source row
-      continue;
-    }
+//     // Get value from source row
+//     RSValue *value = RLookup_GetItem(src_key, srcRow);
+//     if (!value) {
+//       // No data for this key in source row
+//       continue;
+//     }
 
-    // Find corresponding key in destination lookup
-    RLookupKey *dest_key = RLookup_FindKey(destLookup, RLookupKey_GetName(src_key), RLookupKey_GetNameLen(src_key));
-    if (!createMissingKeys) {
-      RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
-    } else if (!dest_key) {
-        // Key doesn't exist in destination - create it on demand.
-        // This can happen with LOAD * where keys are created dynamically.
-        // Inherit non-transient flags from source.
-        uint32_t flags = RLookupKey_GetFlags(src_key) & ~RLOOKUP_TRANSIENT_FLAGS;
-        dest_key = RLookup_GetKey_WriteEx(destLookup, RLookupKey_GetName(src_key), RLookupKey_GetNameLen(src_key), flags);
-    }
-    // Write fields to destination (increments refcount, shares ownership)
-    RLookup_WriteKey(dest_key, destRow, value);
-  }
-  // Caller is responsible for managing source row lifecycle
-}
+//     // Find corresponding key in destination lookup
+//     RLookupKey *dest_key = RLookup_FindKey(destLookup, RLookupKey_GetName(src_key), RLookupKey_GetNameLen(src_key));
+//     if (!createMissingKeys) {
+//       RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+//     } else if (!dest_key) {
+//         // Key doesn't exist in destination - create it on demand.
+//         // This can happen with LOAD * where keys are created dynamically.
+//         // Inherit non-transient flags from source.
+//         uint32_t flags = RLookupKey_GetFlags(src_key) & ~RLOOKUP_TRANSIENT_FLAGS;
+//         dest_key = RLookup_GetKey_WriteEx(destLookup, RLookupKey_GetName(src_key), RLookupKey_GetNameLen(src_key), flags);
+//     }
+//     // Write fields to destination (increments refcount, shares ownership)
+//     RLookup_WriteKey(dest_key, destRow, value);
+//   }
+//   // Caller is responsible for managing source row lifecycle
+// }
 
 // added as entry point for the rust code
 // Required from Rust therefore not an inline method anymore.
