@@ -171,7 +171,7 @@ void RLookupKey_Free(RLookupKey *k) {
   rm_free(k);
 }
 
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
+// const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
   // const IndexSpecCache *cc = lookup->_spcache;
   // if (!cc) {
   //   return NULL;
@@ -186,7 +186,7 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
   // }
 
   // return fs;
-}
+// }
 
 // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
 // has promised to load the entire document.

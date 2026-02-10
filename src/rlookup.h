@@ -486,10 +486,10 @@ void RLookupKey_Free(RLookupKey *k);
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
 
-/**
- * Search an index field by its name in the lookup table spec cache.
- */
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
+// /**
+//  * Search an index field by its name in the lookup table spec cache.
+//  */
+// const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
 
 /**
  * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
