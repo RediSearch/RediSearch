@@ -476,6 +476,15 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
     elif query_type == 'FT.AGGREGATE.WITHCURSOR':
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n', 'WITHCURSOR', 'COUNT', 10)
+    elif query_type == 'FT.AGGREGATE.KNN':
+        # FT.AGGREGATE with KNN - more complex query with APPLY and LOAD to test if the race condition affects it too
+        query_vector = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32).tobytes()
+        query = ('FT.AGGREGATE', 'idx', f'@n:[69 1420]=>[KNN {n_docs} @vector $BLOB]',
+                'LOAD', 4, '@n', '@text', '@__vector_score', '@tag',
+                'APPLY', '@n * 2', 'AS', 'n_doubled',
+                'APPLY', '@__vector_score + 1', 'AS', 'score_plus_one',
+                'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs,
+                'PARAMS', 2, 'BLOB', query_vector)
     elif query_type == 'FT.HYBRID':
         # Create a 10-dimensional query vector for hybrid search
         random_words_to_query = " ".join(random.sample(RANDOM_WORDS, min(3, len(RANDOM_WORDS))))
@@ -596,6 +605,18 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates():
 def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_knn_import_slot_range_parallel_updates():
+    """FT.AGGREGATE with KNN - tests if the race condition affects complex aggregate queries"""
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.AGGREGATE.KNN', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_knn_import_slot_range_parallel_updates_BG():
+    """FT.AGGREGATE with KNN in background mode - tests if the race condition affects complex aggregate queries"""
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.AGGREGATE.KNN', parallel_updates=True)
 
 @skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_parallel_updates():
