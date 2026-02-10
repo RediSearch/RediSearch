@@ -39,9 +39,9 @@ TEST_F(ValueTest, testBasic) {
 
 TEST_F(ValueTest, testArray) {
   RSValue **array = RSValue_NewArrayBuilder(3);
-  array[0] = RSValue_NewConstString("foo", strlen("foo"));
-  array[1] = RSValue_NewConstString("bar", strlen("bar"));
-  array[2] = RSValue_NewConstString("baz", strlen("baz"));
+  array[0] = RSValue_NewBorrowedString("foo", strlen("foo"));
+  array[1] = RSValue_NewBorrowedString("bar", strlen("bar"));
+  array[2] = RSValue_NewBorrowedString("baz", strlen("baz"));
   RSValue *arr = RSValue_NewArrayFromBuilder(array, 3);
 
   ASSERT_EQ(3, RSValue_ArrayLen(arr));

@@ -177,7 +177,7 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RsValue *RSValue_NewConstString(const char *str, uint32_t len);
+struct RsValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type string,
