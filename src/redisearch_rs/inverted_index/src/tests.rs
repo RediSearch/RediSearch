@@ -1821,7 +1821,7 @@ fn ii_apply_gc() {
             // The third and fifth block was split making 168 new bytes
             bytes_allocated: 168,
             entries_removed: 5,
-            blocks_ignored: 0
+            ignored_last_block: false
         }
     );
 }
@@ -1917,7 +1917,7 @@ fn ii_apply_gc_last_block_updated() {
             bytes_allocated: 0,
             entries_removed: 2,
             // Ignored the last block
-            blocks_ignored: 1
+            ignored_last_block: true
         }
     );
 }
@@ -2026,7 +2026,7 @@ fn ii_apply_gc_entries_tracking_index() {
             bytes_freed: 65,
             bytes_allocated: 56,
             entries_removed: 2,
-            blocks_ignored: 0
+            ignored_last_block: false
         }
     );
 }

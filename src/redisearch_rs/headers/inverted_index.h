@@ -116,9 +116,10 @@ typedef struct II_GCScanStats {
    */
   uintptr_t entries_removed;
   /**
-   * The number of blocks that were ignored because the index changed since the scan was performed
+   * Whether or not we ignored the last block in the index, since it changed
+   * compared to the time we performed the scan
    */
-  uintptr_t blocks_ignored;
+  bool ignored_last_block;
 } II_GCScanStats;
 
 #ifdef __cplusplus
