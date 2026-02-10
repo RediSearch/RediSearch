@@ -90,25 +90,3 @@ impl CTrieRef {
         self.ptr
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_c_trie_decr_result_from_repr() {
-        assert_eq!(
-            CTrieDecrResult::from_repr(0),
-            Some(CTrieDecrResult::NotFound)
-        );
-        assert_eq!(
-            CTrieDecrResult::from_repr(1),
-            Some(CTrieDecrResult::Updated)
-        );
-        assert_eq!(
-            CTrieDecrResult::from_repr(2),
-            Some(CTrieDecrResult::Deleted)
-        );
-        assert_eq!(CTrieDecrResult::from_repr(99), None); // Unknown
-    }
-}

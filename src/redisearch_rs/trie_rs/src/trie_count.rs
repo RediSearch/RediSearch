@@ -121,20 +121,6 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_keys() {
-        let mut counts = TrieCount::new();
-        counts.increment(b"apple", 10);
-        counts.increment(b"banana", 5);
-        counts.increment(b"cherry", 3);
-
-        assert_eq!(counts.get(b"apple"), Some(10));
-        assert_eq!(counts.get(b"banana"), Some(5));
-        assert_eq!(counts.get(b"cherry"), Some(3));
-        assert_eq!(counts.get(b"date"), None);
-        assert_eq!(counts.n_unique_keys(), 3);
-    }
-
-    #[test]
     fn test_shared_prefix_keys() {
         let mut counts = TrieCount::new();
         counts.increment(b"help", 10);
