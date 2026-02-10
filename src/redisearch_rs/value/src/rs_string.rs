@@ -9,7 +9,8 @@ enum RsStringKind {
 }
 
 /// A `CString` like string for [`RsValue`] with support for rust allocated string,
-/// C allocated strings, and constant strings, all in one package.
+/// C allocated strings, and constant strings, and support for a max length of `u32::MAX`,
+/// all in one package.
 ///
 /// # Safety
 ///
@@ -42,13 +43,14 @@ impl RsString {
         }
     }
 
-    /// Create an [`RsString`] from a constant string.
+    /// Create an [`RsString`] from a rm_alloc allocated string.
+    /// Takes ownership of the string pointed to by `ptr`/`len`.
     ///
     /// # Safety
     ///
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
     /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
-    pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
+    pub const unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
         Self {
             ptr,
             len,
@@ -62,7 +64,9 @@ impl RsString {
     ///
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
     /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
-    pub unsafe fn const_string(ptr: *const c_char, len: u32) -> Self {
+    /// 3. The string pointed to by `ptr`/`len` must stay valid for as long as
+    ///    this [`RsString`] is exists.
+    pub const unsafe fn const_string(ptr: *const c_char, len: u32) -> Self {
         Self {
             ptr,
             len,
@@ -71,12 +75,13 @@ impl RsString {
     }
 
     /// Returns the string data pointer and length.
-    pub fn as_ptr_len(&self) -> (*const c_char, u32) {
+    pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
         (self.ptr, self.len)
     }
 
     /// Gets the string pointed to by `ptr`/`len` as a byte slice.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
+        // SAFETY: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
         unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
     }
 }
@@ -84,12 +89,17 @@ impl RsString {
 impl Drop for RsString {
     fn drop(&mut self) {
         match self.kind {
-            RsStringKind::RustAlloc => drop(unsafe { CString::from_raw(self.ptr as *mut _) }),
+            RsStringKind::RustAlloc => {
+                // SAFETY: `self.ptr` was created by `CString::into_raw` and has not been freed.
+                drop(unsafe { CString::from_raw(self.ptr as *mut _) });
+            }
             RsStringKind::RmAlloc => {
+                // SAFETY: Accessing a global function pointer initialized during module load.
                 let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
+                // SAFETY: `self.ptr` was allocated by rm_alloc and has not been freed.
                 unsafe { rm_free(self.ptr as _) };
             }
-            RsStringKind::Const => (), // No nee to free const strings.
+            RsStringKind::Const => (), // No need to free const strings.
         }
     }
 }
@@ -101,5 +111,7 @@ impl fmt::Debug for RsString {
     }
 }
 
+// SAFETY: [`RsString`] does not hold data that cannot be sent to another thread.
 unsafe impl Send for RsString {}
+// SAFETY: [`RsString`] provides no interior mutability; shared references are read-only.
 unsafe impl Sync for RsString {}

@@ -98,7 +98,7 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
 }
 
 /// Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
-/// length to `lenp`.
+/// length to `lenp`, if `lenp` is a non-null pointer.
 ///
 /// The returned pointer borrows from the [`RsValue`] and must not outlive it.
 ///
@@ -131,9 +131,9 @@ pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u3
     ptr as *mut _
 }
 
-/// Returns a pointer to the underlying [`RedisModuleString`] of an [`RsValue`].
+/// Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
 ///
-/// The returned pointer borrows from the [`RsValue`] and must not outlive it.
+/// The returned reference borrows from the [`RsValue`] and must not outlive it.
 ///
 /// # Safety
 ///

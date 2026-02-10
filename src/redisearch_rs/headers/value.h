@@ -269,7 +269,7 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
 /**
  * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
- * length to `lenp`.
+ * length to `lenp`, if `lenp` is a non-null pointer.
  *
  * The returned pointer borrows from the [`RsValue`] and must not outlive it.
  *
@@ -287,9 +287,9 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
 
 /**
- * Returns a pointer to the underlying [`RedisModuleString`] of an [`RsValue`].
+ * Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
  *
- * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ * The returned reference borrows from the [`RsValue`] and must not outlive it.
  *
  * # Safety
  *
