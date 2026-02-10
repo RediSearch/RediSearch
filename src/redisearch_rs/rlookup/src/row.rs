@@ -27,12 +27,12 @@ pub mod opaque {
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
     #[repr(C, align(8))]
-    pub struct OpaqueRLookupRow<'a>(Size<SIZE>, PhantomData<&'a ()>);
+    pub struct OpaqueRLookupRow<'a>(OpaqueRLookupRowSize, PhantomData<&'a ()>);
 
     #[cfg(debug_assertions)]
-    const SIZE: usize = 48;
+    type OpaqueRLookupRowSize = Size<48>;
     #[cfg(not(debug_assertions))]
-    const SIZE: usize = 40;
+    type OpaqueRLookupRowSize = Size<40>;
 
     // Safety: `OpaqueRLookupRow` is defined as a `MaybeUninit` slice of
     // bytes with the same size and alignment as `RLookupRow`, so any valid
