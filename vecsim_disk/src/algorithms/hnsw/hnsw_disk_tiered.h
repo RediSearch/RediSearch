@@ -202,10 +202,9 @@ private:
         GraphNodeList all_neighbors(this->allocator);
         for (levelType level = 0; level <= max_level; level++) {
             vecsim_stl::vector<idType> incoming_neighbors(this->allocator);
-            if (storage->get_incoming_edges(deleted_id, level, incoming_neighbors)) {
-                for (idType neighbor_id : incoming_neighbors) {
-                    all_neighbors.emplace_back(neighbor_id, level);
-                }
+            storage->get_incoming_edges(deleted_id, level, incoming_neighbors);
+            for (idType neighbor_id : incoming_neighbors) {
+                all_neighbors.emplace_back(neighbor_id, level);
             }
         }
 

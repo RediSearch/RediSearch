@@ -255,11 +255,10 @@
     levelType testGetElementLevel(idType id) const { return idToMetaData[id].maxLevel; }                               \
                                                                                                                        \
     /* Get vector from disk storage for testing */                                                                     \
-    bool testGetVectorFromDisk(idType id, void* buffer, size_t bufferSize) const {                                     \
+    void testGetVectorFromDisk(idType id, void* buffer, size_t bufferSize) const {                                     \
         if (storage_) {                                                                                                \
-            return storage_->get_vector(id, buffer, bufferSize);                                                       \
+            storage_->get_vector(id, buffer, bufferSize);                                                              \
         }                                                                                                              \
-        return false;                                                                                                  \
     }
 
 #else

@@ -1485,8 +1485,8 @@ TEST_F(HNSWDiskTest, StoreVectorStoresFP32VectorOnDisk) {
     // Retrieve the stored vector from disk
     float retrievedVec[DIM] = {0.0f, 0.0f, 0.0f, 0.0f};
     size_t bufferSize = DIM * sizeof(float);
-    bool success = index->testGetVectorFromDisk(state.newElementId, retrievedVec, bufferSize);
-    ASSERT_TRUE(success) << "Should be able to retrieve vector from disk";
+    ASSERT_NO_THROW(index->testGetVectorFromDisk(state.newElementId, retrievedVec, bufferSize))
+        << "Should be able to retrieve vector from disk";
 
     // Verify the retrieved vector matches the original
     for (size_t i = 0; i < DIM; ++i) {

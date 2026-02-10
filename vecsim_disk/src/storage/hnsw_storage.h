@@ -22,6 +22,7 @@
 
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -59,7 +60,7 @@ public:
 
     ~HNSWStorage() = default;
 
-    bool batch_merge_incoming_edges(
+    void batch_merge_incoming_edges(
         const vecsim_stl::vector<std::tuple<idType, levelType, idType, EdgeOperation>>& operations) {
         // Each tuple: (node_id, level, edge_id, operation)
         rocksdb::WriteBatch batch;
@@ -73,29 +74,35 @@ public:
             batch.Merge(cf_, key, operand);
         }
         rocksdb::Status status = db_->Write(writeOpts_, &batch);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
     // Merge operations for incoming edges only (outgoing edges use GET + PUT per design)
-    bool append_incoming_edge(idType id, levelType level, idType edge) {
+    void append_incoming_edge(idType id, levelType level, idType edge) {
         char key_buf[kEdgeKeySize];
         incomingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         std::string operand = rocksdb::EdgeListMergeOperator::CreateAppendOperand(edge);
         rocksdb::Status status = db_->Merge(writeOpts_, cf_, key, operand);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
-    bool delete_edge_from_incoming(idType id, levelType level, idType edge_to_delete) {
+    void delete_edge_from_incoming(idType id, levelType level, idType edge_to_delete) {
         char key_buf[kEdgeKeySize];
         incomingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         std::string operand = rocksdb::EdgeListMergeOperator::CreateDeleteOperand(edge_to_delete);
         rocksdb::Status status = db_->Merge(writeOpts_, cf_, key, operand);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
-    bool put_vector(idType id, const void* data, size_t size) {
+    void put_vector(idType id, const void* data, size_t size) {
         assert(size % sizeof(DataType) == 0 && "Invalid vector size");
         char key_buf[kVectorKeySize];
         vectorKey(id, key_buf);
@@ -104,45 +111,52 @@ public:
         std::string_view value =
             serializeVector(static_cast<const DataType*>(data), value_buf, size / sizeof(DataType));
         rocksdb::Status status = db_->Put(writeOpts_, cf_, key, value);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
-    bool put_outgoing_edges(idType id, levelType level, const vecsim_stl::vector<idType>& edges) {
+    void put_outgoing_edges(idType id, levelType level, const vecsim_stl::vector<idType>& edges) {
         char key_buf[kEdgeKeySize];
         outgoingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         std::string value_buf;
         std::string_view value = serializeEdges(edges, value_buf);
         rocksdb::Status status = db_->Put(writeOpts_, cf_, key, value);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
-    bool put_incoming_edges(idType id, levelType level, const vecsim_stl::vector<idType>& edges) {
+    void put_incoming_edges(idType id, levelType level, const vecsim_stl::vector<idType>& edges) {
         char key_buf[kEdgeKeySize];
         incomingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         std::string value_buf;
         std::string_view value = serializeEdges(edges, value_buf);
         rocksdb::Status status = db_->Put(writeOpts_, cf_, key, value);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
-    bool get_vector(idType id, void* data, size_t size) const {
+    void get_vector(idType id, void* data, size_t size) const {
         assert(size % sizeof(DataType) == 0 && "Invalid vector size");
         char key_buf[kVectorKeySize];
         vectorKey(id, key_buf);
         std::string_view key(key_buf, kVectorKeySize);
         rocksdb::PinnableSlice value;
         rocksdb::Status status = db_->Get(readOpts_, cf_, key, &value);
-        if (!status.ok())
-            return false;
-        if (value.size() != size)
-            return false;
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
+        if (value.size() != size) {
+            throw std::runtime_error("Vector size mismatch");
+        }
         deserializeVector(value, static_cast<DataType*>(data));
-        return true;
     }
 
-    bool get_outgoing_edges(idType id, levelType level, vecsim_stl::vector<idType>& edges) const {
+    void get_outgoing_edges(idType id, levelType level, vecsim_stl::vector<idType>& edges) const {
         char key_buf[kEdgeKeySize];
         outgoingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
@@ -150,16 +164,15 @@ public:
         rocksdb::Status status = db_->Get(readOpts_, cf_, key, &value);
         if (status.IsNotFound()) {
             edges.clear();
-            return true; // Not found is valid - empty edge list
+            return; // Not found is valid - empty edge list
         }
         if (!status.ok()) {
-            return false; // Actual error
+            throw std::runtime_error(status.ToString());
         }
         deserializeEdges(value, edges);
-        return true;
     }
 
-    bool get_incoming_edges(idType id, levelType level, vecsim_stl::vector<idType>& edges) const {
+    void get_incoming_edges(idType id, levelType level, vecsim_stl::vector<idType>& edges) const {
         char key_buf[kEdgeKeySize];
         incomingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
@@ -167,37 +180,42 @@ public:
         rocksdb::Status status = db_->Get(readOpts_, cf_, key, &value);
         if (status.IsNotFound()) {
             edges.clear();
-            return true; // Not found is valid - empty edge list
+            return; // Not found is valid - empty edge list
         }
         if (!status.ok()) {
-            return false; // Actual error
+            throw std::runtime_error(status.ToString());
         }
         deserializeEdges(value, edges);
-        return true;
     }
 
-    bool del_vector(idType id) {
+    void del_vector(idType id) {
         char key_buf[kVectorKeySize];
         vectorKey(id, key_buf);
         std::string_view key(key_buf, kVectorKeySize);
         rocksdb::Status status = db_->Delete(writeOpts_, cf_, key);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
-    bool del_outgoing_edges(idType id, levelType level) {
+    void del_outgoing_edges(idType id, levelType level) {
         char key_buf[kEdgeKeySize];
         outgoingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         rocksdb::Status status = db_->Delete(writeOpts_, cf_, key);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
-    bool del_incoming_edges(idType id, levelType level) {
+    void del_incoming_edges(idType id, levelType level) {
         char key_buf[kEdgeKeySize];
         incomingEdgesKey(id, level, key_buf);
         std::string_view key(key_buf, kEdgeKeySize);
         rocksdb::Status status = db_->Delete(writeOpts_, cf_, key);
-        return status.ok();
+        if (!status.ok()) {
+            throw std::runtime_error(status.ToString());
+        }
     }
 
 private:

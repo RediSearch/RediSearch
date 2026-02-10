@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # =============================================================================
   # Main jobs (Rust + C++)
@@ -35,13 +39,11 @@ jobs:
   pr-validation:
     needs:
       - lint
-      # TODO: Re-enable once fixed:
-      # - test: Flow tests fail due to SKIPINITIALSCAN not supported by Flex index (introduced in PR #74)
-      # - miri: Miri tests failing - needs investigation
+      - test
+      - miri
       - microbench
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
-
