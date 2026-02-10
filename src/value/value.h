@@ -75,55 +75,7 @@ typedef struct RSValueMap {
 } RSValueMap;
 
 // Variant value union
-typedef struct RSValue {
-
-  union {
-    // numeric value
-    double _numval;
-
-    // int64_t intval;
-
-    // string value
-    struct {
-      char *str;
-      uint32_t len : 29;
-      // sub type for string
-      RSStringType stype : 3;
-    } _strval;
-
-    // array value
-    struct {
-      struct RSValue **vals;
-      uint32_t len;
-    } _arrval;
-
-    // map value
-    RSValueMap _mapval;
-
-    // trio value
-    struct {
-      // An array of 3 RSValue *'s
-      struct RSValue **vals;
-    } _trioval;
-
-    // redis string value
-    struct RedisModuleString *_rstrval;
-
-    // reference to another value
-    struct RSValue *_ref;
-  };
-  RSValueType _t : 7;
-  uint8_t _allocated : 1;
-  uint16_t _refcount;
-
-#ifdef __cplusplus
-  RSValue() {
-  }
-  RSValue(RSValueType t_) : _ref(NULL), _t(t_), _refcount(0), _allocated(0) {
-  }
-
-#endif
-} RSValue;
+typedef struct RSValue RSValue;
 #pragma pack()
 
 /* Size of RSValue struct */
@@ -301,9 +253,7 @@ bool RSValue_IsTrio(const RSValue *v);
  * @param v The value to check
  * @return true if the value is of type RSValueType_String or RSValueType_RedisString, false otherwise
  */
-static inline int RSValue_IsString(const RSValue *value) {
-  return value && (value->_t == RSValueType_String || value->_t == RSValueType_RedisString);
-}
+int RSValue_IsString(const RSValue *value);
 
 /* Return 1 if the value is NULL, RSValueType_Null or a reference to RSValue_NullStatic */
 int RSValue_IsNull(const RSValue *value);
@@ -361,15 +311,9 @@ RedisModuleString *RSValue_RedisString_Get(const RSValue *v);
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp);
 
 // Array getters/setters
-static inline RSValue *RSValue_ArrayItem(const RSValue *arr, uint32_t index) {
-  RS_ASSERT(arr && arr->_t == RSValueType_Array);
-  RS_ASSERT(index < arr->_arrval.len);
-  return arr->_arrval.vals[index];
-}
+RSValue *RSValue_ArrayItem(const RSValue *arr, uint32_t index);
 
-static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
-  return arr ? arr->_arrval.len : 0;
-}
+uint32_t RSValue_ArrayLen(const RSValue *arr);
 
 // Map getters/setters
 /**
@@ -425,10 +369,7 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v);
 
 // Reference getters/setters
 /* Return the value itself or its referred value */
-static inline RSValue *RSValue_Dereference(const RSValue *v) {
-  for (; v && v->_t == RSValueType_Reference; v = v->_ref);
-  return (RSValue *)v;
-}
+RSValue *RSValue_Dereference(const RSValue *v);
 
 /**
  * Clears the underlying storage of the value, and makes it
@@ -439,29 +380,15 @@ void RSValue_Clear(RSValue *v);
 RSValue *RSValue_IncrRef(RSValue *v);
 void RSValue_DecrRef(RSValue *v);
 
-#ifndef __cplusplus
-static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
-  RS_LOG_ASSERT(src, "RSvalue is missing");
-  RSValue_Clear(dst);
-  dst->_t = RSValueType_Reference;
-  dst->_ref = RSValue_IncrRef(src);
-}
+void RSValue_MakeReference(RSValue *dst, RSValue *src);
 
-static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
-  RSValue_MakeReference(dst, src);
-  RSValue_DecrRef(src);
-}
-#endif
+void RSValue_MakeOwnReference(RSValue *dst, RSValue *src);
 
 /**
  * This function decrements the refcount of dst (as a pointer), and increments the
  * refcount of src, and finally assigns src to the variable dst
  */
-static inline void RSValue_Replace(RSValue **destpp, RSValue *src) {
-    RSValue_DecrRef(*destpp);
-    RSValue_IncrRef(src);
-    *(destpp) = src;
-}
+void RSValue_Replace(RSValue **destpp, RSValue *src);
 
 /**
  * Convert an RSValue to null type in-place.
@@ -491,47 +418,7 @@ not. If possible, we put the actual value into the double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d);
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
-static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
-  switch (v->_t) {
-    case RSValueType_Reference:
-      return RSValue_Hash(v->_ref, hval);
-    case RSValueType_String:
-
-      return fnv_64a_buf(v->_strval.str, v->_strval.len, hval);
-    case RSValueType_Number:
-      return fnv_64a_buf(&v->_numval, sizeof(double), hval);
-
-    case RSValueType_RedisString: {
-      size_t sz;
-      const char *c = RedisModule_StringPtrLen(v->_rstrval, &sz);
-      return fnv_64a_buf((void *)c, sz, hval);
-    }
-    case RSValueType_Null:
-      return hval + 1;
-
-    case RSValueType_Array: {
-      for (uint32_t i = 0; i < v->_arrval.len; i++) {
-        hval = RSValue_Hash(v->_arrval.vals[i], hval);
-      }
-      return hval;
-    }
-
-    case RSValueType_Map:
-      for (uint32_t i = 0; i < v->_mapval.len; i++) {
-        hval = RSValue_Hash(v->_mapval.entries[i].key, hval);
-        hval = RSValue_Hash(v->_mapval.entries[i].value, hval);
-      }
-      return hval;
-
-    case RSValueType_Undef:
-      return 0;
-
-    case RSValueType_Trio:
-      return RSValue_Hash(RSValue_Trio_GetLeft(v), hval);
-  }
-
-  return 0;
-}
+uint64_t RSValue_Hash(const RSValue *v, uint64_t hval);
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
@@ -541,9 +428,7 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
 /**
  * Helper function to allocate memory before passing it to RSValue_NewArray
  */
-static inline RSValue **RSValue_AllocateArray(uint32_t len) {
-  return (RSValue **)rm_malloc(len * sizeof(RSValue *));
-}
+RSValue **RSValue_AllocateArray(uint32_t len);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
@@ -553,41 +438,13 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 
 /* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
  * considered false */
-static inline int RSValue_BoolTest(const RSValue *v) {
-  if (RSValue_IsNull(v)) return 0;
-
-  v = RSValue_Dereference(v);
-  switch (v->_t) {
-    case RSValueType_Array:
-      return v->_arrval.len != 0;
-    case RSValueType_Number:
-      return v->_numval != 0;
-    case RSValueType_String:
-      return v->_strval.len != 0;
-    case RSValueType_RedisString: {
-      size_t l = 0;
-      const char *p = RedisModule_StringPtrLen(v->_rstrval, &l);
-      return l != 0;
-    }
-    default:
-      return 0;
-  }
-}
+int RSValue_BoolTest(const RSValue *v);
 
 /**
  * Formats the passed numeric RSValue as a string.
  * The passed RSValue must be of type RSValueType_Number.
  */
-static size_t RSValue_NumToString(const RSValue *v, char *buf, size_t buflen) {
-  RS_ASSERT(v->_t == RSValueType_Number);
-  double dd = v->_numval;
-  long long ll = dd;
-  if (ll == dd) {
-    return snprintf(buf, buflen, "%lld", ll);
-  } else {
-    return snprintf(buf, buflen, "%.12g", dd);
-  }
-}
+size_t RSValue_NumToString(const RSValue *v, char *buf, size_t buflen);
 
 // Formats the parsed expression object into a string, obfuscating the values if needed based on the
 // obfuscate boolean The returned string must be freed by the caller using sdsfree

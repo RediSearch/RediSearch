@@ -18,7 +18,7 @@ def testProfileSearch(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('no such index')
-  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
@@ -189,10 +189,9 @@ def testProfileErrors(env):
   env.expect('ft.profile', 'idx', 'SEARCH').error().contains('wrong number of arguments')
   env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains('wrong number of arguments')
   # wrong `query` type
-  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
   # miss `QUERY` keyword
-  if not env.isCluster():
-    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
+  env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
 @skip(cluster=True)
 def testProfileNumeric(env):
@@ -463,6 +462,7 @@ def TimeoutWarningInProfile(env):
     ['Shards',
      [['Total profile time', ANY,
        'Parsing time', ANY,
+       'Workers queue time', ANY,
        'Pipeline creation time', ANY,
        'Warning', ['Timeout limit was reached'],
        'Iterators profile',
@@ -483,6 +483,7 @@ def TimeoutWarningInProfile(env):
     ['Shards',
      [['Total profile time', ANY,
        'Parsing time', ANY,
+       'Workers queue time', ANY,
        'Pipeline creation time', ANY,
        'Warning', ['Timeout limit was reached'],
        'Iterators profile',
@@ -801,6 +802,122 @@ def find_threadsafe_loader(env, shard):
     # RESP2: rp_profile is a list of lists like [['Type', 'Index', ...], ['Type', 'Threadsafe-Loader', ...], ...]
     return next((to_dict(rp) for rp in rp_profile if 'Threadsafe-Loader' in rp), None)
 
+def sum_rp_times(env, shard):
+  # Sum all Result Processor times from a shard profile.
+  rp_profile = shard['Result processors profile']
+  total = 0.0
+  if env.protocol == 3:
+    for rp in rp_profile:
+      total += float(rp.get('Time', 0))
+  else:
+    for rp in rp_profile:
+      rp_dict = to_dict(rp)
+      # In RESP2, Time is returned as a string
+      total += float(rp_dict.get('Time', 0))
+  return total
+
+def ProfileTotalTimeConsistency(env, num_docs):
+  """Tests that Total profile time >= sum of Result Processor times.
+
+  Tests multiple commands with various result processors to ensure timing
+  consistency across different query types:
+  - FT.SEARCH with Scorer, Sorter, Loader
+  - FT.AGGREGATE with Loader, Grouper, Sorter, Projector (APPLY), Pager/Limiter
+  """
+  conn = getConnectionByEnv(env)
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  # Create index with TEXT and NUMERIC fields for diverse query options
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'SORTABLE').ok()
+
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', f'hello{i % 100}', 'n', i)
+
+  def verify_timing_consistency(res, command_desc):
+    """Helper to verify total time >= sum of RP times for all shards."""
+    _, shards = extract_profile_coordinator_and_shards(env, res)
+    for shard in shards:
+      # In RESP2, Total profile time is returned as a string
+      total_time = float(shard['Total profile time'])
+      rp_times_sum = sum_rp_times(env, shard)
+      env.assertGreaterEqual(total_time, rp_times_sum,
+        message=f"{command_desc}: Total profile time ({total_time}) < sum of RP times ({rp_times_sum}). Full response: {res}")
+
+  # Test 1: Simple FT.AGGREGATE with wildcard query
+  # Result processors: Index, Pager/Limiter
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+  verify_timing_consistency(res, "FT.AGGREGATE wildcard")
+
+  # Test 2: FT.AGGREGATE with LOAD, GROUPBY, REDUCE
+  # Result processors: Index, Loader, Grouper
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                'LOAD', '1', '@t',
+                'GROUPBY', '1', '@t',
+                'REDUCE', 'COUNT', '0', 'AS', 'count')
+  verify_timing_consistency(res, "FT.AGGREGATE with GROUPBY")
+
+  # Test 3: FT.AGGREGATE with LOAD, APPLY, SORTBY, LIMIT
+  # Result processors: Index, Loader, Projector, Sorter, Pager/Limiter
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                'LOAD', '2', '@t', '@n',
+                'APPLY', '@n * 2', 'AS', 'doubled',
+                'SORTBY', '2', '@n', 'ASC',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.AGGREGATE with APPLY/SORTBY/LIMIT")
+
+  # Test 4: FT.SEARCH with default options
+  # Result processors: Index, Scorer, Sorter, Loader
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.SEARCH wildcard")
+
+  # Test 5: FT.SEARCH with SORTBY on numeric field
+  # Result processors: Index, Scorer, Sorter, Loader
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                'SORTBY', 'n', 'ASC',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.SEARCH with SORTBY")
+
+  # Test 6: FT.SEARCH with text query and NOCONTENT
+  # Result processors: Index, Scorer, Sorter (fewer processors, faster)
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello0',
+                'NOCONTENT',
+                'LIMIT', '0', '100')
+  verify_timing_consistency(res, "FT.SEARCH text query NOCONTENT")
+
+@skip(cluster=False)
+def testProfileTotalTimeConsistencyClusterResp3():
+  """Tests timing consistency in cluster mode with multiple cursor reads - RESP3."""
+  # Use enough docs to trigger multiple cursor reads (>1000 per shard)
+  env = Env(shardsCount=2, protocol=3)
+  num_docs = int(1000 * 1.5 * env.shardsCount)
+  ProfileTotalTimeConsistency(env, num_docs)
+
+@skip(cluster=False)
+def testProfileTotalTimeConsistencyClusterResp2():
+  """Tests timing consistency in cluster mode with multiple cursor reads - RESP2."""
+  env = Env(shardsCount=2, protocol=2)
+  num_docs = int(1000 * 1.5 * env.shardsCount)
+  ProfileTotalTimeConsistency(env, num_docs)
+
+@skip(cluster=True)
+def testProfileTotalTimeConsistencyStandaloneResp3():
+  """Tests timing consistency in standalone mode - RESP3."""
+  env = Env(protocol=3)
+  # Use enough docs to ensure meaningful timing data and avoid flakiness.
+  # Serialization time is not counted in result processor times, so we need
+  # enough results to make the timing difference significant across machines.
+  ProfileTotalTimeConsistency(env, num_docs=1500)
+
+@skip(cluster=True)
+def testProfileTotalTimeConsistencyStandaloneResp2():
+  """Tests timing consistency in standalone mode - RESP2."""
+  env = Env(protocol=2)
+  # Use enough docs to ensure meaningful timing data and avoid flakiness.
+  # Serialization time is not counted in result processor times, so we need
+  # enough results to make the timing difference significant across machines.
+  ProfileTotalTimeConsistency(env, num_docs=1500)
+
 def ProfileGILTime(env):
   # Test FT.PROFILE GIL time reporting across all worker combinations.
   # (Standalone and Coordinator behave the same)
@@ -882,6 +999,7 @@ def testProfileBM25NormMax(env):
   env.assertTrue(recursive_contains(aggregate_response, "Score Max Normalizer"))
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
   env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
+
 
 def testProfileVectorSearchMode():
   """Test Vector search mode field in FT.PROFILE for both SEARCH and AGGREGATE"""
@@ -1054,7 +1172,10 @@ def testConcurrentSetClusterAndProfile():
 
 def CoordDispatchTimeInProfile(env):
   """
-  Tests that 'Coordinator dispatch time' field appears in shard profiles for FT.AGGREGATE and FT.SEARCH.
+  Tests that 'Coordinator dispatch time [ms]' field appears in shard profiles
+  for FT.AGGREGATE, FT.SEARCH, and FT.HYBRID.
+  For HYBRID queries, verifies dispatch time is present for both SEARCH and
+  VSIM subqueries.
   """
 
   # Helper to verify dispatch time in profile result
@@ -1087,20 +1208,80 @@ def CoordDispatchTimeInProfile(env):
   res_search = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT')
   verify_dispatch_time_in_profile(res_search, 'SEARCH')
 
-  # --- Test HYBRID profile dispatch time should be 0 ---
-  # Implement and remove try/except once FT.PROFILE for FT.HYBRID is implemented
-  try:
-    query_vector = np.array([0, 0], dtype=np.float32).tobytes()
-    res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'hello0', 'VSIM', '@v', '$BLOB',
-                                        'PARAMS', '2', 'BLOB', query_vector)
+  # --- Test HYBRID profile dispatch time ---
+  # HYBRID profile should include dispatch time for both SEARCH and VSIM subqueries
+  query_vector = np.array([0, 0], dtype=np.float32).tobytes()
+  res_hybrid = env.cmd('FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+                       'SEARCH', 'hello0',
+                       'VSIM', '@v', '$BLOB',
+                       'PARAMS', '2', 'BLOB', query_vector)
 
-    # shards_profile_hybrid = get_shards_profile(env, res_hybrid)
-    # for i, shard_profile in enumerate(shards_profile_hybrid):
-    #   env.assertEqual(float(shard_profile['Coordinator dispatch time']), 0.0,
-    #     message=f"shard {i}: 'Coordinator dispatch time' should be 0. full reply: {res_hybrid}")
-  except Exception as e:
-    env.assertIn('No `SEARCH` or `AGGREGATE` provided', str(e))
-    pass
+  # Extract HYBRID shard profiles
+  # HYBRID has different structure: each shard contains
+  # ['Shard ID', ANY, 'SEARCH', [...], 'VSIM', [...]]
+  if env.protocol == 3:
+    hybrid_shards = res_hybrid['Profile']['Shards']
+  else:
+    # RESP2: res_hybrid[-1] is ['Shards', [...], 'Coordinator', {...}]
+    hybrid_shards = res_hybrid[-1][1]
+
+  env.assertEqual(len(hybrid_shards), env.shardsCount,
+                  message=f"HYBRID: unexpected number of shards. full reply: {res_hybrid}")
+
+  # For each shard, verify both SEARCH and VSIM subqueries have dispatch time
+  for shard_idx, shard_profile in enumerate(hybrid_shards):
+    if env.protocol == 2:
+      # RESP2: shard_profile is a list like
+      # ['Shard ID', value, 'SEARCH', {...}, 'VSIM', {...}]
+      env.assertEqual(len(shard_profile), 6,
+                      message=f"HYBRID shard {shard_idx}: unexpected structure. full reply: {res_hybrid}")
+      env.assertEqual(shard_profile[0], 'Shard ID')
+      env.assertEqual(shard_profile[2], 'SEARCH')
+      env.assertEqual(shard_profile[4], 'VSIM')
+
+      # Extract SEARCH and VSIM subprofiles (indices 3 and 5)
+      search_profile = to_dict(shard_profile[3])
+      vsim_profile = to_dict(shard_profile[5])
+    else:
+      # RESP3: shard_profile is a dict with 'Shard ID', 'SEARCH', 'VSIM' keys
+      env.assertContains('Shard ID', shard_profile)
+      env.assertContains('SEARCH', shard_profile)
+      env.assertContains('VSIM', shard_profile)
+
+      search_profile = shard_profile['SEARCH']
+      vsim_profile = shard_profile['VSIM']
+
+    # Verify SEARCH subquery has dispatch time
+    env.assertContains('Coordinator dispatch time [ms]', search_profile,
+                       message=f"HYBRID shard {shard_idx} SEARCH: 'Coordinator dispatch time [ms]' not found. full reply: {res_hybrid}")
+
+    # Verify VSIM subquery has dispatch time
+    env.assertContains('Coordinator dispatch time [ms]', vsim_profile,
+                       message=f"HYBRID shard {shard_idx} VSIM: 'Coordinator dispatch time [ms]' not found. full reply: {res_hybrid}")
+
+  # Verify all shards have consistent dispatch times for SEARCH
+  search_dispatch_times = []
+  vsim_dispatch_times = []
+  for shard_idx, shard_profile in enumerate(hybrid_shards):
+    if env.protocol == 2:
+      search_profile = to_dict(shard_profile[3])
+      vsim_profile = to_dict(shard_profile[5])
+    else:
+      search_profile = shard_profile['SEARCH']
+      vsim_profile = shard_profile['VSIM']
+
+    search_dispatch_times.append(search_profile['Coordinator dispatch time [ms]'])
+    vsim_dispatch_times.append(vsim_profile['Coordinator dispatch time [ms]'])
+
+  # All shards should have the same SEARCH dispatch time
+  for i, dispatch_time in enumerate(search_dispatch_times[1:], start=1):
+    env.assertEqual(dispatch_time, search_dispatch_times[0],
+      message=f"HYBRID SEARCH shard {i} dispatch time differs from shard 0. all shards: {search_dispatch_times}")
+
+  # All shards should have the same VSIM dispatch time
+  for i, dispatch_time in enumerate(vsim_dispatch_times[1:], start=1):
+    env.assertEqual(dispatch_time, vsim_dispatch_times[0],
+      message=f"HYBRID VSIM shard {i} dispatch time differs from shard 0. all shards: {vsim_dispatch_times}")
 
 
 @skip(cluster=False)
@@ -1142,3 +1323,179 @@ def testCoordDispatchTimeInProfileResp2():
     conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}', 'v', vec)
 
   CoordDispatchTimeInProfile(env)
+
+# =============================================================================
+# Queue Time Tests - Validation tests for queue time tracking in FT.PROFILE
+# =============================================================================
+
+def run_profile_with_paused_pool(env, pause_cmd, resume_cmd, pause_duration_ms=100):
+  """
+  Helper to run FT.PROFILE while a thread pool is paused.
+  Returns the profile result after resuming the pool.
+
+  Args:
+    env: Test environment
+    pause_cmd: Command to pause the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'PAUSE'])
+    resume_cmd: Command to resume the pool (e.g., ['_FT.DEBUG', 'WORKERS', 'RESUME'])
+    pause_duration_ms: How long to keep the pool paused (in milliseconds)
+
+  Returns:
+    The FT.PROFILE result
+  """
+  result = [None]
+  error = [None]
+
+  def run_profile():
+    try:
+      result[0] = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT', 'LIMIT', '0', '1')
+    except Exception as e:
+      error[0] = e
+
+  # Pause the pool
+  env.cmd(*pause_cmd)
+
+  # Start the profile command in a background thread
+  profile_thread = threading.Thread(target=run_profile)
+  profile_thread.start()
+
+  # Wait for the pause duration
+  time.sleep(pause_duration_ms / 1000.0)
+
+  # Resume the pool
+  env.cmd(*resume_cmd)
+
+  # Wait for the profile command to complete
+  profile_thread.join(timeout=10)
+
+  if error[0]:
+    raise error[0]
+
+  return result[0]
+
+def get_shard_parsing_time(env, profile_result):
+  """Extract Parsing time from shard profile."""
+  if env.protocol == 3:
+    # RESP3: profile is under 'Profile' -> 'Shards' (list) for both cluster and standalone
+    shards = profile_result['Profile']['Shards']
+    return float(shards[0]['Parsing time'])
+  else:
+    # RESP2
+    if env.isCluster():
+      _, shards = extract_profile_coordinator_and_shards(env, profile_result)
+      return float(shards[0]['Parsing time'])
+    else:
+      profile_dict = to_dict(profile_result[-1])
+      return float(profile_dict['Parsing time'])
+
+@skip(cluster=False)
+def testParsingTimeDoesNotIncludeCoordQueueTime():
+  """Confirms coordinator queue time is NOT included in shard's Parsing time."""
+  env = Env(protocol=3, shardsCount=2, moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+  # Enable verbose profile output to get Parsing time
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  pause_duration_ms = 100
+
+  result = run_profile_with_paused_pool(
+    env,
+    pause_cmd=[debug_cmd(), 'COORD_THREADS', 'PAUSE'],
+    resume_cmd=[debug_cmd(), 'COORD_THREADS', 'RESUME'],
+    pause_duration_ms=pause_duration_ms
+  )
+
+  parsing_time = get_shard_parsing_time(env, result)
+
+  # Coordinator queue time should NOT be in shard's Parsing time
+  # Parsing time should be much less than the pause duration
+  # Note: This assertion can be removed if this test becomes flaky
+  env.assertLess(parsing_time, pause_duration_ms * 0.5,
+    message=f"Parsing time ({parsing_time}ms) should NOT include coordinator queue wait. "
+            f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
+
+def get_shard_workers_queue_time(profile_result):
+  """Extract 'Workers queue time' from the first shard's profile result (RESP3 only)."""
+  profile = profile_result.get('Profile', profile_result.get('profile', {}))
+  shards = profile.get('Shards', profile.get('shards', []))
+  if isinstance(shards, list) and len(shards) > 0:
+    return shards[0].get('Workers queue time', 0)
+  raise ValueError(f"Could not find Workers queue time in profile result: {profile_result}")
+
+def get_coordinator_queue_time(profile_result):
+  """
+  Extract 'Coordinator queue time' from the coordinator's profile result.
+  Only applicable in cluster mode.
+  """
+  profile = profile_result.get('Profile', profile_result.get('profile', {}))
+
+  # Get coordinator profile
+  coordinator = profile.get('Coordinator', profile.get('coordinator', {}))
+  if isinstance(coordinator, dict):
+    return coordinator.get('Coordinator queue time', 0)
+
+  raise ValueError(f"Could not find Coordinator queue time in profile result: {profile_result}")
+
+@skip(cluster=True)
+def testWorkersQueueTimeInProfile():
+  """Verifies Workers queue time is captured and separated from Parsing time."""
+  env = Env(protocol=3, moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+  # Enable verbose profile output to get timing details
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  pause_duration_ms = 100
+
+  result = run_profile_with_paused_pool(
+    env,
+    pause_cmd=[debug_cmd(), 'WORKERS', 'PAUSE'],
+    resume_cmd=[debug_cmd(), 'WORKERS', 'RESUME'],
+    pause_duration_ms=pause_duration_ms
+  )
+
+  parsing_time = get_shard_parsing_time(env, result)
+  workers_queue_time = get_shard_workers_queue_time(result)
+
+  # Workers queue time should capture the queue wait time
+  env.assertGreaterEqual(workers_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
+    message=f"Workers queue time ({workers_queue_time}ms) should capture queue wait. "
+            f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+
+  # Parsing time should NOT include queue wait time anymore
+  # Note: This assertion can be removed if this test becomes flaky
+  env.assertLess(parsing_time, pause_duration_ms * 0.5,
+    message=f"Parsing time ({parsing_time}ms) should NOT include queue wait time. "
+            f"Expected < {pause_duration_ms * 0.5}ms. Full result: {result}")
+
+@skip(cluster=False)
+def testCoordinatorQueueTimeInProfile():
+  """Verifies Coordinator queue time is correctly captured in cluster mode."""
+  env = Env(protocol=3, shardsCount=2)
+  conn = getConnectionByEnv(env)
+  # Enable verbose profile output to get timing details
+  run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  pause_duration_ms = 100
+
+  result = run_profile_with_paused_pool(
+    env,
+    pause_cmd=[debug_cmd(), 'COORD_THREADS', 'PAUSE'],
+    resume_cmd=[debug_cmd(), 'COORD_THREADS', 'RESUME'],
+    pause_duration_ms=pause_duration_ms
+  )
+
+  coord_queue_time = get_coordinator_queue_time(result)
+
+  # Coordinator queue time should capture the queue wait time
+  env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
+    message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
+            f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+

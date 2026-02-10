@@ -72,6 +72,9 @@ typedef struct {
   // traversal
   float maxChildScore;
 
+  // the number of documents containing this key
+  size_t numDocs;
+
   // the payload of terminal node. could be NULL if it's not terminal
   TriePayload *payload;
 
@@ -90,7 +93,8 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
  * from offset up until
  * len. numChildren is the initial number of allocated child nodes */
 TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *payload, size_t plen,
-                        t_len numChildren, float score, int terminal, TrieSortMode sortMode);
+                        t_len numChildren, float score, int terminal, TrieSortMode sortMode,
+                        size_t numDocs);
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for memory saving reasons */
@@ -121,9 +125,11 @@ typedef enum {
 /* Add a new string to a trie. Returns 1 if the string did not exist there, or 0
  * if we just replaced
  * the score. We pass a pointer to the node because it may actually change when
- * splitting */
+ * splitting.
+ * numDocs: the value to add to the existing numDocs */
 int TrieNode_Add(TrieNode **n, const rune *str, t_len len, RSPayload *payload,
-                 float score, TrieAddOp op, TrieFreeCallback freecb);
+                 float score, TrieAddOp op, TrieFreeCallback freecb,
+                 size_t numDocs);
 
 /* Find the entry with a given string and length, and return its score. Returns
  * 0 if the entry was
@@ -220,11 +226,11 @@ void TrieIterator_Free(TrieIterator *it);
  * or 0 if we're done
  * and should exit */
 int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *payload, float *score,
-                      void *matchCtx);
+                      size_t *numDocs, void *matchCtx);
 
 TrieNode *TrieNode_RandomWalk(TrieNode *n, int minSteps, rune **str, t_len *len);
 
-typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *);
+typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *, size_t);
 typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
 
 /**

@@ -15,6 +15,7 @@
 #include "index_utils.h"
 #include "redisearch_api.h"
 #include "common.h"
+#include "notifications.h"
 
 #include <stdio.h>
 #include <random>
@@ -36,7 +37,12 @@ unsigned prng() {
   return prng_seed;
 }
 
-class RangeTest : public ::testing::Test {};
+class RangeTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    prng_seed = 1337;
+  }
+};
 
 TEST_F(RangeTest, testRangeTree) {
   NumericRangeTree *t = NewNumericRangeTree();
@@ -100,8 +106,10 @@ void testRangeIteratorHelper(bool isMulti) {
     }
   }
 
-    IteratorsConfig config{};
-    iteratorsConfig_init(&config);
+  MockQueryEvalCtx q_mock(N, N);
+  IteratorsConfig config{};
+  iteratorsConfig_init(&config);
+
   for (size_t i = 0; i < 5; i++) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
@@ -123,7 +131,7 @@ void testRangeIteratorHelper(bool isMulti) {
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
     FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
     FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-    QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
+    QueryIterator *it = createNumericIterator(&q_mock.sctx, t, flt, &config, &filterCtx);
 
     int xcount = 0;
 
@@ -187,7 +195,7 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, !isMulti ? 12 : 36);
+  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 48);
   ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
 
 
@@ -199,11 +207,11 @@ void testRangeIteratorHelper(bool isMulti) {
     for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
-      QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
+      QueryIterator *it = createNumericIterator(&q_mock.sctx, t, flt, &config, &filterCtx);
       size_t numEstimated = it->NumEstimated(it);
       NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
       fltLimited->limit = 50;
-      QueryIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
+      QueryIterator *itLimited = createNumericIterator(&q_mock.sctx, t, fltLimited, &config, &filterCtx);
       size_t numEstimatedLimited = itLimited->NumEstimated(itLimited);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );
@@ -218,12 +226,10 @@ void testRangeIteratorHelper(bool isMulti) {
 }
 
 TEST_F(RangeTest, testRangeIterator) {
-  GTEST_SKIP() << "Skipping this as the assertions are order dependent with other tests in the same file";
   testRangeIteratorHelper(false);
 }
 
 TEST_F(RangeTest, testRangeIteratorMulti) {
-  GTEST_SKIP() << "Skipping this as the assertions are order dependent with other tests in the same file";
   testRangeIteratorHelper(true);
 }
 
@@ -234,8 +240,8 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
   NumericRangeTree *rt = NewNumericRangeTree();
-  // The base inverted index is 40 bytes + 8 bytes for the entries count of numeric records
-  size_t empty_numeric_mem_size = 48;
+  // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records
+  size_t empty_numeric_mem_size = 32;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
   if (failed_range) {
     FAIL();
@@ -253,6 +259,7 @@ protected:
   RMCK::Context ctx;
 
   void SetUp() override {
+    Initialize_KeyspaceNotifications();
     RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
     index = createSpec(ctx);
   }
@@ -266,7 +273,6 @@ protected:
  * all the inverted indexes in the tree.
  */
 TEST_F(RangeIndexTest, testNumericTreeMemory) {
-  GTEST_SKIP() << "Fails when ran via ctest rather than via the rstest binary";
   size_t num_docs = 1000;
 
   // adding the numeric field to the index
@@ -345,7 +351,6 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
  * Test the overhead of the numeric tree struct (not including the inverted indices memory)
  */
 TEST_F(RangeIndexTest, testNumericTreeOverhead) {
-  GTEST_SKIP() << "Fails when ran via ctest rather than via the rstest binary";
 
   // Create index with multiple numeric indices
   RediSearch_CreateNumericField(index, "n1");

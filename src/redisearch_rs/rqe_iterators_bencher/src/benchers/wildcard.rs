@@ -9,7 +9,7 @@
 
 //! Benchmark Wildcard iterator.
 
-use std::time::Duration;
+use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rqe_iterators::{RQEIterator, wildcard::Wildcard};
@@ -52,7 +52,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -72,7 +72,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -93,7 +93,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -114,7 +114,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,

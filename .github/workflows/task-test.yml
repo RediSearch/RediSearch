@@ -111,7 +111,7 @@ jobs:
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
@@ -499,7 +499,7 @@ jobs:
         run: make pytest ${{ inputs.test-config }}
 
       - name: Rust tests (MIRI)
-        if: inputs.san == 'address'
+        if: inputs.san == 'address' && inputs.unit-tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests_miri
         continue-on-error: ${{ !inputs.fail-fast }}
@@ -526,6 +526,21 @@ jobs:
             echo "tests/ directory does not exist"
           fi
           echo "=========================="
+
+      - name: Decode C++ crash stack traces
+        if: failure() || steps.c_unit_tests.outcome == 'failure'
+        run: |
+          chmod +x tests/cpptests/scripts/decode_stacktrace.sh 2>/dev/null || true
+          if [[ -x tests/cpptests/scripts/decode_stacktrace.sh ]]; then
+            # Find all log files containing stack trace markers and decode them separately
+            # Processing each file separately avoids test name cross-contamination between binaries
+            find tests -name "*.log" -exec grep -l "=== Caught fatal signal in C++ test" {} \; 2>/dev/null | \
+              while read -r logfile; do
+                tests/cpptests/scripts/decode_stacktrace.sh "$logfile" || true
+              done
+          else
+            echo "Decode script not found or not executable"
+          fi
 
       - name: Check coverage files size
         if: inputs.coverage
@@ -605,8 +620,8 @@ jobs:
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
-      - name: Upload flow coverage
-        if: inputs.coverage
+      - name: Upload flow coverage (combined)
+        if: inputs.coverage && inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@v5
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
@@ -614,8 +629,26 @@ jobs:
           flags: flow
           fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (standalone)
+        if: inputs.coverage && inputs.standalone && !inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (coordinator)
+        if: inputs.coverage && !inputs.standalone && inputs.coordinator
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
-        if: inputs.coverage
+        if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
@@ -638,7 +671,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: stop
           github-token: ${{ secrets.CI_GH_P_TOKEN }}

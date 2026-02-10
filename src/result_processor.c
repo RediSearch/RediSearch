@@ -13,6 +13,7 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "result_processor_rs.h"
+#include "rlookup.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -32,6 +33,15 @@
 #include "search_result.h"
 #include "redisearch.h"
 #include "asm_state_machine.h"
+#include "index_result.h"
+#include "index_result_async_read.h"
+
+// Maximum number of concurrent async disk reads
+#define MAX_ONGOING_READ_SIZE 16
+
+// Timeout for async disk poll when iterator is at EOF (in milliseconds)
+// When the iterator is exhausted, we wait for pending async reads to complete
+#define ASYNC_POLL_TIMEOUT_AT_EOF_MS 1000
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -44,6 +54,7 @@ static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status
   RedisSearchCtx_UnlockSpec(sctx);
   return result_status;
 }
+
 typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
@@ -51,6 +62,9 @@ typedef struct {
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
+
+  // Async disk I/O state (only used when async disk I/O is enabled)
+  IndexResultAsyncReadState async;
 } RPQueryIterator;
 
 
@@ -71,7 +85,7 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
     RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->ref_count = 1;
     // Start from checking the deleted-ids (in memory), then perform IO
-    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd);
+    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd, &sctx->time.current);
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -91,91 +105,246 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   return true;
 }
 
-/* Next implementation */
+/**
+ * Refill the IndexResult buffer from the iterator.
+ * Fills up to current capacity, doesn't grow the buffer.
+ * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
+ */
+static int refillBufferUsingIterator(RPQueryIterator *self) {
+  QueryIterator *it = self->iterator;
+  RedisSearchCtx *sctx = self->sctx;
+  IndexSpec *spec = sctx->spec;
+
+  // Don't refill if iterator is done
+  if (it->atEOF) {
+    return RS_RESULT_OK;
+  }
+
+  // Fill buffer up to max capacity
+  while (self->async.iteratorResultCount < self->async.poolSize && !it->atEOF) {
+    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+
+    IteratorStatus rc = it->Read(it);
+    if (rc == ITERATOR_EOF) {
+      break;
+    } else if (rc == ITERATOR_TIMEOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+
+    // Skip deleted documents (in-memory check, no IO)
+    t_docId docId = it->current->docId;
+    if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
+      continue;
+    }
+
+    // Deep copy the IndexResult since iterator reuses the same pointer
+    // The copy will be freed after the async read completes and result is consumed
+    RSIndexResult *copy = IndexResult_DeepCopy(it->current);
+
+    // Allocate a new node and add it to the list
+    IndexResultNode *node = rm_calloc(1, sizeof(*node));
+    node->result = copy;
+    dllist_append(&self->async.iteratorResults, &node->node);
+    self->async.iteratorResultCount++;
+  }
+
+  return RS_RESULT_OK;
+}
+
+/**
+ * Validate DMD against sharding/slot filters.
+ * Returns true if DMD is valid, false if it should be skipped.
+ */
+static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd) {
+  // Defensive check: if keyPtr is NULL (allocation failure in disk API), skip this document
+  if (!dmd->keyPtr) {
+    return false;
+  }
+
+  // Check trimming (sharding migration)
+  if (isTrimming && RedisModule_ShardingGetKeySlot) {
+    RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+    int slot = RedisModule_ShardingGetKeySlot(key);
+    RedisModule_FreeString(NULL, key);
+    int firstSlot, lastSlot;
+    RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
+    if (firstSlot > slot || lastSlot < slot) {
+      return false;
+    }
+  }
+
+  // Check query slots (internal command filtering)
+  if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
+    int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+    if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Set the search result data from a DMD and IndexResult.
+ */
+static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexResult *indexResult,
+                            const RSDocumentMetadata *dmd) {
+  RS_LOG_ASSERT(SearchResult_GetDocumentMetadata(res) == NULL, "SearchResult already has associated document metadata");
+  base->parent->totalResults++;
+  SearchResult_SetDocId(res, dmd->id);
+  SearchResult_SetIndexResult(res, indexResult);
+  SearchResult_SetScore(res, 0);
+  SearchResult_SetDocumentMetadata(res, dmd);
+  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
+}
+
+/**
+ * Handle initial spec lock and iterator revalidation.
+ * Returns true if we should goto validate_current (VALIDATE_MOVED case).
+ */
+static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
+  RedisSearchCtx *sctx = self->sctx;
+  QueryIterator *it = self->iterator;
+
+  if (sctx->flags != RS_CTX_UNSET) {
+    return false;
+  }
+
+  RedisSearchCtx_LockSpecRead(sctx);
+  ValidateStatus rc = it->Revalidate(it);
+
+  if (rc == VALIDATE_ABORTED) {
+    self->iterator->Free(self->iterator);
+    self->iterator = NewEmptyIterator();
+  } else if (rc == VALIDATE_MOVED && !it->atEOF) {
+    return true;  // Caller should validate current
+  }
+
+  return false;
+}
+
+/* Next implementation for sync disk and regular (in-memory) flow */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
-  DocTable* docs = &self->sctx->spec->docs;
+  IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
-  if (sctx->flags == RS_CTX_UNSET) {
-    // If we need to read the iterators and we didn't lock the spec yet, lock it now
-    // and reopen the keys in the concurrent search context (iterators' validation)
-    RedisSearchCtx_LockSpecRead(sctx);
-    ValidateStatus rc = it->Revalidate(it);
-    if (rc == VALIDATE_ABORTED) {
-      // The iterator is no longer valid, we should not use it.
-      self->iterator->Free(self->iterator);
-      it = self->iterator = NewEmptyIterator(); // Replace with a new empty iterator
-    } else if (rc == VALIDATE_MOVED && !it->atEOF) {
-      // The iterator is still valid, but the current result has changed, or we are at EOF.
-      // If we are at EOF, we can enter the loop and let it handle it. (reading again should be safe)
-      goto validate_current;
-    }
-  }
+    // Handle spec lock and revalidation
+  bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
 
-  // Read from the root filter until we have a valid result
+  // Always update it after revalidation as iterator may have been replaced
+  it = self->iterator;
+
   while (1) {
-    // check for timeout in case we are encountering a lot of deleted documents
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
-    IteratorStatus rc = it->Read(it);
-    switch (rc) {
-    case ITERATOR_EOF:
-      // This means we are done!
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-    case ITERATOR_TIMEOUT:
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-    default:
-      RS_ASSERT(rc == ITERATOR_OK);
-    }
 
-validate_current:
-    IndexSpec* spec = self->sctx->spec;
-    if (!getDocumentMetadata(spec, docs, sctx, it, &dmd)) {
+    if (!needToValidateCurrent) {
+      IteratorStatus rc = it->Read(it);
+      switch (rc) {
+      case ITERATOR_EOF:
+        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+      case ITERATOR_TIMEOUT:
+        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      default:
+        RS_ASSERT(rc == ITERATOR_OK);
+      }
+    }
+    
+    // validate current result only once
+    needToValidateCurrent = false;
+
+    // Get document metadata (either from disk or in-memory DocTable)
+    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd)) {
       continue;
     }
 
-    if (isTrimming && RedisModule_ShardingGetKeySlot) {
-      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
-      int slot = RedisModule_ShardingGetKeySlot(key);
-      RedisModule_FreeString(NULL, key);
-      int firstSlot, lastSlot;
-      RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
-      if (firstSlot > slot || lastSlot < slot) {
-        DMD_Return(dmd);
-        continue;
-      }
-    }
-    // querySlots presence would indicate that is internal command, if querySlots is NULL, we don't need to filter as we would be in standalone.
-    if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
-      RS_ASSERT(self->querySlots != NULL);
-      int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
-      if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
-        DMD_Return(dmd);
-        continue;
-      }
+    if (!validateDmdSlot(self, dmd)) {
+      DMD_Return(dmd);
+      continue;
     }
 
-    // Increment the total results barring deleted results
-    base->parent->totalResults++;
-    break;
+    setSearchResult(base, res, it->current, dmd);
+    return RS_RESULT_OK;
   }
+}
 
-  // set the result data
-  SearchResult_SetDocId(res, it->lastDocId);
-  SearchResult_SetIndexResult(res, it->current);
-  SearchResult_SetScore(res, 0);
-  SearchResult_SetDocumentMetadata(res, dmd);
-  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), dmd->sortVector);
-  return RS_RESULT_OK;
+/* Next implementation for async disk flow with two-level buffering */
+static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  QueryIterator *it = self->iterator;
+  RedisSearchCtx *sctx = self->sctx;
+
+  // Handle spec lock and revalidation
+  // no need store the return value since validate current result is not needed for async disk path
+  handleSpecLockAndRevalidate(self);
+  
+  // Always update it after revalidation as iterator may have been replaced
+  it = self->iterator;
+
+  while (1) {
+    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
+
+    // Free the previous deep-copied IndexResult if any
+    // (it was consumed by the parent result processor in the previous call)
+    if (self->async.lastReturnedIndexResult) {
+      IndexResult_Free(self->async.lastReturnedIndexResult);
+      self->async.lastReturnedIndexResult = NULL;
+    }
+
+    // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
+    int refillResult = refillBufferUsingIterator(self);
+    if (refillResult == RS_RESULT_TIMEDOUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
+
+    // Step 1b: Submit any buffered results to async pool (keep pipeline full)
+    IndexResultAsyncRead_RefillPool(&self->async);
+
+    // Step 2: Try to serve a ready result if we have one
+    RSIndexResult *indexResult = IndexResultAsyncRead_PopReadyResult(&self->async);
+    if (indexResult) {
+      RS_ASSERT(indexResult->dmd);  // DMD should be populated
+
+      if (!validateDmdSlot(self, indexResult->dmd)) {
+        DMD_Return(indexResult->dmd);
+        // Free the deep-copied IndexResult since we're not using it
+        IndexResult_Free(indexResult);
+        continue;
+      }
+      setSearchResult(base, res, indexResult, indexResult->dmd);
+      // Track this IndexResult so we can free it on the next call
+      self->async.lastReturnedIndexResult = indexResult;
+      return RS_RESULT_OK;
+    }
+
+    // Step 3: No ready results - poll for more
+    int timeout_ms = it->atEOF ? ASYNC_POLL_TIMEOUT_AT_EOF_MS : 0;
+    const size_t pendingCount = IndexResultAsyncRead_Poll(&self->async, timeout_ms, &sctx->time.current);
+
+    // Step 4: Check if we're completely done
+    if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+    }
+
+    // Loop back to serve results (I/O for next batch is already running)
+  }
 }
 
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
   rm_free((void *)self->querySlots);
+
+  // Free async disk I/O state
+  IndexResultAsyncRead_Free(&self->async);
+
   rm_free(iter);
 }
 
@@ -185,10 +354,33 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->iterator = root;
   ret->querySlots = querySlots;
   ret->keySpaceVersion = keySpaceVersion;
-  ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
+
+  // Initialize async read state
+  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
+
+  // Determine which Next function to use based on disk configuration
+  if (sctx->spec->diskSpec &&
+      SearchDisk_IsAsyncIOSupported() &&
+      SearchDisk_GetAsyncIOEnabled()) {
+    // Create async pool and setup async I/O
+    RedisSearchDiskAsyncReadPool asyncPool =
+        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, MAX_ONGOING_READ_SIZE);
+
+    if (asyncPool) {
+      // Async disk flow with buffering
+      IndexResultAsyncRead_SetupAsyncPool(&ret->async, asyncPool);
+      ret->base.Next = rpQueryItNext_AsyncDisk;
+    } else {
+      ret->base.Next = rpQueryItNext;
+    }
+  } else {
+    // Sync disk or regular in-memory flow (both use getDocumentMetadata)
+    ret->base.Next = rpQueryItNext;
+  }
+
   return &ret->base;
 }
 
@@ -445,6 +637,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     }
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+    *self->pooledResult = SearchResult_New();
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -542,6 +735,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
   ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
@@ -719,7 +913,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
   } else {
     self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
-    lk->options |= RLOOKUP_OPT_ALL_LOADED; // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALL_LOADED); // TODO: turn on only for HASH specs
   }
 
   self->lk = lk;
@@ -896,7 +1090,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx *sctx = self->sctx;
   int result_status;
   uint32_t bufferLimit = rp->parent->resultLimit;
-  SearchResult resToBuffer = {0};
+  SearchResult resToBuffer = SearchResult_New();
   SearchResult *currBlock = NULL;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
@@ -905,8 +1099,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     // Buffer the result.
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
-    memset(&resToBuffer, 0, sizeof(SearchResult));
-
+    resToBuffer = SearchResult_New();
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
 
@@ -1022,7 +1215,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags) {
   if (RSGlobalConfig.enableUnstableFeatures) {
-    if (nkeys == 1 && !strcmp(keys[0]->path, UNDERSCORE_KEY)) {
+    if (nkeys == 1 && !strcmp(RLookupKey_GetPath(keys[0]), UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space
       // Returning without turning on the `QEXEC_S_HAS_LOAD` flag
       return RPKeyNameLoader_New(keys[0]);
@@ -1181,10 +1374,12 @@ void RPProfile_IncrementCount(ResultProcessor *rp) {
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
   ResultProcessor *cur = qctx->endProc = RPProfile_New(qctx->endProc, qctx);
-  while (cur && cur->upstream && cur->upstream->upstream) {
+  while (cur && cur->upstream) {
     cur = cur->upstream;
-    cur->upstream = RPProfile_New(cur->upstream, qctx);
-    cur = cur->upstream;
+    if (cur->upstream) {  // Only add profile RP if there's another RP upstream
+      cur->upstream = RPProfile_New(cur->upstream, qctx);
+      cur = cur->upstream;
+    }
   }
 }
 
@@ -1267,6 +1462,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  *self->pooledResult = SearchResult_New();
   return RESULT_QUEUED;
 }
 
@@ -1284,6 +1480,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
   RPMaxScoreNormalizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  *ret->pooledResult = SearchResult_New();
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = RPMaxScoreNormalizer_Accum;
   ret->base.Free = RPMaxScoreNormalizer_Free;
@@ -1377,6 +1574,7 @@ typedef struct {
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
+  rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
 } RPSafeDepleter;
 
 /*
@@ -1449,6 +1647,15 @@ static void RPSafeDepleter_Free(ResultProcessor *base) {
   rm_free(self);
 }
 
+/**
+ * Get the depletion time for RPSafeDepleter.
+ * This is the time spent in the background thread depleting upstream results.
+ */
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *base) {
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  return self->depletionTime;
+}
+
 // Helper function for RPSafeDepleter_Deplete that does the actual work of locking, depleting, and unlocking
 static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSync *sync) {
   RPStatus rc;
@@ -1462,9 +1669,11 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Deplete the pipeline into the `self->results` array.
   SearchResult *r = rm_calloc(1, sizeof(*r));
+  *r = SearchResult_New();
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
+    *r = SearchResult_New();
   }
   rm_free(r);
 
@@ -1493,6 +1702,10 @@ static void RPSafeDepleter_Deplete(void *arg) {
   RPSafeDepleter *self = (RPSafeDepleter *)arg;
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
 
+  // Start timing the depletion
+  rs_wall_clock depletionStart;
+  rs_wall_clock_init(&depletionStart);
+
   // Check if timeout was exceeded before starting execution
   if (TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
@@ -1503,6 +1716,9 @@ static void RPSafeDepleter_Deplete(void *arg) {
       atomic_fetch_add(&sync->num_locked, 1);
     }
   }
+
+  // Record the depletion time
+  self->depletionTime = rs_wall_clock_elapsed_ns(&depletionStart);
 
   // Signal completion
   RPSafeDepleter_SignalDone(self, sync);
@@ -1641,6 +1857,7 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
   ret->nextThreadCtx = nextThreadCtx;
+  ret->depletionTime = 0;  // Initialize depletion time to 0
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;
@@ -1799,16 +2016,18 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = {0};
-  RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
-  RLookupRow_Reset(&r->rowdata);
-  r->rowdata = translated;
+  RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
+      self->lookupCtx->sourceLookups[upstreamIndex], &translated,
+      self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
+  RLookupRow_Reset(SearchResult_GetRowDataMut(r));
+  SearchResult_SetRowData(r, translated);
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
-    RSValue *docKeyValue = RLookup_GetItem(self->docKey, &r->rowdata);
+    RSValue *docKeyValue = RLookup_GetItem(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }
@@ -1836,6 +2055,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
+   *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
@@ -1845,6 +2065,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
        }
        if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
          r = rm_calloc(1, sizeof(*r));
+         *r = SearchResult_New();
        } else {
          SearchResult_Clear(r);
          --consumed; // avoid wrong rank in RRF

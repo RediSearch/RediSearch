@@ -377,7 +377,7 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, quer
                 try:
                     if query_during_migration:
                         # Pattern with queries during migration
-                        while not is_migration_complete(dest_shard, task_id):
+                        while not is_migration_complete(dest_shard, task_id) or not is_migration_complete(source_shard, task_id):
                             env.debugPrint("Querying shards while migration is in progress")
                             query_shards(env, query_during_migration['query'],
                                        query_during_migration['shards'],
@@ -537,7 +537,6 @@ def test_ft_search_import_slot_range_BG():
     import_slot_range_test(env, 'FT.SEARCH')
 
 @skip(cluster=False, min_shards=2)
-@skip
 def test_ft_aggregate_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE')
@@ -757,6 +756,8 @@ def test_slots_info_errors(env: Env):
     env.expect('_FT.SEARCH', 'idx', '*').error().contains('Internal query missing slots specification')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', 'invalid_slots_data').error().contains('Failed to deserialize _SLOTS_INFO data')
     env.expect('_FT.SEARCH', 'idx', '*', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0))).error().contains('_SLOTS_INFO already specified')
+    env.expect('_FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@n', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', b'\x00\x00\x00\x00').error().contains('_SLOTS_INFO: Argument specified multiple times')
+
 
 def info_modules_to_dict(conn):
     res = conn.execute_command('INFO MODULES')

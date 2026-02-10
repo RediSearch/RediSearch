@@ -10,6 +10,7 @@
 #include "tag_index.h"
 #include "triemap.h"
 #include "gtest/gtest.h"
+#include "index_utils.h"
 
 #include <vector>
 #include <string>
@@ -44,23 +45,25 @@ TEST_F(TagIndexTest, testCreate) {
   size_t buffer_cap = 1106;
   size_t num_blocks = N / 1000;
 
-  // The size of the inverted index structure is 40 bytes
-  size_t iv_index_size = 40;
+  // The size of the inverted index structure is 24 bytes
+  size_t iv_index_size = 24;
 
-  // Each index block is 48 bytes + its buffer capacity
-  size_t expectedTotalSZ = v.size() * (iv_index_size + ((buffer_cap + 48) * num_blocks));
+  // Each index block is 48 bytes + its buffer capacity + the header of the block vector
+  size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (buffer_cap + 48) * num_blocks));
   ASSERT_EQ(expectedTotalSZ, totalSZ);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
   size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d);
-  // A base inverted index is 40 bytes
+  // A base inverted index is 24 bytes
+  // The header of the block vector is 8 bytes
   // An index block is 48 bytes
   // And after the first insert the buffer capacity is 1 byte
-  size_t last_block_size = 40 + 48 + 1;
+  size_t last_block_size = 24 + 8 + 48 + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
-  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  MockQueryEvalCtx mockQctx(N, N);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
   t_docId n = 1;
 
@@ -86,7 +89,8 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   TagIndex_Index(idx, &v[0], v.size(), docId);
-  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  MockQueryEvalCtx mockQctx(1, 1);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   IteratorStatus rc = it->Read(it);
   ASSERT_EQ(rc, ITERATOR_OK);
   ASSERT_EQ(it->lastDocId, docId);

@@ -18,16 +18,19 @@
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
+  TimeoutPolicy_ReturnStrict, // Return what we have on timeout, using block-client timeout if available
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-static const int on_timeout_enums[2] = {
+static const int on_timeout_enums[3] = {
   TimeoutPolicy_Return,
-  TimeoutPolicy_Fail
+  TimeoutPolicy_Fail,
+  TimeoutPolicy_ReturnStrict
 };
-static const char *on_timeout_vals[2] = {
+static const char *on_timeout_vals[3] = {
   "return",
-  "fail"
+  "fail",
+  "return-strict"
 };
 
 typedef enum {
@@ -311,6 +314,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
 #define DEFAULT_WORKER_THREADS 0
+#define MIN_WORKER_THREADS_FLEX 1
+#define DEFAULT_WORKER_THREADS_FLEX MIN_WORKER_THREADS_FLEX
 #define MAX_DOC_TABLE_SIZE 100000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024

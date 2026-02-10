@@ -66,10 +66,11 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       InvertedIndex *inv_indices[percent];
       QueryIterator **its = (QueryIterator **)rm_calloc(percent, sizeof(QueryIterator *));
       FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
+      MockQueryEvalCtx mockQctx(n, n);
       for (size_t i = 0; i < percent; i++) {
         InvertedIndex *w = createPopulateTermsInvIndex(n, step, i);
         inv_indices[i] = w;
-        its[i] = NewInvIndIterator_TermQuery(w, NULL, f, NULL, 1);
+        its[i] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, NULL, 1);
       }
       IteratorsConfig config{};
       iteratorsConfig_init(&config);

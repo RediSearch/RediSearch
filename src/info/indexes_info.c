@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "spec.h"
 #include "field_spec_info.h"
+#include "search_disk.h"
 #include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
@@ -41,12 +42,13 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
     info.fields_stats.total_vector_idx_mem += vec_info.memory;
     info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
+    info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
+    info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
     size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0, vec_info.memory);
+    size_t prev_total_mem = info.total_mem;
     info.total_mem += cur_mem;
 
-    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
-    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
@@ -65,7 +67,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_queries += activeQueries;
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
-    info.total_num_docs_in_indexes += sp->stats.numDocuments;
+    info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);
@@ -74,6 +76,18 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       info.max_indexing_failures = index_error_count;
     }
     info.background_indexing_failures_OOM += sp->scan_failed_OOM;
+
+    // Collect disk metrics if disk API is enabled.
+    // This stores metrics internally and returns the index's disk memory contribution.
+    if (sp->diskSpec) {
+      info.total_mem += SearchDisk_CollectIndexMetrics(sp->diskSpec);
+    }
+
+    size_t total_index_mem = info.total_mem - prev_total_mem;
+
+    // Update min_mem and max_mem with total memory including disk storage
+    if (info.min_mem > total_index_mem) info.min_mem = total_index_mem;
+    if (info.max_mem < total_index_mem) info.max_mem = total_index_mem;
 
     pthread_rwlock_unlock(&sp->rwlock);
   }

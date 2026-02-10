@@ -21,6 +21,7 @@
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
+#include "info/global_stats.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -96,13 +97,16 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
+  // Save the number of terms before indexing the current document for metrics
+  size_t prevNumTerms = spec->stats.scoring.numTerms;
+
   while (entry != NULL) {
-    bool isNew;
     if (spec->diskSpec) {
-      SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask);
-      // assume all terms are new, avoid the disk io to check
-      isNew = true;
+      if (SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq)) {
+        IndexSpec_AddTerm(spec, entry->term, entry->len);
+      }
     } else {
+      bool isNew;
       InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
       if (isNew && strlen(entry->term) != 0) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
@@ -124,9 +128,12 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
     entry = ForwardIndexIterator_Next(&it);
   }
+
+  // Update the number of terms added for metrics
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
-/** Assigns a document ID to a single document. */
+/** Assigns a document ID to a single document. Handles only RAM index */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
                                           int replace, QueryError *status) {
   DocTable *table = &spec->docs;
@@ -135,10 +142,10 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
     RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
       // Update stats of the index only if the document was there
-      RS_LOG_ASSERT(spec->stats.numDocuments > 0, "numDocuments cannot be negative");
-      --spec->stats.numDocuments;
-      RS_LOG_ASSERT(spec->stats.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
-      spec->stats.totalDocsLen -= dmd->docLen;
+      RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+      --spec->stats.scoring.numDocuments;
+      RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
+      spec->stats.scoring.totalDocsLen -= dmd->docLen;
       if (spec->gc) {
         GCContext_OnDelete(spec->gc);
       }
@@ -167,7 +174,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
-    ++spec->stats.numDocuments;
+    ++spec->stats.scoring.numDocuments;
   }
 
   return dmd;
@@ -186,47 +193,67 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       continue;
     }
 
+    RS_ASSERT(cur->doc);
+
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
-      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len, cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq, cur->fwIdx->totalFreq);
+      uint32_t oldLen = 0;
+
+      // Check if the document has expiration time (disk does not support field-level expiration yet)
+      if (cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec) {
+        cur->docFlags |= Document_HasExpiration;
+      }
+      // Put the document and get a new doc-id, and remove the old id->dmd entry
+      // if it existed.
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
+        cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
+      if (oldLen > 0) {
+        // We deleted a document in the above call, update the stats accordingly
+        RS_ASSERT(spec->stats.scoring.numDocuments > 0);
+        spec->stats.scoring.numDocuments--;
+        RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
+        spec->stats.scoring.totalDocsLen -= oldLen;
+      }
       if (docId) {
         cur->doc->docId = docId;
+        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+        ++spec->stats.scoring.numDocuments;
       } else {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
-      continue;
-    }
+    } else {
+      RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
+      RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
+                                              cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
+      if (!md) {
+        cur->stateFlags |= ACTX_F_ERRORED;
+        continue;
+      }
 
-    RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-    RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
-                                            cur->options & DOCUMENT_ADD_REPLACE, &cur->status);
-    if (!md) {
-      cur->stateFlags |= ACTX_F_ERRORED;
-      continue;
-    }
+      md->maxTermFreq = cur->fwIdx->maxTermFreq;
+      md->docLen = cur->fwIdx->totalFreq;
+      spec->stats.scoring.totalDocsLen += md->docLen;
 
-    md->maxTermFreq = cur->fwIdx->maxTermFreq;
-    md->docLen = cur->fwIdx->totalFreq;
-    spec->stats.totalDocsLen += md->docLen;
+      if (cur->sv) {
+        DocTable_SetSortingVector(&spec->docs, md, cur->sv);
+        cur->sv = NULL;
+      }
 
-    if (cur->sv) {
-      DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-      cur->sv = NULL;
+      if (cur->byteOffsets) {
+        ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
+        DocTable_SetByteOffsets(md, cur->byteOffsets);
+        cur->byteOffsets = NULL;
+      }
+      Document* doc = cur->doc;
+      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
+      if (hasExpiration) {
+        md->flags |= Document_HasExpiration;
+        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
+      }
+      DMD_Return(md);
     }
-
-    if (cur->byteOffsets) {
-      ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-      DocTable_SetByteOffsets(md, cur->byteOffsets);
-      cur->byteOffsets = NULL;
-    }
-    Document* doc = cur->doc;
-    const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
-    if (hasExpiration) {
-      md->flags |= Document_HasExpiration;
-      DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
-    }
-    DMD_Return(md);
   }
 }
 

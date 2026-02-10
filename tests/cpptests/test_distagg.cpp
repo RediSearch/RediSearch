@@ -11,6 +11,7 @@
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
+#include "common.h"
 
 #include <vector>
 
@@ -74,9 +75,9 @@ static void testAverage() {
 
   AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
 
-  dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
   rc = AREQ_BuildPipeline(r, &status);
-  dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);
@@ -169,6 +170,7 @@ static void testSplit() {
 }
 
 int main(int, char **) {
+  RS::InstallSegvStackTraceHandler();
   RMCK::init();
   testAverage();
   testCountDistinct();

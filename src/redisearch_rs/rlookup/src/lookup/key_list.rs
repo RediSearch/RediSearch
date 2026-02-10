@@ -7,9 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RLookupKey, RLookupKeyFlags};
-use std::ptr;
+use crate::{RLookup, RLookupKey, RLookupKeyFlags};
 use std::{ffi::CStr, pin::Pin, ptr::NonNull};
+
+#[cfg(any(debug_assertions, test))]
+use std::ptr;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -56,7 +58,12 @@ impl<'a> KeyList<'a> {
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
-    pub(crate) fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
+    //
+    // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
+    pub(crate) fn push<'b>(&mut self, mut key: RLookupKey<'a>) -> Pin<&'b mut RLookupKey<'a>>
+    where
+        'a: 'b,
+    {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
 
@@ -335,17 +342,19 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 
         let new = {
             let (name, path) = old.as_mut().make_tombstone();
+            let mut key = if let Some(path) = path {
+                RLookupKey::new_with_path(&RLookup::new(), name, path, flags)
+            } else {
+                RLookupKey::new(&RLookup::new(), name, flags)
+            };
+            key.dstidx = old.dstidx;
 
-            RLookupKey::from_parts(
-                name,
-                path,
-                old.dstidx,
-                // NAME_ALLOC is a transient flag in Rust and must not be copied over,
-                // thus we can safely just set the provided flags here.
-                flags,
-                #[cfg(debug_assertions)]
-                old.rlookup_id(),
-            )
+            #[cfg(debug_assertions)]
+            {
+                key.rlookup_id = old.rlookup_id();
+            }
+
+            key
         };
 
         // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.

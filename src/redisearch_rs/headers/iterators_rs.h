@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
+#include "iterators/inverted_index_iterator.h"
 #include "query.h"
 
 
@@ -51,6 +52,116 @@ QueryIterator *NewSortedIdListIterator(const t_docId *ids, uint64_t num, double 
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
 QueryIterator *NewUnsortedIdListIterator(const t_docId *ids, uint64_t num, double weight);
+
+/**
+ * Creates a new numeric inverted index iterator for querying numeric fields.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the inverted index to query.
+ * * `sctx` - Pointer to the Redis search context for expiration checking.
+ * * `field_ctx` - Pointer to the field filter context (field index and expiration predicate).
+ * * `flt` - Optional pointer to a numeric filter for value filtering (can be NULL).
+ * * `rt` - Optional pointer to the numeric range tree for revalidation (can be NULL).
+ * * `range_min` - Minimum value of the numeric range.
+ * * `range_max` - Maximum value of the numeric range.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to a numeric `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid for the lifetime of the returned iterator.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `field_ctx` must be a valid pointer to a `FieldFilterContext` and cannot be NULL.
+ * 6. `field_ctx.field` must be a field index (tag == FieldMaskOrIndex_Index), not a field mask.
+ *    Numeric queries require a specific field index.
+ * 7. If `flt` is not NULL, it must be a valid pointer to a `NumericFilter` and must
+ *    remain valid for the lifetime of the returned iterator.
+ * 8. If `rt` is not NULL, it must be a valid pointer to a `NumericRangeTree` and must
+ *    remain valid for the lifetime of the returned iterator.
+ * 9. `range_min` is smaller or equal to `range_max`.
+ */
+QueryIterator *NewInvIndIterator_NumericQuery_Rs(const InvertedIndex *idx,
+                                                 const RedisSearchCtx *sctx,
+                                                 const FieldFilterContext *field_ctx,
+                                                 const NumericFilter *flt,
+                                                 const NumericRangeTree *rt,
+                                                 double range_min,
+                                                 double range_max);
+
+/**
+ * Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+ * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery_Rs`.
+ * 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+ *
+ * # Returns
+ *
+ * The flags of the `IndexReader`.
+ */
+IndexFlags InvIndIterator_Rs_GetReaderFlags(const InvIndIterator *it);
+
+/**
+ * Gets the numeric filter from a numeric inverted index iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+ *
+ * # Returns
+ *
+ * A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
+ */
+const NumericFilter *NumericInvIndIterator_Rs_GetNumericFilter(const NumericInvIndIterator *it);
+
+/**
+ * Gets the minimum range value for profiling a numeric iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+ *
+ * # Returns
+ *
+ * The minimum range value from the filter, or negative infinity if no filter was provided.
+ */
+double NumericInvIndIterator_Rs_GetProfileRangeMin(const NumericInvIndIterator *it);
+
+/**
+ * Gets the maximum range value for profiling a numeric iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+ *
+ * # Returns
+ *
+ * The maximum range value from the filter, or positive infinity if no filter was provided.
+ */
+double NumericInvIndIterator_Rs_GetProfileRangeMax(const NumericInvIndIterator *it);
+
+/**
+ * Swap the inverted index of an inverted index iterator. This is only used by C tests
+ * to trigger revalidation on the iterator's underlying reader.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
+ * 2. If `it` is a C iterator, its `reader` field must be a valid non-NULL
+ *    pointer to an `IndexReader`.
+ * 3. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
+ *    iterator's underlying index type.
+ */
+void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
 
 /**
  * Creates a new metric iterator sorted by ID.

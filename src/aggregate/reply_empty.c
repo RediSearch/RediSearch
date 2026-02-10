@@ -17,6 +17,7 @@
 #include "../rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
+#include "../profile/options.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
@@ -59,14 +60,16 @@ int coord_search_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
     rs_wall_clock_init(&req.initClock);
 
     // PROFILE for FT.SEARCH requires no additional parsing
+    QueryError status = QueryError_Default();
     if (rscParseProfile(&req, argv) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
+        return QueryError_ReplyAndClear(ctx, &status);
     }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
     // Handle known errors supported by empty reply module
     req.queryOOM = errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY;
+    req.timedOut = errCode == QUERY_ERROR_CODE_TIMED_OUT;
 
     sendSearchResults_EmptyResults(reply, &req);
 
@@ -146,7 +149,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 
     AREQ *req = AREQ_New();
     // Clock init required for profiling
-    rs_wall_clock_init(&req->initClock);
+    rs_wall_clock_init(&req->profileClocks.initClock);
     rs_wall_clock_init(&AREQ_QueryProcessingCtx(req)->initTime);
 
     // Check if command in internal
@@ -157,7 +160,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
 
-    parseProfileExecOptions(req, execOptions);
+    ApplyProfileOptions(AREQ_QueryProcessingCtx(req), &req->reqflags, execOptions);
 
     if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
         AREQ_Free(req);

@@ -90,6 +90,19 @@ MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
+int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
+
+QueryError *MRCtx_GetStatus(struct MRCtx *ctx);
+
+/* Set the blocked client for the context (used when MRCtx is created before blocking) */
+void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
+
+/* Timeout and reducing state management for partial timeout support */
+void MRCtx_SetTimedOut(struct MRCtx *ctx);
+bool MRCtx_IsTimedOut(struct MRCtx *ctx);
+bool MRCtx_TryClaimReducing(struct MRCtx *ctx);
+void MRCtx_SignalReducerComplete(struct MRCtx *ctx);
+void MRCtx_WaitForReducerComplete(struct MRCtx *ctx);
 
 /* Free the MapReduce context */
 void MRCtx_Free(struct MRCtx *ctx);

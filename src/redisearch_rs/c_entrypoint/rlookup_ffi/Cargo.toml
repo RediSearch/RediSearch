@@ -9,10 +9,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-rlookup.workspace = true
 ffi.workspace = true
-value = { workspace = true, features = ["c_ffi_impl"] }
 libc.workspace = true
+rlookup.workspace = true
+sorting_vector.workspace = true
+value = { workspace = true, features = ["c_ffi_impl"] }
 workspace_hack.workspace = true
 
 [build-dependencies]

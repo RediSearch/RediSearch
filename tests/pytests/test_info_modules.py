@@ -2102,6 +2102,7 @@ def test_total_docs_indexed_metric_SA(env):
 
 # Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics.
 # These metrics count how many times each field type has indexed a document.
+# Note: TEXT fields are excluded from this test as they count terms, not documents.
 @skip(cluster=True)
 def test_total_docs_indexed_by_field_type_SA(env):
   conn = getConnectionByEnv(env)
@@ -2110,7 +2111,6 @@ def test_total_docs_indexed_by_field_type_SA(env):
   def get_field_metrics():
     info = conn.execute_command('INFO', 'MODULES')
     return {
-      'text': info['search_total_indexing_ops_text_fields'],
       'tag': info['search_total_indexing_ops_tag_fields'],
       'numeric': info['search_total_indexing_ops_numeric_fields'],
       'geo': info['search_total_indexing_ops_geo_fields'],
@@ -2120,21 +2120,13 @@ def test_total_docs_indexed_by_field_type_SA(env):
 
   # Baseline: all metrics should be 0
   metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], 0, message="Baseline text should be 0")
   env.assertEqual(metrics['tag'], 0, message="Baseline tag should be 0")
   env.assertEqual(metrics['numeric'], 0, message="Baseline numeric should be 0")
   env.assertEqual(metrics['geo'], 0, message="Baseline geo should be 0")
   env.assertEqual(metrics['geoshape'], 0, message="Baseline geoshape should be 0")
   env.assertEqual(metrics['vector'], 0, message="Baseline vector should be 0")
 
-  # 1. Test TEXT field indexing
-  env.expect('FT.CREATE', 'idx_text', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
-
-  conn.execute_command('HSET', 'text:1', 't', 'hello world')
-  metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], 1, message="After 1 text doc")
-
-  # 2. Test TAG field indexing
+  # 1. Test TAG field indexing
   env.expect('FT.CREATE', 'idx_tag', 'PREFIX', 1, 'tag:', 'SCHEMA', 'tag', 'TAG').ok()
   waitForIndex(env, 'idx_tag')
 
@@ -2142,7 +2134,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['tag'], 1, message="After 1 tag doc")
 
-  # 3. Test NUMERIC field indexing
+  # 2. Test NUMERIC field indexing
   env.expect('FT.CREATE', 'idx_num', 'PREFIX', 1, 'num:', 'SCHEMA', 'n', 'NUMERIC').ok()
   waitForIndex(env, 'idx_num')
 
@@ -2150,7 +2142,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['numeric'], 1, message="After 1 numeric doc")
 
-  # 4. Test GEO field indexing
+  # 3. Test GEO field indexing
   env.expect('FT.CREATE', 'idx_geo', 'PREFIX', 1, 'geo:', 'SCHEMA', 'g', 'GEO').ok()
   waitForIndex(env, 'idx_geo')
 
@@ -2158,7 +2150,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['geo'], 1, message="After 1 geo doc")
 
-  # 5. Test GEOSHAPE field indexing
+  # 4. Test GEOSHAPE field indexing
   env.expect('FT.CREATE', 'idx_geoshape', 'PREFIX', 1, 'geoshape:', 'SCHEMA', 'gs', 'GEOSHAPE').ok()
   waitForIndex(env, 'idx_geoshape')
 
@@ -2166,7 +2158,7 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['geoshape'], 1, message="After 1 geoshape doc")
 
-  # 6. Test VECTOR field indexing
+  # 5. Test VECTOR field indexing
   env.expect('FT.CREATE', 'idx_vec', 'PREFIX', 1, 'vec:',
              'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
              'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
@@ -2178,9 +2170,9 @@ def test_total_docs_indexed_by_field_type_SA(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics['vector'], 1, message="After 1 vector doc")
 
-  # 7. Test multiple fields in same document (all field types at once)
+  # 6. Test multiple fields in same document (all field types at once)
   env.expect('FT.CREATE', 'idx_multi', 'PREFIX', 1, 'multi:',
-             'SCHEMA', 't', 'TEXT', 'tag', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'gs', 'GEOSHAPE',
+             'SCHEMA', 'tag', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'gs', 'GEOSHAPE',
              'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   waitForIndex(env, 'idx_multi')
 
@@ -2188,12 +2180,10 @@ def test_total_docs_indexed_by_field_type_SA(env):
   prev_metrics = get_field_metrics()
 
   multi_vec = np.array([0.5, 0.5]).astype(np.float32).tobytes()
-  conn.execute_command('HSET', 'multi:1', 't', 'hello', 'tag', 'mytag', 'n', '1',
+  conn.execute_command('HSET', 'multi:1', 'tag', 'mytag', 'n', '1',
                        'g', '13.361389,52.519444', 'gs', 'POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))',
                        'v', multi_vec)
   metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
-                  message="Multi-field doc increments text")
   env.assertEqual(metrics['tag'], prev_metrics['tag'] + 1,
                   message="Multi-field doc increments tag")
   env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 1,
@@ -2205,50 +2195,124 @@ def test_total_docs_indexed_by_field_type_SA(env):
   env.assertEqual(metrics['vector'], prev_metrics['vector'] + 1,
                   message="Multi-field doc increments vector")
 
-  # 8. Test double counting with overlapping indexes
-  # Create another text index that will also match 'text:*' docs
-  env.expect('FT.CREATE', 'idx_text2', 'PREFIX', 1, 'text:', 'SCHEMA', 't', 'TEXT').ok()
-  waitForIndex(env, 'idx_text2')
+  # 7. Test double counting with overlapping indexes
+  # Create another tag index that will also match 'tag:*' docs
+  env.expect('FT.CREATE', 'idx_tag2', 'PREFIX', 1, 'tag:', 'SCHEMA', 'tag', 'TAG').ok()
+  waitForIndex(env, 'idx_tag2')
 
-  # The 1 existing text doc (text:1) should now be re-indexed
+  # The 1 existing tag doc (tag:1) should now be re-indexed
   metrics = get_field_metrics()
-  # Previously had 2 text docs (text:1, multi:1), now +1 from background indexing
-  env.assertEqual(metrics['text'], 3,
-                  message="After creating overlapping text index, existing docs re-indexed")
+  # Previously had 2 tag docs (tag:1, multi:1), now +1 from background indexing
+  env.assertEqual(metrics['tag'], 3,
+                  message="After creating overlapping tag index, existing docs re-indexed")
 
-  # 9. Test partial field matching (doc with only some fields)
+  # 8. Test partial field matching (doc with only some fields)
   prev_metrics = get_field_metrics()
 
-  # Add doc with only text field (no tag or numeric)
-  conn.execute_command('HSET', 'multi:2', 't', 'only text here')
+  # Add doc with only numeric field (no tag or geo)
+  conn.execute_command('HSET', 'multi:2', 'n', '99')
   metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
-                  message="Partial doc increments only text")
+  env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 1,
+                  message="Partial doc increments only numeric")
   env.assertEqual(metrics['tag'], prev_metrics['tag'],
                   message="Partial doc doesn't increment tag (field not present)")
-  env.assertEqual(metrics['numeric'], prev_metrics['numeric'],
-                  message="Partial doc doesn't increment numeric (field not present)")
+  env.assertEqual(metrics['geo'], prev_metrics['geo'],
+                  message="Partial doc doesn't increment geo (field not present)")
 
-  # 10. Test index with multiple fields of the same type
+  # 9. Test index with multiple fields of the same type
   env.expect('FT.CREATE', 'idx_same_type', 'PREFIX', 1, 'sametype:',
-             'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+             'SCHEMA', 'n1', 'NUMERIC', 'n2', 'NUMERIC').ok()
   waitForIndex(env, 'idx_same_type')
 
   prev_metrics = get_field_metrics()
 
-  # Doc that matches only one text field
-  conn.execute_command('HSET', 'sametype:1', 't1', 'hello')
+  # Doc that matches only one numeric field
+  conn.execute_command('HSET', 'sametype:1', 'n1', '10')
   metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], prev_metrics['text'] + 1,
-                  message="Doc with one text field increments text by 1")
+  env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 1,
+                  message="Doc with one numeric field increments numeric by 1")
 
   prev_metrics = get_field_metrics()
 
-  # Doc that contains both text fields
-  conn.execute_command('HSET', 'sametype:2', 't1', 'hello', 't2', 'world')
+  # Doc that contains both numeric fields
+  conn.execute_command('HSET', 'sametype:2', 'n1', '20', 'n2', '30')
   metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], prev_metrics['text'] + 2,
-                  message="Doc with two text fields increments text by 2 (per fold, not per doc)")
+  env.assertEqual(metrics['numeric'], prev_metrics['numeric'] + 2,
+                  message="Doc with two numeric fields increments numeric by 2 (per field, not per doc)")
+
+
+# Test the 'search_total_indexing_ops_text_fields' INFO MODULES metric.
+# This metric counts the total number of unique terms indexed per document in TEXT fields.
+# Terms persist even after document deletion.
+@skip(cluster=True)
+def test_total_terms_indexed_text_fields(env):
+  """Test that TEXT field metric counts unique terms indexed per document, not total documents."""
+  conn = getConnectionByEnv(env)
+
+  def get_text_metric():
+    info = conn.execute_command('INFO', 'MODULES')
+    return info['search_total_indexing_ops_text_fields']
+
+  # Baseline: metric should be 0
+  env.assertEqual(get_text_metric(), 0, message="Baseline text metric should be 0")
+
+  # Create a TEXT index
+  env.expect('FT.CREATE', 'idx_text', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+  waitForIndex(env, 'idx_text')
+
+  # Test 1: Index a document with 2 unique terms
+  # "hello world" should be tokenized into 2 unique terms: "hello" and "world"
+  conn.execute_command('HSET', 'doc:1', 't', 'hello world')
+  env.assertEqual(get_text_metric(), 2, message="After indexing 'hello world', should count 2 unique terms")
+
+  # Test 2: Same terms in different documents - should NOT add to count
+  # "hello world" again uses terms already in the index, so no new terms added
+  conn.execute_command('HSET', 'doc:2', 't', 'hello world')
+  env.assertEqual(get_text_metric(), 2, message="Same terms in different doc should NOT add to count")
+
+  # Test 3: Same terms in the same document (update with repetition) - should NOT add to count
+  # Updating doc:1 with "hello world hello" uses existing terms, no new unique terms
+  conn.execute_command('HSET', 'doc:1', 't', 'hello world hello')
+  env.assertEqual(get_text_metric(), 2, message="Updating doc with existing terms should NOT add to count")
+
+  # Test 4: New unique terms in a document
+  # "alpha beta gamma" has 3 new unique terms not seen before
+  conn.execute_command('HSET', 'doc:3', 't', 'alpha beta gamma')
+  env.assertEqual(get_text_metric(), 5, message="New unique terms should be added to count")
+
+  # Test 5: Delete a document - terms should persist in the metric
+  # Deleting doc:2 should NOT decrease the metric (terms persist even after delete)
+  prev_metric = get_text_metric()
+  conn.execute_command('DEL', 'doc:2')
+  env.assertEqual(get_text_metric(), prev_metric,
+                  message="Deleting a document should NOT decrease the term count")
+
+  # Call GC to clean up deleted documents
+  forceInvokeGC(env, 'idx_text')
+
+  # Test 6: Multiple TEXT fields in the same document
+  env.expect('FT.CREATE', 'idx_multi_text', 'PREFIX', 1, 'multi:',
+             'SCHEMA', 't1', 'TEXT', 't2', 'TEXT').ok()
+  waitForIndex(env, 'idx_multi_text')
+
+  prev_metric = get_text_metric()
+  # "one two" (2 new unique terms) + "three four five" (3 new unique terms) = 5 new unique terms
+  conn.execute_command('HSET', 'multi:1', 't1', 'one two', 't2', 'three four five')
+  env.assertEqual(get_text_metric(), prev_metric + 5,
+                  message="Multiple TEXT fields should count all unique terms from all fields")
+
+  # Test 7: Empty text field should not increment
+  prev_metric = get_text_metric()
+  conn.execute_command('HSET', 'doc:4', 't', '')
+  env.assertEqual(get_text_metric(), prev_metric,
+                  message="Empty text field should not add any terms")
+
+  # Test 8: Document with only some TEXT fields that match the index schema
+  prev_metric = get_text_metric()
+  # Only t1 is populated with 2 new unique terms, t2 is missing, t3 is not indexed
+  conn.execute_command('HSET', 'multi:2', 't1', 'delta epsilon', 't3', 'gamma delta')
+  env.assertEqual(get_text_metric(), prev_metric + 2,
+                  message="Only populated fields that match the index schema should be counted")
 
 
 # Test the 'total_indexing_ops_<field_type>_fields' INFO MODULES metrics with multi-value JSON.
@@ -2261,7 +2325,6 @@ def test_total_indexing_ops_multi_value_json(env):
   def get_field_metrics():
     info = conn.execute_command('INFO', 'MODULES')
     return {
-      'text': info['search_total_indexing_ops_text_fields'],
       'tag': info['search_total_indexing_ops_tag_fields'],
       'numeric': info['search_total_indexing_ops_numeric_fields'],
       'geo': info['search_total_indexing_ops_geo_fields'],
@@ -2274,7 +2337,6 @@ def test_total_indexing_ops_multi_value_json(env):
   # Create a JSON index with multi-value paths for all supported field types
   env.expect('FT.CREATE', 'idx_json_multi', 'ON', 'JSON', 'PREFIX', 1, 'jdoc:',
              'SCHEMA',
-             '$.texts[*]', 'AS', 't', 'TEXT',
              '$.tags[*]', 'AS', 'tag', 'TAG',
              '$.nums[*]', 'AS', 'n', 'NUMERIC',
              '$.geos[*]', 'AS', 'g', 'GEO',
@@ -2284,7 +2346,6 @@ def test_total_indexing_ops_multi_value_json(env):
   # Add a JSON document with arrays for each field type
   import json
   doc = {
-    'texts': ['hello', 'world'],    # 2 text values
     'tags': ['tag1', 'tag2'],              # 2 tag values
     'nums': [1, 2,],                  # 2 numeric values
     'geos': ['13.361389,52.519444', '2.349014,48.864716'],  # 2 geo values (Berlin, Paris)
@@ -2294,8 +2355,6 @@ def test_total_indexing_ops_multi_value_json(env):
 
   # Verify that metrics increment by 1 per field (not per value in array)
   metrics = get_field_metrics()
-  env.assertEqual(metrics['text'], baseline['text'] + 1,
-                  message="Multi-value JSON text field increments by 1 per doc")
   env.assertEqual(metrics['tag'], baseline['tag'] + 1,
                   message="Multi-value JSON tag field increments by 1 per doc")
   env.assertEqual(metrics['numeric'], baseline['numeric'] + 1,
@@ -2319,6 +2378,48 @@ def test_total_indexing_ops_multi_value_json(env):
   metrics = get_field_metrics()
   env.assertEqual(metrics, prev_metrics,
                   message="Multi-value JSON geoshape field is not supported")
+
+# Test that JSON NULL fields are not counted in indexing statistics
+@skip(cluster=True, no_json=True)
+def test_json_null_fields(env):
+  """Test that JSON NULL fields do not increment field indexing statistics."""
+  conn = getConnectionByEnv(env)
+
+  def get_field_metrics():
+    info = conn.execute_command('INFO', 'MODULES')
+    return {
+      'tag': info['search_total_indexing_ops_tag_fields'],
+      'numeric': info['search_total_indexing_ops_numeric_fields'],
+      'geo': info['search_total_indexing_ops_geo_fields'],
+      'vector': info['search_total_indexing_ops_vector_fields'],
+    }
+
+  # Baseline: all metrics should be 0
+  baseline = get_field_metrics()
+
+  # Create a JSON index with 2 TAG fields, 1 NUMERIC, 1 GEO, 1 VECTOR
+  env.expect('FT.CREATE', 'idx_json', 'ON', 'JSON', 'SCHEMA',
+             '$.tag1', 'AS', 'tag1', 'TAG',
+             '$.tag2', 'AS', 'tag2', 'TAG',
+             '$.num', 'AS', 'num', 'NUMERIC',
+             '$.geo', 'AS', 'geo', 'GEO',
+             '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  waitForIndex(env, 'idx_json')
+
+  # Test 1: Document with ALL fields NULL (should NOT increment any counter)
+  prev_metrics = get_field_metrics()
+  env.expect('JSON.SET', 'doc:1', '$', '{"tag1":null,"tag2":null,"num":null,"geo":null,"vec":null}').ok()
+  metrics = get_field_metrics()
+  env.assertEqual(metrics, prev_metrics,
+                  message="Doc with all NULL fields should NOT increment any counter")
+
+  # Test 2: Document with one tag field NULL, one tag field non-NULL (should increment tag counter by 1)
+  # This makes sure we cover the increment in the metric after writeCurEntries (if we just used a null field - we won't reach it)
+  prev_metrics = get_field_metrics()
+  env.expect('JSON.SET', 'doc:2', '$', '{"tag1":null,"tag2":"mytag"}').ok()
+  metrics = get_field_metrics()
+  env.assertEqual(metrics['tag'], prev_metrics['tag'] + 1,
+                  message="Doc with one NULL tag field and one non-NULL tag field should increment tag counter by 1")
 
 # Test coordinator dispatch time metric (total_coord_dispatch_time_ms)
 # This metric tracks the time from when the command is received on the coordinator
@@ -2389,7 +2490,7 @@ def test_coord_dispatch_time_metric():
   env.assertEqual(dispatch_times_per_shard, [0] * env.shardsCount,
     message=f"Initial per-shard dispatch times should all be 0. Per-shard values: {dispatch_times_per_shard}")
 
-  # --- Test 1: FT.AGGREGATE should increase dispatch time ---
+  # --- Test 1: FT.AGGREGATE should increase dispatch time on coordinator shard ---
   env.cmd('FT.AGGREGATE', 'idx', '*')
   dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.AGGREGATE', dispatch_times_per_shard)
 
@@ -2397,7 +2498,173 @@ def test_coord_dispatch_time_metric():
   env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'NOCONTENT')
   dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.SEARCH', dispatch_times_per_shard)
 
-  # --- Test 3: FT.HYBRID should NOT change dispatch time on any shard ---
+   # --- Test 3: FT.HYBRID should increase dispatch time on coordinator shard ---
   query_vector = np.array([1.0, 1.0], dtype=np.float32).tobytes()
   env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello0', 'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
-  verify_per_shard_dispatch_times_unchanged('FT.HYBRID', dispatch_times_per_shard)
+  dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.HYBRID', dispatch_times_per_shard)
+
+
+@skip(cluster=True)
+def test_vecsim_hnsw_tiered_info_metrics():
+  """
+  Test the new vector index metrics: direct_hnsw_insertions and flat_buffer_size.
+  Covers:
+  - Non-tiered indexes return 0 for tiered-specific metrics (INFO MODULES and FT.INFO)
+  - Flat buffer size tracking across multiple indexes
+  - Direct insertions when flat buffer is full
+  - Cumulative behavior of direct insertions counter
+  - Key deletions and index drops
+  - FT.INFO field statistics for individual indexes
+  """
+  buffer_limit = 10
+  env = Env(moduleArgs=f'WORKERS 2 TIERED_HNSW_BUFFER_LIMIT {buffer_limit}')
+  conn = getConnectionByEnv(env)
+  dim = 4
+
+  def get_field_stats(idx):
+    """Get field statistics as a dict for the first field of an index."""
+    ft_info = index_info(env, idx)
+    return to_dict(ft_info['field statistics'][0])
+
+  # --- Test 1: Non-tiered (FLAT) index returns 0 for tiered-specific metrics ---
+  env.expect('FT.CREATE', 'idx_flat', 'PREFIX', '1', 'flat:', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+  for i in range(5):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'flat:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], 0)
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0)
+
+  # Verify FT.INFO for FLAT index also returns 0 for tiered-specific metrics
+  field_stats = get_field_stats('idx_flat')
+  env.assertEqual(field_stats['direct_hnsw_insertions'], 0)
+  env.assertEqual(field_stats['flat_buffer_size'], 0)
+
+  # --- Test 2: Flat buffer tracking across multiple indexes ---
+  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+
+  env.expect('FT.CREATE', 'idx_hnsw1', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw1:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx_hnsw2', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw2:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+  # Insert vectors into first index up to buffer limit
+  for i in range(buffer_limit):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  # Insert vectors into second index (partial fill)
+  vectors_in_idx2 = 5
+  for i in range(vectors_in_idx2):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw2:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit + vectors_in_idx2,
+                  message="Flat buffer should aggregate across indexes")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], 0,
+                  message="No direct insertions yet")
+
+  # Verify FT.INFO for individual indexes
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['flat_buffer_size'], buffer_limit)
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], 0)
+  field_stats2 = get_field_stats('idx_hnsw2')
+  env.assertEqual(field_stats2['flat_buffer_size'], vectors_in_idx2)
+  env.assertEqual(field_stats2['direct_hnsw_insertions'], 0)
+
+  # --- Test 3: Direct insertions to idx1 when buffer is full ---
+  extra_vectors = 5
+  for i in range(buffer_limit, buffer_limit + extra_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], extra_vectors,
+                  message="Extra vectors should be counted as direct insertions")
+
+  # Verify FT.INFO shows direct insertions for idx_hnsw1
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], extra_vectors)
+  env.assertEqual(field_stats1['flat_buffer_size'], buffer_limit)
+
+  # --- Test 4: Direct insertions are cumulative - insert more vector to idx1 ---
+  more_vectors = 3
+  for i in range(buffer_limit + extra_vectors, buffer_limit + extra_vectors + more_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  total_direct = extra_vectors + more_vectors
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions should be cumulative")
+
+  # Verify FT.INFO shows cumulative direct insertions
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], total_direct)
+
+  # --- Test 5: Key deletions reduce flat buffer size ---
+  # Delete some keys from idx2 (which has vectors in flat buffer)
+  deleted_keys = 3
+  for i in range(deleted_keys):
+    conn.execute_command('DEL', f'hnsw2:{i}')
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit + vectors_in_idx2 - deleted_keys,
+                  message="Flat buffer size should decrease after key deletions")
+  # Direct insertions counter should not change
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions should not decrease after deletions")
+
+  # --- Test 6: Dropping an index reduces flat buffer size ---
+  env.expect('FT.DROPINDEX', 'idx_hnsw2').ok()
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit,
+                  message="Flat buffer size should decrease after dropping index")
+
+  # --- Test 7: After draining, flat buffer empties but direct insertions preserved ---
+  env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0,
+                  message="Flat buffer should be empty after draining")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions count should be preserved after draining")
+
+  # Verify FT.INFO after draining
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['flat_buffer_size'], 0,
+                  message="FT.INFO flat buffer should be empty after draining")
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], total_direct,
+                  message="FT.INFO direct insertions should be preserved after draining")
+
+  # --- Test 8: Direct insertions when WORKERS=0 (no tiered buffering) ---
+  # Change workers to 0 at runtime - this disables tiered indexing
+  env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+
+  # Create a new HNSW index after workers are disabled
+  env.expect('FT.CREATE', 'idx_hnsw_no_workers', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw_nw:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+  # Insert vectors - should go directly to HNSW since workers=0
+  workers_0_vectors = 7
+  for i in range(workers_0_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw_nw:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0,
+                  message="Flat buffer should remain 0 when WORKERS=0")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct + workers_0_vectors,
+                  message="Direct insertions should increase when WORKERS=0")
+
+  # Verify FT.INFO for the new index shows direct insertions and no flat buffer
+  field_stats_nw = get_field_stats('idx_hnsw_no_workers')
+  env.assertEqual(field_stats_nw['flat_buffer_size'], 0,
+                  message="FT.INFO flat buffer should be 0 when WORKERS=0")
+  env.assertEqual(field_stats_nw['direct_hnsw_insertions'], workers_0_vectors,
+                  message="FT.INFO should show direct insertions when WORKERS=0")

@@ -670,7 +670,7 @@ TEST_F(NotIteratorReducerTest, TestNotWithEmptyChildOptimized) {
   QueryIterator *it = NewNotIterator(emptyChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
 
   // Should return a wildcard iterator
-  ASSERT_EQ(it->type, INV_IDX_ITERATOR);
+  ASSERT_EQ(it->type, INV_IDX_WILDCARD_ITERATOR);
   it->Free(it);
 }
 
@@ -695,22 +695,17 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
   struct timespec timeout = {LONG_MAX, 999999999};
   t_docId maxDocId = 100;
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(Index_DocIdsOnly), &memsize);
   ASSERT_TRUE(idx != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
-      .fieldMask = 1,
-      .freq = 1,
-      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
+      .data = {.tag = RSResultData_Virtual},
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  // Create an iterator that reads only entries with field mask 2
-  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
-  InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
-  invIdxIt->isWildcard = true;
   MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+  QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   QueryIterator *it = NewNotIterator(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
 
   // Should return an empty iterator

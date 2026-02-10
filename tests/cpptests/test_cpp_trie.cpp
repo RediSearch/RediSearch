@@ -23,7 +23,7 @@ typedef std::set<std::string> ElemSet;
 class TrieTest : public ::testing::Test {};
 
 static bool trieInsert(Trie *t, const char *s, size_t n) {
-  return Trie_InsertStringBuffer(t, s, n, 1, 1, NULL);
+  return Trie_InsertStringBuffer(t, s, n, 1, 1, NULL, 0);
 }
 static bool trieInsert(Trie *t, const char *s) {
   return trieInsert(t, s, strlen(s));
@@ -32,7 +32,7 @@ static bool trieInsert(Trie *t, const std::string &s) {
   return trieInsert(t, s.c_str(), s.size());
 }
 
-static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload) {
+static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
   size_t n;
   char *s = runesToStr(u16, nrune, &n);
   std::string xs(s, n);
@@ -80,7 +80,7 @@ TEST_F(TrieTest, testBasicRange) {
   rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
-    sprintf(buf, "%lu", (unsigned long)ii);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }
@@ -118,7 +118,7 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
   rune rbuf[TRIE_INITIAL_STRING_LEN + 1];
   for (size_t ii = 0; ii < 1000; ++ii) {
     char buf[64];
-    sprintf(buf, "%lu", (unsigned long)ii);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)ii);
     auto n = trieInsert(t, buf);
     ASSERT_TRUE(n);
   }
@@ -188,17 +188,17 @@ TEST_F(TrieTest, testPayload) {
   Trie *t = NewTrie(NULL, Trie_Sort_Score);
 
   RSPayload payload = { .data = buf1, .len = 2 };
-  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 2, 1, 1, &payload, 0);
   payload.len = 4;
-  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 4, 1, 1, &payload, 0);
   payload.len = 5;
-  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 5, 1, 1, &payload, 0);
   payload.len = 3;
-  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf1, 3, 1, 1, &payload, 0);
 
   char buf2[] = "work";
   payload = { .data = buf2, .len = 4 };
-  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf2, 4, 1, 1, &payload, 0);
 
 
   // check for prefix of existing term
@@ -251,7 +251,7 @@ TEST_F(TrieTest, testFreeCallback) {
   char *str = rm_strdup("hello");
 
   RSPayload payload = { .data = (char *)&str, .len = sizeof(str) };
-  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload);
+  Trie_InsertStringBuffer(t, buf, 5, 1, 1, &payload, 0);
 
   TrieType_Free(t);
 }
@@ -263,7 +263,7 @@ void checkNext(TrieIterator *iter, const char *str) {
   float score;
   RSPayload payload;
 
-  TrieIterator_Next(iter, &rstr, &rlen, &payload, &score, NULL);
+  TrieIterator_Next(iter, &rstr, &rlen, &payload, &score, NULL, NULL);
   size_t len;
   char *res_str = runesToStr(rstr, rlen, &len);
   ASSERT_STREQ(res_str, str);
@@ -303,7 +303,7 @@ TEST_F(TrieTest, testLexOrder) {
 }
 
 bool trieInsertByScore(Trie *t, const char *s, float score) {
-  return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL);
+  return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL, 0);
 }
 
 bool trieContains(Trie *t, const char *s) {
@@ -387,8 +387,8 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
   RSPayload origPayload, loadedPayload;
 
   while (true) {
-    int origHasNext = TrieIterator_Next(origIter, &origRstr, &origLen, &origPayload, &origScore, NULL);
-    int loadedHasNext = TrieIterator_Next(loadedIter, &loadedRstr, &loadedLen, &loadedPayload, &loadedScore, NULL);
+    int origHasNext = TrieIterator_Next(origIter, &origRstr, &origLen, &origPayload, &origScore, NULL, NULL);
+    int loadedHasNext = TrieIterator_Next(loadedIter, &loadedRstr, &loadedLen, &loadedPayload, &loadedScore, NULL, NULL);
 
     if (origHasNext != loadedHasNext) {
       return false;
@@ -507,9 +507,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
   RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
 
-  bool r1 = Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1);        // Base word with payload
-  bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2);    // Extension with payload
-  bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3);     // Extension with payload
+  bool r1 = Trie_InsertStringBuffer(originalTrie, "run", 3, 5.0, 0, &p1, 0);        // Base word with payload
+  bool r2 = Trie_InsertStringBuffer(originalTrie, "running", 7, 3.0, 0, &p2, 0);    // Extension with payload
+  bool r3 = Trie_InsertStringBuffer(originalTrie, "runner", 6, 4.0, 0, &p3, 0);     // Extension with payload
 
   EXPECT_EQ(3, originalTrie->size);
 
@@ -528,7 +528,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB (with payloads)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 1);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -573,9 +573,9 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
   RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
 
-  Trie_InsertStringBuffer(originalTrie, "car", 3, 8.0, 0, &p1);        // Base word with payload
-  Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2);       // Extension with payload
-  Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3);    // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "car", 3, 8.0, 0, &p1, 0);        // Base word with payload
+  Trie_InsertStringBuffer(originalTrie, "care", 4, 6.0, 0, &p2, 0);       // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "careful", 7, 4.0, 0, &p3, 0);    // Extension with payload
 
   EXPECT_EQ(3, originalTrie->size);
 
@@ -586,15 +586,15 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   });
   ASSERT_TRUE(io != nullptr);
 
-  // Save the trie to RDB WITHOUT payloads (savePayloads = 0)
-  TrieType_GenericSave(io, originalTrie, 0);
+  // Save the trie to RDB WITHOUT payloads (savePayloads = false) and numDocs (saveNumDocs = false)
+  TrieType_GenericSave(io, originalTrie, false, false);
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Reset read position to load it back
   io->read_pos = 0;
 
-  // Load the trie from RDB WITHOUT payloads (loadPayloads = 0)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0);
+  // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false)
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -633,10 +633,10 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
 
   // Insert complex test data WITHOUT payloads - includes prefixes and extensions
-  Trie_InsertStringBuffer(originalTrie, "hello", 5, 8.0, 0, NULL);     // Base word without payload
-  Trie_InsertStringBuffer(originalTrie, "hell", 4, 6.0, 0, &p1);      // Prefix with payload
-  Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL);      // Related word without payload
-  Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2);    // Extension with payload
+  Trie_InsertStringBuffer(originalTrie, "hello", 5, 8.0, 0, NULL, 0);     // Base word without payload
+  Trie_InsertStringBuffer(originalTrie, "hell", 4, 6.0, 0, &p1, 0);      // Prefix with payload
+  Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL, 0);      // Related word without payload
+  Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2, 0);    // Extension with payload
 
   EXPECT_EQ(4, originalTrie->size);
 
@@ -648,14 +648,14 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   ASSERT_TRUE(io != nullptr);
 
   // Save the trie to RDB
-  TrieType_GenericSave(io, originalTrie, 0);
+  TrieType_GenericSave(io, originalTrie, false, false);
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Reset read position to load it back
   io->read_pos = 0;
 
-  // Load the trie from RDB WITHOUT payloads (loadPayloads = 0) to match the save operation
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0);
+  // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false) to match the save operation
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -808,4 +808,122 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   // Since the sorting mode changes during RDB load, we can't use compareTrieContents
   // which expects the same iteration order. Instead, we verify that all entries exist
   // and the size matches.
+}
+
+// Helper function to insert with numDocs
+static bool trieInsertWithNumDocs(Trie *t, const char *s, float score, size_t numDocs) {
+  return Trie_InsertStringBuffer(t, s, strlen(s), score, 0, NULL, numDocs);
+}
+
+// Helper function to get numDocs from a trie node
+static size_t trieGetNumDocs(Trie *t, const char *s) {
+  runeBuf buf;
+  size_t runeLen = strlen(s);
+  rune *runes = runeBufFill(s, runeLen, &buf, &runeLen);
+  TrieNode *node = TrieNode_Get(t->root, runes, runeLen, true, NULL);
+  runeBufFree(&buf);
+  if (node == NULL) {
+    return 0;
+  }
+  return node->numDocs;
+}
+
+TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
+  // Create a trie with numDocs values
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert words with common prefixes and various numDocs values
+  trieInsertWithNumDocs(originalTrie, "help", 1.0, 10);     // numDocs = 10
+  trieInsertWithNumDocs(originalTrie, "helping", 2.0, 20);  // numDocs = 20
+  trieInsertWithNumDocs(originalTrie, "helper", 3.0, 30);   // numDocs = 30
+  trieInsertWithNumDocs(originalTrie, "A", 4.0, 100);       // numDocs = 100
+  trieInsertWithNumDocs(originalTrie, "AB", 5.0, 200);      // numDocs = 200
+  trieInsertWithNumDocs(originalTrie, "ABC", 6.0, 300);     // numDocs = 300
+
+  ASSERT_EQ(6, originalTrie->size);
+
+  // Verify original numDocs values
+  EXPECT_EQ(10, trieGetNumDocs(originalTrie, "help"));
+  EXPECT_EQ(20, trieGetNumDocs(originalTrie, "helping"));
+  EXPECT_EQ(30, trieGetNumDocs(originalTrie, "helper"));
+  EXPECT_EQ(100, trieGetNumDocs(originalTrie, "A"));
+  EXPECT_EQ(200, trieGetNumDocs(originalTrie, "AB"));
+  EXPECT_EQ(300, trieGetNumDocs(originalTrie, "ABC"));
+
+  // Create RDB IO context
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Save the trie to RDB
+  TrieType_RdbSave(io, originalTrie);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Reset read position to load it back
+  io->read_pos = 0;
+
+  // Load the trie from RDB
+  Trie *loadedTrie = (Trie *)TrieType_RdbLoad(io, TRIE_ENCVER_CURRENT);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(loadedTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Verify the loaded trie has the same size
+  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+
+  // Verify all entries are present
+  EXPECT_TRUE(trieContains(loadedTrie, "help"));
+  EXPECT_TRUE(trieContains(loadedTrie, "helping"));
+  EXPECT_TRUE(trieContains(loadedTrie, "helper"));
+  EXPECT_TRUE(trieContains(loadedTrie, "A"));
+  EXPECT_TRUE(trieContains(loadedTrie, "AB"));
+  EXPECT_TRUE(trieContains(loadedTrie, "ABC"));
+
+  // Verify numDocs values are preserved after RDB load
+  EXPECT_EQ(10, trieGetNumDocs(loadedTrie, "help"));
+  EXPECT_EQ(20, trieGetNumDocs(loadedTrie, "helping"));
+  EXPECT_EQ(30, trieGetNumDocs(loadedTrie, "helper"));
+  EXPECT_EQ(100, trieGetNumDocs(loadedTrie, "A"));
+  EXPECT_EQ(200, trieGetNumDocs(loadedTrie, "AB"));
+  EXPECT_EQ(300, trieGetNumDocs(loadedTrie, "ABC"));
+
+  // Verify numDocs via iterator as well
+  TrieIterator *it = TrieNode_Iterate(loadedTrie->root, NULL, NULL, NULL);
+  rune *rstr;
+  t_len len;
+  float score;
+  size_t numDocs;
+  RSPayload payload = {.data = NULL, .len = 0};
+  int count = 0;
+
+  while (TrieIterator_Next(it, &rstr, &len, &payload, &score, &numDocs, NULL)) {
+    count++;
+    size_t slen;
+    char *s = runesToStr(rstr, len, &slen);
+    std::string term(s, slen);
+    free(s);
+
+    if (term == "help") {
+      EXPECT_EQ(10, numDocs);
+    } else if (term == "helping") {
+      EXPECT_EQ(20, numDocs);
+    } else if (term == "helper") {
+      EXPECT_EQ(30, numDocs);
+    } else if (term == "A") {
+      EXPECT_EQ(100, numDocs);
+    } else if (term == "AB") {
+      EXPECT_EQ(200, numDocs);
+    } else if (term == "ABC") {
+      EXPECT_EQ(300, numDocs);
+    }
+  }
+  EXPECT_EQ(6, count);
+  TrieIterator_Free(it);
 }

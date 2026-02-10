@@ -10,7 +10,7 @@
 #include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"
-#include "iterators/inverted_index_iterator.h"
+#include "inverted_index.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
@@ -59,7 +59,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
 
   if (!incr) {
     if (!isExists) {
-      Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
+      Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0);
     }
     return;
   }
@@ -72,7 +72,7 @@ void RS_SuggestionsAdd(RS_Suggestions *s, char *term, size_t len, double score, 
     incr = 0;
   }
 
-  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL);
+  Trie_InsertStringBuffer(s->suggestionsTrie, term, len, score, incr, NULL, 0);
 }
 
 void RS_SuggestionsFree(RS_Suggestions *s) {
@@ -93,16 +93,18 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // can not find inverted index key, score is 0.
     goto end;
   }
-  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  QueryIterator *iter = NewInvIndIterator_TermQuery(invidx, scCtx->sctx, fieldMaskOrIndex, NULL, 1);
-  if (iter->Read(iter) == ITERATOR_OK) {
+  IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = fieldMask};
+  IndexReader *reader = NewIndexReader(invidx, ctx);
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  if (IndexReader_Next(reader, res)) {
     // we have at least one result, the suggestion is relevant.
     retVal = InvertedIndex_NumDocs(invidx);
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
   }
-  iter->Free(iter);
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
 
 end:
   return retVal;
@@ -119,7 +121,7 @@ static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len,
   if (it == NULL) {
     return retVal;
   }
-  if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  if (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     retVal = true;
   }
   TrieIterator_Free(it);
@@ -142,7 +144,7 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   if (it == NULL) {
     return;
   }
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &suggestionLen);
     double score;
     if ((score = SpellCheck_GetScore(scCtx, res, suggestionLen, fieldMask)) != -1) {
@@ -161,7 +163,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
   float score = 0;
   int dist = 0;
   size_t termLen;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
     char *res = runesToStr(rstr, slen, &termLen);
     array_append(ret, RS_SuggestionCreate(res, termLen, score));
   }

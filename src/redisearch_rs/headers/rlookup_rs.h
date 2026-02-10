@@ -429,6 +429,34 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
 void RLookup_Cleanup(struct RLookup *lookup);
 
 /**
+ * Initialize the lookup with fields from a Redis hash.
+ *
+ * # Safety
+ *
+ * 1. `search_ctx` must be a [valid], non-null pointer to an `ffi::RedisSearchCtx` that is properly initialized.
+ * 2. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+ * 3. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+ * 4. `index_spec` must be a [valid], non-null pointer to an `ffi::IndexSpec` that is properly initialized.
+ *    This also applies to any of its subfields.
+ * 5. The memory pointed to by `key` must contain a valid nul terminator at the
+ *    end of the string.
+ * 6. `key` must be [valid] for reads of bytes up to and including the nul terminator.
+ *    This means in particular:
+ *     1. The entire memory range of this `CStr` must be contained within a single allocation!
+ *     2. `key` must be non-null even for a zero-length cstr.
+ * 7. The nul terminator must be within `isize::MAX` from `key`
+ * 8. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
+                               struct RLookup *lookup,
+                               RLookupRow *dst_row,
+                               IndexSpec *index_spec,
+                               const char *key,
+                               QueryError *status);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * # Safety
@@ -553,14 +581,15 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
                                  RSValue *value);
 
 /**
- * Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+ * Write fields from a source row into this row.
  *
  * Iterate through the source lookup keys, if it finds a corresponding key in the destination
  * lookup by name, then it's value is written to this row as a destination.
  *
- * If a source key is not found in the destination lookup the function will panic (same as C behavior).
- *
  * If a source key has no value in the source row, it is skipped.
+ *
+ * If a source key is not found in the destination lookup the function will either create it or panic
+ * depending on the value of `create_missing_keys`.
  *
  * # Safety
  *
@@ -569,13 +598,15 @@ void RLookupRow_WriteByNameOwned(struct RLookup *lookup,
  * 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
  * 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
+ * 6. `src_lookup` and `dst_lookup` must not point to the same [`RLookup`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
                                 const struct RLookup *src_lookup,
                                 RLookupRow *dst_row,
-                                const struct RLookup *dst_lookup);
+                                struct RLookup *dst_lookup,
+                                bool create_missing_keys);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -593,6 +624,30 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *src_row,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const RLookupRow *row);
+
+/**
+ * Returns the sorting vector for the row, or null if none exists.
+ *
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+const RSSortingVector<RSValueFFI> *RLookupRow_GetSortingVector(const RLookupRow *row);
+
+/**
+ * Sets the sorting vector for the row.
+ *
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_SetSortingVector(RLookupRow *row,
+                                 const RSSortingVector<RSValueFFI> *sv);
 
 #ifdef __cplusplus
 }  // extern "C"

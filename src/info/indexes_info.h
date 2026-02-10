@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include "fork_gc.h"
 #include "rs_wall_clock.h"
+#include "search_disk_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,8 +18,10 @@ extern "C" {
 
 typedef struct {
   // Vector Indexing
-  size_t total_vector_idx_mem;        // Total memory used by the vector index
-  size_t total_mark_deleted_vectors;  // Number of vectors marked as deleted
+  size_t total_vector_idx_mem;            // Total memory used by the vector index
+  size_t total_mark_deleted_vectors;      // Number of vectors marked as deleted
+  size_t total_direct_hnsw_insertions;    // Total vectors inserted directly to HNSW (bypassing flat buffer)
+  size_t total_flat_buffer_size;          // Total flat buffer size across all tiered indexes
 } TotalIndexesFieldsInfo;
 
 typedef struct {
@@ -33,6 +36,7 @@ typedef struct {
   // GC
   InfoGCStats gc_stats;  // Garbage collection statistics
 
+  // Field stats
   TotalIndexesFieldsInfo fields_stats;  // Aggregated Fields statistics
 
   // Indexing Errors
@@ -44,7 +48,7 @@ typedef struct {
   size_t num_active_indexes_querying;  // Number of active read indexes
   size_t num_active_indexes_indexing;  // Number of active write indexes
   size_t total_active_write_threads;   // Total number of active writes (proportional to the number
-                                       // of threads)
+  // of threads)
   size_t total_num_docs_in_indexes;      // Total number of documents in all indexes
   size_t total_active_queries;         // Total number of active queries (reads)
 } TotalIndexesInfo;

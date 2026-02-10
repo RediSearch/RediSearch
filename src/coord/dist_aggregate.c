@@ -14,7 +14,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "module.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/config.h"
@@ -29,11 +29,12 @@
 #include "info/global_stats.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
-  for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
-    if (!strcmp(kk->name, s)) {
+  RLOOKUP_FOREACH(kk, nc->lookup, {
+    if (!strcmp(RLookupKey_GetName(kk), s)) {
       return kk;
     }
-  }
+  });
+
   return NULL;
 }
 
@@ -85,7 +86,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
+static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
@@ -93,15 +94,18 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
-  if (profileArgs == 0) {
+  int profileArgs = 0;
+  if (profileOptions == EXEC_NO_FLAGS) {
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
     array_append(tmparr, index_name);  // Index name
   } else {
+    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
     array_append(tmparr, RS_PROFILE_CMD);
     array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
-    if (profileArgs == 3) {
+    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       array_append(tmparr, "LIMITED");
+      profileArgs++;
     }
     array_append(tmparr, "QUERY");
   }
@@ -306,7 +310,7 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
       AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
-      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_ERROR_CODE_PARSE_ARGS, "No QUERY keyword provided");
+      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_ERROR_CODE_PARSE_ARGS, "The QUERY keyword is expected");
       return -1;
     }
   }
@@ -317,12 +321,26 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
-  rs_wall_clock_init(&r->initClock);
+  rs_wall_clock_init(&r->profileClocks.initClock);
 
-  int profileArgs = parseProfileArgs(argv, argc, r);
-  if (profileArgs == -1) return REDISMODULE_ERR;
-  int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
+  ProfileOptions profileOptions = EXEC_NO_FLAGS;
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+
+  int rc = ParseProfile(&ac, status, &profileOptions);
+  if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
+  ApplyProfileOptions(AREQ_QueryProcessingCtx(r), &r->reqflags, profileOptions);
+
+  // For non-profile commands, skip past command name (FT.AGGREGATE) and index name
+  if (profileOptions == EXEC_NO_FLAGS) {
+    if (AC_AdvanceBy(&ac, 2) != AC_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+
+  rc = AREQ_Compile(r, argv + ac.offset, argc - ac.offset, status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
   r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
@@ -355,18 +373,17 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
-
+  buildMRCommand(argv , argc, profileOptions, &us, &xcmd, sp, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
-  xcmd.coordStartTime = r->coordStartTime;
+  xcmd.coordStartTime = r->profileClocks.coordStartTime;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);
 
-  if (IsProfile(r)) r->profileParseTime = rs_wall_clock_elapsed_ns(&r->initClock);
+  if (IsProfile(r)) r->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
 
   // Create the Search context
   // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
@@ -421,7 +438,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   specialCaseCtx *knnCtx = NULL;
 
   // Store coordinator start time for dispatch time tracking
-  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -471,7 +488,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   r = &debug_req->r;
 
   // Store coordinator start time for dispatch time tracking
-  r->coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
   AREQ_Debug_params debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));

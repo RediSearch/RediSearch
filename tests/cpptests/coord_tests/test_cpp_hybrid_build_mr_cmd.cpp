@@ -6,13 +6,16 @@
 #include "dist_plan.h"
 #include "index_utils.h"
 #include "common.h"
+#include "profile/options.h"
 
 #include <vector>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc, MRCommand *xcmd, arrayof(char *) serialized,
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            ProfileOptions profileOptions,
+                            MRCommand *xcmd, arrayof(char *) serialized,
                             IndexSpec *sp, HybridPipelineParams *hybridParams);
 }
 
@@ -61,7 +64,7 @@ protected:
 
         // Build MR command
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, nullptr, &hybridParams);
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL, nullptr, &hybridParams);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -71,10 +74,13 @@ protected:
             EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
         }
 
-        // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "WITHCURSOR") << "WITHCURSOR should be fifth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "WITHSCORES") << "WITHSCORES should be fourth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "_NUM_SSTRING") << "_NUM_SSTRING should be third to last";
+        // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _COORD_DISPATCH_TIME are added at the end
+        // Note: _COORD_DISPATCH_TIME and its placeholder value (2 args) are added after _NUM_SSTRING
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "WITHSCORES") << "WITHSCORES should be sixth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "_NUM_SSTRING") << "_NUM_SSTRING should be fifth to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "_COORD_DISPATCH_TIME") << "_COORD_DISPATCH_TIME should be second to last";
+        EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "") << "Dispatch time placeholder should be last (empty)";
 
         MRCommand_Free(&xcmd);
     }
@@ -98,22 +104,25 @@ protected:
 
       // Build MR command
       MRCommand xcmd;
-      HybridRequest_buildMRCommand(args, args.size(), &xcmd, NULL, sp, &hybridParams);
+      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL, sp, &hybridParams);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
       for (size_t i = 1; i < inputArgs.size(); i++) {
           EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
       }
-      // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _INDEX_PREFIXES, and prefix count are added at the end
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 9], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 8], "WITHSCORES") << "WITHSCORES should be sixth to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "_NUM_SSTRING") << "_NUM_SSTRING should be fifth to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], SLOTS_STR) << SLOTS_STR << " should be fourth to last";
-      // slots blob is third to last
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "_INDEX_PREFIXES") << "_INDEX_PREFIXES should be fourth to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "2") << "Prefix count should be third to last";
-      EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "prefix1") << "First prefix should be second to last";
+      // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, SLOTS, _COORD_DISPATCH_TIME, _INDEX_PREFIXES, and prefixes are added at the end
+      // Order: ... WITHCURSOR WITHSCORES _NUM_SSTRING _SLOTS <slots_blob> _COORD_DISPATCH_TIME <placeholder> _INDEX_PREFIXES 2 prefix1 prefix2
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 11], "WITHCURSOR") << "WITHCURSOR should be 11th to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 10], "WITHSCORES") << "WITHSCORES should be 10th to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 9], "_NUM_SSTRING") << "_NUM_SSTRING should be 9th to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 8], SLOTS_STR) << SLOTS_STR << " should be 8th to last";
+      // slots blob is 7th to last (xcmd.num - 7)
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "_COORD_DISPATCH_TIME") << "_COORD_DISPATCH_TIME should be 6th to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "") << "Dispatch time placeholder should be 5th to last (empty)";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 4], "_INDEX_PREFIXES") << "_INDEX_PREFIXES should be 4th to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 3], "2") << "Prefix count should be 3rd to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "prefix1") << "First prefix should be 2nd to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "prefix2") << "Second prefix should be last";
 
       // Clean up
