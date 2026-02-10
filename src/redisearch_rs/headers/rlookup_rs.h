@@ -172,7 +172,16 @@ typedef struct RLookup {
 /**
  * A type with size `N`.
  */
-typedef uint8_t Size_SIZE[SIZE];
+typedef uint8_t Size_48[48];
+
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_40[40];
+
+typedef Size_48 OpaqueRLookupRowSize;
+
+typedef Size_40 OpaqueRLookupRowSize;
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -181,7 +190,7 @@ typedef uint8_t Size_SIZE[SIZE];
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookupRow {
-  Size_SIZE _0;
+  OpaqueRLookupRowSize _0;
 } RLookupRow;
 
 #ifdef __cplusplus
