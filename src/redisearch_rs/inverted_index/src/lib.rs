@@ -45,6 +45,8 @@ pub mod raw_doc_ids_only;
 #[doc(hidden)]
 pub mod test_utils;
 
+pub mod opaque;
+
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
 unsafe extern "C" {

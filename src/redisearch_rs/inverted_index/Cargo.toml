@@ -20,5 +20,8 @@ workspace_hack.workspace = true
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 
+[features]
+test_utils = []
+
 [lints]
 workspace = true

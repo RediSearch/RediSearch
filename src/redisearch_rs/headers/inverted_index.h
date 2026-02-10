@@ -12,6 +12,15 @@
 #include "types_rs.h"
 
 /**
+ * An opaque inverted index structure. The actual implementation is determined at runtime based on
+ * the index flags provided when creating the index. This allows us to have a single interface for
+ * all index types while still being able to optimize the storage and performance for each index
+ * type.
+ */
+typedef struct InvertedIndex InvertedIndex;
+
+
+/**
  * Result of scanning the index for garbage collection
  */
 typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
@@ -32,14 +41,6 @@ typedef struct IndexBlock IndexBlock;
  * and performance for each index reader type.
  */
 typedef struct IndexReader IndexReader;
-
-/**
- * An opaque inverted index structure. The actual implementation is determined at runtime based on
- * the index flags provided when creating the index. This allows us to have a single interface for
- * all index types while still being able to optimize the storage and performance for each index
- * type.
- */
-typedef struct InvertedIndex InvertedIndex;
 
 typedef uintptr_t c_size_t;
 
@@ -155,10 +156,10 @@ uintptr_t TotalIIBlocks(void);
  * - `StoreNumeric`
  * - `DocIdsOnly`
  */
-struct InvertedIndex *NewInvertedIndex_Ex(IndexFlags flags,
-                                          bool raw_doc_id_encoding,
-                                          bool compress_floats,
-                                          uintptr_t *mem_size);
+InvertedIndex *NewInvertedIndex_Ex(IndexFlags flags,
+                                   bool raw_doc_id_encoding,
+                                   bool compress_floats,
+                                   uintptr_t *mem_size);
 
 /**
  * Free the memory associated with an inverted index instance created using [`NewInvertedIndex_Ex`].
@@ -168,7 +169,7 @@ struct InvertedIndex *NewInvertedIndex_Ex(IndexFlags flags,
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance created using
  *   [`NewInvertedIndex_Ex`] or `NewInvertedIndex`.
  */
-void InvertedIndex_Free(struct InvertedIndex *ii);
+void InvertedIndex_Free(InvertedIndex *ii);
 
 /**
  * Get the memory usage of the inverted index instance in bytes.
@@ -177,7 +178,7 @@ void InvertedIndex_Free(struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and must not be NULL.
  */
-uintptr_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
+uintptr_t InvertedIndex_MemUsage(const InvertedIndex *ii);
 
 /**
  * Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
@@ -188,7 +189,7 @@ uintptr_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-uintptr_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
+uintptr_t InvertedIndex_WriteNumericEntry(InvertedIndex *ii, t_docId doc_id, double value);
 
 /**
  * Write a new entry to the inverted index. The function returns the number of bytes the memory
@@ -199,7 +200,7 @@ uintptr_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
  */
-uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
+uintptr_t InvertedIndex_WriteEntryGeneric(InvertedIndex *ii, const RSIndexResult *record);
 
 /**
  * Return the number of blocks in the inverted index.
@@ -208,7 +209,7 @@ uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSInde
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
+uintptr_t InvertedIndex_NumBlocks(const InvertedIndex *ii);
 
 /**
  * Get the flags used to create the inverted index.
@@ -217,7 +218,7 @@ uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
+IndexFlags InvertedIndex_Flags(const InvertedIndex *ii);
 
 /**
  * Get the number of unique documents in the inverted index.
@@ -226,7 +227,7 @@ IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-uint32_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
+uint32_t InvertedIndex_NumDocs(const InvertedIndex *ii);
 
 /**
  * Get a summary of the inverted index for debugging purposes.
@@ -235,7 +236,7 @@ uint32_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
+IISummary InvertedIndex_Summary(const InvertedIndex *ii);
 
 /**
  * Get an array of summaries of all blocks in the inverted index. The output parameter `count` will
@@ -247,7 +248,7 @@ IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `count` must be a valid pointer to a `usize` and cannot be NULL.
  */
-IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *ii, uintptr_t *count);
+IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *ii, uintptr_t *count);
 
 /**
  * Free the memory associated with the array of block summaries returned by [`InvertedIndex_BlocksSummary`].
@@ -270,7 +271,7 @@ void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks,
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-t_fieldMask InvertedIndex_FieldMask(const struct InvertedIndex *ii);
+t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *ii);
 
 /**
  * Get the number of entries in the inverted index. This is only valid for numeric indexes created
@@ -280,7 +281,7 @@ t_fieldMask InvertedIndex_FieldMask(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-uintptr_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
+uintptr_t InvertedIndex_NumEntries(const InvertedIndex *ii);
 
 /**
  * Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
@@ -290,8 +291,7 @@ uintptr_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
-                                                uintptr_t block_idx);
+const struct IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *ii, uintptr_t block_idx);
 
 /**
  * Get ID of the last document in the index. Returns 0 if the index is empty.
@@ -301,7 +301,7 @@ const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
+t_docId InvertedIndex_LastId(const InvertedIndex *ii);
 
 /**
  * Get the garbage collector marker of the inverted index. This is used by some C tests.
@@ -311,7 +311,7 @@ t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  */
-uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *ii);
 
 /**
  * Increment the garbage collector marker of the inverted index. This is used by some C tests.
@@ -321,7 +321,7 @@ uint32_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  */
-void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
+void InvertedIndex_GcMarkerInc(InvertedIndex *ii);
 
 /**
  * Scan the inverted index for garbage and write the GC delta to the provided writer. The function
@@ -340,7 +340,7 @@ void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
  */
 bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr,
                                 RedisSearchCtx *sctx,
-                                struct InvertedIndex *idx,
+                                InvertedIndex *idx,
                                 struct II_GCCallback *cb,
                                 struct IndexRepairParams *params);
 
@@ -381,7 +381,7 @@ void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
  *   [`InvertedIndex_GcDelta_Read`].
  * - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
  */
-void InvertedIndex_ApplyGcDelta(struct InvertedIndex *ii,
+void InvertedIndex_ApplyGcDelta(InvertedIndex *ii,
                                 struct InvertedIndexGcDelta *deltas,
                                 struct II_GCScanStats *apply_info);
 
@@ -447,7 +447,7 @@ const char *IndexBlock_Data(const struct IndexBlock *ib);
  * # Panics
  * This function will panic if the provided filter is not compatible with the `InvertedIndex` type.
  */
-struct IndexReader *NewIndexReader(const struct InvertedIndex *ii, IndexDecoderCtx ctx);
+struct IndexReader *NewIndexReader(const InvertedIndex *ii, IndexDecoderCtx ctx);
 
 /**
  * Free the memory associated with an index reader instance created using [`NewIndexReader`].
@@ -489,7 +489,7 @@ uint64_t IndexReader_NumEstimated(const struct IndexReader *ir);
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  */
-bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
+bool IndexReader_IsIndex(const struct IndexReader *ir, const InvertedIndex *ii);
 
 /**
  * Advance the index reader to the next entry in the index. If there is a next entry, it will be
