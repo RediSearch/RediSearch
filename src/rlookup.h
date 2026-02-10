@@ -85,24 +85,6 @@ size_t RLookupKey_GetNameLen(const RLookupKey* key);
  */
 uint32_t RLookupKey_GetFlags(const RLookupKey* key);
 
-// typedef struct RLookup {
-//   /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
-//   RLookupKey *_head;
-//   /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
-//   RLookupKey *_tail;
-
-//   /** DO NOT ACCESS DIRECTLY. USE RLookup_GetRowLen INSTEAD! */
-//   uint32_t _rowlen;
-
-//   /** DO NOT ACCESS DIRECTLY. USE RLookup_EnableOptions or RLookup_DisableOptions INSTEAD! */
-//   uint32_t _options;
-
-//   // If present, then GetKey will consult this list if the value is not found in
-//   // the existing list of keys.
-//   /** DO NOT ACCESS DIRECTLY. USE RLookup_HasIndexSpecCache INSTEAD! */
-//   IndexSpecCache *_spcache;
-// } RLookup;
-
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
     const RLookupKey* key; \
@@ -176,27 +158,6 @@ static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
 // If a loader was added to load the entire document, this flag will allow
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
-
-// /**
-//  * Row data for a lookup key. This abstracts the question of "where" the
-//  * data comes from.
-//  */
-// typedef struct {
-//   /** Sorting vector attached to document */
-//   const RSSortingVector *sv;
-
-//   /** Dynamic values obtained from prior processing */
-//   RSValue **dyn;
-
-//   /**
-//    * How many values actually exist in dyn. Note that this
-//    * is not the length of the array!
-//    */
-//   size_t ndyn;
-// } RLookupRow;
-
-// static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
-// static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
 
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
@@ -311,84 +272,6 @@ RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *f
 RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
                                   const char *field_name, uint32_t flags);
 
-// /**
-//  * Get the amount of visible fields is the RLookup
-//  */
-// size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipFieldIndex,
-//                          size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
-//                          SchemaRule *rule);
-
-/**
- * Get a value from the lookup.
- */
-
-// /**
-//  * Write a value to a lookup table. Key must already be registered, and not
-//  * refer to a read-only (SVSRC) key.
-//  *
-//  * The value written will have its refcount incremented
-//  */
-// void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-// /**
-//  * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
-//  * idioms such as RLookup_WriteKey(..., RSValue_NewNumber(10)); which would otherwise cause
-//  * a leak.
-//  */
-// void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-// /**
-//  * Move data from the source row to the destination row. The source row is cleared.
-//  * @param lk lookup common to both rows
-//  * @param src the source row
-//  * @param dst the destination row
-//  */
-// void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
-
-// /**
-//  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
-//  * for which it is not necessary to use the boilerplate of getting an explicit
-//  * key.
-//  *
-//  * The reference count of the value will be incremented.
-//  */
-// void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
-
-// /**
-//  * Like WriteKeyByName, but consumes a refcount
-//  */
-// void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
-
-// /** Get a value from the row, provided the key.
-//  *
-//  * This does not actually "search" for the key, but simply performs array
-//  * lookups!
-//  *
-//  * @param lookup The lookup table containing the lookup table data
-//  * @param key the key that contains the index
-//  * @param row the row data which contains the value
-//  * @return the value if found, NULL otherwise.
-//  */
-// static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
-
-//   RSValue *ret = NULL;
-//   if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
-//     ret = row->dyn[RLookupKey_GetDstIdx(key)];
-//   }
-//   if (!ret) {
-//     if (RLookupKey_GetFlags(key) & RLOOKUP_F_SVSRC) {
-//       const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
-//       if (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(key)) {
-//         ret = RSSortingVector_Get(sv, RLookupKey_GetSvIdx(key));
-//         if (ret != NULL && ret == RSValue_NullStatic()) {
-//           ret = NULL;
-//         }
-//       }
-//     }
-//   }
-//   return ret;
-// }
-
 /**
  * Wipes the row, retaining its memory but decrefing any included values.
  * This does not free all the memory consumed by the row, but simply resets
@@ -466,30 +349,7 @@ int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *optio
  */
 void RLookup_Init(RLookup *l, IndexSpecCache *cache);
 
-// /**
-//  * Releases any resources created by this lookup object. Note that if there are
-//  * lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
-//  * valid after this call!
-//  */
-// void RLookup_Cleanup(RLookup *l);
-
-// /**
-//  * Frees an individual RLookupKey, cleaning up its allocated strings
-//  */
-// void RLookupKey_Free(RLookupKey *k);
-
-// /**
-//  * Initialize the lookup with fields from hash.
-//  */
-// int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
-
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
-
-
-// /**
-//  * Search an index field by its name in the lookup table spec cache.
-//  */
-// const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
 
 /**
  * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
