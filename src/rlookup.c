@@ -159,16 +159,16 @@ static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name
 }
 
 static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) {
-  // RLookupIteratorMut iter = RLookup_IterMut(lookup);
-  // RLookupKey* key;
+  RLookupIteratorMut iter = RLookup_IterMut(lookup);
+  RLookupKey* key;
 
-  // while (RLookupIteratorMut_Next(&iter, &key)) {
-  //   // match `name` to the name of the key
-  //   if (RLookupKey_GetNameLen(key) == name_len && !strncmp(RLookupKey_GetName(key), name, name_len)) {
-  //     return key;
-  //   }
-  // }
-  // return NULL;
+  while (RLookupIteratorMut_Next(&iter, &key)) {
+    // match `name` to the name of the key
+    if (RLookupKey_GetNameLen(key) == name_len && !strncmp(RLookupKey_GetName(key), name, name_len)) {
+      return key;
+    }
+  }
+  return NULL;
 }
 
 /**
