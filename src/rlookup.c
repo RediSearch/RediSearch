@@ -166,10 +166,10 @@ static void RLookupKey_Cleanup(RLookupKey *k) {
   // }
 }
 
-void RLookupKey_Free(RLookupKey *k) {
-  RLookupKey_Cleanup(k);
-  rm_free(k);
-}
+// void RLookupKey_Free(RLookupKey *k) {
+//   RLookupKey_Cleanup(k);
+//   rm_free(k);
+// }
 
 // const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
   // const IndexSpecCache *cc = lookup->_spcache;
