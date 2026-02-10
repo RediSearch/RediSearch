@@ -23,7 +23,6 @@ pub use iterators_ffi as iterators;
 pub use module_init_ffi as tracing_redismodule;
 pub use query_error_ffi as query_error;
 pub use result_processor_ffi as result_processor;
-pub use rlookup_ffi as rlookup;
 pub use search_result_ffi as search_result;
 pub use slots_tracker_ffi as slots_tracker;
 pub use sorting_vector_ffi as sorting_vector;
