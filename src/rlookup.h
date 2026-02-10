@@ -85,23 +85,23 @@ size_t RLookupKey_GetNameLen(const RLookupKey* key);
  */
 uint32_t RLookupKey_GetFlags(const RLookupKey* key);
 
-typedef struct RLookup {
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
-  RLookupKey *_head;
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
-  RLookupKey *_tail;
+// typedef struct RLookup {
+//   /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
+//   RLookupKey *_head;
+//   /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
+//   RLookupKey *_tail;
 
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_GetRowLen INSTEAD! */
-  uint32_t _rowlen;
+//   /** DO NOT ACCESS DIRECTLY. USE RLookup_GetRowLen INSTEAD! */
+//   uint32_t _rowlen;
 
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_EnableOptions or RLookup_DisableOptions INSTEAD! */
-  uint32_t _options;
+//   /** DO NOT ACCESS DIRECTLY. USE RLookup_EnableOptions or RLookup_DisableOptions INSTEAD! */
+//   uint32_t _options;
 
-  // If present, then GetKey will consult this list if the value is not found in
-  // the existing list of keys.
-  /** DO NOT ACCESS DIRECTLY. USE RLookup_HasIndexSpecCache INSTEAD! */
-  IndexSpecCache *_spcache;
-} RLookup;
+//   // If present, then GetKey will consult this list if the value is not found in
+//   // the existing list of keys.
+//   /** DO NOT ACCESS DIRECTLY. USE RLookup_HasIndexSpecCache INSTEAD! */
+//   IndexSpecCache *_spcache;
+// } RLookup;
 
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
@@ -142,32 +142,32 @@ RLookupIterator RLookup_Iter(const RLookup* rlookup);
 /** Returns an mutable iterator over the keys in this RLookup */
 RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup);
 
-/**
- * Returns the length of the data row.
- * This is not necessarily the number of lookup keys
- */
+// /**
+//  * Returns the length of the data row.
+//  * This is not necessarily the number of lookup keys
+//  */
 static inline uint32_t RLookup_GetRowLen(const RLookup* rlookup) {
-    return rlookup->_rowlen;
+    // return rlookup->_rowlen;
 }
 
-/**
- * Enables the given set of RLookup options.
- */
+// /**
+//  * Enables the given set of RLookup options.
+//  */
 static inline void RLookup_EnableOptions(RLookup* rlookup, uint32_t options) {
-    rlookup->_options |= options;
+    // rlookup->_options |= options;
 }
 
-/**
- * Disables the given set of RLookup options.
- */
-static inline void RLookup_DisableOptions(RLookup* rlookup, uint32_t options) {
-    rlookup->_options &= ~options;
-}
+// /**
+//  * Disables the given set of RLookup options.
+//  */
+// static inline void RLookup_DisableOptions(RLookup* rlookup, uint32_t options) {
+//     rlookup->_options &= ~options;
+// }
 
-/** Returns `true` if this RLookup has an associated IndexSpecCache. */
-static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
-    return rlookup->_spcache != NULL;
-}
+// /** Returns `true` if this RLookup has an associated IndexSpecCache. */
+// static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
+//     return rlookup->_spcache != NULL;
+// }
 
 // If the key cannot be found, do not mark it as an error, but create it and
 // mark it as F_UNRESOLVED
@@ -177,26 +177,26 @@ static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
-  const RSSortingVector *sv;
+// /**
+//  * Row data for a lookup key. This abstracts the question of "where" the
+//  * data comes from.
+//  */
+// typedef struct {
+//   /** Sorting vector attached to document */
+//   const RSSortingVector *sv;
 
-  /** Dynamic values obtained from prior processing */
-  RSValue **dyn;
+//   /** Dynamic values obtained from prior processing */
+//   RSValue **dyn;
 
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
-  size_t ndyn;
-} RLookupRow;
+//   /**
+//    * How many values actually exist in dyn. Note that this
+//    * is not the length of the array!
+//    */
+//   size_t ndyn;
+// } RLookupRow;
 
-static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
-static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
+// static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
+// static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
 
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
@@ -311,12 +311,12 @@ RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *f
 RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
                                   const char *field_name, uint32_t flags);
 
-/**
- * Get the amount of visible fields is the RLookup
- */
-size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipFieldIndex,
-                         size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
-                         SchemaRule *rule);
+// /**
+//  * Get the amount of visible fields is the RLookup
+//  */
+// size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipFieldIndex,
+//                          size_t skipFieldIndex_len, uint32_t requiredFlags, uint32_t excludeFlags,
+//                          SchemaRule *rule);
 
 /**
  * Get a value from the lookup.
@@ -359,34 +359,34 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
  */
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
-/** Get a value from the row, provided the key.
- *
- * This does not actually "search" for the key, but simply performs array
- * lookups!
- *
- * @param lookup The lookup table containing the lookup table data
- * @param key the key that contains the index
- * @param row the row data which contains the value
- * @return the value if found, NULL otherwise.
- */
+// /** Get a value from the row, provided the key.
+//  *
+//  * This does not actually "search" for the key, but simply performs array
+//  * lookups!
+//  *
+//  * @param lookup The lookup table containing the lookup table data
+//  * @param key the key that contains the index
+//  * @param row the row data which contains the value
+//  * @return the value if found, NULL otherwise.
+//  */
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
 
-  RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
-    ret = row->dyn[RLookupKey_GetDstIdx(key)];
-  }
-  if (!ret) {
-    if (RLookupKey_GetFlags(key) & RLOOKUP_F_SVSRC) {
-      const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
-      if (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(key)) {
-        ret = RSSortingVector_Get(sv, RLookupKey_GetSvIdx(key));
-        if (ret != NULL && ret == RSValue_NullStatic()) {
-          ret = NULL;
-        }
-      }
-    }
-  }
-  return ret;
+//   RSValue *ret = NULL;
+//   if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
+//     ret = row->dyn[RLookupKey_GetDstIdx(key)];
+//   }
+//   if (!ret) {
+//     if (RLookupKey_GetFlags(key) & RLOOKUP_F_SVSRC) {
+//       const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
+//       if (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(key)) {
+//         ret = RSSortingVector_Get(sv, RLookupKey_GetSvIdx(key));
+//         if (ret != NULL && ret == RSValue_NullStatic()) {
+//           ret = NULL;
+//         }
+//       }
+//     }
+//   }
+//   return ret;
 }
 
 /**
@@ -478,10 +478,10 @@ void RLookup_Cleanup(RLookup *l);
  */
 void RLookupKey_Free(RLookupKey *k);
 
-/**
- * Initialize the lookup with fields from hash.
- */
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
+// /**
+//  * Initialize the lookup with fields from hash.
+//  */
+// int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
