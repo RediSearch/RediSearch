@@ -114,7 +114,7 @@ RSValue *RSValue_NewString(char *str, uint32_t len);
  * @param len The length of the string
  * @return A pointer to a heap-allocated RSValue wrapping a constant C string
  */
-RSValue *RSValue_NewConstString(const char *str, uint32_t len);
+RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated RSValue which takes a reference to the Redis string.
