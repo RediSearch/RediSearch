@@ -14,6 +14,7 @@ members = [
     "numeric_range_tree",
     "thin_vec",
     "qint",
+    "index_error",
     "query_error",
     "redis_json_api",
     "redis_mock",
@@ -92,6 +93,7 @@ inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
+index_error = { path = "./index_error" }
 query_error = { path = "./query_error" }
 redis_json_api = { path = "./redis_json_api" }
 redis_mock = { path = "./redis_mock" }
