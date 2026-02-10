@@ -83,11 +83,9 @@ impl<'index> SearchResult<'index> {
             _score_explain: None,
             _document_metadata: None,
             _index_result: None,
-            _row_data: ffi::RLookupRow {
-                sv: ptr::null(),
-                dyn_: ptr::null_mut(),
-                ndyn: 0,
-            },
+            // _row_data: ffi::RLookupRow::new(&ffi::RLookup::new()),
+            _row_data: todo!(),
+            #[allow(unused)]
             _flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
         }
     }
