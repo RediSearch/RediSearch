@@ -38,9 +38,7 @@ pub unsafe extern "C" fn RLookup_WriteKey(
     let key = unsafe { key.as_ref() }.expect("Key must not be null");
 
     // Safety: ensured by caller (2.)
-    let row = unsafe { row.expect("`row` must not be null").as_mut() };
-    // Safety: ensured by caller (2.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     // this method does not take ownership of `value` so we must take care not to drop it at the end of the scope
     // (therefore the `ManuallyDrop`). Instead we explicitly clone the value before inserting it below.
@@ -70,9 +68,7 @@ pub unsafe extern "C" fn RLookup_WriteOwnKey(
     let key = unsafe { key.as_ref() }.expect("`key` must not be null");
 
     // Safety: ensured by caller (2.)
-    let row = unsafe { row.expect("`row` must not be null").as_mut() };
-    // Safety: ensured by caller (2.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     // Safety: ensured by caller (3.)
     let value = unsafe { RSValueFFI::from_raw(value.expect("`value` must not be null")) };
@@ -90,9 +86,7 @@ pub unsafe extern "C" fn RLookup_WriteOwnKey(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<OpaqueRLookupRow>>) {
     // Safety: ensured by caller (1.)
-    let row = unsafe { row.expect("`row` must not be null").as_mut() };
-    // Safety: ensured by caller (1.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     row.wipe();
 }
@@ -109,9 +103,7 @@ pub unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<OpaqueRLookupRow>>)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<OpaqueRLookupRow>>) {
     // Safety: ensured by caller (1.)
-    let row = unsafe { row.expect("`row` must not be null").as_mut() };
-    // Safety: ensured by caller (1.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     row.reset_dyn_values();
 }
@@ -138,14 +130,10 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
     let lookup = unsafe { lookup.as_ref().expect("`lookup` must not be null") };
 
     // Safety: ensured by caller (2.)
-    let src = unsafe { src.expect("`src` must not be null").as_mut() };
-    // Safety: ensured by caller (2.)
-    let src = unsafe { RLookupRow::from_opaque_mut_ptr(src).unwrap() };
+    let src = unsafe { RLookupRow::from_opaque_non_null(src.expect("`src` must not be null")) };
 
     // Safety: ensured by caller (3.)
-    let dst = unsafe { dst.expect("`dst` must not be null").as_mut() };
-    // Safety: ensured by caller (3.)
-    let dst = unsafe { RLookupRow::from_opaque_mut_ptr(dst).unwrap() };
+    let dst = unsafe { RLookupRow::from_opaque_non_null(dst.expect("`dst` must not be null")) };
 
     #[cfg(debug_assertions)]
     {
@@ -205,9 +193,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     };
 
     // Safety: ensured by caller (4.)
-    let row = unsafe { row.expect("`row` must not be null").as_mut() };
-    // Safety: ensured by caller (4.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     // Safety: ensured by caller (5.)
     let value = unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) };
@@ -261,9 +247,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     };
 
     // Safety: ensured by caller (4.)
-    let row = unsafe { row.expect("`row` must not be null").as_mut() };
-    // Safety: ensured by caller (4.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     // Safety: ensured by caller (5.)
     let value = unsafe { RSValueFFI::from_raw(value.expect("value must not be null")) };
@@ -300,15 +284,14 @@ pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     dst_lookup: Option<NonNull<RLookup<'a>>>,
     create_missing_keys: bool,
 ) {
-    // Safety: ensured by caller (3.)
-    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+    let dst_row = dst_row.unwrap();
 
     // Safety: ensured by caller (4.)
     let dst_lookup = unsafe { dst_lookup.unwrap().as_mut() };
 
     // We're doing the asserts here in the middle to avoid extra type conversions.
     assert!(
-        src_row != dst_row,
+        src_row != dst_row.as_ptr(),
         "`src_row` and `dst_row` must not be the same"
     );
     assert_ne!(
@@ -320,13 +303,15 @@ pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     let src_row = unsafe { RLookupRow::from_opaque_ptr(src_row).unwrap() };
 
     // Safety: ensured by caller (3.)
-    let dst_row = unsafe { RLookupRow::from_opaque_mut_ptr(dst_row).unwrap() };
+    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row) };
 
     // Safety: ensured by caller (2.)
     let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
 
     dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
 }
+
+// #[cfg(test)]
 
 /// Retrieves an item from the given `OpaqueRLookupRow` based on the provided `RLookupKey`.
 ///
@@ -383,12 +368,12 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_SetSortingVector(
+pub const unsafe extern "C" fn RLookupRow_SetSortingVector(
     row: Option<NonNull<OpaqueRLookupRow>>,
     sv: *const sorting_vector::RSSortingVector<RSValueFFI>,
 ) {
     // Safety: ensured by caller (1.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row.unwrap().as_ptr()).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };
 
     // Safety: ensured by caller (2.)
     let sv = unsafe { sv.as_ref() };
