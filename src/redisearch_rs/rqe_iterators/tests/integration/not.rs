@@ -497,7 +497,7 @@ fn skip_to_propagates_child_timeout() {
 #[test]
 fn skip_to_at_eof_returns_none() {
     let mut it = Not::new(
-        SortedIdList::new(vec![1, 2, 3, 4, 5]),
+        IdListSorted::new(vec![1, 2, 3, 4, 5]),
         5,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -522,7 +522,7 @@ fn skip_to_at_eof_returns_none() {
 fn skip_to_child_behind_child_skip_returns_eof() {
     // Child has [2], max_doc_id=10
     let mut it = Not::new(
-        SortedIdList::new(vec![2]),
+        IdListSorted::new(vec![2]),
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
