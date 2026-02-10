@@ -337,13 +337,13 @@ RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name
 //  */
 // void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
-/**
- * Move data from the source row to the destination row. The source row is cleared.
- * @param lk lookup common to both rows
- * @param src the source row
- * @param dst the destination row
- */
-void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
+// /**
+//  * Move data from the source row to the destination row. The source row is cleared.
+//  * @param lk lookup common to both rows
+//  * @param src the source row
+//  * @param dst the destination row
+//  */
+// void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
 
 // /**
 //  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -369,7 +369,7 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
 //  * @param row the row data which contains the value
 //  * @return the value if found, NULL otherwise.
 //  */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+// static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
 
 //   RSValue *ret = NULL;
 //   if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
@@ -387,7 +387,7 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
 //     }
 //   }
 //   return ret;
-}
+// }
 
 /**
  * Wipes the row, retaining its memory but decrefing any included values.
