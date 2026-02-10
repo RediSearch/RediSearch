@@ -159,12 +159,6 @@ static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
-typedef enum {
-  RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
-  RLOOKUP_M_WRITE,  // Get key for writing
-  RLOOKUP_M_LOAD,   // Load key from redis keyspace (include known information on the key, fail if already loaded)
-} RLookupMode;
-
 #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
 
 /**
@@ -241,38 +235,6 @@ typedef enum {
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
 
 /**
- * Get a RLookup key for a given name.
- *
- * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the
- * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
- * if the lookup table accepts unresolved keys.
- */
-RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags);
-RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  uint32_t flags);
-/**
- * Get a RLookup key for a given name.
- *
- * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the
- * override flag is set.
- */
-RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags);
-RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
-                                   uint32_t flags);
-/**
- * Get a RLookup key for a given name.
- *
- * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the
- * override flag is set), and it is not already loaded. It will override an existing key if it was
- * created for read out of a sortable field, and the field was normalized. A sortable un-normalized
- * field counts as loaded.
- */
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
-                                uint32_t flags);
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
-                                  const char *field_name, uint32_t flags);
-
-/**
  * Wipes the row, retaining its memory but decrefing any included values.
  * This does not free all the memory consumed by the row, but simply resets
  * the row data (preserving any caches) so that it may be refilled.
@@ -343,46 +305,7 @@ typedef struct {
  */
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
-/**
- * Initialize the lookup. If cache is provided, then it will be used as an
- * alternate source for lookups whose fields are absent
- */
-void RLookup_Init(RLookup *l, IndexSpecCache *cache);
-
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
-
-/**
- * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
- * For each key in src, check if it already exists in dest by name.
- * If doesn't exists, create new key in dest.
- * Handle existing keys based on flags (skip with RLOOKUP_F_NOFLAGS, override with RLOOKUP_F_OVERRIDE).
- *
- * Flag handling:
- * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
- * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
- * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
- * - Targat flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
- */
-void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
-
-/**
- * Write field data from source row to destination row with different schemas.
- * Iterate through source lookup keys, find corresponding keys in destination by name,
- * and write it to destination row using RLookup_WriteOwnKey().
- *
- * @param srcRow        Source row containing the data
- * @param srcLookup     Source lookup containing the schema of the source row
- * @param destRow       Destination row to write data to
- * @param destLookup    Destination lookup containing the schema of the
- *                      destination row
- * @param createMissingKeys
- *                      If true, creates keys in destination that don't exist
- *                      (LOAD * behavior).
- *                      If false, skips keys that don't exist in destination.
- */
-void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup,
-                               bool createMissingKeys);
 
 // exposed to be called from Rust, was inline before that.
 int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
@@ -395,9 +318,6 @@ RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type);
 
 // exposed to be called from Rust, was inline before that.
 RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype);
-
-// exposed to be called from Rust, is part of a dependency and was inline before that.
-size_t sdslen__(const char* s);
 
 #ifdef __cplusplus
 }
