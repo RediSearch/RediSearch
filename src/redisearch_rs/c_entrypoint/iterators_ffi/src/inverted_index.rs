@@ -14,8 +14,7 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, IndexReaderCore, NumericFilter,
     NumericReader, RSIndexResult, t_docId,
 };
-use rqe_iterators::FieldExpirationChecker;
-use rqe_iterators::inverted_index::Numeric;
+use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different numeric reader types to avoid generics in FFI code.

@@ -13,7 +13,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx, t_docId};
+use ffi::{IndexFlags_Index_WideSchema, RS_INVALID_FIELD_INDEX, RedisSearchCtx};
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::RSIndexResult;
 
@@ -28,14 +28,14 @@ pub trait ExpirationChecker {
     /// or the slow path (with expiration checks) in the iterator.
     fn has_expiration(&self) -> bool;
 
-    /// Returns `true` if the document with the given ID and result is expired.
-    fn is_expired(&self, doc_id: t_docId, result: &RSIndexResult) -> bool;
+    /// Returns `true` if the document in the result is expired.
+    fn is_expired(&self, result: &RSIndexResult) -> bool;
 }
 
 /// A no-op expiration checker that never considers documents expired.
 ///
 /// This is a zero-sized type that can be used when expiration checking is not needed.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct NoOpChecker;
 
 impl ExpirationChecker for NoOpChecker {
@@ -45,7 +45,7 @@ impl ExpirationChecker for NoOpChecker {
     }
 
     #[inline(always)]
-    fn is_expired(&self, _doc_id: t_docId, _result: &RSIndexResult) -> bool {
+    fn is_expired(&self, _result: &RSIndexResult) -> bool {
         false
     }
 }
@@ -109,7 +109,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         }
     }
 
-    fn is_expired(&self, doc_id: t_docId, result: &RSIndexResult) -> bool {
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
         // `has_expiration()` should have been checked before calling this method.
         // If TTL is not configured, the iterator should use the fast path without expiration checks.
         debug_assert!(
@@ -123,6 +123,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         let spec = unsafe { *(sctx.spec) };
 
         let current_time = &sctx.time.current as *const _;
+        let doc_id = result.doc_id;
 
         match self.filter_ctx.field {
             // SAFETY:

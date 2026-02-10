@@ -168,8 +168,7 @@ where
 
     /// Returns `true` if the current document is expired.
     fn is_current_doc_expired(&self) -> bool {
-        self.expiration_checker
-            .is_expired(self.result.doc_id, &self.result)
+        self.expiration_checker.is_expired(&self.result)
     }
 
     // SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.

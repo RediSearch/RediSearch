@@ -21,16 +21,17 @@ use crate::inverted_index::utils::{BaseTest, MockContext};
 
 /// Builder for creating a Numeric iterator with optional parameters.
 #[allow(dead_code)]
-struct NumericBuilder<'index, R> {
+struct NumericBuilder<'index, R, E = NoOpChecker> {
     reader: R,
     range_tree: Option<NonNull<ffi::NumericRangeTree>>,
     range_min: Option<f64>,
     range_max: Option<f64>,
+    expiration_checker: Option<E>,
     _marker: std::marker::PhantomData<&'index ()>,
 }
 
 #[allow(dead_code)]
-impl<'index, R> NumericBuilder<'index, R>
+impl<'index, R> NumericBuilder<'index, R, NoOpChecker>
 where
     R: NumericReader<'index>,
 {
@@ -40,16 +41,25 @@ where
     /// - `range_tree`: None
     /// - `range_min`: None
     /// - `range_max`: None
+    /// - `expiration_checker`: NoOpChecker
     fn new(reader: R) -> Self {
         Self {
             reader,
             range_tree: None,
             range_min: None,
             range_max: None,
+            expiration_checker: None,
             _marker: std::marker::PhantomData,
         }
     }
+}
 
+#[allow(dead_code)]
+impl<'index, R, E> NumericBuilder<'index, R, E>
+where
+    R: NumericReader<'index>,
+    E: rqe_iterators::ExpirationChecker,
+{
     /// Set the numeric range tree.
     fn range_tree(mut self, range_tree: NonNull<ffi::NumericRangeTree>) -> Self {
         self.range_tree = Some(range_tree);
@@ -68,8 +78,31 @@ where
         self
     }
 
-    /// Build the Numeric iterator with the given expiration checker.
-    fn build<E: rqe_iterators::ExpirationChecker>(self, checker: E) -> Numeric<'index, R, E> {
+    /// Set the expiration checker and build the iterator.
+    fn expiration_checker<E2: rqe_iterators::ExpirationChecker>(
+        self,
+        checker: E2,
+    ) -> Numeric<'index, R, E2> {
+        Numeric::new(
+            self.reader,
+            checker,
+            self.range_tree,
+            self.range_min,
+            self.range_max,
+        )
+    }
+
+    /// Build the Numeric iterator.
+    /// Uses NoOpChecker if no expiration checker was set.
+    fn build(self) -> Numeric<'index, R, E>
+    where
+        E: Default,
+    {
+        let checker = if let Some(checker) = self.expiration_checker {
+            checker
+        } else {
+            E::default()
+        };
         Numeric::new(
             self.reader,
             checker,
@@ -111,7 +144,7 @@ impl NumericBaseTest {
 
         NumericBuilder::new(reader)
             .range_tree(self.test.mock_ctx.numeric_range_tree())
-            .build(NoOpChecker)
+            .build()
     }
 }
 
@@ -129,7 +162,7 @@ fn numeric_read() {
     let reader = FilterNumericReader::new(&filter, reader);
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -154,7 +187,7 @@ fn numeric_filter() {
     let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
     let docs_ids = test
         .test
         .docs_ids_iter()
@@ -175,7 +208,7 @@ fn skip_multi_id() {
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -204,7 +237,7 @@ fn skip_multi_id_and_value() {
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
 
     // Read the first entry. Expect to get the entry with value 1.0
     let record = it
@@ -241,7 +274,7 @@ fn get_correct_value() {
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
 
     // Read the first entry. Expect to get the entry with value 2.0
     let record = it
@@ -278,7 +311,7 @@ fn eof_after_filtering() {
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
 
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     assert_eq!(it.skip_to(1).expect("skip_to failed"), None);
@@ -291,12 +324,12 @@ fn numeric_range() {
     let it = NumericBuilder::new(ii.reader())
         .range_min(1.0)
         .range_max(10.0)
-        .build(NoOpChecker);
+        .build();
     assert_eq!(it.range_min(), 1.0);
     assert_eq!(it.range_max(), 10.0);
 
     // Default range values when not explicitly set.
-    let it = NumericBuilder::new(ii.reader()).build(NoOpChecker);
+    let it = NumericBuilder::new(ii.reader()).build();
     assert_eq!(it.range_min(), f64::NEG_INFINITY);
     assert_eq!(it.range_max(), f64::INFINITY);
 }
@@ -315,7 +348,7 @@ fn skip_to_then_read_with_duplicates() {
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
 
     // Skip to doc 1 — should find it.
     let res = it.skip_to(1).expect("skip_to failed");
@@ -344,7 +377,7 @@ fn numeric_reader_accessor() {
     let context = MockContext::new(0, 0);
     let it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
-        .build(NoOpChecker);
+        .build();
 
     // Verify the reader is accessible and reports correct unique doc count.
     assert_eq!(it.reader().unique_docs(), 2);
@@ -359,7 +392,7 @@ fn numeric_no_range_tree_revalidate() {
     let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(3));
 
     // Build without a range tree — should_abort will return false.
-    let mut it = NumericBuilder::new(ii.reader()).build(NoOpChecker);
+    let mut it = NumericBuilder::new(ii.reader()).build();
 
     // Read one doc to advance the iterator.
     let record = it.read().expect("read failed").expect("expected a result");
@@ -496,7 +529,7 @@ mod not_miri {
         let context = MockContext::new(0, 0);
         let mut it = NumericBuilder::new(ii.reader())
             .range_tree(context.numeric_range_tree())
-            .build(checker);
+            .expiration_checker(checker);
 
         // Skip to doc 2, which doesn't exist. The seeker finds doc 3
         // (the next available), which is NOT expired.
@@ -530,7 +563,7 @@ mod not_miri {
         let context = MockContext::new(0, 0);
         let mut it = NumericBuilder::new(ii.reader())
             .range_tree(context.numeric_range_tree())
-            .build(checker);
+            .expiration_checker(checker);
 
         // Since expiration checking is disabled (has_expiration returns false),
         // we should see all docs including doc 1.
@@ -599,7 +632,7 @@ mod not_miri {
 
             NumericBuilder::new(ii.reader())
                 .range_tree(context.numeric_range_tree())
-                .build(NoOpChecker)
+                .build()
         }
     }
 

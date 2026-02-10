@@ -327,8 +327,8 @@ pub(super) mod not_miri {
             !self.expired_docs.is_empty()
         }
 
-        fn is_expired(&self, doc_id: t_docId, _result: &RSIndexResult) -> bool {
-            self.expired_docs.contains(&doc_id)
+        fn is_expired(&self, result: &RSIndexResult) -> bool {
+            self.expired_docs.contains(&result.doc_id)
         }
     }
 
