@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(non_snake_case, non_upper_case_globals)]
+
 use ffi::{
     IteratorType_METRIC_SORTED_BY_ID_ITERATOR, IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR,
     QueryIterator, RLookupKey, RLookupKeyHandle, RedisModule_Free, t_docId,
@@ -122,20 +124,25 @@ pub unsafe extern "C" fn SetMetricRLookupHandle(
     // SAFETY: Safe thanks to 1.
     let iterator_type = unsafe { *header }.type_;
 
-    if iterator_type == IteratorType_METRIC_SORTED_BY_ID_ITERATOR {
-        // SAFETY: Safe thanks to 1 + 2.
-        let wrapper =
-            unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-        // SAFETY: Safe thanks to 3.
-        unsafe { wrapper.inner.set_handle(key_handle) };
-    } else if iterator_type == IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR {
-        // SAFETY: Safe thanks to 1 + 2.
-        let wrapper =
-            unsafe { RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header) };
-        // SAFETY: Safe thanks to 3.
-        unsafe { wrapper.inner.set_handle(key_handle) };
-    } else {
-        unreachable!("expected a metric iterator, either sorted by ID or Score (metric value)")
+    match iterator_type {
+        IteratorType_METRIC_SORTED_BY_ID_ITERATOR => {
+            // SAFETY: Safe thanks to 1 + 2.
+            let wrapper =
+                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
+            // SAFETY: Safe thanks to 3.
+            unsafe { wrapper.inner.set_handle(key_handle) };
+        }
+        IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR => {
+            // SAFETY: Safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
+            };
+            // SAFETY: Safe thanks to 3.
+            unsafe { wrapper.inner.set_handle(key_handle) };
+        }
+        _ => unreachable!(
+            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
+        ),
     }
 }
 
@@ -152,18 +159,23 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
     // SAFETY: Safe thanks to 1.
     let iterator_type = unsafe { *header }.type_;
 
-    if iterator_type == IteratorType_METRIC_SORTED_BY_ID_ITERATOR {
-        // SAFETY: Safe thanks to 1 + 2.
-        let wrapper =
-            unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-        wrapper.inner.key_mut_ref() as *mut _
-    } else if iterator_type == IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR {
-        // SAFETY: Safe thanks to 1 + 2.
-        let wrapper =
-            unsafe { RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header) };
-        wrapper.inner.key_mut_ref() as *mut _
-    } else {
-        unreachable!("expected a metric iterator, either sorted by ID or Score (metric value)")
+    match iterator_type {
+        IteratorType_METRIC_SORTED_BY_ID_ITERATOR => {
+            // SAFETY: Safe thanks to 1 + 2.
+            let wrapper =
+                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
+            wrapper.inner.key_mut_ref() as *mut _
+        }
+        IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR => {
+            // SAFETY: Safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
+            };
+            wrapper.inner.key_mut_ref() as *mut _
+        }
+        _ => unreachable!(
+            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
+        ),
     }
 }
 
@@ -180,17 +192,21 @@ pub unsafe extern "C" fn GetMetricType(header: *mut QueryIterator) -> MetricType
     // SAFETY: Safe thanks to 1.
     let iterator_type = unsafe { *header }.type_;
 
-    if iterator_type == IteratorType_METRIC_SORTED_BY_ID_ITERATOR {
-        // SAFETY: Safe thanks to 1 + 2.
-        let wrapper =
-            unsafe { RQEIteratorWrapper::<MetricSortedById>::ref_from_header_ptr(header) };
-        wrapper.inner.metric_type()
-    } else if iterator_type == IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR {
-        // SAFETY: Safe thanks to 1 + 2.
-        let wrapper =
-            unsafe { RQEIteratorWrapper::<MetricSortedByScore>::ref_from_header_ptr(header) };
-        wrapper.inner.metric_type()
-    } else {
-        unreachable!("expected a metric iterator, either sorted by ID or Score (metric value)")
+    match iterator_type {
+        IteratorType_METRIC_SORTED_BY_ID_ITERATOR => {
+            // SAFETY: Safe thanks to 1 + 2.
+            let wrapper =
+                unsafe { RQEIteratorWrapper::<MetricSortedById>::ref_from_header_ptr(header) };
+            wrapper.inner.metric_type()
+        }
+        IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR => {
+            // SAFETY: Safe thanks to 1 + 2.
+            let wrapper =
+                unsafe { RQEIteratorWrapper::<MetricSortedByScore>::ref_from_header_ptr(header) };
+            wrapper.inner.metric_type()
+        }
+        _ => unreachable!(
+            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
+        ),
     }
 }
