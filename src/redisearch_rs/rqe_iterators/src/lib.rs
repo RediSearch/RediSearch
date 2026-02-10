@@ -13,6 +13,7 @@ use thiserror::Error;
 use ::inverted_index::RSIndexResult;
 
 pub mod empty;
+pub mod expiration_checker;
 pub mod id_list;
 pub mod intersection;
 pub mod inverted_index;
@@ -26,6 +27,7 @@ pub mod wildcard;
 pub mod util;
 
 pub use empty::Empty;
+pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Numeric, Term};

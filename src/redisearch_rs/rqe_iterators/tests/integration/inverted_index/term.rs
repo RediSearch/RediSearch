@@ -10,11 +10,11 @@
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
-    RS_FIELDMASK_ALL, t_docId, t_fieldMask,
+    t_docId, t_fieldMask,
 };
-use field::{FieldExpirationPredicate, FieldMaskOrIndex};
+use field::FieldMaskOrIndex;
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
-use rqe_iterators::inverted_index::Term;
+use rqe_iterators::{NoOpChecker, inverted_index::Term};
 
 use crate::{
     ffi::query_term::QueryTermBuilder,
@@ -78,15 +78,11 @@ impl TermBaseTest {
 
     fn create_iterator(
         &self,
-    ) -> Term<'_, inverted_index::IndexReaderCore<'_, inverted_index::full::Full>> {
+    ) -> Term<'_, inverted_index::IndexReaderCore<'_, inverted_index::full::Full>, NoOpChecker>
+    {
         let reader = self.test.ii.reader();
 
-        Term::new(
-            reader,
-            self.test.mock_ctx.sctx(),
-            RS_FIELDMASK_ALL,
-            FieldExpirationPredicate::Default,
-        )
+        Term::new(reader, NoOpChecker)
     }
 }
 
@@ -111,12 +107,7 @@ fn term_skip_to() {
 fn term_filter() {
     let test = TermBaseTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new(
-        reader,
-        test.test.mock_ctx.sctx(),
-        RS_FIELDMASK_ALL,
-        FieldExpirationPredicate::Default,
-    );
+    let mut it = Term::new(reader, NoOpChecker);
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
@@ -125,7 +116,7 @@ fn term_filter() {
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
-    use crate::inverted_index::utils::ExpirationTest;
+    use crate::inverted_index::utils::{ExpirationTest, MockExpirationChecker};
     use rqe_iterators::{RQEIterator, RQEValidateStatus};
 
     struct TermExpirationTest {
@@ -187,15 +178,12 @@ mod not_miri {
             inverted_index::FilterMaskReader<
                 inverted_index::IndexReaderCore<'_, inverted_index::full::Full>,
             >,
+            MockExpirationChecker,
         > {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
-            Term::new(
-                reader,
-                self.test.sctx(),
-                field_mask,
-                FieldExpirationPredicate::Default,
-            )
+            let checker = self.test.create_mock_checker();
+            Term::new(reader, checker)
         }
 
         fn create_iterator_wide(
@@ -205,15 +193,12 @@ mod not_miri {
             inverted_index::FilterMaskReader<
                 inverted_index::IndexReaderCore<'_, inverted_index::full::FullWide>,
             >,
+            MockExpirationChecker,
         > {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
-            Term::new(
-                reader,
-                self.test.sctx(),
-                field_mask,
-                FieldExpirationPredicate::Default,
-            )
+            let checker = self.test.create_mock_checker();
+            Term::new(reader, checker)
         }
 
         fn mark_even_ids_expired(&mut self) {
@@ -311,12 +296,7 @@ mod not_miri {
         > {
             let field_mask = self.test.context.text_field_bit();
             let reader = self.test.context.term_inverted_index().reader(field_mask);
-            Term::new(
-                reader,
-                self.test.context.sctx,
-                field_mask,
-                FieldExpirationPredicate::Default,
-            )
+            Term::new(reader, NoOpChecker)
         }
     }
 
