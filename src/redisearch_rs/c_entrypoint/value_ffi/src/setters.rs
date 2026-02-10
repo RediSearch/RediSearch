@@ -120,7 +120,7 @@ pub unsafe extern "C" fn RSValue_SetConstString(
     let mut shared_value = unsafe { expect_shared_value(value) };
 
     // Safety: ensured by caller (2., 3., 4.)
-    let string = unsafe { RsString::const_string(str, len as u32) };
+    let string = unsafe { RsString::borrowed_string(str, len as u32) };
     let value = RsValue::String(string);
     // Safety: ensured by caller (5.)
     shared_value.set_value(value);
