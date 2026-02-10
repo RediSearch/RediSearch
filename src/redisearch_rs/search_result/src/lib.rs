@@ -9,11 +9,12 @@
 
 pub mod bindings;
 
+use crate::bindings::DocumentMetadata;
 use enumflags2::{BitFlags, bitflags};
 use inverted_index::RSIndexResult;
+use rlookup::RLookup;
 use std::ptr::{self, NonNull};
-
-use crate::bindings::DocumentMetadata;
+use value::RSValueFFI;
 
 #[bitflags]
 #[repr(u8)]
@@ -53,7 +54,7 @@ pub struct SearchResult<'index> {
     _index_result: Option<&'index RSIndexResult<'index>>,
 
     // Row data. Use RLookup_* functions to access
-    _row_data: ffi::RLookupRow,
+    _row_data: rlookup::RLookupRow<'index, RSValueFFI>,
 
     _flags: SearchResultFlags,
 }
@@ -64,7 +65,7 @@ impl Drop for SearchResult<'_> {
 
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
         unsafe {
-            ffi::RLookupRow_Reset(ptr::from_mut(&mut self._row_data));
+            ffi::RLookupRow_Reset(ptr::from_mut(&mut self._row_data).cast::<ffi::RLookupRow>());
         }
     }
 }
@@ -76,15 +77,15 @@ impl Default for SearchResult<'_> {
 }
 
 impl<'index> SearchResult<'index> {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             _doc_id: 0,
             _score: 0.0,
             _score_explain: None,
             _document_metadata: None,
             _index_result: None,
-            // _row_data: ffi::RLookupRow::new(&ffi::RLookup::new()),
-            _row_data: todo!(),
+            _row_data: rlookup::RLookupRow::new(&RLookup::new()),
+            // _row_data: ffi::RLookupRow { _0: 1 },
             #[allow(unused)]
             _flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
         }
@@ -108,7 +109,7 @@ impl<'index> SearchResult<'index> {
 
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
         unsafe {
-            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self._row_data));
+            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self._row_data).cast::<ffi::RLookupRow>());
         }
 
         // explicitly drop the DMD here to make clear we maintain the
@@ -188,12 +189,12 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub const fn row_data(&self) -> &ffi::RLookupRow {
+    pub const fn row_data(&self) -> &rlookup::RLookupRow<'index, RSValueFFI> {
         &self._row_data
     }
 
     /// Returns a mutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
-    pub const fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
+    pub const fn row_data_mut(&mut self) -> &mut rlookup::RLookupRow<'index, RSValueFFI> {
         &mut self._row_data
     }
 
