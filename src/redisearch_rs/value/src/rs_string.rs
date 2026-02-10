@@ -123,12 +123,13 @@ impl RsString {
         }
     }
 
-    /// Returns the string data pointer and length.
+    /// Returns the string data pointer and length, with a debug check on
+    /// whether the string might not be nul-terminated.
     ///
     /// # Panic
     ///
-    /// In debug builds, panics if the string is not nul-terminated.
-    pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
+    /// In debug builds, panics if the string is possibly not nul-terminated.
+    pub const fn as_ptr_len_checked(&self) -> (*const c_char, u32) {
         #[cfg(debug_assertions)]
         assert!(
             self.guaranteed_nul_terminated,
@@ -140,16 +141,17 @@ impl RsString {
     /// Returns the string data pointer and length without ensuring nul-termination.
     ///
     /// Use this method when working with strings that may not be nul-terminated.
-    pub const fn as_ptr_len_trusted(&self) -> (*const c_char, u32) {
+    pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
         (self.ptr, self.len)
     }
 
-    /// Gets the string pointed to by `ptr`/`len` as a byte slice.
+    /// Gets the string pointed to by `ptr`/`len` as a byte slice, with a debug
+    /// check on whether the string might not be nul-terminated.
     ///
     /// # Panic
     ///
-    /// In debug builds, panics if the string is not nul-terminated.
-    pub const fn as_bytes(&self) -> &[u8] {
+    /// In debug builds, panics if the string is possibly not nul-terminated.
+    pub const fn as_bytes_checked(&self) -> &[u8] {
         #[cfg(debug_assertions)]
         assert!(
             self.guaranteed_nul_terminated,
@@ -163,7 +165,7 @@ impl RsString {
     /// Gets the string pointed to by `ptr`/`len` as a byte slice without ensuring nul-termination.
     ///
     /// Use this method when working with strings that may not be nul-terminated.
-    pub const fn as_bytes_trusted(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         // SAFETY: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
         unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
     }
