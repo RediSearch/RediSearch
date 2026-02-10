@@ -195,33 +195,83 @@ pub fn query_top_k_baseline(
         .collect()
 }
 
+/// Statistics from a Top-K query with block skipping.
+#[derive(Debug, Clone, Default)]
+pub struct SkipStats {
+    /// Total number of blocks in the index.
+    pub total_blocks: usize,
+    /// Number of blocks that were skipped.
+    pub blocks_skipped: usize,
+    /// Number of blocks that were read.
+    pub blocks_read: usize,
+    /// Number of documents read.
+    pub docs_read: usize,
+}
+
+impl std::fmt::Display for SkipStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let skip_pct = if self.total_blocks > 0 {
+            100.0 * self.blocks_skipped as f64 / self.total_blocks as f64
+        } else {
+            0.0
+        };
+        write!(
+            f,
+            "blocks: {}/{} skipped ({:.1}%), docs_read: {}",
+            self.blocks_skipped, self.total_blocks, skip_pct, self.docs_read
+        )
+    }
+}
+
 /// Run Top-K query WITH block skipping using advance_to_next_promising_block.
 ///
 /// This implementation reads all records from the current block, then uses
 /// `advance_to_next_promising_block` to skip blocks whose max score is below
 /// the current threshold.
-pub fn query_top_k_with_skipping(
+///
+/// Returns both the results and skip statistics.
+pub fn query_top_k_with_skipping_stats(
     setup: &TopKBenchmarkSetup,
     k: usize,
     scorer: &BlockScorer,
-) -> Vec<(t_docId, f64)> {
+) -> (Vec<(t_docId, f64)>, SkipStats) {
     let mut heap: BinaryHeap<Reverse<HeapEntry>> = BinaryHeap::with_capacity(k);
     let mut reader = setup.index.reader();
     let mut result = RSIndexResult::virt();
     let mut min_score = 0.0;
 
+    let total_blocks = setup.index.number_of_blocks();
+    let mut blocks_skipped = 0usize;
+    let mut blocks_read = 0usize;
+    let mut docs_read = 0usize;
+    let mut last_block_idx = usize::MAX;
+
     loop {
         // Check if current block is worth reading (only when heap is full)
         if heap.len() == k && reader.current_block_max_score(scorer) < min_score {
-            // Skip to next promising block
+            // Count blocks skipped by advance_to_next_promising_block
+            let before_idx = reader.current_block_index();
             if !reader.advance_to_next_promising_block(min_score, scorer) {
+                // All remaining blocks were skipped
+                blocks_skipped += total_blocks.saturating_sub(before_idx);
                 break;
             }
+            let after_idx = reader.current_block_index();
+            blocks_skipped += after_idx - before_idx;
         }
 
         // Read next record
         if !reader.next_record(&mut result).unwrap_or(false) {
             break;
+        }
+
+        docs_read += 1;
+
+        // Track block reads
+        let current_block = reader.current_block_index();
+        if current_block != last_block_idx {
+            blocks_read += 1;
+            last_block_idx = current_block;
         }
 
         let doc_meta = &setup.doc_table[&result.doc_id];
@@ -246,10 +296,29 @@ pub fn query_top_k_with_skipping(
         }
     }
 
-    heap.into_sorted_vec()
+    let results = heap
+        .into_sorted_vec()
         .into_iter()
         .map(|Reverse(e)| (e.doc_id, e.score))
-        .collect()
+        .collect();
+
+    let stats = SkipStats {
+        total_blocks,
+        blocks_skipped,
+        blocks_read,
+        docs_read,
+    };
+
+    (results, stats)
+}
+
+/// Run Top-K query WITH block skipping (without returning stats).
+pub fn query_top_k_with_skipping(
+    setup: &TopKBenchmarkSetup,
+    k: usize,
+    scorer: &BlockScorer,
+) -> Vec<(t_docId, f64)> {
+    query_top_k_with_skipping_stats(setup, k, scorer).0
 }
 
 #[cfg(test)]

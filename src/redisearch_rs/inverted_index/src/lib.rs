@@ -1426,6 +1426,13 @@ pub trait IndexReader<'index> {
         f64::MAX
     }
 
+    /// Get the index of the current block being read.
+    ///
+    /// This is useful for tracking block skipping statistics.
+    fn current_block_index(&self) -> usize {
+        0
+    }
+
     /// Advance to the next block that has `max_score >= min_score`.
     ///
     /// This is called internally by `read_with_threshold` when the current
@@ -1642,6 +1649,10 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
         let block = &self.ii.blocks[self.current_block_idx];
         scorer.block_max_score(block)
+    }
+
+    fn current_block_index(&self) -> usize {
+        self.current_block_idx
     }
 
     fn advance_to_next_promising_block(
