@@ -5,7 +5,7 @@ use std::fmt;
 enum RsStringKind {
     RustAlloc,
     RmAlloc,
-    Const,
+    Borrowed,
 }
 
 /// A `CString` like string for [`RsValue`] with support for rust allocated string,
@@ -66,11 +66,11 @@ impl RsString {
     /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
     /// 3. The string pointed to by `ptr`/`len` must stay valid for as long as
     ///    this [`RsString`] is exists.
-    pub const unsafe fn const_string(ptr: *const c_char, len: u32) -> Self {
+    pub const unsafe fn borrowed_string(ptr: *const c_char, len: u32) -> Self {
         Self {
             ptr,
             len,
-            kind: RsStringKind::Const,
+            kind: RsStringKind::Borrowed,
         }
     }
 
@@ -99,7 +99,7 @@ impl Drop for RsString {
                 // SAFETY: `self.ptr` was allocated by rm_alloc and has not been freed.
                 unsafe { rm_free(self.ptr as _) };
             }
-            RsStringKind::Const => (), // No need to free const strings.
+            RsStringKind::Borrowed => (), // No need to free borrowed strings.
         }
     }
 }
