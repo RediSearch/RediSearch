@@ -1410,3 +1410,23 @@ def testLimitations(env):
 
     env.expect('FT.SEARCH', 'idx', 'abraham', 'SUMMARIZE').error()\
         .contains(error_msg)
+
+# For MOD-13904
+@skip(no_json=True)
+def testNegativeZero(env):
+    """ check that -0 is treated the same as 0 """
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.num', 'AS', 'num', 'NUMERIC').ok()
+
+    env.expect('JSON.SET', 'doc1', '$', r'{"num": -0}').ok()
+    env.expect('JSON.SET', 'doc2', '$', r'{"num": -0.0}').ok()
+
+    res = env.cmd('FT.SEARCH', 'idx', '@num:[-0 -0]', 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc2'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '@num:[0 0]', 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc2'])
+
+    res = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(res, [2, 'doc1', ['$', '{"num":-0.0}'], 'doc2', ['$', '{"num":-0.0}']])
