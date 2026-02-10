@@ -38,7 +38,7 @@ def get_expected(env, query, query_type: str = 'FT.SEARCH', protocol=2):
 def query_shards(env, query, shards, expected, query_type: str = 'FT.SEARCH'):
     if query_type == 'FT.HYBRID':
         return query_shards_hybrid(env, query, shards, expected)
-    elif query_type == 'FT.AGGREGATE':
+    elif query_type == 'FT.AGGREGATE' or query_type == 'FT.AGGREGATE.KNN':
         return query_shards_ft_aggregate(env, query, shards, expected)
     elif query_type == 'FT.AGGREGATE.WITHCURSOR':
         return query_shards_ft_aggregate_withcursor(env, query, shards, expected)
