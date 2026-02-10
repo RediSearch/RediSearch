@@ -347,6 +347,45 @@ fn adding_tracks_max_freq() {
 }
 
 #[test]
+fn adding_with_metadata_tracks_doc_score_and_doc_len() {
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+
+    // Add first record with doc_len=100, doc_score=1.5
+    let record = RSIndexResult::default().doc_id(10).frequency(5);
+    ii.add_record_with_metadata(&record, 100, 1.5).unwrap();
+
+    assert_eq!(ii.blocks[0].max_freq(), 5);
+    assert_eq!(ii.blocks[0].min_doc_len(), 100);
+    assert!((ii.blocks[0].max_doc_score() - 1.5).abs() < f32::EPSILON);
+
+    // Add record with shorter doc (min should update) and higher score (max should update)
+    let record = RSIndexResult::default().doc_id(11).frequency(3);
+    ii.add_record_with_metadata(&record, 50, 2.0).unwrap();
+
+    assert_eq!(ii.blocks[0].max_freq(), 5, "max_freq should still be 5");
+    assert_eq!(ii.blocks[0].min_doc_len(), 50, "min_doc_len should now be 50");
+    assert!(
+        (ii.blocks[0].max_doc_score() - 2.0).abs() < f32::EPSILON,
+        "max_doc_score should now be 2.0"
+    );
+
+    // Add record with longer doc and lower score (neither should update)
+    let record = RSIndexResult::default().doc_id(12).frequency(8);
+    ii.add_record_with_metadata(&record, 200, 0.5).unwrap();
+
+    assert_eq!(ii.blocks[0].max_freq(), 8, "max_freq should now be 8");
+    assert_eq!(
+        ii.blocks[0].min_doc_len(),
+        50,
+        "min_doc_len should still be 50"
+    );
+    assert!(
+        (ii.blocks[0].max_doc_score() - 2.0).abs() < f32::EPSILON,
+        "max_doc_score should still be 2.0"
+    );
+}
+
+#[test]
 fn has_scoring_metadata_returns_false_for_empty_block() {
     // A block with num_entries > 0 but max_freq = 0 indicates no metadata
     let block = test_block(10, 10, 1, vec![0, 0, 0, 0]);

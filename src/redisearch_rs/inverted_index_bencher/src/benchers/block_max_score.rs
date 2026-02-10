@@ -11,6 +11,15 @@
 //!
 //! This module provides data generators and benchmark setup for testing
 //! the block-max score optimization in Top-K query scenarios.
+//!
+//! # Correctness Verification
+//!
+//! Run the module tests to verify that `query_top_k_with_skipping` returns
+//! the same results as `query_top_k_baseline`:
+//!
+//! ```bash
+//! cargo test -p inverted_index_bencher block_max_score
+//! ```
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
@@ -96,7 +105,9 @@ impl TopKBenchmarkSetup {
             total_doc_len += doc_len as u64;
 
             let record = RSIndexResult::virt().doc_id(doc_id).frequency(tf);
-            index.add_record(&record).expect("failed to add record");
+            index
+                .add_record_with_metadata(&record, doc_len, doc_score)
+                .expect("failed to add record");
         }
 
         let idf = (1.0 + (num_docs as f64 + 1.0) / (num_docs as f64)).ln();
@@ -184,7 +195,11 @@ pub fn query_top_k_baseline(
         .collect()
 }
 
-/// Run Top-K query WITH block skipping using skip_to_with_threshold.
+/// Run Top-K query WITH block skipping using advance_to_next_promising_block.
+///
+/// This implementation reads all records from the current block, then uses
+/// `advance_to_next_promising_block` to skip blocks whose max score is below
+/// the current threshold.
 pub fn query_top_k_with_skipping(
     setup: &TopKBenchmarkSetup,
     k: usize,
@@ -193,8 +208,22 @@ pub fn query_top_k_with_skipping(
     let mut heap: BinaryHeap<Reverse<HeapEntry>> = BinaryHeap::with_capacity(k);
     let mut reader = setup.index.reader();
     let mut result = RSIndexResult::virt();
+    let mut min_score = 0.0;
 
-    while reader.next_record(&mut result).unwrap_or(false) {
+    loop {
+        // Check if current block is worth reading (only when heap is full)
+        if heap.len() == k && reader.current_block_max_score(scorer) < min_score {
+            // Skip to next promising block
+            if !reader.advance_to_next_promising_block(min_score, scorer) {
+                break;
+            }
+        }
+
+        // Read next record
+        if !reader.next_record(&mut result).unwrap_or(false) {
+            break;
+        }
+
         let doc_meta = &setup.doc_table[&result.doc_id];
         let score = compute_score(result.freq, doc_meta, scorer);
 
@@ -211,14 +240,9 @@ pub fn query_top_k_with_skipping(
             }));
         }
 
-        // Update threshold and skip to next promising block
+        // Update threshold after heap modification
         if heap.len() == k {
-            let min_score = heap.peek().unwrap().0.score;
-            // Skip to next doc, but use threshold to skip low-score blocks
-            let next_doc = result.doc_id + 1;
-            if !reader.skip_to_with_threshold(next_doc, min_score, scorer) {
-                break;
-            }
+            min_score = heap.peek().unwrap().0.score;
         }
     }
 
@@ -226,4 +250,65 @@ pub fn query_top_k_with_skipping(
         .into_iter()
         .map(|Reverse(e)| (e.doc_id, e.score))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that baseline and with_skipping return identical results.
+    #[test]
+    fn baseline_and_skipping_return_same_results() {
+        for num_docs in [1000, 5000] {
+            for distribution in [DataDistribution::Uniform, DataDistribution::Zipfian] {
+                let setup = TopKBenchmarkSetup::new(num_docs, distribution, 42);
+
+                for k in [10, 50, 100] {
+                    // Test with TF-IDF scorer
+                    let scorer = BlockScorer::tfidf(setup.idf);
+                    let baseline = query_top_k_baseline(&setup, k, &scorer);
+                    let with_skipping = query_top_k_with_skipping(&setup, k, &scorer);
+
+                    assert_eq!(
+                        baseline.len(),
+                        with_skipping.len(),
+                        "TF-IDF: Result count mismatch for num_docs={num_docs}, k={k}, dist={distribution:?}"
+                    );
+
+                    for (i, ((b_id, b_score), (s_id, s_score))) in
+                        baseline.iter().zip(with_skipping.iter()).enumerate()
+                    {
+                        assert_eq!(
+                            b_id, s_id,
+                            "TF-IDF: Doc ID mismatch at position {i} for num_docs={num_docs}, k={k}, dist={distribution:?}"
+                        );
+                        assert!(
+                            (b_score - s_score).abs() < 1e-10,
+                            "TF-IDF: Score mismatch at position {i}: baseline={b_score}, skipping={s_score}"
+                        );
+                    }
+
+                    // Test with BM25 scorer
+                    let scorer = BlockScorer::bm25(setup.idf, setup.avg_doc_len, 1.2, 0.75);
+                    let baseline = query_top_k_baseline(&setup, k, &scorer);
+                    let with_skipping = query_top_k_with_skipping(&setup, k, &scorer);
+
+                    assert_eq!(
+                        baseline.len(),
+                        with_skipping.len(),
+                        "BM25: Result count mismatch for num_docs={num_docs}, k={k}, dist={distribution:?}"
+                    );
+
+                    for (i, ((b_id, _), (s_id, _))) in
+                        baseline.iter().zip(with_skipping.iter()).enumerate()
+                    {
+                        assert_eq!(
+                            b_id, s_id,
+                            "BM25: Doc ID mismatch at position {i} for num_docs={num_docs}, k={k}, dist={distribution:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

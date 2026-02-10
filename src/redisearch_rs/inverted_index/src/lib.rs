@@ -591,7 +591,41 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Add a new record to the index and return by how much memory grew. It is expected that
     /// the document ID of the record is greater than or equal the last document ID in the index.
+    ///
+    /// This method does not track `max_doc_score` or `min_doc_len` for block-max score optimization.
+    /// Use [`add_record_with_metadata`](Self::add_record_with_metadata) if you need to track these values.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        self.add_record_inner(record, None, None)
+    }
+
+    /// Add a new record to the index with document metadata for block-max score optimization.
+    ///
+    /// This method tracks `max_doc_score` and `min_doc_len` per block, enabling the block-max
+    /// score optimization to skip blocks that cannot contain top-K results.
+    ///
+    /// # Arguments
+    /// * `record` - The index record to add
+    /// * `doc_len` - The document length in tokens (used for TF-IDF/BM25 normalization)
+    /// * `doc_score` - The a-priori document score (e.g., PageRank-like boost)
+    ///
+    /// # Returns
+    /// The number of bytes by which memory grew.
+    pub fn add_record_with_metadata(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: u32,
+        doc_score: f32,
+    ) -> std::io::Result<usize> {
+        self.add_record_inner(record, Some(doc_len), Some(doc_score))
+    }
+
+    /// Internal implementation for adding records, with optional metadata tracking.
+    fn add_record_inner(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: Option<u32>,
+        doc_score: Option<f32>,
+    ) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
 
         let same_doc = match (
@@ -650,11 +684,15 @@ impl<E: Encoder> InvertedIndex<E> {
         block.last_doc_id = doc_id;
 
         // Update block-level scoring metadata for block-max score optimization.
-        // Note: max_doc_score and min_doc_len are not tracked here because they require
-        // document metadata that is not available in the record. These would need to be
-        // passed separately if we want to track them during indexing.
-        // For now, we track max_freq which is available from the record.
         block.max_freq = block.max_freq.max(record.freq);
+
+        // Update doc_len and doc_score if provided
+        if let Some(len) = doc_len {
+            block.min_doc_len = block.min_doc_len.min(len);
+        }
+        if let Some(score) = doc_score {
+            block.max_doc_score = block.max_doc_score.max(score);
+        }
 
         // We took ownership of the block so put it back
         mem_growth += self.add_block(block);
@@ -998,8 +1036,38 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// the document ID of the record is greater than or equal the last document ID in the index.
     ///
     /// The total number of entries in the index is incremented by one.
+    ///
+    /// This method does not track `max_doc_score` or `min_doc_len` for block-max score optimization.
+    /// Use [`add_record_with_metadata`](Self::add_record_with_metadata) if you need to track these values.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let mem_growth = self.index.add_record(record)?;
+
+        self.number_of_entries += 1;
+
+        Ok(mem_growth)
+    }
+
+    /// Add a new record to the index with document metadata for block-max score optimization.
+    ///
+    /// This method tracks `max_doc_score` and `min_doc_len` per block, enabling the block-max
+    /// score optimization to skip blocks that cannot contain top-K results.
+    ///
+    /// The total number of entries in the index is incremented by one.
+    ///
+    /// # Arguments
+    /// * `record` - The index record to add
+    /// * `doc_len` - The document length in tokens (used for TF-IDF/BM25 normalization)
+    /// * `doc_score` - The a-priori document score (e.g., PageRank-like boost)
+    ///
+    /// # Returns
+    /// The number of bytes by which memory grew.
+    pub fn add_record_with_metadata(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: u32,
+        doc_score: f32,
+    ) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record_with_metadata(record, doc_len, doc_score)?;
 
         self.number_of_entries += 1;
 
@@ -1144,8 +1212,36 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
     /// Add a new record to the index and return by how much memory grew. It is expected that
     /// the document ID of the record is greater than or equal the last document ID in the index.
+    ///
+    /// This method does not track `max_doc_score` or `min_doc_len` for block-max score optimization.
+    /// Use [`add_record_with_metadata`](Self::add_record_with_metadata) if you need to track these values.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let mem_growth = self.index.add_record(record)?;
+
+        self.field_mask |= record.field_mask;
+
+        Ok(mem_growth)
+    }
+
+    /// Add a new record to the index with document metadata for block-max score optimization.
+    ///
+    /// This method tracks `max_doc_score` and `min_doc_len` per block, enabling the block-max
+    /// score optimization to skip blocks that cannot contain top-K results.
+    ///
+    /// # Arguments
+    /// * `record` - The index record to add
+    /// * `doc_len` - The document length in tokens (used for TF-IDF/BM25 normalization)
+    /// * `doc_score` - The a-priori document score (e.g., PageRank-like boost)
+    ///
+    /// # Returns
+    /// The number of bytes by which memory grew.
+    pub fn add_record_with_metadata(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: u32,
+        doc_score: f32,
+    ) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record_with_metadata(record, doc_len, doc_score)?;
 
         self.field_mask |= record.field_mask;
 
@@ -1532,7 +1628,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             return false;
         }
 
-        self.set_current_block(target_block_idx);
+        // Only reset the block if we're moving to a different block.
+        // If we stay in the current block, don't reset the cursor position.
+        if target_block_idx != self.current_block_idx {
+            self.set_current_block(target_block_idx);
+        }
         true
     }
 

@@ -516,30 +516,29 @@ impl IndexBlock {
 }
 ```
 
-#### 1.3 Update Block Writing
+#### 1.3 Update Block Writing ✅ IMPLEMENTED
 
-Modify `InvertedIndex::write_entry()` to update block metadata:
+Added `add_record_with_metadata()` method to `InvertedIndex`, `EntriesTrackingIndex`, and `FieldMaskTrackingIndex`:
 
 ```rust
-fn write_entry(
+/// Add a new record to the index with document metadata for block-max score optimization.
+///
+/// This method tracks `max_doc_score` and `min_doc_len` per block, enabling the block-max
+/// score optimization to skip blocks that cannot contain top-K results.
+pub fn add_record_with_metadata(
     &mut self,
-    entry: &E,
-    doc_score: f32,
+    record: &RSIndexResult,
     doc_len: u32,
-    same_doc: bool,
+    doc_score: f32,
 ) -> std::io::Result<usize> {
-    // ... existing code to get/create block ...
-
-    let block = self.blocks.last_mut().unwrap();
-
-    // Update block scoring metadata
-    block.max_freq = block.max_freq.max(entry.freq() as u16);
-    block.max_doc_score = block.max_doc_score.max(doc_score);
-    block.min_doc_len = block.min_doc_len.min(doc_len);
-
-    // ... rest of existing code ...
+    // ... internally updates block metadata:
+    // block.max_freq = block.max_freq.max(record.freq);
+    // block.min_doc_len = block.min_doc_len.min(doc_len);
+    // block.max_doc_score = block.max_doc_score.max(doc_score);
 }
 ```
+
+The existing `add_record()` method remains unchanged for backward compatibility and only tracks `max_freq`.
 
 #### 1.4 Serialization (Fork GC)
 

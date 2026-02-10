@@ -119,7 +119,7 @@ impl BlockScorer {
         (tf / doc_len) * idf * doc_score.max(1.0)
     }
 
-    /// BM25: IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × docLen/avgDocLen))
+    /// BM25: IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × docLen/avgDocLen)) × DocScore
     fn compute_bm25(block: &IndexBlock, idf: f64, avg_doc_len: f64, k1: f64, b: f64) -> f64 {
         if !block.has_scoring_metadata() {
             return f64::MAX;
@@ -127,6 +127,7 @@ impl BlockScorer {
 
         let tf = block.max_freq() as f64;
         let doc_len = block.min_doc_len() as f64;
+        let doc_score = block.max_doc_score() as f64;
 
         // Avoid division by zero
         if avg_doc_len == 0.0 {
@@ -141,7 +142,7 @@ impl BlockScorer {
             return f64::MAX;
         }
 
-        idf * (tf * (k1 + 1.0)) / denominator
+        idf * (tf * (k1 + 1.0)) / denominator * doc_score.max(1.0)
     }
 
     /// DocScore: just returns max_doc_score
