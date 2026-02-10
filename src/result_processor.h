@@ -285,6 +285,14 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
 ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
 
 /**
+* Get the depletion time for RPSafeDepleter.
+* This is the time spent in the background thread depleting upstream results.
+* @param rp The RPSafeDepleter result processor
+* @return Time in nanoseconds spent depleting
+*/
+rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *rp);
+
+/**
 * Constructs a new depleter processor that runs in the current thread.
 */
 ResultProcessor *RPDepleter_New();

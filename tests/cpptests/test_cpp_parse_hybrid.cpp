@@ -85,7 +85,7 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
-    result.coordDispatchTime = &hybridRequest->coordDispatchTime;
+    result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
 
   void TearDown() override {
@@ -127,7 +127,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -744,7 +744,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
@@ -777,7 +777,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
@@ -785,7 +785,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   ASSERT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
 
   // Verify _COORD_DISPATCH_TIME was parsed and stored
-  EXPECT_EQ(hybridRequest->coordDispatchTime, 1000000) << "Coordinator dispatch time should be set";
+  EXPECT_EQ(hybridRequest->profileClocks.coordDispatchTime, 1000000) << "Coordinator dispatch time should be set";
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
@@ -800,7 +800,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
