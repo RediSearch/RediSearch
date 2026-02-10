@@ -16,6 +16,8 @@ use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
 
+// This is a modified version of an inline of the existing `opaque!` macro, that unfortunately really doesn't work with lifetimes.
+// TODO: refactor to use one common macro, jira ticket MOD-13960
 pub mod opaque {
     use std::marker::PhantomData;
 
