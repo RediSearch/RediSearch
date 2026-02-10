@@ -33,3 +33,6 @@ exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr",
 "RLookupKeyHeader" = "RLookupKey"
 "RLookupRow_RSValueFFI" = "RLookupRow"
 "RSSortingVector_RSValueFFI" = "RSSortingVector"
+
+[defines]
+"debug_assertions" = "ENABLE_ASSERT"

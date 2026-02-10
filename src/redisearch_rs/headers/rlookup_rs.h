@@ -179,9 +179,13 @@ typedef uint8_t Size_48[48];
  */
 typedef uint8_t Size_40[40];
 
+#if defined(ENABLE_ASSERT)
 typedef Size_48 OpaqueRLookupRowSize;
+#endif
 
+#if !defined(ENABLE_ASSERT)
 typedef Size_40 OpaqueRLookupRowSize;
+#endif
 
 /**
  * An opaque query error which can be passed by value to C.
