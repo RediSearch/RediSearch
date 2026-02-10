@@ -11,7 +11,7 @@ use c_ffi_utils::opaque::IntoOpaque;
 use libc::size_t;
 use rlookup::{
     IndexSpec, IndexSpecCache, OpaqueRLookupRow, RLookup, RLookupKey, RLookupKeyFlag,
-    RLookupKeyFlags, SchemaRule,
+    RLookupKeyFlags, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
@@ -373,7 +373,7 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetLength(
     lookup: *const RLookup<'_>,
-    row: *const rlookup::OpaqueRLookupRow<'_>,
+    row: *const OpaqueRLookupRow<'_>,
     skip_field_index: Option<NonNull<bool>>,
     skip_field_index_len: size_t,
     required_flags: u32,
@@ -384,7 +384,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
     let lookup = unsafe { lookup.as_ref().unwrap() };
 
     // Safety: ensured by caller (2.)
-    let row = unsafe { rlookup::RLookupRow::from_opaque_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
     // Safety: ensured by caller (3.)
     let skip_field_index = unsafe {

@@ -17,9 +17,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::{cmp, ffi::CString};
 
-use rlookup::RLookup;
-use rlookup::RLookupKeyFlags;
-use rlookup::RLookupRow;
+use rlookup::{OpaqueRLookupRow, RLookup, RLookupKeyFlags, RLookupRow};
 use rlookup_ffi::row::{
     RLookupRow_MoveFieldsFrom, RLookupRow_WriteByName, RLookupRow_WriteByNameOwned,
 };
@@ -49,8 +47,8 @@ fn rlookuprow_move() {
     unsafe {
         RLookupRow_MoveFieldsFrom(
             ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut src).cast::<rlookup::OpaqueRLookupRow>()),
-            Some(NonNull::from(&mut dst).cast::<rlookup::OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut src).cast::<OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut dst).cast::<OpaqueRLookupRow>()),
         )
     }
 
@@ -76,7 +74,7 @@ fn rlookuprow_writebyname() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row).cast::<rlookup::OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
             NonNull::new(value.as_ptr()),
         );
     }
@@ -99,7 +97,7 @@ fn rlookuprow_writebynameowned() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row).cast::<rlookup::OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
             NonNull::new(value.as_ptr()),
         );
     }
