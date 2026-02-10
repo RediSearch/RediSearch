@@ -932,12 +932,15 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
 CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
+                                 "Default dialect version cannot be higher than ", "%u",
+                                 MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
-  RETURN_STATUS(acrc);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getDefaultDialectVersion) {
