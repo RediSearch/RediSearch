@@ -302,7 +302,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     }
 
     // At this point we know for sure that it is not marked as loaded.
-    const FieldSpec *fs = findFieldInSpecCache(lookup, field_name);
+    const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, field_name);
     if (fs) {
       setKeyByFieldSpec(key, fs);
       if (RLookupKey_GetFlags(key) & RLOOKUP_F_VAL_AVAILABLE && !(flags & RLOOKUP_F_FORCE_LOAD)) {
