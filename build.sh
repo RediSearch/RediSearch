@@ -355,7 +355,8 @@ cmd_bench() {
   cd "${ROOT_DIR}/redisearch_disk/"
   # Benchmarks always run in release mode for accurate performance measurement
   # Use --benches to only run benchmark binaries, not library unit tests
-  cargo bench --benches --color=always "$@"
+  cargo bench --benches --features no_oss --color=always "$@"
+  cargo bench --benches --features link_oss --color=always "$@"
 }
 
 cmd_bench_vecsim() {

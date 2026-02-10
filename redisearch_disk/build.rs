@@ -1,4 +1,8 @@
 fn main() {
+    // Prevent both `link_oss` and `no_oss` features from being enabled simultaneously
+    #[cfg(all(feature = "link_oss", feature = "no_oss"))]
+    compile_error!("Cannot enable both 'link_oss' and 'no_oss' features at the same time");
+
     // Link static libraries needed by the tests
     #[cfg(feature = "link_oss")]
     {
