@@ -416,40 +416,6 @@ done:
   return res;
 }
 
-RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
-  switch (RedisModule_CallReplyType(rep)) {
-    case REDISMODULE_REPLY_STRING: {
-      if (otype == RLOOKUP_C_BOOL || RLOOKUP_C_INT) {
-        goto create_int;
-      }
-
-    create_string:;
-      size_t len;
-      const char *s = RedisModule_CallReplyStringPtr(rep, &len);
-      if (otype == RLOOKUP_C_DBL) {
-        // Convert to double -- calling code should check if NULL
-        return RSValue_NewParsedNumber(s, len);
-      }
-      // Note, the pointer is within CallReply; we need to copy
-      return RSValue_NewCopiedString(s, len);
-    }
-
-    case REDISMODULE_REPLY_INTEGER:
-    create_int:
-      if (otype == RLOOKUP_C_STR || otype == RLOOKUP_C_DBL) {
-        goto create_string;
-      }
-      return RSValue_NewNumberFromInt64(RedisModule_CallReplyInteger(rep));
-
-    case REDISMODULE_REPLY_UNKNOWN:
-    case REDISMODULE_REPLY_NULL:
-    case REDISMODULE_REPLY_ARRAY:
-    default:
-      // Nothing
-      return RSValue_NullStatic();
-  }
-}
-
 // returns true if the value of the key is already available
 // avoids the need to call to redis api to get the value
 // i.e we can use the sorting vector as a cache

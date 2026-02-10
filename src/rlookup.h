@@ -316,9 +316,6 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
 // exposed to be called from Rust, was inline before that.
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type);
 
-// exposed to be called from Rust, was inline before that.
-RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype);
-
 #ifdef __cplusplus
 }
 #endif
