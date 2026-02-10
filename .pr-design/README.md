@@ -9,7 +9,7 @@ This directory is for AI-generated design files used during PR review.
 
 ## For Reviewers
 
-Use these files to navigate the changes intentionally rather than going through files sequentially. Ask your AI to create a review tree:
+Use these files to navigate the changes intentionally rather than going through files sequentially. Ask your AI to create a review tree in a new .md file in this directory:
 
 1. **High-level design** - Intent, approach, trade-offs
 2. **Classes/methods/APIs added or changed** - What was introduced and why
