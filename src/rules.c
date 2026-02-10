@@ -525,7 +525,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
     // load hash only if required
     r = EvalCtx_Create();
 
-    RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
+    // RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
 
     if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
         !RSValue_BoolTest(r->res)) {
