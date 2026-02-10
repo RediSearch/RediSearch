@@ -30,7 +30,7 @@ static void *sampleNewInstance(Reducer *base) {
 static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   RSMPLReducer *r = (RSMPLReducer *)rbase;
   rsmplCtx *sc = ctx;
-  RSValue *v = RLookup_GetItem(rbase->srckey, srcrow);
+  RSValue *v = RLookupRow_Get(rbase->srckey, srcrow);
   if (!v) {
     return 1;
   }

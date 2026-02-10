@@ -16,7 +16,7 @@ typedef struct {
 static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   minmaxCtx *m = ctx;
   double val;
-  RSValue *v = RLookup_GetItem(r->srckey, srcrow);
+  RSValue *v = RLookupRow_Get(r->srckey, srcrow);
   if (RSValue_ToNumber(v, &val)) {
     m->val = MIN(m->val, val);
   }
@@ -26,7 +26,7 @@ static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 static int maxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   minmaxCtx *m = ctx;
   double val;
-  RSValue *v = RLookup_GetItem(r->srckey, srcrow);
+  RSValue *v = RLookupRow_Get(r->srckey, srcrow);
   if (RSValue_ToNumber(v, &val)) {
     m->val = MAX(m->val, val);
   }

@@ -749,7 +749,7 @@ static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst,
         // No need to "write" this key. It's always implicitly loaded!
         (RLookupKey_GetFlags(kk) & RLOOKUP_F_VAL_AVAILABLE) ||
         // There is no value in the sorting vector, and we don't need to load it from the document.
-        ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (RLookup_GetItem(kk, dst) == NULL))
+        ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (RLookupRow_Get(kk, dst) == NULL))
     ));
 }
 

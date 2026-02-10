@@ -37,7 +37,7 @@ static void *tolistNewInstance(Reducer *rbase) {
 
 static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   dict *values = ctx;
-  RSValue *v = RLookup_GetItem(rbase->srckey, srcrow);
+  RSValue *v = RLookupRow_Get(rbase->srckey, srcrow);
   if (!v) {
     return 1;
   }

@@ -30,7 +30,7 @@ static void *sumNewInstance(Reducer *r) {
 static int sumAdd(Reducer *r, void *instance, const RLookupRow *row) {
   sumCtx *ctr = instance;
   double d;
-  const RSValue *v = RLookup_GetItem(r->srckey, row);
+  const RSValue *v = RLookupRow_Get(r->srckey, row);
   if (RSValue_ToNumber(v, &d)) {
     ctr->total += d;
     ctr->count++;
