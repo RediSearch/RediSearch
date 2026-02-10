@@ -29,6 +29,7 @@ use ffi::{
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 use std::ffi::{OsStr, c_char, c_void};
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
 
@@ -213,7 +214,7 @@ extern "C" fn index_spec_open(
 ) -> *mut RedisSearchDiskIndexSpec {
     // Handle null pointer case (when open failed)
     // Safety: See safety point 2 above.
-    let Some(disk_context) = (unsafe { DiskContext::try_as_mut(disk) }) else {
+    let Some(disk_context) = (unsafe { DiskContext::try_as_ref(disk) }) else {
         warn!("index_spec_open called with null disk pointer, returning null");
         return std::ptr::null_mut();
     };
@@ -237,7 +238,10 @@ extern "C" fn index_spec_open(
     // Create the IndexSpec, which will create its own database
     // Pass the disk context which contains the shared cache and WriteBufferManager
     match IndexSpec::new(index_name.clone(), document_type, disk_context, deleted_ids) {
-        Ok(index_spec) => index_spec.into_ptr(),
+        Ok(index_spec) => {
+            let arc = Arc::new(index_spec);
+            Arc::into_raw(arc) as *mut RedisSearchDiskIndexSpec
+        }
         Err(error) => {
             error!(
                 index_name,
@@ -262,21 +266,21 @@ extern "C" fn index_spec_close(disk: *mut RedisSearchDisk, index: *mut RedisSear
         return;
     }
 
+    let arc_ptr = index as *const IndexSpec;
     // Safety: See safety point 2 above.
-    let index = unsafe { IndexSpec::from_ptr(index) };
-
-    debug!(index_name = index.name(), "closing index spec");
+    let name = unsafe { (*arc_ptr).name().to_string() };
+    debug!(index_name = %name, "closing index spec");
 
     // Remove the index's metrics from the disk context
     if !disk.is_null() {
-        // SAFETY: Caller guarantees disk is a valid DiskContext pointer
+        // Safety: Caller guarantees disk is a valid DiskContext pointer.
         let disk_ctx = unsafe { &mut *(disk as *mut DiskContext) };
-        disk_ctx.remove_index_metrics(index.name());
+        disk_ctx.remove_index_metrics(&name);
     }
 
     // Drop the index. If it was marked for deletion, the database's Drop implementation
-    // will automatically destroy the database files.
-    drop(index);
+    // Safety: See safety point 2 above.
+    drop(unsafe { Arc::from_raw(arc_ptr) });
 }
 
 /// Marks the index as to be deleted.
@@ -285,7 +289,7 @@ extern "C" fn index_spec_close(disk: *mut RedisSearchDisk, index: *mut RedisSear
 /// 1. `index` must have been returned from [`index_spec_open`].
 extern "C" fn index_spec_mark_to_be_deleted(index: *mut RedisSearchDiskIndexSpec) {
     // Safety: See safety point 1 above.
-    let index = unsafe { IndexSpec::try_as_mut(index) };
+    let index = unsafe { IndexSpec::try_as_ref(index) };
 
     if let Some(index) = index {
         debug!(index_name = index.name(), "requesting deletion on close");
@@ -310,7 +314,7 @@ extern "C" fn index_spec_rdb_save(
     }
 
     // Safety: see safety point 2 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return;
     };
@@ -362,7 +366,7 @@ extern "C" fn index_spec_rdb_load(
     // Get the index reference if we have a valid pointer
     let index_ref = if !index.is_null() {
         // Safety: see safety point 2 above.
-        let Some(idx) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+        let Some(idx) = (unsafe { IndexSpec::try_as_ref(index) }) else {
             error!("failed to convert index pointer");
             return REDISMODULE_ERR;
         };
@@ -374,9 +378,9 @@ extern "C" fn index_spec_rdb_load(
     };
 
     // Always call the static method which handles both cases
-    match IndexSpec::load_from_rdb_static(rdb_redis_module, index_ref.as_deref()) {
+    match IndexSpec::load_from_rdb_static(rdb_redis_module, index_ref) {
         Ok(_) => {
-            if let Some(ref idx) = index_ref {
+            if let Some(idx) = index_ref {
                 debug!(
                     index_name = idx.name(),
                     "successfully loaded index spec from RDB"
@@ -387,7 +391,7 @@ extern "C" fn index_spec_rdb_load(
             REDISMODULE_OK
         }
         Err(e) => {
-            if let Some(ref idx) = index_ref {
+            if let Some(idx) = index_ref {
                 error!(index_name = idx.name(), error = %e, "failed to load index spec from RDB");
             } else {
                 error!(error = %e, "failed to consume RDB data");
@@ -425,7 +429,7 @@ extern "C" fn index_spec_index_doc(
         }
     };
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return false;
     };
@@ -471,7 +475,7 @@ extern "C" fn index_spec_delete_document(
     let key_vec = key_slice.to_vec();
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return;
     };
@@ -526,7 +530,7 @@ extern "C" fn index_spec_put_doc(
     );
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return INVALID_DOC_ID;
     };
@@ -608,7 +612,7 @@ extern "C" fn index_spec_new_term_iterator(
     );
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return std::ptr::null_mut();
     };
@@ -641,7 +645,7 @@ extern "C" fn index_spec_new_wildcard_iterator(
     debug!(weight, "index_spec_new_wildcard_iterator");
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return std::ptr::null_mut();
     };
@@ -671,7 +675,7 @@ extern "C" fn index_spec_is_doc_id_deleted(
     debug!(doc_id, "checking if document with id has been deleted");
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return false;
     };
@@ -723,7 +727,7 @@ extern "C" fn index_spec_get_document_metadata(
         return false;
     };
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return false;
     };
@@ -786,7 +790,7 @@ unsafe extern "C" fn index_spec_create_async_read_pool(
     debug!(max_concurrent, "creating async read pool");
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return std::ptr::null();
     };
@@ -1018,7 +1022,7 @@ extern "C" fn index_spec_get_max_doc_id(index: *mut RedisSearchDiskIndexSpec) ->
     debug!("getting max doc id");
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return INVALID_DOC_ID;
     };
@@ -1034,7 +1038,7 @@ extern "C" fn index_spec_get_deleted_ids_count(index: *mut RedisSearchDiskIndexS
     debug!("getting deleted ids count");
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return 0;
     };
@@ -1063,7 +1067,7 @@ extern "C" fn index_spec_get_deleted_ids(
     let buf_slice: &mut [u64] = unsafe { std::slice::from_raw_parts_mut(buffer, buffer_size) };
 
     // Safety: see safety point 1 above.
-    let Some(index) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return 0;
     };
@@ -1096,20 +1100,6 @@ impl DiskContext {
         unsafe { disk_context.as_ref() }
     }
 
-    /// Casts an opaque `RedisSearchDisk` to a mutable `DiskContext` reference.
-    /// Does not consume the pointer.
-    ///
-    /// # Safety
-    /// 1. `ptr` must have been returned from [`Self::into_ptr`].
-    /// 2. `ptr` must not be aliased.
-    ///
-    /// Returns `None` if `ptr` is null.
-    unsafe fn try_as_mut<'a>(ptr: *mut RedisSearchDisk) -> Option<&'a mut Self> {
-        let disk_context: *mut Self = ptr.cast();
-        // Safety: see safety point 1 above.
-        unsafe { disk_context.as_mut() }
-    }
-
     /// Casts an opaque `RedisSearchDisk` to an owned `DiskContext`.
     /// Consumes the provided pointer.
     ///
@@ -1124,40 +1114,16 @@ impl DiskContext {
     }
 }
 
-/// FFI methods and associated functions for converting an [`IndexSpec`] to and
-/// from the corresponding types on the C-side.
+/// FFI: obtain a reference to the index from a raw pointer produced by [`index_spec_open`] via [`try_as_ref`](Self::try_as_ref).
 impl IndexSpec {
-    /// Casts an opaque `RedisSearchDiskIndexSpec` to a mutable `IndexSpec` reference.
-    /// Does not consume the pointer.
+    /// Returns a shared reference to the index from a raw pointer produced by [`index_spec_open`].
+    /// Succeeds regardless of ref count. Returns `None` if `ptr` is null.
     ///
     /// # Safety
-    /// 1. `ptr` must have been returned from [`Self::into_ptr`].
-    ///
-    /// Returns `None` if `ptr` is null.
-    unsafe fn try_as_mut<'a>(ptr: *mut RedisSearchDiskIndexSpec) -> Option<&'a mut Self> {
-        let index: *mut Self = ptr.cast();
-        // Safety: see safety point 1 above.
-        unsafe { index.as_mut() }
-    }
-
-    /// Leaks `self` into an opaque pointer type.
-    fn into_ptr(self) -> *mut RedisSearchDiskIndexSpec {
-        let index = Box::new(self);
-
-        Box::into_raw(index).cast::<RedisSearchDiskIndexSpec>()
-    }
-
-    /// Casts an opaque `RedisSearchDiskIndexSpec` to an owned `IndexSpec`.
-    /// Consumes the provided pointer.
-    ///
-    /// # Safety
-    /// 1. `ptr` must have been returned from [`Self::into_ptr`].
-    unsafe fn from_ptr(ptr: *mut RedisSearchDiskIndexSpec) -> Self {
-        let index = ptr.cast();
-        // Safety: see safety point 1 above.
-        let index = unsafe { Box::from_raw(index) };
-
-        *index
+    /// 1. `ptr` must point to a valid `IndexSpec` returned from [`index_spec_open`], and must not be used after the index is closed.
+    pub(crate) unsafe fn try_as_ref<'a>(ptr: *mut RedisSearchDiskIndexSpec) -> Option<&'a Self> {
+        // Safety: See safety point 1 above.
+        unsafe { (ptr as *const Self).as_ref() }
     }
 }
 
@@ -1170,7 +1136,7 @@ extern "C" fn vector_create_index(
     params: *const VecSimParamsDisk,
 ) -> *mut c_void {
     // SAFETY: Caller (RediSearch C code) guarantees index is a valid pointer we created
-    let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index_spec) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("vector_create_index: index is null");
         return std::ptr::null_mut();
     };
@@ -1290,7 +1256,7 @@ unsafe extern "C" fn collect_index_metrics(
     let disk_ctx = unsafe { &mut *(disk as *mut DiskContext) };
 
     // SAFETY: Caller guarantees index is a valid IndexSpec pointer
-    let Some(index_spec) = (unsafe { IndexSpec::try_as_mut(index) }) else {
+    let Some(index_spec) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("collect_index_metrics: failed to convert index pointer");
         return 0;
     };

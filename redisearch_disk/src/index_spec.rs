@@ -131,7 +131,7 @@ impl IndexSpec {
     }
 
     /// Marks the index for deletion. When the index is dropped, the database files will be destroyed.
-    pub fn mark_for_deletion(&mut self) {
+    pub fn mark_for_deletion(&self) {
         self.database.mark_for_deletion();
     }
 

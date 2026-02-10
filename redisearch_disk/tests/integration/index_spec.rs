@@ -129,7 +129,7 @@ fn test_index_spec_marked_for_deletion_deletes_files() {
     let document_type = DocumentType::Hash;
     let deleted_ids = DeletedIdsStore::new();
 
-    let mut index_spec = IndexSpec::new(
+    let index_spec = IndexSpec::new(
         index_name.clone(),
         document_type,
         &disk_context,
