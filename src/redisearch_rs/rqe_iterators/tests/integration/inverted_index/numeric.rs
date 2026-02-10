@@ -26,7 +26,7 @@ struct NumericBuilder<'index, R, E = NoOpChecker> {
     range_tree: Option<NonNull<ffi::NumericRangeTree>>,
     range_min: Option<f64>,
     range_max: Option<f64>,
-    expiration_checker: Option<E>,
+    expiration_checker: E,
     _marker: std::marker::PhantomData<&'index ()>,
 }
 
@@ -48,7 +48,7 @@ where
             range_tree: None,
             range_min: None,
             range_max: None,
-            expiration_checker: None,
+            expiration_checker: NoOpChecker,
             _marker: std::marker::PhantomData,
         }
     }
@@ -78,34 +78,26 @@ where
         self
     }
 
-    /// Set the expiration checker and build the iterator.
+    /// Set the expiration checker.
     fn expiration_checker<E2: rqe_iterators::ExpirationChecker>(
         self,
         checker: E2,
-    ) -> Numeric<'index, R, E2> {
-        Numeric::new(
-            self.reader,
-            checker,
-            self.range_tree,
-            self.range_min,
-            self.range_max,
-        )
+    ) -> NumericBuilder<'index, R, E2> {
+        NumericBuilder {
+            reader: self.reader,
+            range_tree: self.range_tree,
+            range_min: self.range_min,
+            range_max: self.range_max,
+            expiration_checker: checker,
+            _marker: std::marker::PhantomData,
+        }
     }
 
     /// Build the Numeric iterator.
-    /// Uses NoOpChecker if no expiration checker was set.
-    fn build(self) -> Numeric<'index, R, E>
-    where
-        E: Default,
-    {
-        let checker = if let Some(checker) = self.expiration_checker {
-            checker
-        } else {
-            E::default()
-        };
+    fn build(self) -> Numeric<'index, R, E> {
         Numeric::new(
             self.reader,
-            checker,
+            self.expiration_checker,
             self.range_tree,
             self.range_min,
             self.range_max,
@@ -529,7 +521,8 @@ mod not_miri {
         let context = MockContext::new(0, 0);
         let mut it = NumericBuilder::new(ii.reader())
             .range_tree(context.numeric_range_tree())
-            .expiration_checker(checker);
+            .expiration_checker(checker)
+            .build();
 
         // Skip to doc 2, which doesn't exist. The seeker finds doc 3
         // (the next available), which is NOT expired.
@@ -563,7 +556,8 @@ mod not_miri {
         let context = MockContext::new(0, 0);
         let mut it = NumericBuilder::new(ii.reader())
             .range_tree(context.numeric_range_tree())
-            .expiration_checker(checker);
+            .expiration_checker(checker)
+            .build();
 
         // Since expiration checking is disabled (has_expiration returns false),
         // we should see all docs including doc 1.
