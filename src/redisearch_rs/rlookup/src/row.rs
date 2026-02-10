@@ -31,10 +31,10 @@ pub mod opaque {
     #[repr(C, align(8))]
     pub struct OpaqueRLookupRow<'a>(OpaqueRLookupRowSize, PhantomData<&'a ()>);
 
-    #[cfg(debug_assertions)]
+    // #[cfg(debug_assertions)]
     type OpaqueRLookupRowSize = Size<48>;
-    #[cfg(not(debug_assertions))]
-    type OpaqueRLookupRowSize = Size<40>;
+    // #[cfg(not(debug_assertions))]
+    // type OpaqueRLookupRowSize = Size<40>;
 
     // Safety: `OpaqueRLookupRow` is defined as a `MaybeUninit` slice of
     // bytes with the same size and alignment as `RLookupRow`, so any valid
