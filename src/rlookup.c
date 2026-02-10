@@ -454,19 +454,19 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
 //   RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
 // }
 
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
-  // Get the key first
-  RLookupKey *k = RLookup_FindKey(lookup, name, len);
-  if (!k) {
-    k = RLookup_GetKey_WriteEx(lookup, name, len, RLOOKUP_F_NAMEALLOC);
-  }
-  RLookup_WriteKey(k, dst, v);
-}
+// void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
+//   // Get the key first
+//   RLookupKey *k = RLookup_FindKey(lookup, name, len);
+//   if (!k) {
+//     k = RLookup_GetKey_WriteEx(lookup, name, len, RLOOKUP_F_NAMEALLOC);
+//   }
+//   RLookup_WriteKey(k, dst, v);
+// }
 
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
-  RLookup_WriteKeyByName(lookup, name, len, row, value);
-  RSValue_DecrRef(value);
-}
+// void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
+//   RLookup_WriteKeyByName(lookup, name, len, row, value);
+//   RSValue_DecrRef(value);
+// }
 
 // void RLookupRow_Wipe(RLookupRow *r) {
 //   // for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {

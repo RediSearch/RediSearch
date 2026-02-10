@@ -322,20 +322,20 @@ RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name
  * Get a value from the lookup.
  */
 
-/**
- * Write a value to a lookup table. Key must already be registered, and not
- * refer to a read-only (SVSRC) key.
- *
- * The value written will have its refcount incremented
- */
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
+// /**
+//  * Write a value to a lookup table. Key must already be registered, and not
+//  * refer to a read-only (SVSRC) key.
+//  *
+//  * The value written will have its refcount incremented
+//  */
+// void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
-/**
- * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RSValue_NewNumber(10)); which would otherwise cause
- * a leak.
- */
-void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
+// /**
+//  * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
+//  * idioms such as RLookup_WriteKey(..., RSValue_NewNumber(10)); which would otherwise cause
+//  * a leak.
+//  */
+// void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
 /**
  * Move data from the source row to the destination row. The source row is cleared.
@@ -345,19 +345,19 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value)
  */
 void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
 
-/**
- * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
- * for which it is not necessary to use the boilerplate of getting an explicit
- * key.
- *
- * The reference count of the value will be incremented.
- */
-void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
+// /**
+//  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+//  * for which it is not necessary to use the boilerplate of getting an explicit
+//  * key.
+//  *
+//  * The reference count of the value will be incremented.
+//  */
+// void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
-/**
- * Like WriteKeyByName, but consumes a refcount
- */
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
+// /**
+//  * Like WriteKeyByName, but consumes a refcount
+//  */
+// void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 // /** Get a value from the row, provided the key.
 //  *
