@@ -2219,6 +2219,7 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
 
   ret->sctx = sctx;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
+  RS_ASSERT(sctx);
   ret->timeoutCounter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;

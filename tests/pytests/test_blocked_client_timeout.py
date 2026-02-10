@@ -79,7 +79,7 @@ def wait_for_client_unblocked(env, client_id, timeout=30):
     wait_for_condition(check_fn, f'Timeout waiting for client {client_id} to be unblocked', timeout)
 
 def get_query_client(conn, query, msg='Client for query not found'):
-    """Wait untill a client hason a query and return its client id."""
+    """Wait until a client hason a query and return its client id."""
     output = conn.execute_command('CLIENT', 'LIST')
     clients = parse_client_list(output)
     for client in clients:
