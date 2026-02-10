@@ -129,7 +129,7 @@ RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup);
 //  * This is not necessarily the number of lookup keys
 //  */
 static inline uint32_t RLookup_GetRowLen(const RLookup* rlookup) {
-    // return rlookup->_rowlen;
+    return rlookup->keys.rowlen;
 }
 
 // /**
