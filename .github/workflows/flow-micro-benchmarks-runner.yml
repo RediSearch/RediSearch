@@ -79,7 +79,7 @@ jobs:
           cd ..
           # Then install Python dependencies
           sudo apt install python3-pip -y
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin>=0.11.37
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.6
         env:
           DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
