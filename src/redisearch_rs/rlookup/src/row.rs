@@ -96,6 +96,12 @@ pub mod opaque {
                 // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_mut() }
             }
+
+            /// Converts [`Self`] mutable reference into an
+            /// `NonNull<Self::Opaque>`.
+            pub const fn as_opaque_non_null(&mut self) -> NonNull<OpaqueRLookupRow<'a>> {
+                NonNull::from_mut(self).cast()
+            }
         }
 
         const _ASSERT_SIZE_AND_ALIGN: () = {

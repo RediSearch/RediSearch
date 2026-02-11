@@ -36,8 +36,8 @@ fn rlookuprow_movefieldsfrom_same_row() {
     unsafe {
         RLookupRow_MoveFieldsFrom(
             ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
-            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
+            Some(row.as_opaque_non_null()),
+            Some(row.as_opaque_non_null()),
         );
     }
 }
@@ -51,8 +51,8 @@ fn rlookuprow_movefieldsfrom_different_rows() {
     unsafe {
         RLookupRow_MoveFieldsFrom(
             ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut src_row).cast::<OpaqueRLookupRow>()),
-            Some(NonNull::from(&mut dst_row).cast::<OpaqueRLookupRow>()),
+            Some(src_row.as_opaque_non_null()),
+            Some(dst_row.as_opaque_non_null()),
         );
     }
 
@@ -70,7 +70,7 @@ fn rlookuprow_writefieldsfrom_same_row() {
         RLookupRow_WriteFieldsFrom(
             ptr::from_ref(&row).cast::<OpaqueRLookupRow>(),
             ptr::from_ref(&src_lookup),
-            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
+            Some(row.as_opaque_non_null()),
             Some(NonNull::from(&mut dst_lookup)),
             false,
         )
@@ -88,7 +88,7 @@ fn rlookuprow_writefieldsfrom_same_lookup() {
         RLookupRow_WriteFieldsFrom(
             ptr::from_ref(&src_row).cast::<OpaqueRLookupRow>(),
             ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut dst_row).cast::<OpaqueRLookupRow>()),
+            Some(dst_row.as_opaque_non_null()),
             Some(NonNull::from(&mut lookup)),
             false,
         )
@@ -106,7 +106,7 @@ fn rlookuprow_writefieldsfrom_different_lookups_and_rows() {
         RLookupRow_WriteFieldsFrom(
             ptr::from_ref(&src_row).cast::<OpaqueRLookupRow>(),
             ptr::from_ref(&src_lookup),
-            Some(NonNull::from(&mut dst_row).cast::<OpaqueRLookupRow>()),
+            Some(dst_row.as_opaque_non_null()),
             Some(NonNull::from(&mut dst_lookup)),
             false,
         );
@@ -136,8 +136,8 @@ fn rlookuprow_move() {
     unsafe {
         RLookupRow_MoveFieldsFrom(
             ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut src).cast::<OpaqueRLookupRow>()),
-            Some(NonNull::from(&mut dst).cast::<OpaqueRLookupRow>()),
+            Some(src.as_opaque_non_null()),
+            Some(dst.as_opaque_non_null()),
         )
     }
 
@@ -163,7 +163,7 @@ fn rlookuprow_writebyname() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
+            Some(row.as_opaque_non_null()),
             NonNull::new(value.as_ptr()),
         );
     }
@@ -186,7 +186,7 @@ fn rlookuprow_writebynameowned() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
+            Some(row.as_opaque_non_null()),
             NonNull::new(value.as_ptr()),
         );
     }
