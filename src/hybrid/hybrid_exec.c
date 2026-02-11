@@ -177,6 +177,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
     .timeout = &hreq->sctx->time.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
+    .skipTimeoutChecks = hreq->sctx->time.skipTimeoutChecks,
   };
   startPipelineCommon(&ctx, rp, results, r, rc);
 }

@@ -9,13 +9,6 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
-#include <stdbool.h>
-#ifdef __cplusplus
-#include <atomic>
-using atomic_flag = std::atomic_flag;
-#else
-#include <stdatomic.h>
-#endif
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
@@ -34,7 +27,11 @@ using atomic_flag = std::atomic_flag;
 #include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
+#include <atomic>
+#define _Atomic(T) std::atomic<T>
 extern "C" {
+#else
+#include <stdatomic.h>
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -290,9 +287,11 @@ typedef struct AREQ {
   ProfilePrinterCtx profileCtx;
 
   // Timeout signaling flag for Run in Threads mode (set by timeout callback on main thread)
-  atomic_flag timedOut;
+  _Atomic(bool) timedOut;
   // Reply ownership flag for Run in Threads mode (coordinates reply between main and background thread)
-  atomic_flag replying;
+  _Atomic(bool) replying;
+  // Flag to indicate whether to check for timeout using clock checks
+  bool skipTimeoutChecks;
 } AREQ;
 
 /**
@@ -499,9 +498,26 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
+bool AREQ_TimedOut(AREQ *req);
+void AREQ_SetTimedOut(AREQ *req);
+
+static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
+  return !req->skipTimeoutChecks;
+}
+
+static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
+  req->skipTimeoutChecks = skipTimeoutChecks;
+  // Also propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  if (req->sctx) {
+    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+  }
+}
+
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
+#undef _Atomic
+
 }
 #endif
 #endif

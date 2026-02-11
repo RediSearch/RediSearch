@@ -62,6 +62,7 @@ impl Bencher {
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        false,
                     )
                 },
                 |it| {
@@ -107,6 +108,7 @@ impl Bencher {
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        false,
                     )
                 },
                 |it| {
@@ -153,6 +155,7 @@ impl Bencher {
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        false,
                     )
                 },
                 |it| {
@@ -198,6 +201,7 @@ impl Bencher {
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        false,
                     )
                 },
                 |it| {
@@ -243,6 +247,7 @@ impl Bencher {
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        false,
                     )
                 },
                 |it| {
@@ -289,6 +294,7 @@ impl Bencher {
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        false,
                     )
                 },
                 |it| {

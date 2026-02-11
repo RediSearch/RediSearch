@@ -325,7 +325,9 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
   }
   ni->child = it;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
-  ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
+  bool skipTimeoutChecks = (q && q->sctx) ? q->sctx->time.skipTimeoutChecks : false;
+  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
+  ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;

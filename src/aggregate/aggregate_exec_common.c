@@ -68,8 +68,8 @@
    if (ctx->timeoutPolicy == TimeoutPolicy_Fail || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, rc);
-     // Check timeout after aggregation
-     if (TimedOut(ctx->timeout) == TIMED_OUT) {
+     // Check timeout after aggregation (respecting skipTimeoutChecks flag)
+     if (!ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {

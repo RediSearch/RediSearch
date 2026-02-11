@@ -1036,9 +1036,17 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  atomic_flag_clear(&req->timedOut);
-  atomic_flag_clear(&req->replying);
+  __atomic_store_n(&req->timedOut, false, __ATOMIC_RELAXED);
+  __atomic_store_n(&req->replying, false, __ATOMIC_RELAXED);
   return req;
+}
+
+bool AREQ_TimedOut(AREQ *req) {
+  return __atomic_load_n(&req->timedOut, __ATOMIC_ACQUIRE);
+}
+
+void AREQ_SetTimedOut(AREQ *req) {
+  __atomic_store_n(&req->timedOut, true, __ATOMIC_RELEASE);
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
