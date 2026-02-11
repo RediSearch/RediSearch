@@ -35,4 +35,5 @@ exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr",
 "RSSortingVector_RSValueFFI" = "RSSortingVector"
 
 [defines]
+# Remap this rust cfg to the C #define also set by CMake for debug builds.
 "debug_assertions" = "ENABLE_ASSERT"
