@@ -1463,6 +1463,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_term_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "query_term",
+ "workspace_hack",
+]
+
+[[package]]
 name = "quote"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
