@@ -15,8 +15,6 @@ use inverted_index::{
     fields_only::{FieldsOnly, FieldsOnlyWide},
 };
 
-mod c_mocks;
-
 #[test]
 fn test_encode_fields_only() {
     // Test cases for the fields only encoder and decoder.
