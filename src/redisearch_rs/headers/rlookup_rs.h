@@ -551,8 +551,8 @@ void RLookupRow_Reset(struct RLookupRow *row);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup,
-                               struct RLookupRow *src,
-                               struct RLookupRow *dst);
+                               struct RLookupRow *src_row,
+                               struct RLookupRow *dst_row);
 
 /**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys

@@ -121,19 +121,19 @@ pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<OpaqueRLookupRow>>
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
     lookup: *const RLookup,
-    src: Option<NonNull<OpaqueRLookupRow>>,
-    dst: Option<NonNull<OpaqueRLookupRow>>,
+    src_row: Option<NonNull<OpaqueRLookupRow>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow>>,
 ) {
-    debug_assert_ne!(src, dst, "`src` and `dst` must not be the same");
+    debug_assert_ne!(src_row, dst_row, "`src` and `dst` must not be the same");
 
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.as_ref().expect("`lookup` must not be null") };
 
     // Safety: ensured by caller (2.)
-    let src = unsafe { RLookupRow::from_opaque_non_null(src.expect("`src` must not be null")) };
+    let src = unsafe { RLookupRow::from_opaque_non_null(src_row.expect("`src` must not be null")) };
 
     // Safety: ensured by caller (3.)
-    let dst = unsafe { RLookupRow::from_opaque_non_null(dst.expect("`dst` must not be null")) };
+    let dst = unsafe { RLookupRow::from_opaque_non_null(dst_row.expect("`dst` must not be null")) };
 
     #[cfg(debug_assertions)]
     {
