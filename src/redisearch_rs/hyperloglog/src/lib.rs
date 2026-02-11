@@ -43,8 +43,11 @@ use std::marker::PhantomData;
 use thiserror::Error;
 
 mod fnv;
+mod wyhash;
 
 pub use fnv::CFnvHasher;
+pub use hash32::Hasher as Hasher32;
+pub use wyhash::WyHasher;
 
 /// Murmur3 hasher with good hash distribution.
 ///
@@ -285,7 +288,6 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
             let zeros = bytecount::count(self.registers.as_slice(), 0);
             #[cfg(miri)]
             let zeros = self.registers.iter().filter(|&&reg| reg == 0).count();
-
             if zeros > 0 {
                 estimate = (SIZE as f64) * ((SIZE as f64) / (zeros as f64)).ln();
             }
@@ -299,6 +301,7 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
     }
 
     /// Panics if any of the register values exceeds the expected cap.
+    #[cfg(debug_assertions)]
     fn validate_register_values(registers: &[u8]) {
         let max_value = Self::RANK_BITS + 1;
         for (i, entry) in registers.iter().enumerate() {

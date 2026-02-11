@@ -16,6 +16,7 @@ Guidelines for writing new tests for Rust code.
 5. Testing code should be written with the same care reserved to production code.
    Avoid unnecessary duplication, introduce helpers to reduce boilerplate and ensure readability.
    The intent of a test should be obvious or, if not possible, clearly documented.
+6. Do not reference exact line numbers in comments, as they may change over time.
 
 ## Code organization
 

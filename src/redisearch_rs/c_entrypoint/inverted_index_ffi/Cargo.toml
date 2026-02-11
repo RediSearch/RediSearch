@@ -20,4 +20,4 @@ serde.workspace = true
 workspace_hack.workspace = true
 
 [features]
-test_utils = []
+test_utils = ["inverted_index/test_utils"]

@@ -17,7 +17,6 @@
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/numeric_filter.h"
 #include "src/forward_index.h"
 
 class BM_IndexIterator : public benchmark::Fixture {
@@ -29,7 +28,6 @@ public:
     InvertedIndex *index;
     QueryIterator *iterator;
     std::unique_ptr<MockQueryEvalCtx> q_mock;
-    NumericFilter *numericFilter;
 
     void SetUp(::benchmark::State &state) {
         if (!initialized) {
@@ -37,7 +35,6 @@ public:
             initialized = true;
         }
         q_mock = std::make_unique<MockQueryEvalCtx>();
-        numericFilter = nullptr;
 
         std::mt19937 rng(46);
         std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
@@ -74,10 +71,6 @@ public:
         if (index) {
             InvertedIndex_Free(index);
             index = nullptr;
-        }
-        if (numericFilter) {
-            NumericFilter_Free(numericFilter);
-            numericFilter = nullptr;
         }
         ids.clear();
         RSGlobalConfig.invertedIndexRawDocidEncoding = false;
