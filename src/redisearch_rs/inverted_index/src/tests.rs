@@ -1734,7 +1734,7 @@ fn ii_apply_gc() {
             // (3 new blocks × STACK_SIZE + buffer sizes)
             bytes_allocated: 192,
             entries_removed: 5,
-            blocks_ignored: 0
+            ignored_last_block: false
         }
     );
 }
@@ -1810,7 +1810,7 @@ fn ii_apply_gc_last_block_updated() {
             bytes_allocated: 0,
             entries_removed: 2,
             // Ignored the last block
-            blocks_ignored: 1
+            ignored_last_block: true
         }
     );
 }
@@ -1911,7 +1911,7 @@ fn ii_apply_gc_entries_tracking_index() {
             // New block: STACK_SIZE + 8 bytes buffer = 64
             bytes_allocated: 64,
             entries_removed: 2,
-            blocks_ignored: 0
+            ignored_last_block: false
         }
     );
 }

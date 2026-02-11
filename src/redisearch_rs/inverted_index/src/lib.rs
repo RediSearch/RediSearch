@@ -46,6 +46,8 @@ pub mod raw_doc_ids_only;
 #[doc(hidden)]
 pub mod test_utils;
 
+pub mod opaque;
+
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
 unsafe extern "C" {
@@ -826,6 +828,9 @@ pub struct GcScanDelta {
     last_block_num_entries: u16,
 
     /// The results of the scan for each block that needs to be repaired or deleted.
+    ///
+    /// There is at most one entry per block, and entries are sorted in ascending order
+    /// by block index.
     deltas: Vec<BlockGcScanResult>,
 }
 
@@ -859,8 +864,9 @@ pub struct GcApplyInfo {
     /// The number of entries that were removed from the index including duplicates
     pub entries_removed: usize,
 
-    /// The number of blocks that were ignored because the index changed since the scan was performed
-    pub blocks_ignored: usize,
+    /// Whether or not we ignored the last block in the index, since it changed
+    /// compared to the time we performed the scan
+    pub ignored_last_block: bool,
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -909,14 +915,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let GcScanDelta {
             last_block_idx,
             last_block_num_entries,
-            deltas,
+            mut deltas,
         } = delta;
 
         let mut info = GcApplyInfo {
             bytes_freed: 0,
             bytes_allocated: 0,
             entries_removed: 0,
-            blocks_ignored: 0,
+            ignored_last_block: false,
         };
 
         // Check if the last block has changed since the scan was performed
@@ -926,22 +932,16 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             .is_some_and(|b| b.num_entries != last_block_num_entries);
 
         // If the last block has changed, then we need to ignore any deltas that refer to it
-        let deltas = if last_block_changed {
-            deltas
-                .into_iter()
-                .filter(|d| {
-                    if d.index == last_block_idx {
-                        // The last block has changed since the scan, so we ignore this delta
-                        info.blocks_ignored += 1;
-                        false
-                    } else {
-                        true
-                    }
-                })
-                .collect()
-        } else {
-            deltas
-        };
+        if last_block_changed {
+            let remove_stale_delta = deltas
+                .last()
+                .map(|d| d.index == last_block_idx)
+                .unwrap_or(false);
+            if remove_stale_delta {
+                deltas.pop();
+                info.ignored_last_block = true;
+            }
+        }
 
         // There is no point in moving everything to a new vector if there are no deltas
         if deltas.is_empty() {

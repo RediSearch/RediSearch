@@ -19,6 +19,7 @@ extern "C" {
 #include "src/tag_index.h"
 #include "src/numeric_index.h"
 #include "redisearch_rs/headers/triemap.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "src/index_result/query_term/query_term.h"
 
 extern "C" {
@@ -910,14 +911,14 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             InvertedIndex *dummyIdx = NewInvertedIndex(InvIndIterator_GetReaderFlags(invIt), &memsize);
 
             // Temporarily replace the iterator's index pointer
-            IndexReader_SwapIndex(invIt->reader, dummyIdx);
+            InvIndIterator_Rs_SwapIndex(invIt, dummyIdx);
 
             // Now Revalidate should return VALIDATE_ABORTED because the stored index
             // doesn't match what the lookup returns
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
 
             // Restore the original index pointer for proper cleanup
-            IndexReader_SwapIndex(invIt->reader, dummyIdx);
+            InvIndIterator_Rs_SwapIndex(invIt, dummyIdx);
 
             // Clean up the dummy index
             InvertedIndex_Free(dummyIdx);

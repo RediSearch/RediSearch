@@ -14,6 +14,7 @@ use ::inverted_index::RSIndexResult;
 use ::inverted_index::block_max_score::BlockScorer;
 
 pub mod empty;
+pub mod expiration_checker;
 pub mod id_list;
 pub mod intersection;
 pub mod inverted_index;
@@ -27,6 +28,7 @@ pub mod wildcard;
 pub mod util;
 
 pub use empty::Empty;
+pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Numeric, Term};

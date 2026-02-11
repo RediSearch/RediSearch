@@ -42,12 +42,15 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
   disk_db = disk->basic.open(ctx);
-
+  if (disk_db) {
+    disk->basic.startGCThreadPool();
+  }
   return disk_db != NULL;
 }
 
 void SearchDisk_Close() {
   if (disk && disk_db) {
+    disk->basic.stopGCThreadPool();
     disk->basic.close(disk_db);
     disk_db = NULL;
   }

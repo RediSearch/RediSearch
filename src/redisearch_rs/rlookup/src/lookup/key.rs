@@ -209,7 +209,7 @@ impl<'a> DerefMut for RLookupKey<'a> {
 impl<'a> RLookupKey<'a> {
     /// Constructs a new `RLookupKey` using the provided `name` and `flags`.
     pub fn new(
-        parent: &RLookup<'_>,
+        #[cfg_attr(not(debug_assertions), allow(unused))] parent: &RLookup<'_>,
         name: impl Into<Cow<'a, CStr>>,
         flags: RLookupKeyFlags,
     ) -> Self {

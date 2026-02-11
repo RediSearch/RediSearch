@@ -9,66 +9,57 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IndexFlags_Index_StoreNumeric, RS_INVALID_FIELD_INDEX, t_docId, t_fieldIndex};
-use field::FieldExpirationPredicate;
+use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
 use inverted_index::{
-    FilterNumericReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
+    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
 };
-use rqe_iterators::{RQEIterator, inverted_index::Numeric};
+use rqe_iterators::{
+    NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index::Numeric,
+};
 
 use crate::inverted_index::utils::{BaseTest, MockContext};
 
 /// Builder for creating a Numeric iterator with optional parameters.
 #[allow(dead_code)]
-struct NumericBuilder<'index, R> {
+struct NumericBuilder<'index, R, E = NoOpChecker> {
     reader: R,
-    context: NonNull<ffi::RedisSearchCtx>,
-    index: t_fieldIndex,
-    predicate: FieldExpirationPredicate,
     range_tree: Option<NonNull<ffi::NumericRangeTree>>,
     range_min: Option<f64>,
     range_max: Option<f64>,
+    expiration_checker: E,
     _marker: std::marker::PhantomData<&'index ()>,
 }
 
 #[allow(dead_code)]
-impl<'index, R> NumericBuilder<'index, R>
+impl<'index, R> NumericBuilder<'index, R, NoOpChecker>
 where
     R: NumericReader<'index>,
 {
     /// Create a new builder with the required parameters.
     ///
     /// All other parameters are optional and will use sensible defaults:
-    /// - `field_index`: RS_INVALID_FIELD_INDEX
-    /// - `predicate`: FieldExpirationPredicate::Default
     /// - `range_tree`: None
     /// - `range_min`: None
     /// - `range_max`: None
-    fn new(reader: R, context: NonNull<ffi::RedisSearchCtx>) -> Self {
+    /// - `expiration_checker`: NoOpChecker
+    fn new(reader: R) -> Self {
         Self {
             reader,
-            context,
-            index: RS_INVALID_FIELD_INDEX,
-            predicate: FieldExpirationPredicate::Default,
             range_tree: None,
             range_min: None,
             range_max: None,
+            expiration_checker: NoOpChecker,
             _marker: std::marker::PhantomData,
         }
     }
+}
 
-    /// Set the field index for checking field expiration.
-    fn field_index(mut self, index: t_fieldIndex) -> Self {
-        self.index = index;
-        self
-    }
-
-    /// Set the field expiration predicate.
-    fn predicate(mut self, predicate: FieldExpirationPredicate) -> Self {
-        self.predicate = predicate;
-        self
-    }
-
+#[allow(dead_code)]
+impl<'index, R, E> NumericBuilder<'index, R, E>
+where
+    R: NumericReader<'index>,
+    E: rqe_iterators::ExpirationChecker,
+{
     /// Set the numeric range tree.
     fn range_tree(mut self, range_tree: NonNull<ffi::NumericRangeTree>) -> Self {
         self.range_tree = Some(range_tree);
@@ -87,13 +78,26 @@ where
         self
     }
 
+    /// Set the expiration checker.
+    fn expiration_checker<E2: rqe_iterators::ExpirationChecker>(
+        self,
+        checker: E2,
+    ) -> NumericBuilder<'index, R, E2> {
+        NumericBuilder {
+            reader: self.reader,
+            range_tree: self.range_tree,
+            range_min: self.range_min,
+            range_max: self.range_max,
+            expiration_checker: checker,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
     /// Build the Numeric iterator.
-    fn build(self) -> Numeric<'index, R> {
+    fn build(self) -> Numeric<'index, R, E> {
         Numeric::new(
             self.reader,
-            self.context,
-            self.index,
-            self.predicate,
+            self.expiration_checker,
             self.range_tree,
             self.range_min,
             self.range_max,
@@ -123,10 +127,14 @@ impl NumericBaseTest {
 
     fn create_iterator(
         &self,
-    ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>> {
+    ) -> Numeric<
+        '_,
+        inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>,
+        NoOpChecker,
+    > {
         let reader = self.test.ii.reader();
 
-        NumericBuilder::new(reader, self.test.mock_ctx.sctx())
+        NumericBuilder::new(reader)
             .range_tree(self.test.mock_ctx.numeric_range_tree())
             .build()
     }
@@ -144,7 +152,7 @@ fn numeric_read() {
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
     let reader = FilterNumericReader::new(&filter, reader);
-    let mut it = NumericBuilder::new(reader, test.test.mock_ctx.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
     test.test.read(&mut it, test.test.docs_ids_iter());
@@ -169,7 +177,7 @@ fn numeric_filter() {
         ..Default::default()
     };
     let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
-    let mut it = NumericBuilder::new(reader, test.test.mock_ctx.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
     let docs_ids = test
@@ -190,7 +198,7 @@ fn skip_multi_id() {
     let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(ii.reader(), context.sctx())
+    let mut it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -219,7 +227,7 @@ fn skip_multi_id_and_value() {
     let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(ii.reader(), context.sctx())
+    let mut it = NumericBuilder::new(ii.reader())
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -256,7 +264,7 @@ fn get_correct_value() {
     let reader = FilterNumericReader::new(&filter, ii.reader());
 
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(reader, context.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -293,7 +301,7 @@ fn eof_after_filtering() {
     };
     let reader = FilterNumericReader::new(&filter, ii.reader());
     let context = MockContext::new(0, 0);
-    let mut it = NumericBuilder::new(reader, context.sctx())
+    let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
         .build();
 
@@ -304,20 +312,97 @@ fn eof_after_filtering() {
 #[test]
 fn numeric_range() {
     let ii = InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let context = MockContext::new(0, 0);
 
-    let it = NumericBuilder::new(ii.reader(), context.sctx())
+    let it = NumericBuilder::new(ii.reader())
         .range_min(1.0)
         .range_max(10.0)
         .build();
     assert_eq!(it.range_min(), 1.0);
     assert_eq!(it.range_max(), 10.0);
+
+    // Default range values when not explicitly set.
+    let it = NumericBuilder::new(ii.reader()).build();
+    assert_eq!(it.range_min(), f64::NEG_INFINITY);
+    assert_eq!(it.range_max(), f64::INFINITY);
+}
+
+/// Test that read correctly skips remaining duplicates after skip_to lands
+/// on a doc with multiple entries in a multi-value index.
+#[test]
+fn skip_to_then_read_with_duplicates() {
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    // Add multiple entries with the same docId (triggers HasMultiValue flag).
+    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(10.0).doc_id(5));
+
+    let context = MockContext::new(0, 0);
+    let mut it = NumericBuilder::new(ii.reader())
+        .range_tree(context.numeric_range_tree())
+        .build();
+
+    // Skip to doc 1 — should find it.
+    let res = it.skip_to(1).expect("skip_to failed");
+    let Some(SkipToOutcome::Found(record)) = res else {
+        panic!("expected Found for doc 1, got {res:?}");
+    };
+    assert_eq!(record.doc_id, 1);
+
+    // Read should skip the remaining duplicate entries for doc 1 and return doc 5.
+    let record = it.read().expect("read failed").expect("expected a result");
+    assert_eq!(record.doc_id, 5);
+
+    // No more docs.
+    assert_eq!(it.read().expect("read failed"), None);
+    assert!(it.at_eof());
+}
+
+/// Test the `reader()` accessor on the Numeric iterator.
+#[test]
+fn numeric_reader_accessor() {
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(3));
+
+    let context = MockContext::new(0, 0);
+    let it = NumericBuilder::new(ii.reader())
+        .range_tree(context.numeric_range_tree())
+        .build();
+
+    // Verify the reader is accessible and reports correct unique doc count.
+    assert_eq!(it.reader().unique_docs(), 2);
+}
+
+/// Test `should_abort` returns false when no range tree is provided.
+#[test]
+fn numeric_no_range_tree_revalidate() {
+    let mut ii =
+        InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(3));
+
+    // Build without a range tree — should_abort will return false.
+    let mut it = NumericBuilder::new(ii.reader()).build();
+
+    // Read one doc to advance the iterator.
+    let record = it.read().expect("read failed").expect("expected a result");
+    assert_eq!(record.doc_id, 1);
+
+    // Revalidate should succeed (not abort) even though there is no range tree.
+    assert_eq!(
+        it.revalidate().expect("revalidate failed"),
+        RQEValidateStatus::Ok
+    );
 }
 
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
-    use crate::inverted_index::utils::{ExpirationTest, RevalidateIndexType, RevalidateTest};
+    use crate::inverted_index::utils::{
+        ExpirationTest, MockExpirationChecker, RevalidateIndexType, RevalidateTest,
+    };
     use rqe_iterators::RQEValidateStatus;
 
     struct NumericExpirationTest {
@@ -338,15 +423,21 @@ mod not_miri {
 
         fn create_iterator(
             &self,
-        ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
-        {
+        ) -> Numeric<
+            '_,
+            inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>,
+            MockExpirationChecker,
+        > {
             let reader = self.test.numeric_inverted_index().reader();
-            let field_index = self.test.context.field_spec().index;
+            let checker = self.test.create_mock_checker();
 
-            NumericBuilder::new(reader, self.test.context.sctx)
-                .field_index(field_index)
-                .range_tree(self.test.context.numeric_range_tree())
-                .build()
+            Numeric::new(
+                reader,
+                checker,
+                Some(self.test.context.numeric_range_tree()),
+                None,
+                None,
+            )
         }
 
         fn test_read_expiration(&mut self) {
@@ -406,6 +497,103 @@ mod not_miri {
         NumericExpirationTest::new(10, true).test_skip_to_expiration();
     }
 
+    /// Test that skip_to on a non-existent doc ID where the next doc found is
+    /// NOT expired returns NotFound via the `skip_to_check_expiration` path.
+    /// Exercises the NotFound branch when the seeked doc is not expired.
+    #[test]
+    fn numeric_skip_to_non_existent_with_expiration() {
+        use crate::inverted_index::utils::MockExpirationChecker;
+        use std::collections::HashSet;
+
+        // Create docs with IDs 1, 3, 5, 7 (gaps at 2, 4, 6).
+        let mut ii =
+            InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+        let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
+        let _ = ii.add_record(&RSIndexResult::numeric(6.0).doc_id(3));
+        let _ = ii.add_record(&RSIndexResult::numeric(10.0).doc_id(5));
+        let _ = ii.add_record(&RSIndexResult::numeric(14.0).doc_id(7));
+
+        // Mark doc 1 as expired
+        let mut expired_docs = HashSet::new();
+        expired_docs.insert(1);
+        let checker = MockExpirationChecker::new(expired_docs);
+
+        let context = MockContext::new(0, 0);
+        let mut it = NumericBuilder::new(ii.reader())
+            .range_tree(context.numeric_range_tree())
+            .expiration_checker(checker)
+            .build();
+
+        // Skip to doc 2, which doesn't exist. The seeker finds doc 3
+        // (the next available), which is NOT expired.
+        // This exercises skip_to_check_expiration's NotFound branch for non-expired docs.
+        let res = it.skip_to(2).expect("skip_to failed");
+        let Some(SkipToOutcome::NotFound(record)) = res else {
+            panic!("expected NotFound for doc 2, got {res:?}");
+        };
+        assert_eq!(record.doc_id, 3);
+        assert_eq!(it.last_doc_id(), 3);
+    }
+
+    /// Test that `has_expiration` returns false when using an empty expiration checker.
+    /// This simulates the case where expiration checking is disabled.
+    #[test]
+    fn numeric_no_expiration_with_invalid_field_index() {
+        use crate::inverted_index::utils::MockExpirationChecker;
+        use std::collections::HashSet;
+
+        // Create docs with IDs 1, 2, 3.
+        let mut ii =
+            InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
+        let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
+        let _ = ii.add_record(&RSIndexResult::numeric(4.0).doc_id(2));
+        let _ = ii.add_record(&RSIndexResult::numeric(6.0).doc_id(3));
+
+        // Use an empty MockExpirationChecker (has_expiration returns false)
+        // to simulate RS_INVALID_FIELD_INDEX behavior.
+        let checker = MockExpirationChecker::new(HashSet::new());
+
+        let context = MockContext::new(0, 0);
+        let mut it = NumericBuilder::new(ii.reader())
+            .range_tree(context.numeric_range_tree())
+            .expiration_checker(checker)
+            .build();
+
+        // Since expiration checking is disabled (has_expiration returns false),
+        // we should see all docs including doc 1.
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 1);
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 2);
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 3);
+        assert_eq!(it.read().expect("read failed"), None);
+    }
+
+    /// Test that revalidation with `last_doc_id == 0` returns Ok even when
+    /// the underlying index has been modified (needs_revalidation is true).
+    /// Exercises the `last_doc_id == 0` early return in `revalidate`.
+    #[test]
+    fn numeric_revalidate_needs_revalidation_before_reads() {
+        let test = NumericRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        let ii = test.test.context.numeric_inverted_index().as_numeric();
+
+        // Trigger GC on the index so needs_revalidation() returns true.
+        test.test.remove_document(ii, 1);
+
+        // Revalidate before any reads. last_doc_id is 0, so even though
+        // needs_revalidation is true, we should get Ok.
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+
+        // The iterator should still work — doc 1 was removed, so first doc is 3.
+        let record = it.read().expect("read failed").expect("expected a result");
+        assert_eq!(record.doc_id, 3);
+    }
+
     struct NumericRevalidateTest {
         test: RevalidateTest,
     }
@@ -428,14 +616,15 @@ mod not_miri {
 
         fn create_iterator(
             &self,
-        ) -> Numeric<'_, inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>>
-        {
+        ) -> Numeric<
+            '_,
+            inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>,
+            NoOpChecker,
+        > {
             let ii = self.test.context.numeric_inverted_index().as_numeric();
             let context = &self.test.context;
-            let fs = context.field_spec();
 
-            NumericBuilder::new(ii.reader(), context.sctx)
-                .field_index(fs.index)
+            NumericBuilder::new(ii.reader())
                 .range_tree(context.numeric_range_tree())
                 .build()
         }
