@@ -223,7 +223,8 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, const VectorQuery *vq) {
+                            IndexSpec *sp, const VectorQuery *vq,
+                            size_t numShards) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -252,8 +253,6 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     effectiveK = vq->knn.k;
     double shardWindowRatio = vq->knn.shardWindowRatio;
     if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO) {
-      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
-      size_t numShards = GetNumShards_UnSafe();
       if (numShards > 1) {
         effectiveK = calculateEffectiveK(vq->knn.k, shardWindowRatio, numShards);
       }
@@ -569,8 +568,9 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
-static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
-        RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
+static int HybridRequest_prepareForExecution(HybridRequest *hreq,
+        RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
+        size_t numShards, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
     hreq->profile = printDistHybridProfile;
@@ -648,7 +648,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
     const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
                       ? vectorRequest->ast.root->vn.vq : NULL;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, vq);
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
+                                 sp, vq, numShards);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -700,7 +701,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
-    int numShards = GetNumShards_UnSafe();
+    int numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
     cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
@@ -798,7 +799,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
+    // Get numShards captured from main thread for thread-safe access
+    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
