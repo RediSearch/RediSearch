@@ -311,8 +311,6 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
     dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
 }
 
-// #[cfg(test)]
-
 /// Retrieves an item from the given `OpaqueRLookupRow` based on the provided `RLookupKey`.
 ///
 /// The function first checks for dynamic values, and if not found, it checks the sorting vector
