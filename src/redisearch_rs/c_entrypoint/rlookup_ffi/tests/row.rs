@@ -20,11 +20,100 @@ use std::{cmp, ffi::CString};
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKeyFlags, RLookupRow};
 use rlookup_ffi::row::{
     RLookupRow_MoveFieldsFrom, RLookupRow_WriteByName, RLookupRow_WriteByNameOwned,
+    RLookupRow_WriteFieldsFrom,
 };
 use std::ffi::c_char;
 use std::ffi::c_int;
 use value::RSValueFFI;
 use value::RSValueTrait;
+
+#[test]
+#[should_panic(expected = "`src` and `dst` must not be the same")]
+fn rlookuprow_movefieldsfrom_same_row() {
+    let lookup = RLookup::new();
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+
+    unsafe {
+        RLookupRow_MoveFieldsFrom(
+            ptr::from_ref(&lookup),
+            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
+        );
+    }
+}
+
+#[test]
+fn rlookuprow_movefieldsfrom_different_rows() {
+    let lookup = RLookup::new();
+    let mut src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+
+    unsafe {
+        RLookupRow_MoveFieldsFrom(
+            ptr::from_ref(&lookup),
+            Some(NonNull::from(&mut src_row).cast::<OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut dst_row).cast::<OpaqueRLookupRow>()),
+        );
+    }
+
+    // No panic was triggered.
+}
+
+#[test]
+#[should_panic(expected = "`src_row` and `dst_row` must not be the same")]
+fn rlookuprow_writefieldsfrom_same_row() {
+    let src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&src_lookup);
+
+    unsafe {
+        RLookupRow_WriteFieldsFrom(
+            ptr::from_ref(&row).cast::<OpaqueRLookupRow>(),
+            ptr::from_ref(&src_lookup),
+            Some(NonNull::from(&mut row).cast::<OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut dst_lookup)),
+            false,
+        )
+    };
+}
+
+#[test]
+#[should_panic(expected = "`src_lookup` and `dst_lookup` must not be the same")]
+fn rlookuprow_writefieldsfrom_same_lookup() {
+    let mut lookup = RLookup::new();
+    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+
+    unsafe {
+        RLookupRow_WriteFieldsFrom(
+            ptr::from_ref(&src_row).cast::<OpaqueRLookupRow>(),
+            ptr::from_ref(&lookup),
+            Some(NonNull::from(&mut dst_row).cast::<OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut lookup)),
+            false,
+        )
+    };
+}
+
+#[test]
+fn rlookuprow_writefieldsfrom_different_lookups_and_rows() {
+    let src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&src_lookup);
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&dst_lookup);
+
+    unsafe {
+        RLookupRow_WriteFieldsFrom(
+            ptr::from_ref(&src_row).cast::<OpaqueRLookupRow>(),
+            ptr::from_ref(&src_lookup),
+            Some(NonNull::from(&mut dst_row).cast::<OpaqueRLookupRow>()),
+            Some(NonNull::from(&mut dst_lookup)),
+            false,
+        );
+    }
+
+    // No panic was triggered.
+}
 
 #[test]
 fn rlookuprow_move() {

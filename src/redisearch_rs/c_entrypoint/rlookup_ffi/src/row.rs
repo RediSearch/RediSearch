@@ -277,7 +277,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
+pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
     src_row: *const OpaqueRLookupRow<'a>,
     src_lookup: *const RLookup<'a>,
     dst_row: Option<NonNull<OpaqueRLookupRow<'a>>>,
