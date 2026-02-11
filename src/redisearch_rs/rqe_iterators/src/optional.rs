@@ -82,6 +82,11 @@ where
         self.child = Some(new_child);
     }
 
+    /// Unset the child of this [`Optional`] iterator (make it `None`).
+    pub fn unset_child(&mut self) {
+        self.child = None;
+    }
+
     /// Take the child of this [`Optional`] iterator if it had one.
     /// After this the child iterator of this [`Optional`] will behave
     /// as if it was the `Empty` iterator.

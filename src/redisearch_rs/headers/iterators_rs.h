@@ -263,7 +263,7 @@ QueryIterator *TakeOptionalNonOptimizedIteratorChild(QueryIterator *header);
  * # Safety
  *
  * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
- * 2. `child` must be a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
+ * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
  */
 void SetOptionalNonOptimizedIteratorChild(QueryIterator *header,
                                           QueryIterator *child);

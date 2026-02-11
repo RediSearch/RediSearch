@@ -97,7 +97,7 @@ pub unsafe extern "C" fn TakeOptionalNonOptimizedIteratorChild(
 /// # Safety
 ///
 /// 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
-/// 2. `child` must be a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
+/// 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
 pub unsafe extern "C" fn SetOptionalNonOptimizedIteratorChild(
     header: *mut QueryIterator,
     child: *mut QueryIterator,
@@ -112,9 +112,14 @@ pub unsafe extern "C" fn SetOptionalNonOptimizedIteratorChild(
     // SAFETY: thanks to 1
     let wrapper =
         unsafe { RQEIteratorWrapper::<Optional<CRQEIterator>>::mut_ref_from_header_ptr(header) };
-    let child = NonNull::new(child)
-        .expect("Trying to set a NULL child for a non-optimized optional iterator");
-    // SAFETY: thanks to 2
-    let child = unsafe { CRQEIterator::new(child) };
-    wrapper.inner.set_child(child);
+
+    if child.is_null() {
+        wrapper.inner.unset_child();
+    } else {
+        let child = NonNull::new(child)
+            .expect("Trying to set a NULL child for a non-optimized optional iterator");
+        // SAFETY: thanks to 2 + null check above
+        let child = unsafe { CRQEIterator::new(child) };
+        wrapper.inner.set_child(child);
+    }
 }
