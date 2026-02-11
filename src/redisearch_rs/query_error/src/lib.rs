@@ -62,7 +62,6 @@ pub enum QueryErrorCode {
     GeoFormat,
     NoDistribute,
     UnsuppType,
-    NotNumeric,
     TimedOut,
     NoParam,
     DupParam,
@@ -74,10 +73,6 @@ pub enum QueryErrorCode {
     NonRange,
     Missing,
     Mismatch,
-    /// Deprecated: replaced by [`QueryErrorCode::NoIndex`].
-    ///
-    /// Kept for ABI stability (enum numeric values) and backward compatibility.
-    UnknownIndex,
     DroppedBackground,
     AliasConflict,
     IndexBgOOMFail,
@@ -156,7 +151,6 @@ impl QueryErrorCode {
             Self::GeoFormat => cr#"SEARCH_GEO_FORMAT_BAD: Invalid lon/lat format. Use "lon lat" or "lon,lat""#,
             Self::NoDistribute => c"SEARCH_DIST_FAILED: Could not distribute the operation",
             Self::UnsuppType => c"SEARCH_TYPE_UNSUP: Unsupported index type",
-            Self::NotNumeric => c"SEARCH_NUMERIC_VALUE_INVALID: Invalid numeric value",
             Self::TimedOut => c"SEARCH_TIMEOUT: Timeout limit was reached",
             Self::NoParam => c"SEARCH_PARAM_NOT_FOUND: Parameter not found",
             Self::DupParam => c"SEARCH_PARAM_DUP: Parameter was specified twice",
@@ -174,7 +168,6 @@ impl QueryErrorCode {
             }
             Self::Missing => c"SEARCH_FIELD_MISSING_REQ: 'ismissing' requires field to be defined with 'INDEXMISSING'",
             Self::Mismatch => c"SEARCH_INDEX_MISMATCH: Index mismatch: Shard index is different than queried index",
-            Self::UnknownIndex => c"SEARCH_INDEX_NOT_FOUND: Index not found",
             Self::DroppedBackground => c"SEARCH_INDEX_DROPPED_BG: The index was dropped before the query could be executed",
             Self::AliasConflict => c"SEARCH_ALIAS_CONFLICT: Alias conflicts with an existing index name",
             Self::IndexBgOOMFail => c"SEARCH_INDEX_BG_OOM_FAIL: Index background scan did not complete due to OOM",

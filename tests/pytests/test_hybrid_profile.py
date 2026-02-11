@@ -1035,7 +1035,7 @@ def test_profile_errors():
         'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
         'SEARCH', 'world',
         'VSIM', '@v', '$blob').error()\
-            .contains('No such parameter `blob`')
+            .contains('SEARCH_PARAM_NOT_FOUND: Parameter not found `blob`')
     # Invalid vector argument
     env.expect(
         'FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
@@ -1048,5 +1048,5 @@ def test_profile_errors():
         'SEARCH', 'world',
         'VSIM', '@v', '$blob',
         'PARAMS', 2, 'blob', 'aaaaaaaa').error()\
-            .contains('no such index')
+            .contains('SEARCH_INDEX_NOT_FOUND: Index not found: nonexistent_idx')
 

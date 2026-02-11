@@ -477,7 +477,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NOT_NUMERIC, "Invalid numeric value", ": '%s'",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", ": '%s'",
                                RedisModule_StringPtrLen(field->text, NULL));
         return -1;
       }
@@ -488,7 +488,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
         fdata->isMulti = 0;
         fdata->numeric = fast_float_strtod(field->strval, &end);
         if (*end) {
-          QueryError_SetCode(status, QUERY_ERROR_CODE_NOT_NUMERIC);
+          QueryError_SetCode(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID);
           return -1;
         }
       }

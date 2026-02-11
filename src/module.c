@@ -504,17 +504,16 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+static inline void ReplyWithQueryErrorNoDetail(RedisModuleCtx *ctx, QueryErrorCode code,
+  const char *message) {
+QueryError status = QueryError_Default();
+QueryError_SetWithUserDataFmt(&status, code, message, "");
+(void)QueryError_ReplyAndClear(ctx, &status);
+}
+
 /* FT.TAGVALS {idx} {field}
  * Return all the values of a tag field.
  * There is no sorting or paging, so be careful with high-cradinality tag fields */
-
-static inline void ReplyWithQueryErrorNoDetail(RedisModuleCtx *ctx, QueryErrorCode code,
-                                              const char *message) {
-  QueryError status = QueryError_Default();
-  QueryError_SetWithUserDataFmt(&status, code, message, "");
-  (void)QueryError_ReplyAndClear(ctx, &status);
-}
-
 int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 3) {

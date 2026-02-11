@@ -95,7 +95,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   double n1, n2;
   if (!RSValue_ToNumber(l, &n1) || !RSValue_ToNumber(r, &n2)) {
 
-    QueryError_SetError(eval->err, QUERY_ERROR_CODE_NOT_NUMERIC, NULL);
+    QueryError_SetError(eval->err, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
