@@ -2284,7 +2284,7 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   }
 }
 
-// FT.DEBUG DISKGC_FORCEINVOKE <index_name>
+// FT.DEBUG DISK_GC_FORCEINVOKE <index_name>
 DEBUG_COMMAND(DiskGCForceInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -2481,7 +2481,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"DISK_IO_CONTROL", DiskIOControl},
-                               {"DISKGC_FORCEINVOKE", DiskGCForceInvoke},
+                               {"DISK_GC_FORCEINVOKE", DiskGCForceInvoke},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers}, // Register test scorers
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
