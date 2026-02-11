@@ -74,6 +74,14 @@ jobs:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
         run: redisbench-admin run-remote --spin-test
+              --triggering_env ${{ inputs.triggering_env }}
+              --allowed-envs ${{ inputs.allowed_envs }}
+              --allowed-setups ${{ inputs.allowed_setups }}
+              --github_actor ${{ github.triggering_actor }}
+              --github_repo ${{ github.event.repository.name }}
+              --github_org ${{ github.repository_owner }}
+              --github_sha ${{ github.sha }}
+              --github_branch ${{ github.head_ref || github.ref_name }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
