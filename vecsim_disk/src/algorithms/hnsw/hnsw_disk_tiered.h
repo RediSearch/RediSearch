@@ -15,8 +15,34 @@
 #include "utils/consistency_lock.h"
 #include <algorithm>
 #include <atomic>
+#include <concepts>
 #include <memory>
 #include <utility>
+
+// Just use shared_ptr directly, but always create via factory
+// TODO: move to VecSim repo for use across repos
+
+template <std::derived_from<VecsimBaseObject> T>
+struct SafeVecSimDeleter {
+    void operator()(T* p) const {
+        if (!p)
+            return;
+        auto allocator = p->getAllocator();
+        p->~T();
+        allocator->free_allocation(p);
+    }
+};
+
+template <std::derived_from<VecsimBaseObject> T>
+std::shared_ptr<T> make_vecsim_shared_ptr(T* raw) {
+    return std::shared_ptr<T>(raw, SafeVecSimDeleter<T>{});
+}
+
+template <std::derived_from<VecsimBaseObject> T, typename... Args>
+std::shared_ptr<T> make_vecsim_shared_ptr(std::shared_ptr<VecSimAllocator> allocator, Args&&... args) {
+    T* raw = new (allocator) T(allocator, std::forward<Args>(args)...);
+    return make_vecsim_shared_ptr(raw);
+}
 
 enum DiskJobType {
     DISK_HNSW_INSERT_VECTOR_JOB = HNSW_INSERT_VECTOR_JOB,
@@ -95,13 +121,12 @@ private:
 
         void operator()(AsyncDiskJob* job) const {
             if (job && index && destroyed_flag && !destroyed_flag->load()) {
-                // Create a new shared_ptr with default deleter
-                // AsyncDiskJob inherits from VecsimBaseObject which has proper operator delete
-                auto job_ptr = std::shared_ptr<AsyncDiskJob>(job);
+                // Create a new shared_ptr with SafeVecSimDeleter
+                auto job_ptr = make_vecsim_shared_ptr(job);
                 index->submitDiskJob(job_ptr);
             } else if (job) {
                 // Index is destroyed, just delete the job
-                delete job;
+                SafeVecSimDeleter<AsyncDiskJob>{}(job);
             }
         }
     };
@@ -113,7 +138,7 @@ private:
     template <typename JobType, typename... Args>
     std::shared_ptr<AsyncDiskJob> createAutoSubmitJob(Args&&... args) {
         JobType* job = new (this->allocator) JobType(std::forward<Args>(args)...);
-        return std::shared_ptr<AsyncDiskJob>(job, PendingJobDeleter{this, &is_destroyed});
+        return std::shared_ptr<AsyncDiskJob>(job, PendingJobDeleter{this, &is_destroyed, this->allocator});
     }
 
     // Submit a single job and add to submitted_jobs to keep it alive
@@ -319,11 +344,9 @@ private:
                         it->second->pending_jobs.push_back(pend_on);
                     }
                 } else {
-                    // Create new repair job with the wrapper callback
-                    // Use default deleter - VecsimBaseObject has proper operator delete
-                    RepairDiskJob* job = new (this->allocator)
-                        RepairDiskJob(this->allocator, repair.id, repair.level, executeDiskJobWrapper, this);
-                    std::shared_ptr<AsyncDiskJob> job_ptr(job);
+                    // Create new repair job with the wrapper callback using SafeVecSimDeleter
+                    auto job_ptr = make_vecsim_shared_ptr<RepairDiskJob>(this->allocator, repair.id, repair.level,
+                                                                         executeDiskJobWrapper, this);
 
                     if (pend_on) {
                         job_ptr->pending_jobs.push_back(pend_on);
