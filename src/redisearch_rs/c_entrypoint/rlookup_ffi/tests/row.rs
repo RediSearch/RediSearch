@@ -17,7 +17,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::{cmp, ffi::CString};
 
-use rlookup::{OpaqueRLookupRow, RLookup, RLookupKeyFlags, RLookupRow};
+use c_ffi_utils::opaque::IntoOpaque;
+use rlookup::{RLookup, RLookupKeyFlags, RLookupRow};
 use rlookup_ffi::row::{
     RLookupRow_MoveFieldsFrom, RLookupRow_WriteByName, RLookupRow_WriteByNameOwned,
     RLookupRow_WriteFieldsFrom,
@@ -68,7 +69,7 @@ fn rlookuprow_writefieldsfrom_same_row() {
 
     unsafe {
         RLookupRow_WriteFieldsFrom(
-            ptr::from_ref(&row).cast::<OpaqueRLookupRow>(),
+            row.as_opaque_ptr(),
             ptr::from_ref(&src_lookup),
             Some(row.as_opaque_non_null()),
             Some(NonNull::from(&mut dst_lookup)),
@@ -86,7 +87,7 @@ fn rlookuprow_writefieldsfrom_same_lookup() {
 
     unsafe {
         RLookupRow_WriteFieldsFrom(
-            ptr::from_ref(&src_row).cast::<OpaqueRLookupRow>(),
+            src_row.as_opaque_ptr(),
             ptr::from_ref(&lookup),
             Some(dst_row.as_opaque_non_null()),
             Some(NonNull::from(&mut lookup)),
@@ -104,7 +105,7 @@ fn rlookuprow_writefieldsfrom_different_lookups_and_rows() {
 
     unsafe {
         RLookupRow_WriteFieldsFrom(
-            ptr::from_ref(&src_row).cast::<OpaqueRLookupRow>(),
+            src_row.as_opaque_ptr(),
             ptr::from_ref(&src_lookup),
             Some(dst_row.as_opaque_non_null()),
             Some(NonNull::from(&mut dst_lookup)),
