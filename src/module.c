@@ -4063,7 +4063,7 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   MRCtx_Free(mrctx);
 }
 
-typedef RedisModuleCmdFunc BlockedClientTimeoutCB ;
+typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata);
 
 // Initialize query timeout from command args or global config.

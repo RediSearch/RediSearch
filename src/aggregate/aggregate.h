@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2006-Present, Redis Ltd.
+ * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
  * Licensed under your choice of the Redis Source Available License 2.0

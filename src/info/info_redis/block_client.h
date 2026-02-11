@@ -18,7 +18,7 @@ struct IndexSpec;
 struct AREQ;
 struct Cursor;
 
-typedef int (*BlockedClientTimeoutCB)(RedisModuleCtx *, RedisModuleString **, int);
+typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 
 RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req,
                                                       int timeoutMS, BlockedClientTimeoutCB timeoutCallback);

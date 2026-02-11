@@ -782,6 +782,20 @@ class TestQueryDebugCommands(object):
     ######################## Main tests ########################
     def StrictPolicy(self):
         env = self.env
+        conn = getConnectionByEnv(env)
+
+        # Skip for cluster - these constraints only apply to shard-level queries
+        if env.isCluster():
+            return
+
+        # Get current workers count to determine expected behavior
+        workers = conn.execute_command(config_cmd(), 'GET', 'WORKERS')
+        if type(workers) == list:
+            workers = int(workers[1])
+        else:
+            workers = int(workers['WORKERS'])
+
+        # Test ON_TIMEOUT FAIL
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
 
         with env.assertResponseError(contained="Timeout limit was reached"):
