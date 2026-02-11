@@ -40,7 +40,8 @@ fn read_skips_child_docs() {
         IdListSorted::new(child_ids),
         10,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Child has [2, 4, 7]; complement in [1..=10] is [1, 3, 5, 6, 8, 9, 10].
@@ -70,7 +71,8 @@ fn read_with_empty_child_behaves_like_wildcard() {
         IdListSorted::new(vec![]),
         5,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     for expected_id in 1u64..=5 {
@@ -95,7 +97,8 @@ fn read_with_child_covering_full_range_yields_no_docs() {
         IdListSorted::new(vec![1, 2, 3, 4, 5]),
         5,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Child already produces 1..=5, so there is no doc left for NOT to return.
@@ -115,7 +118,8 @@ fn skip_to_honours_child_membership() {
         IdListSorted::new(vec![2, 4, 7]),
         10,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // 5 is not in child {2, 4, 7}, so NOT must return Found(5).
@@ -159,7 +163,8 @@ fn skip_to_child_doc_at_max_docid_returns_none() {
         IdListSorted::new(vec![2, 5, 10]),
         10,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Read first to position before the skip
@@ -182,7 +187,8 @@ fn skip_to_child_ahead_returns_found() {
         IdListSorted::new(vec![5, 10]),
         15,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Read once to advance child to doc_id=5
@@ -208,7 +214,8 @@ fn skip_to_child_at_eof_returns_found() {
         IdListSorted::new(vec![1, 2]),
         10,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Exhaust the child by reading past its docs
@@ -237,7 +244,8 @@ fn skip_to_child_last_doc_when_at_eof_excludes_it() {
         IdListSorted::new(vec![5, 10]),
         15,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Read up to doc 9 to exhaust the child
@@ -269,7 +277,8 @@ fn skip_to_past_max_docid_returns_none_and_sets_eof() {
         IdListSorted::new(vec![2, 4, 7]),
         10,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // 11 > max_doc_id=10, so there is no valid target and we end at EOF.
@@ -288,7 +297,8 @@ fn rewind_resets_state() {
         IdListSorted::new(vec![2, 4, 7]),
         10,
         1.0,
-        NOT_ITERATOR_LARGE_TIMEOUT, false,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // For child [2, 4, 7] and max_doc_id=10, the first two NOT results are 1 and 3.
