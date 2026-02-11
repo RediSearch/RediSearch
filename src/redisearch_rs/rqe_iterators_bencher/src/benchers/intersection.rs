@@ -18,7 +18,7 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{Intersection, RQEIterator, id_list::SortedIdList};
+use rqe_iterators::{Intersection, RQEIterator, id_list::IdListSorted};
 
 use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
 
@@ -65,8 +65,10 @@ fn varying_size_ids() -> Vec<Vec<u64>> {
 }
 
 /// Convert ID vectors to Rust SortedIdList iterators.
-fn ids_to_rust_children(ids: Vec<Vec<u64>>) -> Vec<SortedIdList<'static>> {
-    ids.into_iter().map(SortedIdList::new).collect()
+fn ids_to_rust_children(ids: Vec<Vec<u64>>) -> Vec<IdListSorted<'static>> {
+    ids.into_iter()
+        .map(|id_vec| IdListSorted::new(id_vec))
+        .collect()
 }
 
 impl Bencher {

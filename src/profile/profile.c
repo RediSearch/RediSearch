@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
+#include "iterators/iterator_api.h"
 #include "iterators/profile_iterator.h"
 #include "iterators/inverted_index_iterator.h"
 #include "iterators/not_iterator.h"
@@ -414,8 +415,10 @@ void Profile_AddIters(QueryIterator **root) {
     case INV_IDX_MISSING_ITERATOR:
     case INV_IDX_TAG_ITERATOR:
     case EMPTY_ITERATOR:
-    case ID_LIST_ITERATOR:
-    case METRIC_ITERATOR:
+    case ID_LIST_SORTED_ITERATOR:
+    case ID_LIST_UNSORTED_ITERATOR:
+    case METRIC_SORTED_BY_ID_ITERATOR:
+    case METRIC_SORTED_BY_SCORE_ITERATOR:
       break;
     // LCOV_EXCL_START
     case PROFILE_ITERATOR:
@@ -512,35 +515,39 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   RedisModule_Reply_MapEnd(reply);
 }
 
-PRINT_PROFILE_FUNC(printMetricIt) {
-  RedisModule_Reply_Map(reply);
-  MetricType type = GetMetricType(root);
-
-  switch (type) {
-    case VECTOR_DISTANCE: {
-      printProfileType("METRIC - VECTOR DISTANCE");
-      break;
-    }
-    // LCOV_EXCL_START
-    default: {
-      RS_ABORT("Invalid type for metric");
-      break;
-    }
-    // LCOV_EXCL_STOP
+#define PRINT_PROFILE_METRIC(name, text)                           \
+  PRINT_PROFILE_FUNC(name) {                                       \
+      RedisModule_Reply_Map(reply);                                \
+      MetricType type = GetMetricType(root);                       \
+                                                                   \
+      switch (type) {                                              \
+        case VECTOR_DISTANCE: {                                    \
+          printProfileType(text " - VECTOR DISTANCE");             \
+          break;                                                   \
+        }                                                          \
+        /* LCOV_EXCL_START */                                      \
+        default: {                                                 \
+          RS_ABORT("Invalid type for metric");                     \
+          break;                                                   \
+        }                                                          \
+        /* LCOV_EXCL_STOP  */                                      \
+      }                                                            \
+                                                                   \
+      if (config->printProfileClock) {                             \
+        printProfileTime(cpuTime);                                 \
+      }                                                            \
+                                                                   \
+      printProfileCounters(counters);                              \
+                                                                   \
+      if (type == VECTOR_DISTANCE) {                               \
+        printProfileVectorSearchMode(VECSIM_RANGE_QUERY);          \
+      }                                                            \
+                                                                   \
+      RedisModule_Reply_MapEnd(reply);                             \
   }
 
-  if (config->printProfileClock) {
-    printProfileTime(cpuTime);
-  }
-
-  printProfileCounters(counters);
-
-  if (type == VECTOR_DISTANCE) {
-    printProfileVectorSearchMode(VECSIM_RANGE_QUERY);
-  }
-
-  RedisModule_Reply_MapEnd(reply);
-}
+PRINT_PROFILE_METRIC(printMetricSortedByIdIt, "METRIC SORTED BY ID");
+PRINT_PROFILE_METRIC(printMetricSortedByScoreIt, "METRIC SORTED BY SCORE");
 
 void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters, double cpuTime,
                   int depth, int limited, PrintProfileConfig *config, QueryIterator *child, const char *text) {
@@ -587,13 +594,14 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
       ((IterType *)(root))->child, (text));                                            \
   }
 
-PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,          "WILDCARD");
-PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt,            "ID-LIST");
-PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,             "EMPTY");
-PRINT_PROFILE_SINGLE(printNotIt, NotIterator,           "NOT");
-PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL");
-PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,     "VECTOR");
-PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
+PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,                  "WILDCARD");
+PRINT_PROFILE_SINGLE_NO_CHILD(printIdListSortedIt,              "ID-LIST-SORTED");
+PRINT_PROFILE_SINGLE_NO_CHILD(printIdListUnsortedIt,            "ID-LIST-UNSORTED");
+PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,                     "EMPTY");
+PRINT_PROFILE_SINGLE(printNotIt, NotIterator,                   "NOT");
+PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator,         "OPTIONAL");
+PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
+PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -612,20 +620,22 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
     case INV_IDX_WILDCARD_ITERATOR:
     case INV_IDX_MISSING_ITERATOR:
     case INV_IDX_TAG_ITERATOR:
-                              { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
+                                            { printInvIdxIt(reply, root, counters, cpuTime, config);                                break; }
     // Multi values
-    case UNION_ITERATOR:      { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
-    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }
+    case UNION_ITERATOR:                    { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
+    case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
     // Single value
-    case NOT_ITERATOR:        { printNotIt(reply, root, counters, cpuTime, depth, limited, config);        break; }
-    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
-    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
-    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
-    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case PROFILE_ITERATOR:    { printProfileIt(reply, root, 0, 0, depth, limited, config);                 break; }
-    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case METRIC_ITERATOR:     { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
-    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);    break; }
-    case MAX_ITERATOR:        { RS_ABORT("nope");   break; } // LCOV_EXCL_LINE
+    case NOT_ITERATOR:                      { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
+    case OPTIONAL_ITERATOR:                 { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case EMPTY_ITERATOR:                    { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
+    case ID_LIST_SORTED_ITERATOR:           { printIdListSortedIt(reply, root, counters, cpuTime, depth, limited, config);          break; }
+    case ID_LIST_UNSORTED_ITERATOR:         { printIdListUnsortedIt(reply, root, counters, cpuTime, depth, limited, config);        break; }
+    case PROFILE_ITERATOR:                  { printProfileIt(reply, root, 0, 0, depth, limited, config);                            break; }
+    case HYBRID_ITERATOR:                   { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);                break; }
+    case METRIC_SORTED_BY_ID_ITERATOR:      { printMetricSortedByIdIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
+    case METRIC_SORTED_BY_SCORE_ITERATOR:   { printMetricSortedByScoreIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
+    case OPTIMUS_ITERATOR:                  { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);               break; }
+    case MAX_ITERATOR:                      { RS_ABORT("nope");                                                                     break; } // LCOV_EXCL_LINE
   }
 }
