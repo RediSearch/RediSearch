@@ -14,6 +14,15 @@
 #include "wildcard_iterator.h"
 #include "iterators_rs.h"
 
+typedef struct {
+  QueryIterator base;     // base index iterator
+  QueryIterator *child;   // child index iterator
+  QueryIterator *wcii;    // wildcard child iterator, used for optimization
+  RSIndexResult *virt;
+  t_docId maxDocId;
+  double weight;
+} OptionalOptimizedIterator;
+
 static void OI_Free(QueryIterator *base) {
   OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
 
@@ -259,5 +268,32 @@ void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
         it->child = newChild;
     } else {
         SetOptionalNonOptimizedIteratorChild(base, newChild);
+    }
+}
+
+QueryIterator const* GetOptionalOptimizedIteratorWildcard(QueryIterator *base) {
+    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
+        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+        return it->wcii;
+    } else {
+        return NULL;
+    }
+}
+
+QueryIterator *TakeOptionalOptimizedIteratorWildcard(QueryIterator *base) {
+    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
+        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+        QueryIterator* wcii = it->wcii;
+        it->wcii = NULL;
+        return wcii;
+    } else {
+        return NULL;
+    }
+}
+
+void SetOptionalOptimizedIteratorWildcard(QueryIterator *base, QueryIterator *newWcii) {
+    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
+        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+        it->wcii = newWcii;
     }
 }

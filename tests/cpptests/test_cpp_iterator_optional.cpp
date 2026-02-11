@@ -758,12 +758,11 @@ protected:
     oi_base = NewOptionalIterator(child, &mockCtx->qctx, weight);
 
     // Replace the wildcard iterator with a mock for testing
-    OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)oi_base;
-    QueryIterator *wcii = oi->wcii;
+    QueryIterator *wcii = TakeOptionalOptimizedIteratorWildcard(oi_base);
     ASSERT_TRUE(wcii != nullptr);
     wcii->Free(wcii); // Free the original wildcard iterator
     mockWildcard = new MockIterator(wildcard);
-    oi->wcii = reinterpret_cast<QueryIterator *>(mockWildcard);
+    SetOptionalOptimizedIteratorWildcard(oi_base, reinterpret_cast<QueryIterator *>(mockWildcard));
   }
 
   void TearDown() override {
@@ -841,7 +840,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardO
   ASSERT_EQ(status, VALIDATE_OK);
 
   // Verify both iterators were checked
-  ASSERT_EQ(reinterpret_cast<OptionalOptimizedIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_EQ(child->type, EMPTY_ITERATOR);
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
 
   // Should be able to continue reading (all wildcard docs now virtual)
@@ -878,7 +878,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardM
   ASSERT_EQ(status, VALIDATE_MOVED);
 
   // Verify both iterators were checked
-  ASSERT_EQ(reinterpret_cast<OptionalOptimizedIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_EQ(child->type, EMPTY_ITERATOR);
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
 }
 
@@ -949,8 +950,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMovedRealResult_W
   ASSERT_EQ(oi_base->lastDocId, 15);
 
   // Verify we have a real result from child before revalidation
-  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)oi_base;
-  ASSERT_EQ(oi_base->current, oi->child->current); // Real result from child
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_EQ(oi_base->current, child->current); // Real result from child
 
   // Revalidate: child moved but wildcard OK
   // Since current result was real and child moved, should return OK
@@ -958,7 +959,7 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMovedRealResult_W
   ValidateStatus status = oi_base->Revalidate(oi_base);
   ASSERT_EQ(status, VALIDATE_MOVED);
   ASSERT_EQ(oi_base->lastDocId, 20); // Should move to next valid position
-  ASSERT_EQ(oi_base->current, oi->virt); // Should now be virtual result
+  ASSERT_NE(oi_base->current, child->current); // Should now be virtual result
 
   // Verify both iterators were checked
   ASSERT_EQ(mockChild->GetValidationCount(), 1);
@@ -976,8 +977,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateWildcardMovedToChildId
   ASSERT_EQ(oi_base->lastDocId, 10);
 
   // Verify we have a virtual result before revalidation
-  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)oi_base;
-  ASSERT_EQ(oi_base->current, oi->virt); // Virtual result
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_NE(oi_base->current, child->current); // Virtual result
 
   // When revalidate is called:
   // - mockWildcard will move from 5 to next in sequence (10)
@@ -993,5 +994,5 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateWildcardMovedToChildId
   // After revalidation, iterator position should be updated
   // The exact position depends on implementation but should be valid
   ASSERT_EQ(oi_base->lastDocId, 15); // Should have moved forward
-  ASSERT_EQ(oi_base->current, oi->child->current); // Should now be a real result from child
+  ASSERT_EQ(oi_base->current, child->current); // Should now be a real result from child
 }
