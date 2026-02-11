@@ -27,6 +27,7 @@ capabilities:
     - intershard_tls_pass
     - ipv6
     - asm
+    - bigstore_version_2
 exclude_commands:
     - FT.CREATE
     - FT.DROP

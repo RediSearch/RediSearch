@@ -20,8 +20,9 @@ extern "C" {
 
 extern RedisModuleType *TrieType;
 
-#define TRIE_ENCVER_CURRENT 1
-#define TRIE_ENCVER_NOPAYLOADS 0
+#define TRIE_ENCVER_CURRENT 2
+#define TRIE_ENCVER_NUMDOCS 2
+#define TRIE_ENCVER_PAYLOADS 1
 
 typedef struct {
   TrieNode *root;
@@ -45,11 +46,12 @@ typedef struct {
  * score using `Trie_Sort_Score.                            */
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode);
 
-int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload);
+int Trie_Insert(Trie *t, RedisModuleString *s, double score, int incr, RSPayload *payload,
+                size_t numDocs);
 int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, int incr,
-                            RSPayload *payload);
+                            RSPayload *payload, size_t numDocs);
 int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
-                            RSPayload *payload);
+                    RSPayload *payload, size_t numDocs);
 
 /* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len
    Use for debug only! */
@@ -59,6 +61,27 @@ void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);
 /* Delete the string from the trie. Return 1 if the node was found and deleted, 0 otherwise */
 int Trie_Delete(Trie *t, const char *s, size_t len);
 int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len);
+
+/* Result codes for Trie_DecrementNumDocs */
+typedef enum {
+  TRIE_DECR_NOT_FOUND = 0,   /* Term not found in trie */
+  TRIE_DECR_UPDATED = 1,     /* numDocs decremented, still > 0 */
+  TRIE_DECR_DELETED = 2,     /* numDocs reached 0, node deleted */
+} TrieDecrResult;
+
+/* Decrement the numDocs count for a term in the trie.
+ * If numDocs reaches 0, the node is marked as deleted.
+ * Parameters:
+ *   t     - the trie
+ *   s     - UTF-8 encoded term string
+ *   len   - length of the string in bytes
+ *   delta - amount to decrement numDocs by
+ * Returns:
+ *   TRIE_DECR_NOT_FOUND - term not found
+ *   TRIE_DECR_UPDATED   - numDocs decremented but still > 0
+ *   TRIE_DECR_DELETED   - numDocs reached 0, node deleted
+ */
+TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta);
 
 void TrieSearchResult_Free(TrieSearchResult *e);
 Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDist, int prefixMode,
@@ -75,8 +98,8 @@ int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score);
 
 /* Commands related to the redis TrieType registration */
 int TrieType_Register(RedisModuleCtx *ctx);
-void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads);
-void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
+void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDocs);
+void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, bool savePayloads, bool saveNumDocs);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
 size_t TrieType_MemUsage(const void *value);

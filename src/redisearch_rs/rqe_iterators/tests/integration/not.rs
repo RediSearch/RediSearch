@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use rqe_iterators::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
     not::Not,
 };
 
@@ -22,7 +22,7 @@ const NOT_ITERATOR_LARGE_TIMEOUT: Duration = Duration::from_secs(300);
 // Basic iterator invariants before any read.
 #[test]
 fn initial_state() {
-    let child = SortedIdList::new(vec![2, 4, 6]);
+    let child = IdListSorted::new(vec![2, 4, 6]);
     let it = Not::new(child, 10, 1.0, NOT_ITERATOR_LARGE_TIMEOUT);
 
     // Before first read, cursor is at 0 and we are not at EOF.
@@ -37,7 +37,7 @@ fn initial_state() {
 fn read_skips_child_docs() {
     let child_ids = vec![2, 4, 7];
     let mut it = Not::new(
-        SortedIdList::new(child_ids),
+        IdListSorted::new(child_ids),
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -67,7 +67,7 @@ fn read_skips_child_docs() {
 fn read_with_empty_child_behaves_like_wildcard() {
     // When the child is empty, NOT should yield all doc IDs in [1, max_doc_id]
     let mut it = Not::new(
-        SortedIdList::new(vec![]),
+        IdListSorted::new(vec![]),
         5,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -92,7 +92,7 @@ fn read_with_empty_child_behaves_like_wildcard() {
 #[test]
 fn read_with_child_covering_full_range_yields_no_docs() {
     let mut it = Not::new(
-        SortedIdList::new(vec![1, 2, 3, 4, 5]),
+        IdListSorted::new(vec![1, 2, 3, 4, 5]),
         5,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -112,7 +112,7 @@ fn read_with_child_covering_full_range_yields_no_docs() {
 #[test]
 fn skip_to_honours_child_membership() {
     let mut it = Not::new(
-        SortedIdList::new(vec![2, 4, 7]),
+        IdListSorted::new(vec![2, 4, 7]),
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -156,7 +156,7 @@ fn skip_to_honours_child_membership() {
 fn skip_to_child_doc_at_max_docid_returns_none() {
     // Child has doc 10, which is also max_doc_id
     let mut it = Not::new(
-        SortedIdList::new(vec![2, 5, 10]),
+        IdListSorted::new(vec![2, 5, 10]),
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -179,7 +179,7 @@ fn skip_to_child_doc_at_max_docid_returns_none() {
 #[test]
 fn skip_to_child_ahead_returns_found() {
     let mut it = Not::new(
-        SortedIdList::new(vec![5, 10]),
+        IdListSorted::new(vec![5, 10]),
         15,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -205,7 +205,7 @@ fn skip_to_child_ahead_returns_found() {
 #[test]
 fn skip_to_child_at_eof_returns_found() {
     let mut it = Not::new(
-        SortedIdList::new(vec![1, 2]),
+        IdListSorted::new(vec![1, 2]),
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -234,7 +234,7 @@ fn skip_to_child_at_eof_returns_found() {
 #[test]
 fn skip_to_child_last_doc_when_at_eof_excludes_it() {
     let mut it = Not::new(
-        SortedIdList::new(vec![5, 10]),
+        IdListSorted::new(vec![5, 10]),
         15,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -266,7 +266,7 @@ fn skip_to_child_last_doc_when_at_eof_excludes_it() {
 #[test]
 fn skip_to_past_max_docid_returns_none_and_sets_eof() {
     let mut it = Not::new(
-        SortedIdList::new(vec![2, 4, 7]),
+        IdListSorted::new(vec![2, 4, 7]),
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -285,7 +285,7 @@ fn skip_to_past_max_docid_returns_none_and_sets_eof() {
 #[test]
 fn rewind_resets_state() {
     let mut it = Not::new(
-        SortedIdList::new(vec![2, 4, 7]),
+        IdListSorted::new(vec![2, 4, 7]),
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
@@ -493,7 +493,63 @@ fn skip_to_propagates_child_timeout() {
     );
 }
 
+// skip_to when already at EOF should return None immediately.
 #[test]
+fn skip_to_at_eof_returns_none() {
+    let mut it = Not::new(
+        IdListSorted::new(vec![1, 2, 3, 4, 5]),
+        5,
+        1.0,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+    );
+
+    // Exhaust the iterator - child covers full range so NOT produces nothing
+    assert!(it.read().unwrap().is_none());
+    assert!(it.at_eof());
+
+    // Now call skip_to on an already-EOF iterator
+    let result = it.skip_to(6).unwrap();
+    assert!(
+        result.is_none(),
+        "skip_to on EOF iterator should return None"
+    );
+    assert!(it.at_eof());
+}
+
+// skip_to when child is behind and child.skip_to returns None (child at EOF).
+// This exercises Case 2 where child.skip_to returns None.
+#[test]
+fn skip_to_child_behind_child_skip_returns_eof() {
+    // Child has [2], max_doc_id=10
+    let mut it = Not::new(
+        IdListSorted::new(vec![2]),
+        10,
+        1.0,
+        NOT_ITERATOR_LARGE_TIMEOUT,
+    );
+
+    // Read first doc (1) to advance child to position 2
+    let doc = it.read().unwrap().unwrap();
+    assert_eq!(doc.doc_id, 1);
+
+    // Now child.last_doc_id()=2, NOT is at 1.
+    // skip_to(5): child.last_doc_id()=2 < 5, so we enter Case 2.
+    // child.skip_to(5) will return None (child only has [2], past end).
+    // So NOT returns Found(5).
+    let outcome = it.skip_to(5).expect("skip_to(5) must not error");
+    if let Some(SkipToOutcome::Found(doc)) = outcome {
+        assert_eq!(doc.doc_id, 5);
+        assert_eq!(it.last_doc_id(), 5);
+    } else {
+        panic!(
+            "Expected Found(5) when child.skip_to returns EOF, got {:?}",
+            outcome
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn read_timeout_via_timeout_ctx() {
     let child = Mock::new([5_001]);
     let mut data = child.data();
@@ -538,11 +594,12 @@ fn read_timeout_via_timeout_ctx() {
             .doc_id,
         "rewind should have allowed us to start reading again from start, despites earlier timeout"
     )
-    // that said... internal timeout context is _not_ resetted,
+    // that said... internal timeout context is _not_ reset,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn skip_to_timeout_via_timeout_ctx() {
     let child = Mock::new([5_001]);
     let mut data = child.data();
@@ -589,6 +646,6 @@ fn skip_to_timeout_via_timeout_ctx() {
             .doc_id,
         "rewind should have allowed us to start reading again from start, despites earlier timeout"
     )
-    // that said... internal timeout context is _not_ resetted,
+    // that said... internal timeout context is _not_ reset,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }

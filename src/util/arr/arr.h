@@ -78,6 +78,9 @@ typedef void *array_t;
 
 static inline uint32_t array_len(array_t arr);
 
+// Sets the length of the array. The array must have enough capacity.
+static inline void array_set_len(array_t arr, uint32_t len);
+
 uint32_t array_len_func(array_t arr);
 
 /* Initialize a new array with a given element size and remaining capacity. Should not be used directly - use
@@ -225,6 +228,19 @@ static inline array_t array_ensure_len(array_t arr, size_t len) {
 /* Get the length of the array */
 static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
   return arr ? array_hdr(arr)->len : 0;
+}
+
+/* Get the total capacity of the array (including existing elements) */
+static ARR_FORCEINLINE uint32_t array_cap(array_t arr) {
+  return arr ? array_hdr(arr)->len + array_hdr(arr)->remain_cap : 0;
+}
+
+/* Sets the length of the array. The array must have enough capacity. */
+static ARR_FORCEINLINE void array_set_len(array_t arr, uint32_t len) {
+  RS_LOG_ASSERT(len <= array_cap(arr), "Not enough capacity");
+  const uint32_t capacity = array_cap(arr);
+  array_hdr(arr)->len = len;
+  array_hdr(arr)->remain_cap = capacity - len;
 }
 
 /* Get the length of the array */

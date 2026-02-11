@@ -30,6 +30,7 @@ typedef struct {
   bool hasExplicitK;           // Flag to track if K was explicitly set in KNN query
   char *vectorScoreFieldAlias; // Alias for the vector score field (OWNED) - NULL if not explicitly set
   uint32_t queryNodeFlags;     // QueryNode flags to be applied when creating the vector node
+  bool skipFilterIntegration;  // true to make vector node root without filter wrapping (RANGE without explicit FILTER)
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

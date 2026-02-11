@@ -13,7 +13,7 @@ use rlookup::{RLookup, RLookupKey};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
-    ptr::NonNull,
+    ptr::{self, NonNull},
     slice,
 };
 use value::RSValueFFI;
@@ -30,7 +30,7 @@ pub type RLookupRow<'a> = rlookup::RLookupRow<'a, RSValueFFI>;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteKey(
+pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
     row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
@@ -59,7 +59,7 @@ unsafe extern "C" fn RLookup_WriteKey(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteOwnKey(
+pub unsafe extern "C" fn RLookup_WriteOwnKey(
     key: *const RLookupKey,
     row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
@@ -82,7 +82,7 @@ unsafe extern "C" fn RLookup_WriteOwnKey(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
+pub unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
     // Safety: ensured by caller (1.)
     let row = unsafe { row.expect("`row` must not be null").as_mut() };
     row.wipe();
@@ -98,7 +98,7 @@ unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
+pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let vec = unsafe { row.expect("`row` must not be null").as_mut() };
     vec.reset_dyn_values();
@@ -249,14 +249,15 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     row.write_key_by_name(lookup, name, value);
 }
 
-/// Write fields from a source row into this row, the fields must exist in both lookups (schemas).
+/// Write fields from a source row into this row.
 ///
 /// Iterate through the source lookup keys, if it finds a corresponding key in the destination
 /// lookup by name, then it's value is written to this row as a destination.
 ///
-/// If a source key is not found in the destination lookup the function will panic (same as C behavior).
-///
 /// If a source key has no value in the source row, it is skipped.
+///
+/// If a source key is not found in the destination lookup the function will either create it or panic
+/// depending on the value of `create_missing_keys`.
 ///
 /// # Safety
 ///
@@ -265,34 +266,40 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 /// 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
 /// 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
+/// 6. `src_lookup` and `dst_lookup` must not point to the same [`RLookup`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
-    src_row: *const RLookupRow,
-    src_lookup: *const RLookup,
-    dst_row: Option<NonNull<RLookupRow>>,
-    dst_lookup: *const RLookup,
+pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
+    src_row: *const RLookupRow<'a>,
+    src_lookup: *const RLookup<'a>,
+    dst_row: Option<NonNull<RLookupRow<'a>>>,
+    dst_lookup: Option<NonNull<RLookup<'a>>>,
+    create_missing_keys: bool,
 ) {
-    // Safety: ensured by caller (2.)
-    let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
-
     // Safety: ensured by caller (3.)
     let dst_row = unsafe { dst_row.unwrap().as_mut() };
 
-    // We're doing the assert here in the middle to avoid extra type conversions.
+    // Safety: ensured by caller (4.)
+    let dst_lookup = unsafe { dst_lookup.unwrap().as_mut() };
+
+    // We're doing the asserts here in the middle to avoid extra type conversions.
     assert_ne!(
         src_row, dst_row,
         "`src_row` and `dst_row` must not be the same"
+    );
+    assert_ne!(
+        src_lookup, dst_lookup,
+        "`src_lookup` and `dst_lookup` must not be the same"
     );
 
     // Safety: ensured by caller (1.)
     let src_row = unsafe { src_row.as_ref().unwrap() };
 
-    // Safety: ensured by caller (4.)
-    let dst_lookup = unsafe { dst_lookup.as_ref().unwrap() };
+    // Safety: ensured by caller (2.)
+    let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
 
-    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup);
+    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
 }
 
 /// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -309,7 +316,7 @@ unsafe extern "C" fn RLookupRow_WriteFieldsFrom(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Get(
+pub unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
     row: *const RLookupRow,
 ) -> Option<NonNull<RSValue>> {
@@ -320,4 +327,45 @@ unsafe extern "C" fn RLookupRow_Get(
     let row = unsafe { row.as_ref().unwrap() };
 
     row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
+}
+
+/// Returns the sorting vector for the row, or null if none exists.
+///
+/// # Safety
+///
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_GetSortingVector(
+    row: *const RLookupRow,
+) -> *const sorting_vector::RSSortingVector<RSValueFFI> {
+    // Safety: ensured by caller (1.)
+    let row = unsafe { row.as_ref().unwrap() };
+
+    row.sorting_vector()
+        .map(ptr::from_ref)
+        .unwrap_or(std::ptr::null())
+}
+
+/// Sets the sorting vector for the row.
+///
+/// # Safety
+///
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn RLookupRow_SetSortingVector(
+    row: Option<NonNull<RLookupRow>>,
+    sv: *const sorting_vector::RSSortingVector<RSValueFFI>,
+) {
+    // Safety: ensured by caller (1.)
+    let row = unsafe { row.unwrap().as_mut() };
+
+    // Safety: ensured by caller (2.)
+    let sv = unsafe { sv.as_ref() };
+
+    row.set_sorting_vector(sv);
 }

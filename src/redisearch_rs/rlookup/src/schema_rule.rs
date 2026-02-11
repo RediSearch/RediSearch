@@ -7,31 +7,31 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, c_char};
+use std::{
+    ffi::{CStr, c_char},
+    slice,
+};
+
+use ffi::DocumentType;
 
 use crate::RLookupKey;
 
-/// A safe wrapper around a pointer to a `SchemaRule`, the underlying pointer is non-null.
-///
-/// # Safety
-///
-/// We wrap the SchemaRule C implementation here.
-///
-/// Given a valid SchemaRule pointer, the fields `lang_field`, `score_field`, and `payload_field`
-/// are guaranteed to either be null or point to valid C strings. So we assume these invariants:
-///
-/// 1. If `lang_field` is non-null, it points to a valid C string.
-/// 2. If `score_field` is non-null, it points to a valid C string.
-/// 3. If `payload_field` is non-null, it points to a valid C string.
+/// A safe wrapper around an `ffi::SchemaRule`.
 #[repr(transparent)]
 pub struct SchemaRule(ffi::SchemaRule);
 
 impl SchemaRule {
-    /// Create a SchemaRule from a non-null pointer.
+    /// Create a `SchemaRule` wrapper from a non-null pointer.
     ///
     /// # Safety
     ///
-    /// 1. The caller must ensure that the given pointer upholds the safety invariants described on the type documentation.
+    /// 1. `ptr` must be a [valid], non-null pointer to an `IndexSpec` that is properly initialized.
+    ///    This also applies to any of its subfields. Specifically:
+    ///    1. If `lang_field` is non-null, it points to a valid C string.
+    ///    2. If `score_field` is non-null, it points to a valid C string.
+    ///    3. If `payload_field` is non-null, it points to a valid C string.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::SchemaRule) -> &'a Self {
         // Safety: ensured by caller (1.)
         unsafe { ptr.cast::<Self>().as_ref().unwrap() }
@@ -39,19 +39,19 @@ impl SchemaRule {
 
     /// Get the language field [`CStr`], if present.
     pub const fn lang_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.lang_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { maybe_cstr_from_ptr(self.0.lang_field) }
     }
 
     /// Get the score field [`CStr`], if present.
     pub const fn score_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.score_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { maybe_cstr_from_ptr(self.0.score_field) }
     }
 
     /// Get the payload field [`CStr`], if present.
     pub const fn payload_field(&self) -> Option<&CStr> {
-        // Safety: (1) due to creation with `SchemaRule::from_raw` its field pointers are valid or null, (2) lifetime tied to `self.0.payload_field`.
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { maybe_cstr_from_ptr(self.0.payload_field) }
     }
 
@@ -61,6 +61,48 @@ impl SchemaRule {
         [self.lang_field(), self.score_field(), self.payload_field()]
             .into_iter()
             .any(|f| f == Some(key.name()))
+    }
+
+    /// Expose the underlying `filter_fields` as a [`Vec`] of &[`CStr`].
+    pub fn filter_fields(&self) -> Vec<&CStr> {
+        let len = self.filter_fields_len();
+        debug_assert!(
+            !self.0.filter_fields.is_null(),
+            "filter_fields must not be null"
+        );
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
+        let filter_fields = unsafe { slice::from_raw_parts(self.0.filter_fields, len) };
+        filter_fields
+            .iter()
+            .map(|&c|
+                // Safety: (1.) due to creation with `SchemaRule::from_raw`
+                unsafe { CStr::from_ptr(c) })
+            .collect::<Vec<_>>()
+    }
+
+    /// Expose the underlying `filter_fields_index` as a slice of ints.
+    pub fn filter_fields_index(&self) -> &[i32] {
+        // These two arrays are assumed to be of the same length.
+        let len = self.filter_fields_len();
+        debug_assert!(
+            !self.0.filter_fields_index.is_null(),
+            "filter_fields_index must not be null"
+        );
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
+        unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
+    }
+
+    /// Get the length of the underlying `filter_fields` array.
+    fn filter_fields_len(&self) -> usize {
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
+        unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
+            .try_into()
+            .expect("array_len must not exceed usize")
+    }
+
+    /// Get the underlying `type_`.
+    pub const fn type_(&self) -> DocumentType {
+        self.0.type_
     }
 }
 
@@ -88,5 +130,45 @@ const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CS
     } else {
         // Safety: Ensured by caller (1., 2., 3., 4.). Non-nullness is ensured by the call to is_null() above.
         Some(unsafe { CStr::from_ptr(ffi_field) })
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::undocumented_unsafe_blocks)]
+mod test {
+    use super::*;
+
+    use std::{ffi::CStr, mem, ptr};
+
+    use pretty_assertions::assert_eq;
+
+    /// Test filter_fields and filter_fields_index together since their lengths are coupled.
+    #[test]
+    fn fields_and_indices() {
+        let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
+        schema_rule.filter_fields = filter_fields_array(&[c"aaa", c"bbb"]);
+        let mut filter_fields_index = [10, 20];
+        schema_rule.filter_fields_index = filter_fields_index.as_mut_ptr();
+        let sut = unsafe { SchemaRule::from_raw(ptr::from_ref(&schema_rule)) };
+
+        let ff = sut.filter_fields();
+        let ffi = sut.filter_fields_index();
+
+        assert_eq!(ff.len(), 2);
+        assert_eq!(ff[0], c"aaa");
+        assert_eq!(ff[1], c"bbb");
+        assert_eq!(ffi.len(), 2);
+        assert_eq!(ffi, filter_fields_index);
+
+        unsafe { crate::mock::array_free(schema_rule.filter_fields.cast::<*mut c_char>()) }
+    }
+
+    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut c_char {
+        let temp = filter_fields
+            .iter()
+            .map(|ff| ff.as_ptr().cast_mut())
+            .collect::<Vec<_>>();
+
+        crate::mock::array_new(&temp)
     }
 }

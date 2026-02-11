@@ -9,8 +9,11 @@
 
 use crate::row::RLookupRow;
 use libc::size_t;
-use rlookup::{IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlags, SchemaRule};
+use rlookup::{
+    IndexSpec, IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule,
+};
 use std::{
+    borrow::Cow,
     ffi::{CStr, c_char},
     ptr::{self, NonNull},
     slice,
@@ -118,6 +121,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
+    let (name, flags) = handle_name_alloc_flag(name, flags);
+
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
 
@@ -153,16 +158,17 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
-    let name = unsafe {
+    let name = CStr::from_bytes_with_nul(
         // `name_len` is a value as returned by `strlen` and therefore **does not**
         // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
-    };
+        // Safety: ensured by caller (2., 3., 4., 5.)
+        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+    )
+    .unwrap();
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
@@ -201,6 +207,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
+    let (name, flags) = handle_name_alloc_flag(name, flags);
+
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
 
@@ -235,16 +243,17 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
-    // Safety: ensured by caller (2., 3., 4., 5.)
-    let name = unsafe {
+    let name = CStr::from_bytes_with_nul(
         // `name_len` is a value as returned by `strlen` and therefore **does not**
         // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
-    };
+        // Safety: ensured by caller (2., 3., 4., 5.)
+        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+    )
+    .unwrap();
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
@@ -282,12 +291,14 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
-    let name = unsafe { CStr::from_ptr(name) };
-
-    // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
+    // Safety: ensured by caller (2., 3., 4., 5.)
+    let name = unsafe { CStr::from_ptr(name) };
+
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
         .get_key_load(name, field_name, flags)
@@ -329,18 +340,19 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
     let lookup = unsafe { lookup.unwrap().as_mut() };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
-    let name = unsafe {
-        // `name_len` is a value as returned by `strlen` and therefore **does not**
-        // include the null terminator (that is why we do `name_len + 1` below)
-        let bytes = slice::from_raw_parts(name.cast::<u8>(), name_len + 1);
-
-        CStr::from_bytes_with_nul(bytes).unwrap()
-    };
-
-    // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
 
+    let name = CStr::from_bytes_with_nul(
+        // `name_len` is a value as returned by `strlen` and therefore **does not**
+        // include the null terminator (that is why we do `name_len + 1` below)
+        // Safety: ensured by caller (2., 3., 4., 5.)
+        unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len + 1) },
+    )
+    .unwrap();
+
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
+
+    let (name, flags) = handle_name_alloc_flag(name, flags);
 
     lookup
         .get_key_load(name, field_name, flags)
@@ -436,4 +448,64 @@ pub unsafe extern "C" fn RLookup_Init(
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
     // Safety: ensured by caller (1.,2.)
     unsafe { lookup.unwrap().drop_in_place() };
+}
+
+/// Initialize the lookup with fields from a Redis hash.
+///
+/// # Safety
+///
+/// 1. `search_ctx` must be a [valid], non-null pointer to an `ffi::RedisSearchCtx` that is properly initialized.
+/// 2. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+/// 3. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+/// 4. `index_spec` must be a [valid], non-null pointer to an `ffi::IndexSpec` that is properly initialized.
+///    This also applies to any of its subfields.
+/// 5. The memory pointed to by `key` must contain a valid nul terminator at the
+///    end of the string.
+/// 6. `key` must be [valid] for reads of bytes up to and including the nul terminator.
+///    This means in particular:
+///     1. The entire memory range of this `CStr` must be contained within a single allocation!
+///     2. `key` must be non-null even for a zero-length cstr.
+/// 7. The nul terminator must be within `isize::MAX` from `key`
+/// 8. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
+    search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
+    lookup: Option<NonNull<RLookup<'a>>>,
+    dst_row: Option<NonNull<RLookupRow<'a>>>,
+    index_spec: Option<NonNull<ffi::IndexSpec>>,
+    key: *const c_char,
+    status: Option<NonNull<ffi::QueryError>>,
+) -> i32 {
+    // Safety: ensured by caller (1.)
+    let search_ctx = unsafe { search_ctx.unwrap().as_mut() };
+
+    // Safety: ensured by caller (2.)
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    // Safety: ensured by caller (3.)
+    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+
+    // Safety: ensured by caller (4.)
+    let index_spec = unsafe { index_spec.unwrap().as_ref() };
+    // Safety: ensured by caller (4.)
+    let index_spec = unsafe { IndexSpec::from_raw(index_spec) };
+
+    // Safety: ensured by caller (5., 6., 7.)
+    let key = unsafe { CStr::from_ptr(key) };
+
+    // Safety: ensured by caller (8.)
+    let status = unsafe { status.unwrap().as_mut() };
+
+    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+}
+
+/// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
+fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
+    if flags.contains(RLookupKeyFlag::NameAlloc) {
+        (name.to_owned().into(), flags & !RLookupKeyFlag::NameAlloc)
+    } else {
+        (name.into(), flags)
+    }
 }

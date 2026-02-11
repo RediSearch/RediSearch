@@ -56,13 +56,13 @@ typedef enum {
 
 // Assumes the spec is locked.
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
-            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded, uint64_t blocksDenied) {
+            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded, bool ignoredLastBlock) {
   sctx->spec->stats.numRecords -= recordsRemoved;
   sctx->spec->stats.invertedSize += bytesAdded;
   sctx->spec->stats.invertedSize -= bytesCollected;
   gc->stats.totalCollected += bytesCollected;
   gc->stats.totalCollected -= bytesAdded;
-  gc->stats.gcBlocksDenied += blocksDenied;
+  gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 
 // Buff shouldn't be NULL.
@@ -178,7 +178,7 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   t_len slen = 0;
   float score = 0;
   int dist = 0;
-  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
+  while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, NULL, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, termLen, DONT_CREATE_INDEX, NULL);
@@ -497,7 +497,7 @@ error:
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork) {
-  if (info->info.blocks_ignored == 0) {
+  if (!info->info.ignored_last_block) {
     hll_set_registers(&range->hll, info->registersWithLastBlock, NR_REG_SIZE);
     if (blocksSinceFork == 0) {
       return; // No blocks were added since the fork. We're done
@@ -536,7 +536,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   currNode->range->invertedIndexSize += info->bytes_allocated;
   currNode->range->invertedIndexSize -= info->bytes_freed;
 
-  FGC_updateStats(gc, sctx, info->entries_removed, info->bytes_freed, info->bytes_allocated, info->blocks_ignored);
+  FGC_updateStats(gc, sctx, info->entries_removed, info->bytes_freed, info->bytes_allocated, info->ignored_last_block);
 
   resetCardinality(ninfo, currNode->range, blocksSinceFork);
 }
@@ -603,14 +603,14 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
                       " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
     }
-    sctx->spec->stats.numTerms--;
+    sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
     if (sctx->spec->suffix) {
       deleteSuffixTrie(sctx->spec->suffix, term, len);
     }
   }
 
-  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
 
@@ -802,7 +802,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       }
     }
 
-    FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+    FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
@@ -868,7 +868,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     info.bytes_freed += InvertedIndex_MemUsage(idx);
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
-  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
 
@@ -933,7 +933,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }
-  FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+  FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
   rm_free(empty_indicator);
@@ -1187,7 +1187,6 @@ static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
   REPLY_KVNUM("gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
 }
 
-#ifdef FTINFO_FOR_INFO_MODULES
 static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   ForkGC *gc = gcCtx;
   RedisModule_InfoBeginDictField(ctx, "gc_stats");
@@ -1200,7 +1199,6 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoAddFieldDouble(ctx, "gc_blocks_denied", (double)gc->stats.gcBlocksDenied);
   RedisModule_InfoEndDictField(ctx);
 }
-#endif
 
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
@@ -1228,9 +1226,7 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
   callbacks->renderStats = statsCb;
-  #ifdef FTINFO_FOR_INFO_MODULES
   callbacks->renderStatsForInfo = statsForInfoCb;
-  #endif
   callbacks->getInterval = getIntervalCb;
   callbacks->onDelete = deleteCb;
 

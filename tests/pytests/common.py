@@ -296,6 +296,11 @@ def getWorkersThpoolNumThreads(env):
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
+def getCoordThpoolStats(env):
+    return to_dict(env.cmd(debug_cmd(), "COORD_THREADS", "stats"))
+
+def getWorkersThpoolStatsFromAllShards(env):
+    return [getWorkersThpoolStatsFromShard(shard_conn) for shard_conn in env.getOSSMasterNodesConnectionList()]
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
@@ -752,7 +757,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            inverted_index_size = 40
+            inverted_index_size = 24
             inverted_index_meta_data = 8
             total_size += inverted_index_size + inverted_index_meta_data
             continue
@@ -779,7 +784,7 @@ def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _asse
         try:
             res = float(d2[key]) == float(value)
             if _assert:
-                env.assertTrue(res, message=msg + " value is different in key: " + key, depth=depth+1)
+                env.assertTrue(res, message=msg + " value is different in key: " + key + " expected " + str(value) + " got " + str(d2[key]), depth=depth+1)
             else:
                 if res == False:
                     return False
@@ -931,6 +936,75 @@ def allShards_setPauseRPResume(env, start_shard=1):
         result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
         results.append(result)
     return results
+
+# Coordinator Reduce Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeReduce(env, N):
+    """
+    Set the coordinator to pause before reducing the Nth result.
+    N=0: no pause
+    N=-1: pause after the last result is reduced
+    N>0: pause before the Nth result (1-based index)
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_REDUCE', N).ok()
+
+def getIsCoordReducePaused(env):
+    """Check if the coordinator is currently paused during reduce."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_COORD_REDUCE_PAUSED')
+
+def setCoordReduceResume(env):
+    """Resume the coordinator from a reduce pause."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_COORD_REDUCE_RESUME').ok()
+
+def getCoordReduceCount(env):
+    """Get the current count of results reduced so far."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_COORD_REDUCE_COUNT')
+
+def resetCoordReduceDebug(env):
+    """Reset the coordinator reduce debug context (set N=0 and resume).
+
+    Note: setCoordReduceResume will error if the coordinator is not currently paused,
+    which is expected in cleanup scenarios where the coordinator already resumed.
+    """
+    setPauseBeforeReduce(env, 0)
+    try:
+        # Use env.cmd here since we need to catch the exception
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_COORD_REDUCE_RESUME')
+    except Exception:
+        pass  # Ignore error if coordinator is not paused
+
+def isEnableAssertEnabled(env):
+    """
+    Check if ENABLE_ASSERT is enabled in the build.
+    Returns True if ENABLE_ASSERT commands are available, False otherwise.
+    """
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_COORD_REDUCE_PAUSED')
+        return True
+    except Exception:
+        return False
+
+def skipIfNoEnableAssert(env):
+    """
+    Skip the current test if ENABLE_ASSERT is not enabled in the build.
+    Call this at the beginning of tests that require ENABLE_ASSERT functionality.
+    """
+    if not isEnableAssertEnabled(env):
+        env.debugPrint("Skipping test: ENABLE_ASSERT is not enabled", force=True)
+        env.skip()
+
+def require_enable_assert(f):
+    """
+    Decorator to skip tests if ENABLE_ASSERT is not enabled in the build.
+    Usage: @require_enable_assert
+    """
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if not isEnableAssertEnabled(env):
+            env.debugPrint(f"Skipping {f.__name__}: ENABLE_ASSERT is not enabled", force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
 
 class vecsimMockTimeoutContext:
     """Context manager for enabling/disabling VECSIM mock timeout on all shards"""

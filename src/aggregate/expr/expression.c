@@ -9,7 +9,7 @@
 #include "expression.h"
 #include "result_processor.h"
 #include "rlookup.h"
-#include "profile.h"
+#include "profile/profile.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -236,7 +236,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
+      QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", RLookupKey_GetName(e->lookupObj));
     }
     RSValue_SetNull(res);
     return EXPR_EVAL_NULL;

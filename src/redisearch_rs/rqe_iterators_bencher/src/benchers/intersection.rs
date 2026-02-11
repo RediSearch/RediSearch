@@ -12,13 +12,13 @@
 //! Compares C and Rust implementations of the intersection iterator
 //! using SortedIdList as child iterators.
 
-use std::time::Duration;
+use std::{hint::black_box, time::Duration};
 
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{Intersection, RQEIterator, id_list::SortedIdList};
+use rqe_iterators::{Intersection, RQEIterator, id_list::IdListSorted};
 
 use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
 
@@ -65,9 +65,9 @@ fn varying_size_ids() -> Vec<Vec<u64>> {
 }
 
 /// Convert ID vectors to Rust SortedIdList iterators.
-fn ids_to_rust_children(ids: Vec<Vec<u64>>) -> Vec<SortedIdList<'static>> {
+fn ids_to_rust_children(ids: Vec<Vec<u64>>) -> Vec<IdListSorted<'static>> {
     ids.into_iter()
-        .map(|id_vec| SortedIdList::new(id_vec))
+        .map(|id_vec| IdListSorted::new(id_vec))
         .collect()
 }
 
@@ -135,7 +135,7 @@ impl Bencher {
                 || ffi::QueryIterator::new_intersection(&make_ids(), WEIGHT),
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -149,7 +149,7 @@ impl Bencher {
                 || Intersection::new(ids_to_rust_children(make_ids())),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -168,7 +168,7 @@ impl Bencher {
                 || ffi::QueryIterator::new_intersection(&make_ids(), WEIGHT),
                 |it| {
                     while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                     it.free();
                 },
@@ -182,7 +182,7 @@ impl Bencher {
                 || Intersection::new(ids_to_rust_children(make_ids())),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + STEP) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,

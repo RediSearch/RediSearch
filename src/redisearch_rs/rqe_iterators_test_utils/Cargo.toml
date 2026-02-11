@@ -1,0 +1,20 @@
+[package]
+name = "rqe_iterators_test_utils"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ffi.workspace = true
+field.workspace = true
+inverted_index.workspace = true
+inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = ["test_utils"] }
+libc.workspace = true
+query_error.workspace = true
+redis_mock.workspace = true
+varint_ffi = { path = "../c_entrypoint/varint_ffi" }
+workspace_hack.workspace = true

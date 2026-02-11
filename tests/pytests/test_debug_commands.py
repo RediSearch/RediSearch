@@ -67,6 +67,8 @@ class TestDebugCommands(object):
             'VECSIM_MOCK_TIMEOUT',
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
+            'DISK_IO_CONTROL',
+            'REGISTER_TEST_SCORERS',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
@@ -82,7 +84,8 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
+                        'REGISTER_TEST_SCORERS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -368,6 +371,53 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').error().contains('Topology updater is already running')
 
+@skip(cluster=False)
+def testCoordThreadsStats(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    # Get initial stats
+    orig_stats = getCoordThpoolStats(env)
+
+    env.assertEqual(orig_stats['totalJobsDone'], 0)
+    env.assertEqual(orig_stats['totalPendingJobs'], 0)
+
+    # Pause coordinator thread pool
+    env.expect(debug_cmd(), 'COORD_THREADS', 'pause').ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+        'Timeout waiting for coordinator threads to pause')
+
+    # Run a search query in background (will be queued)
+    def run_search():
+        try:
+            env.cmd('FT.SEARCH', 'idx', '*')
+        except:
+            pass
+    t = threading.Thread(target=run_search)
+    t.start()
+
+
+    # Wait for pending jobs to increase by 1
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == orig_stats['totalPendingJobs'] + 1, {}),
+        'Timeout waiting for pending jobs to increase')
+
+    # Resume and wait for job to complete
+    env.expect(debug_cmd(), 'COORD_THREADS', 'resume').ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+        'Timeout waiting for coordinator threads to resume')
+    t.join(timeout=10)
+
+    # Wait for totalJobsDone to increase and totalPendingJobs to decrease
+    # Total jobs done should increase by 2 (fanout to shards + reduce)
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalJobsDone'] == orig_stats['totalJobsDone'] + 2, {}),
+        'Timeout waiting for totalJobsDone to increase')
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == 0, {}),
+        'Timeout waiting for totalPendingJobs to decrease')
+
 @skip(cluster=True)
 def testSpecIndexesInfo(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -384,7 +434,8 @@ def testSpecIndexesInfo(env: Env):
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
 
     # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 49
+    # and 8 bytes of header for the block thin vector
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 48 + 1 + 8
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
 

@@ -9,6 +9,7 @@
 
 #include "rmutil/alloc.h"
 #include "iterator_util.h"
+#include "index_utils.h"
 
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
@@ -180,11 +181,11 @@ protected:
   }
 
 public:
-  void CreateIntersectionIterator(const std::vector<std::string> &terms, int max_slop = -1, bool in_order = false) {
+  void CreateIntersectionIterator(const std::vector<std::string> &terms, const RedisSearchCtx *sctx, int max_slop = -1, bool in_order = false) {
     QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * terms.size());
     for (size_t i = 0; i < terms.size(); i++) {
       ASSERT_NE(invertedIndexes.find(terms[i]), invertedIndexes.end()) << "Term " << terms[i] << " not found in inverted indexes";
-      children[i] = NewInvIndIterator_TermQuery(invertedIndexes[terms[i]], NULL, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NULL, 1.0);
+      children[i] = NewInvIndIterator_TermQuery(invertedIndexes[terms[i]], sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NULL, 1.0);
     }
     ii_base = NewIntersectionIterator(children, terms.size(), max_slop, in_order, 1.0);
   }
@@ -253,8 +254,9 @@ TEST_F(IntersectionIteratorTest, Slop) {
   AddDocument({"bar", "foo"});
   AddDocument({"foo", "baz", "bar"});
 
+  MockQueryEvalCtx mockQctx(4, 4);
   // Create an intersection iterator with slop
-  CreateIntersectionIterator({"foo", "bar"}, 0, false);
+  CreateIntersectionIterator({"foo", "bar"}, &mockQctx.sctx, 0, false);
   ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
   ASSERT_EQ(ii_base->NumEstimated(ii_base), 3); // 3 documents match "bar"
 
@@ -293,8 +295,9 @@ TEST_F(IntersectionIteratorTest, InOrder) {
   AddDocument({"bar", "foo"});
   AddDocument({"foo", "baz", "bar"});
 
+  MockQueryEvalCtx mockQctx(4, 4);
   // Create an intersection iterator with in-order
-  CreateIntersectionIterator({"foo", "bar"}, -1, true);
+  CreateIntersectionIterator({"foo", "bar"}, &mockQctx.sctx, -1, true);
   ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
   ASSERT_EQ(ii_base->NumEstimated(ii_base), 3); // 3 documents match "bar"
 
@@ -333,8 +336,9 @@ TEST_F(IntersectionIteratorTest, SlopAndOrder) {
   AddDocument({"bar", "foo"});
   AddDocument({"foo", "baz", "bar"});
 
+  MockQueryEvalCtx mockQctx(4, 4);
   // Create an intersection iterator with slop and in-order
-  CreateIntersectionIterator({"foo", "bar"}, 0, true);
+  CreateIntersectionIterator({"foo", "bar"}, &mockQctx.sctx, 0, true);
   ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
   ASSERT_EQ(ii_base->NumEstimated(ii_base), 3); // 3 documents match "bar"
 
@@ -420,21 +424,17 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   children[2] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   // Create a READER Iterator and set the `isWildCard` flag so that it is removed by the reducer
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(Index_DocIdsOnly), &memsize);
   ASSERT_TRUE(idx != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
-      .fieldMask = 1,
-      .freq = 1,
-      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
+      .data = {.tag = RSResultData_Virtual},
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  // Create an iterator that reads only entries with field mask 2
-  QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
-  InvIndIterator* invIdxIt = (InvIndIterator *)iterator;
-  invIdxIt->isWildcard = true;
+  MockQueryEvalCtx mockQctx(1000, 1000);
+  QueryIterator *iterator = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   children[3] = iterator;
 
   size_t num = 4;

@@ -47,6 +47,11 @@ jobs:
         with:
           github_token: ${{ steps.generate-app-token.outputs.token }}
           pull_title: '[${target_branch}] ${pull_title}'
+          pull_description: |
+            # Description
+            Backport of #${pull_number} to `${target_branch}`.
+
+            ${pull_description}
           merge_commits: 'skip'
           copy_assignees: true
           add_author_as_assignee: true

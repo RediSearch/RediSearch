@@ -155,3 +155,12 @@ int ConcurrentSearch_resume() {
   redisearch_thpool_resume_threads(threadpools_g[0]);
   return REDISMODULE_OK;
 }
+
+thpool_stats ConcurrentSearch_getStats() {
+  thpool_stats stats = {0};
+  if (!threadpools_g) {
+    return stats;
+  }
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_get_stats(threadpools_g[0]);
+}

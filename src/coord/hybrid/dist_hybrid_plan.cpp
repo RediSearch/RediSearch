@@ -12,10 +12,10 @@
 #include "hybrid/hybrid_lookup_context.h"
 
 
-static void pushDepleter(QueryProcessingCtx *qctx, ResultProcessor *depleter) {
-  depleter->upstream = qctx->endProc;
-  depleter->parent = qctx;
-  qctx->endProc = depleter;
+static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  rp->upstream = qctx->endProc;
+  rp->parent = qctx;
+  qctx->endProc = rp;
 }
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
@@ -51,7 +51,10 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
       ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-      pushDepleter(qctx, depleter);
+      pushResultProcessor(qctx, depleter);
+      if (qctx->isProfile) {
+        pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));
+      }
   }
 
   // Release the sync reference as depleters now hold their own references
@@ -67,10 +70,10 @@ static void serializeUnresolvedKeys(arrayof(char*) *target, std::vector<const RL
     array_append(*target, buffer);
     for (auto kk : keys) {
       // json paths should be serialized as is to avoid weird names
-      if (kk->name[0] == '$') {
-        buffer = rm_strndup(kk->name, kk->name_len);
+      if (RLookupKey_GetName(kk)[0] == '$') {
+        buffer = rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
       } else {
-        rm_asprintf(&buffer, "@%.*s", (int)kk->name_len, kk->name);
+        rm_asprintf(&buffer, "@%.*s", (int)RLookupKey_GetNameLen(kk), RLookupKey_GetName(kk));
       }
       array_append(*target, buffer);
     }
@@ -81,7 +84,6 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     RLookup **lookups,
     QueryError *status) {
-
     // The score alias for text is not part of a step to be distributed at this present time
     // We need to open the alias in the distributed lookup
     AREQ *searchReq = hreq->requests[SEARCH_INDEX];
@@ -103,8 +105,13 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       return NULL;
     }
 
-    // Add keys from all source lookups to create unified schema before opening the score key
-    HybridRequest_SynchronizeLookupKeys(hreq);
+    // Add keys from all source lookups to create unified schema before opening
+    // the score key.
+    // Skip for 'LOAD *' - keys are created dynamically during loading and will
+    // be synchronized lazily in RLookupRow_WriteFieldsFrom when first needed.
+    if (!(hreq->reqflags & QEXEC_AGG_LOAD_ALL)) {
+      HybridRequest_SynchronizeLookupKeys(hreq);
+    }
 
     // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);
@@ -112,9 +119,10 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       return NULL;
     }
 
-    tailLookup->options |= RLOOKUP_OPT_UNRESOLVED_OK;
+    RLookup_EnableOptions(tailLookup, RLOOKUP_OPT_UNRESOLVED_OK);
     rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
-    tailLookup->options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+    RLookup_DisableOptions(tailLookup, RLOOKUP_OPT_UNRESOLVED_OK);
+
     if (rc != REDISMODULE_OK) {
       // The error is set at the tail, copy it into status
       QueryError_CloneFrom(&hreq->tailPipelineError, status);
@@ -123,11 +131,11 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     std::vector<const RLookupKey *> unresolvedKeys;
-    for (RLookupKey *kk = tailLookup->head; kk; kk = kk->next) {
-      if (kk->flags & RLOOKUP_F_UNRESOLVED) {
+    RLOOKUP_FOREACH(kk, tailLookup, {
+      if (RLookupKey_GetFlags(kk) & RLOOKUP_F_UNRESOLVED) {
         unresolvedKeys.push_back(kk);
       }
-    }
+    });
 
     arrayof(char*) serialized = NULL;
     for (int i = 0; i < hreq->nrequests; i++) {
@@ -136,7 +144,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       RS_ASSERT(dstp);
       for (const RLookupKey *kk : unresolvedKeys) {
         // Add the unresolved keys to the upstream lookup since we will add them to the LOAD clause
-        RLookup_GetKey_Write(&dstp->lk, kk->name, kk->flags & ~RLOOKUP_F_UNRESOLVED);
+        RLookup_GetKey_Write(&dstp->lk, RLookupKey_GetName(kk), RLookupKey_GetFlags(kk) & ~RLOOKUP_F_UNRESOLVED);
       }
       serializeUnresolvedKeys(&dstp->serialized, unresolvedKeys);
       lookups[i] = &dstp->lk;

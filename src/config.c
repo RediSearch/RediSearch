@@ -23,6 +23,7 @@
 #include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
+#include "search_disk.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -453,11 +454,15 @@ CONFIG_SETTER(setWorkThreads) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
+  if (newNumThreads < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
+    RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
+    newNumThreads = MIN_WORKER_THREADS_FLEX;
+  }
   config->numWorkerThreads = newNumThreads;
 
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
-  // It is safe to set it even if change in worker threads is asynchronous, only the ration Connections/real threads may be not real for a transitional time
+  // It is safe to set it even if change in worker threads is asynchronous, only the ratio Connections/real threads may be not real for a transitional time
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
@@ -470,12 +475,18 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 int set_workers(const char *name, long long val, void *privdata,
 RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
+    RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
+    val = MIN_WORKER_THREADS_FLEX;
+  }
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
-  // It is safe to set it even if change in worker threads is asynchronous, only the ration Connections/real threads may be not real for a transitional time
+  // It is safe to set it even if change in worker threads is asynchronous, only the ratio Connections/real threads may be not real for a transitional time
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
@@ -1767,6 +1778,8 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
     return TimeoutPolicy_Return;
   } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_Fail])) {
     return TimeoutPolicy_Fail;
+  } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_ReturnStrict])) {
+    return TimeoutPolicy_ReturnStrict;
   } else {
     return TimeoutPolicy_Invalid;
   }
@@ -2125,7 +2138,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterEnumConfig(
       ctx, "search-on-timeout", TimeoutPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
-      on_timeout_vals, on_timeout_enums, 2,
+      on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
       (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
     )

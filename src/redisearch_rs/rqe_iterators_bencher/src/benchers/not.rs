@@ -9,10 +9,10 @@
 
 //! Benchmark NOT iterator (non-optimized version only).
 
-use std::time::Duration;
+use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not::Not};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::Not};
 
 use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
 
@@ -66,7 +66,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -82,7 +82,7 @@ impl Bencher {
                 },
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -101,9 +101,9 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 1% of docs (every 100th doc)
-                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
@@ -111,7 +111,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -128,7 +128,7 @@ impl Bencher {
                 },
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -147,9 +147,9 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 99% of docs (all except every 100th doc)
-                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
@@ -157,7 +157,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -174,7 +174,7 @@ impl Bencher {
                 },
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -202,7 +202,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -218,7 +218,7 @@ impl Bencher {
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -237,9 +237,9 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
@@ -247,7 +247,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -264,7 +264,7 @@ impl Bencher {
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -283,9 +283,9 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
@@ -293,7 +293,7 @@ impl Bencher {
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -310,7 +310,7 @@ impl Bencher {
                 },
                 |it| {
                     while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
+                        black_box(it.current());
                     }
                 },
                 criterion::BatchSize::SmallInput,

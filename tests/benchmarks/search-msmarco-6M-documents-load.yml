@@ -1,0 +1,31 @@
+version: 0.5
+name: "search-msmarco-6M-documents-load"
+description: "MS MARCO 6M documents - Data ingestion and indexing benchmark"
+
+metadata:
+  component: "search"
+  dataset: "MS MARCO document-v2"
+  doc_count: 6000000
+  use_case: "Large-scale document search and information retrieval"
+
+# Extended timeout for 6M document ingestion
+timeout_seconds: 3600
+dataset_load_timeout_secs: 3600
+
+setups:
+  - oss-cluster-08-primaries-250gb-threads-8
+
+remote:
+  - setup: redisearch-msmarco
+
+dbconfig:
+  - dataset_name: "6M-msmarco-documents"
+  - init_commands:
+    - '"FT.CREATE" "ms_marco_idx" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "url" "TEXT" "title" "TEXT" "WEIGHT" "2.0" "headings" "TEXT" "WEIGHT" "1.5" "body" "TEXT" "tags" "TAG" "SEPARATOR" ","'
+clientconfig:
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 5s
+    - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
+    - max-token-size-mb: 10

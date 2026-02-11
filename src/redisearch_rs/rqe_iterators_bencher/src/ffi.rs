@@ -7,49 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod bindings {
-    #![allow(non_snake_case)]
-    #![allow(non_upper_case_globals)]
-    #![allow(non_camel_case_types)]
-    #![allow(unsafe_op_in_unsafe_fn)]
-    #![allow(improper_ctypes)]
-    #![allow(dead_code)]
-    #![allow(clippy::ptr_offset_with_cast)]
-    #![allow(clippy::useless_transmute)]
-    #![allow(clippy::missing_const_for_fn)]
-    #![allow(clippy::upper_case_acronyms)]
-
-    use ffi::{NumericFilter, RSDocumentMetadata, t_fieldIndex, t_fieldMask};
-    use field::{FieldFilterContext, FieldMaskOrIndex};
-    use inverted_index::t_docId;
-
-    // Type aliases for C bindings - types without lifetimes for C interop
-    pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
-    pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
-    pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
-
-    // Type alias to Rust defined inverted index types
-    pub use inverted_index_ffi::{
-        InvertedIndex_Free, InvertedIndex_WriteEntryGeneric, InvertedIndex_WriteNumericEntry,
-        NewInvertedIndex_Ex,
-    };
-    pub type InvertedIndex = inverted_index_ffi::InvertedIndex;
-    pub type IndexReader = inverted_index_ffi::IndexReader<'static>;
-
-    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-}
-
-pub use bindings::{
+pub use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK, ValidateStatus,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
+    RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_fieldIndex,
 };
-use ffi::{RedisModule_Alloc, RedisModule_Free};
-use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{NumericFilter, RSIndexResult, t_docId};
-
-use std::ffi::c_void;
-use std::ptr;
+use std::{
+    ffi::c_void,
+    ptr::{self, NonNull},
+};
 
 // Direct C benchmark functions that eliminate FFI overhead
 // by implementing the benchmark loop entirely in C
@@ -91,27 +59,38 @@ unsafe extern "C" {
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
-pub struct QueryIterator(*mut bindings::QueryIterator);
+pub struct QueryIterator(*mut ffi::QueryIterator);
 
 impl QueryIterator {
     #[inline(always)]
     pub unsafe fn new_numeric(
-        ii: *mut bindings::InvertedIndex,
+        ii: *mut ffi::InvertedIndex,
+        sctx: Option<NonNull<ffi::RedisSearchCtx>>,
+        index: Option<t_fieldIndex>,
         filter: Option<&NumericFilter>,
     ) -> Self {
-        let field_ctx = FieldFilterContext {
-            field: FieldMaskOrIndex::index_invalid(),
-            predicate: FieldExpirationPredicate::Default,
+        let sctx = sctx
+            .map(|sctx| sctx.as_ptr().cast())
+            .unwrap_or(ptr::null_mut());
+        let index = index.unwrap_or(ffi::RS_INVALID_FIELD_INDEX);
+        let field_ctx = ffi::FieldFilterContext {
+            field: ffi::FieldMaskOrIndex {
+                __bindgen_anon_1: ffi::FieldMaskOrIndex__bindgen_ty_1 {
+                    index_tag: 0, // FieldMaskOrIndex_Index = 0
+                    index,
+                },
+            },
+            predicate: ffi::FieldExpirationPredicate_FIELD_EXPIRATION_PREDICATE_DEFAULT,
         };
         let flt = filter
             .map(|filter| filter as *const NumericFilter as *const _)
             .unwrap_or_default();
 
         Self(unsafe {
-            bindings::NewInvIndIterator_NumericQuery(
+            ffi::NewInvIndIterator_NumericQuery(
                 ii,
-                ptr::null(),
-                &field_ctx as _,
+                sctx,
+                &field_ctx,
                 flt,
                 ptr::null(),
                 0.0,
@@ -148,7 +127,7 @@ impl QueryIterator {
     pub fn new_optional_virtual_only(max_id: u64, weight: f64) -> Self {
         let child = std::ptr::null_mut();
         let query_eval_ctx = new_redis_search_ctx(max_id);
-        let it = unsafe { bindings::NewOptionalIterator(child, query_eval_ctx, weight) };
+        let it = unsafe { ffi::NewOptionalIterator(child, query_eval_ctx, weight) };
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
     }
@@ -156,7 +135,7 @@ impl QueryIterator {
     /// Create an empty iterator (returns no results).
     #[inline(always)]
     pub fn new_empty() -> Self {
-        Self(iterators_ffi::empty::NewEmptyIterator() as *mut bindings::QueryIterator)
+        Self(iterators_ffi::empty::NewEmptyIterator())
     }
 
     /// Create an ID list iterator from a vector of sorted document IDs.
@@ -175,10 +154,7 @@ impl QueryIterator {
             ptr::null_mut()
         };
 
-        Self(
-            unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) }
-                as *mut bindings::QueryIterator,
-        )
+        Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) })
     }
 
     /// Create a non-optimized NOT iterator with the given child and max_doc_id.
@@ -189,29 +165,30 @@ impl QueryIterator {
         // The C code checks: optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all
         // By zeroing everything, we ensure spec->rule is NULL, so optimized = false
         let query_eval_ctx = new_redis_search_ctx(max_doc_id);
-        let timeout = bindings::timespec {
+        let timeout = ffi::timespec {
             tv_sec: 0,
             tv_nsec: 0,
         };
 
-        let it = unsafe {
-            bindings::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx)
-        };
+        let it =
+            unsafe { ffi::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx) };
 
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
     }
 
     #[inline(always)]
-    pub unsafe fn new_term(ii: *mut bindings::InvertedIndex) -> Self {
+    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex) -> Self {
         Self(unsafe {
-            bindings::NewInvIndIterator_TermQuery(
-                ii,
-                ptr::null(),
-                FieldMaskOrIndex::mask_all(),
-                ptr::null_mut(),
-                1.0,
-            )
+            let field_mask_ffi = ffi::FieldMaskOrIndex {
+                __bindgen_anon_2: ffi::FieldMaskOrIndex__bindgen_ty_2 {
+                    mask_tag: 1, // FieldMaskOrIndex_Mask = 1
+                    __bindgen_padding_0: 0,
+                    mask: ffi::RS_FIELDMASK_ALL,
+                },
+            };
+
+            ffi::NewInvIndIterator_TermQuery(ii, ptr::null(), field_mask_ffi, ptr::null_mut(), 1.0)
         })
     }
 
@@ -227,8 +204,8 @@ impl QueryIterator {
         // Allocate array of child iterator pointers using RedisModule_Alloc
         let children_ptr = unsafe {
             RedisModule_Alloc.unwrap()(
-                num_children * std::mem::size_of::<*mut bindings::QueryIterator>(),
-            ) as *mut *mut bindings::QueryIterator
+                num_children * std::mem::size_of::<*mut ffi::QueryIterator>(),
+            ) as *mut *mut ffi::QueryIterator
         };
 
         for (i, ids) in children_ids.iter().enumerate() {
@@ -242,8 +219,9 @@ impl QueryIterator {
             }
 
             // Create child iterator
-            let child =
-                unsafe { bindings::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0) };
+            let child = unsafe {
+                iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0)
+            };
             unsafe {
                 *children_ptr.add(i) = child;
             }
@@ -251,7 +229,7 @@ impl QueryIterator {
 
         // Create intersection iterator (takes ownership of children array)
         Self(unsafe {
-            bindings::NewIntersectionIterator(
+            ffi::NewIntersectionIterator(
                 children_ptr,
                 num_children,
                 -1,    // max_slop: -1 means no slop validation
@@ -304,35 +282,33 @@ impl QueryIterator {
     #[inline(always)]
     pub fn current(&self) -> Option<&RSIndexResult<'static>> {
         let current = unsafe { (*self.0).current };
-        unsafe { current.as_ref() }
+        unsafe { current.cast::<RSIndexResult>().as_ref() }
     }
 }
 
-fn new_redis_search_ctx(max_id: u64) -> *mut bindings::QueryEvalCtx {
+fn new_redis_search_ctx(max_id: u64) -> *mut ffi::QueryEvalCtx {
     let query_eval_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::QueryEvalCtx>())
-            as *mut bindings::QueryEvalCtx
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::QueryEvalCtx>())
+            as *mut ffi::QueryEvalCtx
     };
     unsafe {
         (*query_eval_ctx) = std::mem::zeroed();
     }
     let doc_table = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::DocTable>())
-            as *mut bindings::DocTable
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::DocTable>()) as *mut ffi::DocTable
     };
     unsafe {
         (*doc_table) = std::mem::zeroed();
     }
     let search_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::RedisSearchCtx>())
-            as *mut bindings::RedisSearchCtx
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
+            as *mut ffi::RedisSearchCtx
     };
     unsafe {
         (*search_ctx) = std::mem::zeroed();
     }
     let spec = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<bindings::IndexSpec>())
-            as *mut bindings::IndexSpec
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
     };
     unsafe {
         (*spec) = std::mem::zeroed();
@@ -355,7 +331,7 @@ fn new_redis_search_ctx(max_id: u64) -> *mut bindings::QueryEvalCtx {
     query_eval_ctx
 }
 
-fn free_redis_search_ctx(ctx: *mut bindings::QueryEvalCtx) {
+fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
     unsafe {
         RedisModule_Free.unwrap()((*(*ctx).sctx).spec as *mut c_void);
     };
@@ -433,20 +409,20 @@ impl QueryIterator {
 
 /// Simple wrapper around the C InvertedIndex.
 /// All methods are inlined to avoid the overhead when benchmarking.
-pub struct InvertedIndex(pub *mut bindings::InvertedIndex);
+pub struct InvertedIndex(pub *mut ffi::InvertedIndex);
 
 impl InvertedIndex {
     #[inline(always)]
-    pub fn new(flags: bindings::IndexFlags) -> Self {
+    pub fn new(flags: ffi::IndexFlags) -> Self {
         let mut memsize = 0;
-        let ptr = bindings::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
-        Self(ptr)
+        let ptr = inverted_index_ffi::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
+        Self(ptr.cast())
     }
 
     #[inline(always)]
     pub fn write_numeric_entry(&self, doc_id: u64, value: f64) {
         unsafe {
-            bindings::InvertedIndex_WriteNumericEntry(self.0, doc_id, value);
+            inverted_index_ffi::InvertedIndex_WriteNumericEntry(self.0.cast(), doc_id, value);
         }
     }
 
@@ -468,13 +444,16 @@ impl InvertedIndex {
             freq,
         );
         unsafe {
-            bindings::InvertedIndex_WriteEntryGeneric(self.0, &record as *const _ as *mut _);
+            inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                self.0.cast(),
+                &record as *const _ as *mut _,
+            );
         }
     }
 
     #[inline(always)]
     pub fn iterator_numeric(&self, filter: Option<&NumericFilter>) -> QueryIterator {
-        unsafe { QueryIterator::new_numeric(self.0, filter) }
+        unsafe { QueryIterator::new_numeric(self.0, None, None, filter) }
     }
 
     #[inline(always)]
@@ -486,7 +465,7 @@ impl InvertedIndex {
 impl Drop for InvertedIndex {
     #[inline(always)]
     fn drop(&mut self) {
-        unsafe { bindings::InvertedIndex_Free(self.0) };
+        unsafe { inverted_index_ffi::InvertedIndex_Free(self.0.cast()) };
     }
 }
 
@@ -548,7 +527,7 @@ impl<'a> QueryTermBuilder<'a> {
 #[cfg(not(miri))]
 mod tests {
     use super::*;
-    use bindings::{
+    use ffi::{
         IndexFlags_Index_StoreNumeric, IteratorStatus_ITERATOR_EOF,
         IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK, ValidateStatus_VALIDATE_OK,
     };
@@ -560,7 +539,7 @@ mod tests {
         ii.write_numeric_entry(10, 10.0);
         ii.write_numeric_entry(100, 100.0);
 
-        let it = unsafe { QueryIterator::new_numeric(ii.0, None) };
+        let it = unsafe { QueryIterator::new_numeric(ii.0, None, None, None) };
         assert_eq!(it.num_estimated(), 3);
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
@@ -594,7 +573,7 @@ mod tests {
             ..Default::default()
         };
 
-        let it = unsafe { QueryIterator::new_numeric(ii.0, Some(&filter)) };
+        let it = unsafe { QueryIterator::new_numeric(ii.0, None, None, Some(&filter)) };
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
         assert_eq!(it.current().unwrap().doc_id, 2);

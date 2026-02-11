@@ -619,27 +619,22 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   // Create a mock QueryEvalCtx
   MockQueryEvalCtx ctx(maxDocId, numDocs);
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(Index_DocIdsOnly), &memsize);
   ASSERT_TRUE(idx != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
-      .fieldMask = 1,
-      .freq = 1,
-      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
+      .data = {.tag = RSResultData_Virtual},
     };
     InvertedIndex_WriteEntryGeneric(idx, &res);
   }
-  // Create an iterator that reads only entries with field mask 2
-  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.mask_tag = FieldMaskOrIndex_Mask, .mask = 2}, nullptr, 1.0);
-  InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
-  invIdxIt->isWildcard = true;
-
+  MockQueryEvalCtx mockQctx(1000, 1000);
+  QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   // Create optional iterator with wildcard child - should return the child directly
   QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, 2.0);
 
   // Verify it's the same iterator (optimization returns child directly)
-  ASSERT_TRUE(it->type == INV_IDX_ITERATOR);
+  ASSERT_TRUE(it->type == INV_IDX_WILDCARD_ITERATOR);
   ASSERT_EQ(it, wildcardChild);
   it->Free(it);
   InvertedIndex_Free(idx);

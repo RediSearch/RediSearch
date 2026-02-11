@@ -9,13 +9,13 @@
 
 //! Benchmark ID-list iterator.
 
-use std::time::Duration;
+use std::{hint::black_box, time::Duration};
 
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{RQEIterator, id_list::SortedIdList};
+use rqe_iterators::{RQEIterator, id_list::IdListSorted};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -69,12 +69,12 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect();
-                    SortedIdList::new(data)
+                    let data: Vec<_> = (1..1_000_000).collect();
+                    IdListSorted::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -85,12 +85,12 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    SortedIdList::new(data)
+                    let data: Vec<_> = (1..1_000_000).map(|x| x * 1000).collect();
+                    IdListSorted::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -103,12 +103,12 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect();
-                    SortedIdList::new(data)
+                    let data: Vec<_> = (1..1_000_000).collect();
+                    IdListSorted::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -120,12 +120,12 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    SortedIdList::new(data)
+                    let data: Vec<_> = (1..1_000_000).map(|x| x * 1000).collect();
+                    IdListSorted::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,

@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
+
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use sorting_vector::RSSortingVector;
 use std::{
@@ -132,9 +134,9 @@ struct WriteKeyMock<'a> {
 }
 
 impl<'a> WriteKeyMock<'a> {
-    fn new(rlookup: &RLookup<'_>) -> Self {
+    const fn new(rlookup: &RLookup<'_>) -> Self {
         Self {
-            row: RLookupRow::new(&rlookup),
+            row: RLookupRow::new(rlookup),
             num_resize: 0,
         }
     }
@@ -251,20 +253,26 @@ fn get_item_dynamic_values_success() {
     let key2 = create_test_key(&rlookup, 1, 0, RLookupKeyFlags::empty());
     row.write_key(
         &key1,
-        RSValueMock::create_string("dynamic_value_1".to_string()),
+        RSValueMock::create_string(b"dynamic_value_1".to_vec()),
     );
     row.write_key(
         &key2,
-        RSValueMock::create_string("dynamic_value_2".to_string()),
+        RSValueMock::create_string(b"dynamic_value_2".to_vec()),
     );
 
     let result = row.get(&key2);
     assert!(result.is_some());
-    assert_eq!(result.unwrap().as_str(), Some("dynamic_value_2"));
+    assert_eq!(
+        result.unwrap().as_str_bytes(),
+        Some("dynamic_value_2".as_bytes())
+    );
 
     let result = row.get(&key1);
     assert!(result.is_some());
-    assert_eq!(result.unwrap().as_str(), Some("dynamic_value_1"));
+    assert_eq!(
+        result.unwrap().as_str_bytes(),
+        Some("dynamic_value_1".as_bytes())
+    );
 }
 
 #[test]
@@ -272,12 +280,12 @@ fn get_item_static_values_success() {
     let rlookup = RLookup::new();
 
     // Test case 2: Successfully retrieve item from sorting vector
-    let sv_value1 = RSValueMock::create_string("static_value_1".to_string());
-    let sv_value2 = RSValueMock::create_string("static_value_2".to_string());
+    let sv_value1 = RSValueMock::create_string(b"static_value_1".to_vec());
+    let sv_value2 = RSValueMock::create_string(b"static_value_2".to_vec());
     let sv = RSSortingVector::from_iter([sv_value1, sv_value2]);
 
     let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup);
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -285,7 +293,10 @@ fn get_item_static_values_success() {
 
     let result = row.get(&key);
     assert!(result.is_some());
-    assert_eq!(result.unwrap().as_str(), Some("static_value_2"));
+    assert_eq!(
+        result.unwrap().as_str_bytes(),
+        Some("static_value_2".as_bytes())
+    );
 }
 
 #[test]
@@ -293,11 +304,11 @@ fn get_item_missing_svsrc_flag() {
     let rlookup = RLookup::new();
 
     // Test case 3: SvSrc flag missing, should return None
-    let sv_value = RSValueMock::create_string("static_value".to_string());
+    let sv_value = RSValueMock::create_string(b"static_value".to_vec());
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new(&rlookup);
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let key = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty()); // No SvSrc flag
 
@@ -312,7 +323,7 @@ fn get_item_dynamic_out_of_bounds() {
     // Test case 4: Dynamic values index out of bounds
     let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup);
     let k1 = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty());
-    row.write_key(&k1, RSValueMock::create_string("dynamic_value".to_string()));
+    row.write_key(&k1, RSValueMock::create_string(b"dynamic_value".to_vec()));
 
     let key_out_of_bounds = create_test_key(&rlookup, 5, 0, RLookupKeyFlags::empty()); // Out of bounds
 
@@ -325,11 +336,11 @@ fn get_item_static_out_of_bounds() {
     let rlookup = RLookup::new();
 
     // Test case 5: Sorting vector index out of bounds
-    let sv_value = RSValueMock::create_string("static_value".to_string());
+    let sv_value = RSValueMock::create_string(b"static_value".to_vec());
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new(&rlookup);
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -359,12 +370,12 @@ fn get_item_empty_dynamic_valid_static() {
     let rlookup = RLookup::new();
 
     // Test case 7: Empty dynamic values but valid sorting vector access
-    let sv_value = RSValueMock::create_string("static_value".to_string());
+    let sv_value = RSValueMock::create_string(b"static_value".to_vec());
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new(&rlookup);
     // No dynamic values added
-    row.set_sorting_vector(&sv);
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -372,7 +383,10 @@ fn get_item_empty_dynamic_valid_static() {
 
     let result = row.get(&key);
     assert!(result.is_some());
-    assert_eq!(result.unwrap().as_str(), Some("static_value"));
+    assert_eq!(
+        result.unwrap().as_str_bytes(),
+        Some("static_value".as_bytes())
+    );
 }
 
 #[test]
@@ -386,7 +400,7 @@ fn get_item_dynamic_none_value() {
     //row.write_key(&k1,); don't write any value, so it remains None
 
     let k2 = create_test_key(&rlookup, 1, 0, RLookupKeyFlags::empty());
-    row.write_key(&k2, RSValueMock::create_string("valid_value".to_string()));
+    row.write_key(&k2, RSValueMock::create_string(b"valid_value".to_vec()));
 
     let result = row.get(&k1);
     assert!(result.is_none());
@@ -397,15 +411,12 @@ fn get_item_priority_dynamic_over_static() {
     let rlookup = RLookup::new();
 
     // Test case 9: Dynamic values take priority over sorting vector
-    let sv = RSSortingVector::from_iter([RSValueMock::create_string("static_value".to_string())]);
+    let sv = RSSortingVector::from_iter([RSValueMock::create_string(b"static_value".to_vec())]);
     let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new(&rlookup);
     let key = create_test_key(&rlookup, 0, 0, RLookupKeyFlags::empty());
     // Index 0 created for both
-    row.write_key(
-        &key,
-        RSValueMock::create_string("dynamic_value".to_string()),
-    );
-    row.set_sorting_vector(&sv);
+    row.write_key(&key, RSValueMock::create_string(b"dynamic_value".to_vec()));
+    row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -415,7 +426,10 @@ fn get_item_priority_dynamic_over_static() {
     let result = row.get(&key);
     assert!(result.is_some());
     // Should return dynamic value, not static
-    assert_eq!(result.unwrap().as_str(), Some("dynamic_value"));
+    assert_eq!(
+        result.unwrap().as_str_bytes(),
+        Some("dynamic_value".as_bytes())
+    );
 }
 
 #[test]
@@ -425,7 +439,7 @@ fn write_key_by_name_new_key() {
     let mut row = RLookupRow::new(&lookup);
 
     let key_name = CString::new("new_key").unwrap();
-    let value = RSValueMock::create_string("test_value".to_string());
+    let value = RSValueMock::create_string(b"test_value".to_vec());
 
     // Initially, row should be empty
     assert_eq!(row.len(), 0);
@@ -441,8 +455,8 @@ fn write_key_by_name_new_key() {
     assert_eq!(row.len(), 1);
     assert!(row.dyn_values()[0].is_some());
     assert_eq!(
-        row.dyn_values()[0].as_ref().unwrap().as_str(),
-        Some("test_value")
+        row.dyn_values()[0].as_ref().unwrap().as_str_bytes(),
+        Some("test_value".as_bytes())
     );
 }
 
@@ -453,8 +467,8 @@ fn write_key_by_name_existing_key_overwrite() {
     let mut row = RLookupRow::new(&lookup);
 
     let key_name = CString::new("existing_key").unwrap();
-    let initial_value = RSValueMock::create_string("initial_value".to_string());
-    let new_value = RSValueMock::create_string("new_value".to_string());
+    let initial_value = RSValueMock::create_string(b"initial_value".to_vec());
+    let new_value = RSValueMock::create_string(b"new_value".to_vec());
 
     // Write initial value
     row.write_key_by_name(&mut lookup, key_name.to_owned(), initial_value.clone());
@@ -464,8 +478,8 @@ fn write_key_by_name_existing_key_overwrite() {
     assert!(cursor.into_current().is_some());
     assert_eq!(row.len(), 1);
     assert_eq!(
-        row.dyn_values()[0].as_ref().unwrap().as_str(),
-        initial_value.as_str()
+        row.dyn_values()[0].as_ref().unwrap().as_str_bytes(),
+        initial_value.as_str_bytes()
     );
 
     // Overwrite with new value - key count should not increase
@@ -475,8 +489,8 @@ fn write_key_by_name_existing_key_overwrite() {
     assert!(cursor.into_current().is_some());
     assert_eq!(row.len(), 1);
     assert_eq!(
-        row.dyn_values()[0].as_ref().unwrap().as_str(),
-        new_value.as_str()
+        row.dyn_values()[0].as_ref().unwrap().as_str_bytes(),
+        new_value.as_str_bytes()
     );
 }
 
@@ -490,9 +504,9 @@ fn write_multiple_different_keys() {
     let key2_name = CString::new("key2").unwrap();
     let key3_name = CString::new("key3").unwrap();
 
-    let value1 = RSValueMock::create_string("value1".to_string());
-    let value2 = RSValueMock::create_string("value2".to_string());
-    let value3 = RSValueMock::create_string("value3".to_string());
+    let value1 = RSValueMock::create_string(b"value1".to_vec());
+    let value2 = RSValueMock::create_string(b"value2".to_vec());
+    let value3 = RSValueMock::create_string(b"value3".to_vec());
 
     // Write multiple keys
     row.write_key_by_name(&mut lookup, key1_name.to_owned(), value1.clone());
@@ -514,8 +528,8 @@ fn write_multiple_different_keys() {
             row.dyn_values()[key.dstidx as usize]
                 .as_ref()
                 .unwrap()
-                .as_str(),
-            value.as_str(),
+                .as_str_bytes(),
+            value.as_str_bytes(),
         );
     }
 }
@@ -576,7 +590,7 @@ fn write_fields_basic() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields from source to destination
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify written values are correct and accessible by field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&src_key1_name).unwrap();
@@ -624,7 +638,7 @@ fn write_fields_empty_source() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write from empty source row, will result in error
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify destination remains empty
     assert_eq!(dst_row.num_dyn_values(), 0);
@@ -672,7 +686,7 @@ fn write_fields_different_mapping() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write fields
-    dst_row.copy_fields_from(&dst_lookup, &src_row, &src_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 
     // Verify data is readable by field names despite potentially different indices
     let dst_cursor1 = dst_lookup.find_key_by_name(&key1_name).unwrap();
@@ -729,8 +743,8 @@ fn write_fields_multiple_sources_no_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write data from both sources to single destination row
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup);
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // Verify all 4 fields are readable from destination using field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -796,13 +810,13 @@ fn write_fields_multiple_sources_partial_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
 
     // After first write, s1_val2 should have refcount 3 (original var + src1Row + destRow)
     assert_eq!(s1_val2.strong_count(), 3); // Shared between source and destination
     assert_eq!(s2_val2.strong_count(), 2); // s2_val2 unchanged yet (original var + src2Row)
 
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
     assert_eq!(s1_val2.strong_count(), 2); // Back to original var + src1Row (removed from destRow)
@@ -864,8 +878,8 @@ fn write_fields_multiple_sources_full_overlap() {
     let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
 
     // Write src1 first, then src2 - src2 should overwrite all values
-    dst_row.copy_fields_from(&dst_lookup, &src1_row, &src1_lookup);
-    dst_row.copy_fields_from(&dst_lookup, &src2_row, &src2_lookup);
+    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // Verify all fields contain src2 data (last write wins)
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -880,6 +894,88 @@ fn write_fields_multiple_sources_full_overlap() {
     assert_eq!(dst_row.get(dst_key3).unwrap().as_num(), Some(333.0)); // From src2
 
     assert_eq!(dst_row.num_dyn_values(), 3);
+}
+
+#[test]
+#[should_panic(expected = "all source keys must exist in destination")]
+fn write_fields_key_missing_in_dst_should_panic() {
+    // Tests basic field writing between lookup rows
+    let mut src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+
+    // Create source keys
+    let src_key1_name = CString::new("field1").unwrap();
+    let src_key2_name = CString::new("field2").unwrap();
+
+    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
+
+    // Write values to source row
+    let value1 = RSValueMock::create_num(100.0);
+    let value2 = RSValueMock::create_num(200.0);
+
+    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
+    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+
+    // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
+    // Don't add key2, to force expected panic.
+    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
+
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
+
+    // Write fields from source to destination
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
+}
+
+#[test]
+fn write_fields_key_missing_in_dst_should_create() {
+    // Tests basic field writing between lookup rows
+    let mut src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+
+    // Create source keys
+    let src_key1_name = CString::new("field1").unwrap();
+    let src_key2_name = CString::new("field2").unwrap();
+
+    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new(&src_lookup);
+
+    // Write values to source row
+    let value1 = RSValueMock::create_num(100.0);
+    let value2 = RSValueMock::create_num(200.0);
+
+    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
+    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+
+    // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
+    // Don't add key2, to force creation.
+    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
+
+    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new(&dst_lookup);
+
+    // Write fields from source to destination
+    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, true);
+
+    // Verify written values are correct and accessible by field names
+    let dst_cursor1 = dst_lookup.find_key_by_name(&src_key1_name).unwrap();
+    let dst_key1 = dst_cursor1.into_current().unwrap();
+    let dst_cursor2 = dst_lookup.find_key_by_name(&src_key2_name).unwrap();
+    let dst_key2 = dst_cursor2.into_current().unwrap();
+
+    assert_eq!(dst_row.get(dst_key1).unwrap().as_num(), Some(100.0));
+    assert_eq!(dst_row.get(dst_key2).unwrap().as_num(), Some(200.0));
+
+    // Verify shared ownership (reference counts should be increased)
+    // value1 and value2 are referenced by: the original vars + src_row + dst_row = 3 total
+    assert_eq!(value1.strong_count(), 3); // value1 + src_row + dst_row
+    assert_eq!(value2.strong_count(), 3); // value2 + src_row + dst_row
+
+    // Verify source row still contains the values (shared ownership, not moved)
+    let src_cursor1 = src_lookup.find_key_by_name(&src_key1_name).unwrap();
+    let src_key1 = src_cursor1.into_current().unwrap();
+    let src_cursor2 = src_lookup.find_key_by_name(&src_key2_name).unwrap();
+    let src_key2 = src_cursor2.into_current().unwrap();
+
+    assert_eq!(src_row.get(src_key1).unwrap().as_num(), Some(100.0));
+    assert_eq!(src_row.get(src_key2).unwrap().as_num(), Some(200.0));
 }
 
 /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes

@@ -12,6 +12,8 @@
 #include "util/strconv.h"
 #include "rpnet.h"
 
+static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
+
 // Helper function to extract total_results from a shard reply
 // Returns true if total_results was found, false otherwise
 static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
@@ -152,10 +154,11 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     barrier->notifyCallback(cmd->targetShardIdx, shardTotal, false, barrier);
   }
 
+  // Check if the shard returned a timeout warning (for profiling commands with RESP3)
+  bool shardTimedOut = false;
   if (cmd->forProfiling && cmd->protocol == 3) {
     RS_LOG_ASSERT(!cmd->forCursor, "Profiling is not supported on a cursor command");
-    MRReply *rows = NULL, *meta = NULL;
-    meta = MRReply_ArrayElement(rep, 0);
+    MRReply *meta = MRReply_ArrayElement(rep, 0);
     meta = MRReply_MapElement(meta, "results");  // profile has an extra level
 
     // Check if we got timeout
@@ -163,11 +166,11 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     // Iterate over all warnings in the array and check for timeout
     for (size_t i = 0; i < MRReply_Length(warning); i++) {
       const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
-      // Set an error to be later picked up by `getCursorCommand`
       if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
         // When a shard returns timeout on RETURN policy, the profile is not returned.
-        // We set the timeout here so in the next getCursorCommand we will send CURSOR PROFILE
-        MRIteratorCallback_SetTimedOut(MRIteratorCallback_GetCtx(ctx));
+        // We capture this locally and pass it to getCursorCommand to avoid a race
+        // condition with the coordinator thread that might reset the shared timedOut flag.
+        shardTimedOut = true;
       }
     }
   }
@@ -177,7 +180,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   // rewrite and resend the cursor command if needed
   // should only be determined based on the cursor and not on the set of results we get
-  if (!getCursorCommand(cursorId, cmd, MRIteratorCallback_GetCtx(ctx))) {
+  if (!getCursorCommand(cursorId, cmd, MRIteratorCallback_GetCtx(ctx), shardTimedOut)) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
@@ -188,7 +191,7 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
-bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
+bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut) {
   if (cursorId == CURSOR_EOF) {
     // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
@@ -197,7 +200,7 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
   RS_LOG_ASSERT(cmd->num >= 2, "Invalid command?!");
 
   // Check if the coordinator experienced a timeout or not
-  bool timedout = MRIteratorCallback_GetTimedOut(ctx);
+  bool timedout = MRIteratorCallback_GetTimedOut(ctx) || shardTimedOut;
 
   if (cmd->rootCommand == C_AGG) {
     MRCommand newCmd;
@@ -250,12 +253,6 @@ bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
         cmd->rootCommand = C_DEL;
       }
     }
-  }
-
-  if (timedout && cmd->forCursor) {
-    // Reset the `timedOut` value in case it was set (for next iterations, as
-    // we're in cursor mode)
-    MRIteratorCallback_ResetTimedOut(ctx);
   }
 
   return true;

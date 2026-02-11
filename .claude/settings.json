@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./build.sh:*)",
+      "Bash(make:*)",
+      "Bash(cargo bench:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo clean:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo doc:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo insta:*)",
+      "Bash(cargo license-fix:*)",
+      "Bash(cargo llvm-cov:*)",
+      "Bash(cargo nextest:*)",
+      "Bash(cargo new:*)",
+      "Bash(cargo +nightly miri test:*)",
+      "Bash(cargo test:*)",
+      "Bash(find:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(jq:*)",
+      "Bash(ls:*)",
+      "Bash(rg:*)",
+      "Bash(wc:*)"
+    ],
+    "deny": []
+  }
+}

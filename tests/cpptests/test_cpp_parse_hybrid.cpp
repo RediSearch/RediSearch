@@ -85,6 +85,7 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
+    result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
 
   void TearDown() override {
@@ -126,7 +127,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -572,7 +573,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeBasic) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
@@ -580,12 +581,12 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for basic RANGE query with filter
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
@@ -606,6 +607,8 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.5);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
@@ -617,19 +620,19 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.8", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for RANGE query with EPSILON
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
@@ -643,6 +646,8 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
@@ -665,6 +670,73 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_TRUE(foundEpsilon);
 }
 
+TEST_F(ParseHybridTest, testVsimRangeWithFilter) {
+  // Parse hybrid request with RANGE and FILTER clause
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5",
+    "FILTER", "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  AREQ* vecReq = result.vector;
+
+  // Verify AST structure for RANGE query with FILTER
+  // Unlike KNN (where vector is root), RANGE with FILTER creates a PHRASE node
+  // as root with the filter and vector node as children
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE);
+
+  // Use findVectorNodeChild to locate the vector node within the PHRASE
+  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
+  ASSERT_TRUE(vn != NULL);
+  ASSERT_EQ(vn->type, QN_VECTOR);
+
+  // Verify QueryNode structure
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode);
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_SCORE_AS specified
+
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
+  ASSERT_EQ(vq->range.radius, 0.5);
+  // RANGE queries with explicit FILTER use BY_ID ordering because the filter
+  // creates a PHRASE node which uses an intersection iterator with SkipTo.
+  // SkipTo requires child iterators to be sorted by document ID.
+  ASSERT_EQ(vq->range.order, BY_ID);
+
+  // Verify BLOB parameter was correctly resolved
+  const char* expectedBlob = TEST_BLOB_DATA;
+  size_t expectedBlobLen = strlen(expectedBlob);
+  ASSERT_TRUE(vq->range.vector != NULL);
+  ASSERT_EQ(vq->range.vecLen, expectedBlobLen);
+  ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
+
+  // Verify the filter is also present in the PHRASE node
+  // The PHRASE should have at least 2 children: filter node and vector node
+  ASSERT_GE(QueryNode_NumChildren(vecReq->ast.root), 2);
+
+  // Find and verify the filter node (should be a UNION containing TOKEN nodes
+  // for "hello")
+  bool foundFilter = false;
+  for (size_t i = 0; i < QueryNode_NumChildren(vecReq->ast.root); ++i) {
+    QueryNode* child = vecReq->ast.root->children[i];
+    if (child && child->type == QN_UNION) {
+      // This is the filter node - verify it contains the expected tokens
+      ASSERT_GE(QueryNode_NumChildren(child), 1);
+      ASSERT_EQ(child->children[0]->type, QN_TOKEN);
+      ASSERT_STREQ(child->children[0]->tn.str, "hello");
+      foundFilter = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(foundFilter);
+}
+
 TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "_NUM_SSTRING");
@@ -672,7 +744,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
@@ -696,17 +768,24 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   args.add(serializedSlots, SlotRangeArray_SizeOf(1));
   rm_free(serializedSlots);
 
+  // Add _COORD_DISPATCH_TIME argument (required for internal commands)
+  args.add("_COORD_DISPATCH_TIME", strlen("_COORD_DISPATCH_TIME"));
+  args.add("1000000", strlen("1000000"));  // 1ms in nanoseconds
+
   QueryError status = QueryError_Default();
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
   // Verify _NUM_SSTRING flag is set after parsing
   ASSERT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
+
+  // Verify _COORD_DISPATCH_TIME was parsed and stored
+  EXPECT_EQ(hybridRequest->profileClocks.coordDispatchTime, 1000000) << "Coordinator dispatch time should be set";
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
@@ -721,7 +800,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);

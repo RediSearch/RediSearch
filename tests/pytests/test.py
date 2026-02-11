@@ -4068,8 +4068,8 @@ def test_RED_86036(env):
     for i in range(1000):
         env.cmd('hset', f"doc{i}", 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
-    res = res[1][1][0][9] # get the list iterator profile
-    env.assertEqual(res[1], 'ID-LIST')
+    res = res[1][1][0][11] # get the list iterator profile
+    env.assertEqual(res[1], 'ID-LIST-SORTED')
     env.assertLess(res[5], 3)
 
 def test_MOD_4290(env):
@@ -4313,6 +4313,58 @@ def test_cluster_set_multiple_slots(env: Env):
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
+@skip(cluster=False) # this test is only relevant on cluster
+def test_cluster_set_myself_excluded(env: Env):
+    env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 1)
+
+    # Set two shards, one with all the slots, and one without any slots
+    env.expect(
+        'SEARCH.CLUSTERSET',
+            'HASHFUNC', 'CRC16',
+            'NUMSLOTS', '16384',
+            'MYID', '1',
+            'RANGES', '2',
+            'SHARD', '1',
+            'ADDR', 'localhost:7001',
+            'MASTER',
+            'SHARD', '2',
+            'ADDR', 'localhost:7002',
+            'MASTER',
+            'SLOTRANGE', '0', '16383'
+    ).ok()
+
+    # Expect only the shard with slots to be listed
+    expected = [
+        'num_partitions', 1,
+        'cluster_type', 'redis_oss',
+        'shards', [['slots', [0, 16383], 'id', '2', 'host', 'localhost', 'port', 7002]],
+    ]
+    env.expect('SEARCH.CLUSTERINFO').equal(expected)
+
+    # Set two shards, one master and myself as replica
+    env.expect(
+        'SEARCH.CLUSTERSET',
+            'HASHFUNC', 'CRC16',
+            'NUMSLOTS', '16384',
+            'MYID', '1',
+            'RANGES', '2',
+            'SHARD', '1',
+            'ADDR', 'localhost:7001',
+            'SLOTRANGE', '0', '16383',
+            'SHARD', '2',
+            'ADDR', 'localhost:7002',
+            'MASTER',
+            'SLOTRANGE', '0', '16383'
+    ).ok()
+
+    # Expect only the master shard to be listed
+    expected = [
+        'num_partitions', 1,
+        'cluster_type', 'redis_oss',
+        'shards', [['slots', [0, 16383], 'id', '2', 'host', 'localhost', 'port', 7002]],
+    ]
+    env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_errors(env: Env):
@@ -4339,7 +4391,7 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD').error().contains('Missing value for SHARD')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
-               'SHARD', '1').error().contains('MYID `1` does not correspond to any shard')
+               'SHARD', '1').error().contains('Missing value for ADDR at offset 7')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
                'SHARD', '1', 'SLOTRANGE').error().contains('Missing value for SLOTRANGE')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
