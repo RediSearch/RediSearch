@@ -101,7 +101,7 @@ impl QueryIterator {
 
     #[inline(always)]
     pub fn new_optional_full_child_wildcard(max_id: u64, weight: f64) -> Self {
-        let child = unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, 1f64) };
+        let child = iterators_ffi::wildcard::NewWildcardIterator_NonOptimized(max_id, 1f64);
         Self::new_optional_with_child(max_id, weight, child)
     }
 
@@ -112,13 +112,9 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    fn new_optional_with_child(
-        max_id: u64,
-        weight: f64,
-        child: *mut bindings::QueryIterator,
-    ) -> Self {
+    fn new_optional_with_child(max_id: u64, weight: f64, child: *mut ffi::QueryIterator) -> Self {
         let query_eval_ctx = new_redis_search_ctx(max_id);
-        let it = unsafe { bindings::NewOptionalIterator(child, query_eval_ctx, weight) };
+        let it = unsafe { ffi::NewOptionalIterator(child, query_eval_ctx, weight) };
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
     }
