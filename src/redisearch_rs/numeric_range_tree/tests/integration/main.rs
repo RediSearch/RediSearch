@@ -9,6 +9,7 @@
 
 //! Integration tests for numeric_range_tree.
 
+mod find;
 mod helpers;
 mod iter;
 mod node;
