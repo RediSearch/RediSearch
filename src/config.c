@@ -1111,6 +1111,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
@@ -1129,7 +1130,7 @@ CONFIG_SETTER(setBGIndexSleepDurationUS) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "BG_INDEX_SLEEP_DURATION_US must be between 0 and %d (usleep POSIX limit)",
+      "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
       BG_INDEX_SLEEP_DURATION_US_MAX);
     return REDISMODULE_ERR;
   }
