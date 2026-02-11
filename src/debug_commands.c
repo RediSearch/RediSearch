@@ -2284,6 +2284,26 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   }
 }
 
+// FT.DEBUG DISKGC_FORCEINVOKE <index_name>
+DEBUG_COMMAND(DiskGCForceInvoke) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  if (!sp->diskSpec) {
+    return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
+  }
+  SearchDisk_ForceGC(sp->diskSpec);
+  return RedisModule_ReplyWithSimpleString(ctx, "DONE");
+}
+
 /**
  * FT.DEBUG DISK_IO_CONTROL <enable|disable|status>
  *
@@ -2461,6 +2481,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"DISK_IO_CONTROL", DiskIOControl},
+                               {"DISKGC_FORCEINVOKE", DiskGCForceInvoke},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers}, // Register test scorers
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
