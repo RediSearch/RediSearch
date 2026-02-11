@@ -87,7 +87,7 @@ jobs:
         run: |
           # Then install Python dependencies
           sudo apt install python3-pip -y
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.6
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.9
       - name: Compare benchmark results
         run: |
           redisbench-admin compare \
