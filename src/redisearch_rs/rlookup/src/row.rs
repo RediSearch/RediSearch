@@ -81,13 +81,13 @@ pub mod opaque {
         }
 
         impl<'a> super::super::RLookupRow<'a, value::RSValueFFI> {
-            /// Converts a non-null mutable pointer to a [`Self::Opaque`] to a mutable
+            /// Converts a non-null mutable pointer to an [`OpaqueRLookupRow`] to a mutable
             /// reference to a [`Self`].
             ///
             /// # Safety
             ///
             /// The pointer itself must have been created via
-            /// [`IntoOpaque::as_opaque_mut_ptr`], as the alignment of the value
+            /// [`c_ffi_utils::opaque::IntoOpaque::as_opaque_mut_ptr`], as the alignment of the value
             /// pointed to by `opaque` must also be an alignment-compatible address for
             /// a [`Self`].
             pub const unsafe fn from_opaque_non_null<'b>(
@@ -97,8 +97,7 @@ pub mod opaque {
                 unsafe { opaque.cast::<Self>().as_mut() }
             }
 
-            /// Converts [`Self`] mutable reference into an
-            /// `NonNull<Self::Opaque>`.
+            /// Converts [`Self`] mutable reference into a `NonNull<OpaqueRLookupRow>`.
             pub const fn as_opaque_non_null(&mut self) -> NonNull<OpaqueRLookupRow<'a>> {
                 NonNull::from_mut(self).cast()
             }
