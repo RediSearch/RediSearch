@@ -91,7 +91,7 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
     RS_ASSERT(disk && index && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
-    term->idf = idf;
+    QueryTerm_SetIdf(term, idf);
     term->bm25_idf = bm25_idf;
     QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight);
     if (!it) {

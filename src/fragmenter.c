@@ -14,6 +14,7 @@
 #include <float.h>
 #include <sys/uio.h>
 #include "rmutil/rm_assert.h"
+#include "index_result/query_term/query_term.h"
 
 // Estimated characters per token
 #define EST_CHARS_PER_TOK 6
@@ -492,7 +493,7 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
 
   RSQueryTerm *term = iter->curMatchRec;
 
-  iter->tmpTerm.score = term->idf;
+  iter->tmpTerm.score = QueryTerm_Idf(term);
   iter->tmpTerm.termId = term->id;
   iter->tmpTerm.len = term->len;
   iter->tmpTerm.tokPos = iter->curTokPos;

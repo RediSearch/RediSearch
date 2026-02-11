@@ -26,3 +26,11 @@ void Term_Free(RSQueryTerm *t) {
     rm_free(t);
   }
 }
+
+double QueryTerm_Idf(RSQueryTerm const *t) {
+  return t->idf;
+}
+
+void QueryTerm_SetIdf(RSQueryTerm *const t, double idf) {
+    t->idf = idf;
+}

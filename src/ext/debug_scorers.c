@@ -27,12 +27,13 @@
 #include "types_rs.h"
 #include "score_explain.h"
 #include "extension.h"
+#include "index_result/query_term/query_term.h"
 
 /* Recursively sum IDF values from all terms in the result */
 static double sumIdfRecursive(const RSIndexResult *r) {
   if (r->data.tag == RSResultData_Term) {
     RSQueryTerm *term = IndexResult_QueryTermRef(r);
-    return term ? term->idf : 0;
+    return term ? QueryTerm_Idf(term) : 0;
   }
   if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     double sum = 0;

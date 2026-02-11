@@ -17,6 +17,12 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
+/* Get the idf of the term. This is used for scoring and ranking results. */
+double QueryTerm_Idf(RSQueryTerm const *t);
+
+/* Set the idf of the term. */
+void QueryTerm_SetIdf(RSQueryTerm *t, double idf);
+
 #ifdef __cplusplus
 }
 #endif
