@@ -157,7 +157,7 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
   env.assertContains("Error indexing geoshape: invalid geometry: Geometry has too few points", get_last_error())
   # Spike
-  conn.execute_command('JSON.SET', 'p8', '$', '{"geom": "POLYGON((1 1, 1 200, 1 100, 100 1, 1 1))", "name": "Marge"}') # codespell:ignore Marge
+  conn.execute_command('JSON.SET', 'p8', '$', '{"geom": "POLYGON((1 1, 1 200, 1 100, 100 1, 1 1))", "name": "Marge"}')  # codespell:ignore
   env.assertContains("Error indexing geoshape: invalid geometry: Geometry has spikes", get_last_error())
   # Self-intersection
   conn.execute_command('JSON.SET', 'p9', '$', '{"geom": "POLYGON((1 1, 1 100, 50 50, 50 -50, 1 150, 100 50, 1 1))", "name": "Lisa"}')
@@ -179,7 +179,7 @@ def testWKTIngestError(env):
   # Redundant coordinate
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((1 1, 1 100 100 100, 100 1, 1 1))", "name": "Seymour"}')
   # Missing comma separator
-  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}') # codespell:ignore Ned
+  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')  # codespell:ignore
   # Duplicate points - we remove duplicates with bg::correct
   conn.execute_command('JSON.SET', 'p13', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 100 1, 1 1))", "name": "Selma"}')
   # Hourglass

@@ -160,7 +160,7 @@ def testWKTIngestError(env):
   # Redundant coordinate
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Seymour"}')
   # Missing comma separator
-  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}') # codespell:ignore Ned
+  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}')  # codespell:ignore
 
   # Indexing failures
   res = env.cmd('FT.INFO', 'idx')
