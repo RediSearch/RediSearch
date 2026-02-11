@@ -75,10 +75,9 @@ impl block_traits::IndexConfig for TermIndexConfig {
         // Term indexes require a merge operator for handling deleted IDs
         let deleted_ids =
             deleted_ids.expect("Term index requires DeletedIdsStore for merge operator");
-        cf_options.set_merge_operator(
+        cf_options.set_merge_operator_associative(
             Self::MERGE_OPERATOR_NAME,
             DeletedIdsMergeOperator::full_merge_fn(deleted_ids.clone()),
-            DeletedIdsMergeOperator::partial_merge_fn(deleted_ids),
         );
 
         cf_options.set_prefix_extractor(prefix_extractor);

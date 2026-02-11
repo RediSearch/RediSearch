@@ -8,6 +8,8 @@ mod document_flags;
 mod index_spec;
 #[cfg(not(miri))]
 mod inverted_index;
+#[cfg(not(miri))]
+mod term;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;

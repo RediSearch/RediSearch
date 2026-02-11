@@ -73,14 +73,6 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
         Config::cf_descriptor(deleted_ids)
     }
 
-    /// Creates a key for the inverted index.
-    fn key(prefix: &str, last_doc_id: Option<t_docId>) -> InvertedIndexKey<'_> {
-        InvertedIndexKey {
-            prefix,
-            last_doc_id,
-        }
-    }
-
     /// Inserts a document into the postings list for the given item (prefix).
     /// The document is wrapped in the appropriate block type and serialized.
     pub fn insert(
@@ -92,7 +84,7 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
     where
         <Config::SerializableBlock as SerializableBlock>::Document: Into<Config::SerializableBlock>,
     {
-        let key = Self::key(&prefix, Some(doc_id));
+        let key = InvertedIndexKey::new(&prefix, Some(doc_id));
         let block: Config::SerializableBlock = doc.into();
         let serialized = block.serialize();
 

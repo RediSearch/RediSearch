@@ -34,6 +34,7 @@ tokio = { version = "1.49.0", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 criterion = "0.5"
+pretty_assertions = "1.4.1"
 redis_mock = { path = "../deps/RediSearch/src/redisearch_rs/redis_mock" }
 redisearch_rs = { path = "../deps/RediSearch/src/redisearch_rs/c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 tempfile = "3.23.0"

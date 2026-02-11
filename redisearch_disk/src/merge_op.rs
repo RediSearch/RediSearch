@@ -8,10 +8,12 @@ use crate::{
     index_spec::{
         deleted_ids::DeletedIdsStore,
         inverted_index::{
+            InvertedIndexKey,
             block_traits::{ArchivedBlock, SerializableBlock},
             term::{self, PostingsListBlock},
         },
     },
+    key_traits::AsKeyExt,
     value_traits::ValueExt,
 };
 
@@ -21,20 +23,15 @@ pub struct DeletedIdsMergeOperator {}
 impl DeletedIdsMergeOperator {
     /// Create a function that performs a full merge given the passed
     /// [`DeletedIdsStore`]
-    pub fn full_merge_fn(deleted_ids: DeletedIdsStore) -> impl MergeFn {
+    pub fn full_merge_fn(deleted_ids: DeletedIdsStore) -> impl MergeFn + Clone {
         move |key: &[u8],
               existing_value: Option<&[u8]>, // single block
               operand_list: &MergeOperands| // list of blocks
               -> Option<MergeResult> {
             let merge_inner = Self::full_merge_inner(deleted_ids.clone());
             merge_inner(key, existing_value, operand_list.into_iter())
-                .map(|result| (result, None)) // None means use original key
+                .map(|(data, key)| (data, Some(key)))
         }
-    }
-
-    /// Create a partial merge function. Delegates to [`Self::full_merge_fn`] for now.
-    pub fn partial_merge_fn(deleted_ids: DeletedIdsStore) -> impl MergeFn {
-        Self::full_merge_fn(deleted_ids)
     }
 
     /// Merge function that operates on a slice iterator
@@ -59,9 +56,13 @@ impl DeletedIdsMergeOperator {
     /// as other iterators that iterate over byte slices, making it suitable
     /// for unit testing.
     #[inline]
+    #[allow(
+        clippy::type_complexity,
+        reason = "We can't use an alias since impl aliases are only supported on nightly"
+    )]
     fn full_merge_inner<'operand, TOperandsIter>(
         deleted_ids: DeletedIdsStore,
-    ) -> impl Fn(&[u8], Option<&[u8]>, TOperandsIter) -> Option<Vec<u8>>
+    ) -> impl Fn(&[u8], Option<&[u8]>, TOperandsIter) -> Option<(Vec<u8>, Vec<u8>)>
     where
         TOperandsIter: Iterator<Item = &'operand [u8]>,
     {
@@ -70,14 +71,20 @@ impl DeletedIdsMergeOperator {
             block: &mut PostingsListBlock,
             deleted_ids: &DeletedIdsStore,
             archived_block: &term::archive::ArchivedBlock,
-        ) {
+        ) -> Option<u64> {
+            let mut last_pushed_doc_id = None;
+
             for archived_doc in archived_block.iter() {
                 let doc_id = archived_doc.doc_id();
                 if deleted_ids.is_deleted(doc_id) {
                     continue;
                 };
+
                 block.push(archived_doc.into());
+                last_pushed_doc_id = Some(doc_id);
             }
+
+            last_pushed_doc_id
         }
 
         // Return a closure that takes the key, existing value and operand iterator
@@ -85,13 +92,15 @@ impl DeletedIdsMergeOperator {
         // In this case, we need the `DeletedIdsStore` (i.e. `deleted_ids`) to be part
         // of the closure's state, so that it can be inspected whenever this closure is invoked.
         #[inline]
-        move |_key: &[u8],
+        move |key: &[u8],
               existing_value: Option<&[u8]>,
               operand_list: TOperandsIter|
-              -> Option<Vec<u8>> {
+              -> Option<(Vec<u8>, Vec<u8>)> {
             let mut merged_block = PostingsListBlock::with_capacity(operand_list.size_hint().0);
 
             let mut max_doc_id = None;
+            let mut block_last_doc_id = None;
+
             for operand in operand_list {
                 let op_archived_block = PostingsListBlock::archive_from_speedb_value(operand);
                 let Some(last_doc_id) = op_archived_block.last().map(|d| d.doc_id()) else {
@@ -106,7 +115,11 @@ impl DeletedIdsMergeOperator {
                     return None;
                 }
                 max_doc_id = Some(last_doc_id);
-                push_from_archived_block(&mut merged_block, &deleted_ids, &op_archived_block);
+                if let Some(last_pushed_doc_id) =
+                    push_from_archived_block(&mut merged_block, &deleted_ids, &op_archived_block)
+                {
+                    block_last_doc_id = Some(last_pushed_doc_id);
+                }
             }
 
             if let Some(existing_value) = existing_value {
@@ -121,17 +134,26 @@ impl DeletedIdsMergeOperator {
                         );
                         return None;
                     }
-                    push_from_archived_block(
+                    if let Some(last_pushed_doc_id) = push_from_archived_block(
                         &mut merged_block,
                         &deleted_ids,
                         &existing_archived_block,
-                    );
+                    ) {
+                        block_last_doc_id = Some(last_pushed_doc_id);
+                    }
                 } // else there's nothing in the block
             }
 
-            // TODO somehow update the block key based on the last doc ID in the merged block
+            if merged_block.is_empty() {
+                debug!("Merged block is empty after filtering out deleted IDs");
+                return None;
+            }
+
+            let prefix = str::from_utf8(key).unwrap();
+            let new_key = InvertedIndexKey::new(prefix, block_last_doc_id);
+
             let data = merged_block.as_speedb_value();
-            Some(data)
+            Some((data, new_key.as_key()))
         }
     }
 }
@@ -139,6 +161,7 @@ impl DeletedIdsMergeOperator {
 #[cfg(test)]
 mod tests {
     use ffi::{t_docId, t_fieldMask};
+    use pretty_assertions::assert_eq;
 
     use crate::{
         index_spec::{
@@ -199,12 +222,14 @@ mod tests {
     /// Note: to avoid having to specify a concrete iterator type
     /// in case there should not be an existing block, use [`assert_merge_no_existing`].
     fn do_assert_merge(
+        key: &[u8],
         operands_id_and_masks: impl IntoIterator<
             Item = impl IntoIterator<Item = (t_docId, t_fieldMask)>,
         >,
         existing_id_and_masks: Option<impl IntoIterator<Item = (t_docId, t_fieldMask)>>,
         expected_id_and_masks: impl IntoIterator<Item = (t_docId, t_fieldMask)>,
         deleted_ids: DeletedIdsStore,
+        expected_new_key: Option<&[u8]>,
     ) {
         // Create operand documents and serialize them into a block per operand
         // We need to store the serialized operand blocks in a Vec...
@@ -224,35 +249,33 @@ mod tests {
         // Do the merge
         let full_merge = DeletedIdsMergeOperator::full_merge_inner(deleted_ids);
         let merged_result = full_merge(
-            b"test_term",
+            key,
             existing_block.as_deref(),
             operand_blocks.iter().copied(),
         );
 
         // Verify result
-        let merged_result = merged_result.expect("Merged result should be Some");
+        let Some((merged_result, new_key)) = merged_result else {
+            assert!(
+                expected_new_key.is_none(),
+                "Expected merge to produce a result, but got None"
+            );
+            return;
+        };
         verify_merge_result(expected_id_and_masks, merged_result);
+        assert_eq!(new_key, expected_new_key.unwrap());
     }
 
     #[test]
     fn test_basic_merge() {
         let deleted_ids = DeletedIdsStore::default();
         do_assert_merge(
+            b"test_term",
             [[(1, 0x01), (2, 0x02)]],
             Some([(3, 0x03), (4, 0x04)]),
             [(1, 0x01), (2, 0x02), (3, 0x03), (4, 0x04)],
             deleted_ids,
-        );
-    }
-
-    #[test]
-    fn test_merge_without_existing_value() {
-        let deleted_ids = DeletedIdsStore::default();
-        do_assert_merge(
-            [[(1, 0x01), (2, 0x02)]],
-            None::<Option<_>>,
-            [(1, 0x01), (2, 0x02)],
-            deleted_ids,
+            Some(b"test_term\x00\x00\x00\x00\x00\x00\x00\x00\x04"),
         );
     }
 
@@ -260,10 +283,12 @@ mod tests {
     fn test_merge_multiple_operands() {
         let deleted_ids = DeletedIdsStore::default();
         do_assert_merge(
+            b"test_term",
             [[(1, 0x01)], [(2, 0x02)], [(3, 0x03)]],
             Some([(4, 0x04)]),
             [(1, 0x01), (2, 0x02), (3, 0x03), (4, 0x04)],
             deleted_ids,
+            Some(b"test_term\x00\x00\x00\x00\x00\x00\x00\x00\x04"),
         );
     }
 
@@ -274,10 +299,12 @@ mod tests {
         let deleted_ids = DeletedIdsStore::with_deleted_ids(deleted_ids);
 
         do_assert_merge(
+            b"test_term",
             [[(1, 0x01), (2, 0x02)]],
             Some([(3, 0x03), (4, 0x04)]),
             [(1, 0x01), (3, 0x03), (4, 0x04)],
             deleted_ids,
+            Some(b"test_term\x00\x00\x00\x00\x00\x00\x00\x00\x04"),
         );
     }
 
@@ -291,10 +318,12 @@ mod tests {
         let deleted_ids = DeletedIdsStore::with_deleted_ids(deleted_ids);
 
         do_assert_merge(
+            b"test_term",
             [[(1, 0x01), (2, 0x02)]],
             Some([(3, 0x03), (4, 0x04)]),
             [],
             deleted_ids,
+            None,
         );
     }
 }

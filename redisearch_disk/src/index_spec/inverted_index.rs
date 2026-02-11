@@ -32,7 +32,7 @@ pub(crate) use super::deleted_ids::DeletedIdsStore;
 ///
 /// Big-endian encoding is used for doc_id so that lexicographic ordering matches numeric ordering,
 /// enabling efficient range scans and seeks in the database.
-struct InvertedIndexKey<'term> {
+pub struct InvertedIndexKey<'term> {
     prefix: &'term str,
     last_doc_id: Option<t_docId>,
 }
@@ -48,6 +48,14 @@ impl InvertedIndexKey<'_> {
 
     /// Size of the binary-encoded document ID suffix in keys (delimiter + 8 bytes for u64)
     pub(crate) const DOC_ID_KEY_SIZE: usize = Self::DELIMITER_SIZE + size_of::<t_docId>();
+
+    /// Creates a new InvertedIndexKey with the given prefix and optional last_doc_id.
+    pub fn new(prefix: &str, last_doc_id: Option<t_docId>) -> InvertedIndexKey<'_> {
+        InvertedIndexKey {
+            prefix,
+            last_doc_id,
+        }
+    }
 }
 
 impl<'term> AsKeyExt for InvertedIndexKey<'term> {
