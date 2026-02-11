@@ -13,7 +13,7 @@ mod key_list;
 #[cfg(debug_assertions)]
 use crate::rlookup_id::RLookupId;
 use crate::{
-    IndexSpec, RLookupRow,
+    IndexSpec, OpaqueRLookupRow,
     bindings::{FieldSpecOption, FieldSpecOptions, IndexSpecCache},
     field_spec::FieldSpec,
 };
@@ -425,7 +425,7 @@ impl<'a> RLookup<'a> {
     pub fn load_rule_fields(
         &mut self,
         search_ctx: &mut ffi::RedisSearchCtx,
-        dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
+        dst_row: &mut OpaqueRLookupRow,
         index_spec: &'a IndexSpec,
         key: &CStr,
         status: &mut ffi::QueryError,
@@ -482,7 +482,7 @@ fn create_key_from_data<'a>(
 fn load_specific_keys<'a>(
     lookup: &mut RLookup<'a>,
     search_ctx: &mut ffi::RedisSearchCtx,
-    dst_row: &mut RLookupRow<'a, value::RSValueFFI>,
+    dst_row: &mut OpaqueRLookupRow,
     index_spec: &IndexSpec,
     key: &CStr,
     keys: Vec<Pin<&mut RLookupKey>>,

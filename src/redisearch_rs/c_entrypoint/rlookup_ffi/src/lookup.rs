@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::row::RLookupRow;
+use c_ffi_utils::opaque::IntoOpaque;
 use libc::size_t;
 use rlookup::{
-    IndexSpec, IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule,
+    IndexSpec, IndexSpecCache, OpaqueRLookupRow, RLookup, RLookupKey, RLookupKeyFlag,
+    RLookupKeyFlags, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
@@ -372,7 +373,7 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetLength(
     lookup: *const RLookup<'_>,
-    row: *const RLookupRow,
+    row: *const OpaqueRLookupRow<'_>,
     skip_field_index: Option<NonNull<bool>>,
     skip_field_index_len: size_t,
     required_flags: u32,
@@ -383,7 +384,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
     let lookup = unsafe { lookup.as_ref().unwrap() };
 
     // Safety: ensured by caller (2.)
-    let row = unsafe { row.as_ref().unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
     // Safety: ensured by caller (3.)
     let skip_field_index = unsafe {
@@ -473,7 +474,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
     lookup: Option<NonNull<RLookup<'a>>>,
-    dst_row: Option<NonNull<RLookupRow<'a>>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow<'a>>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
     status: Option<NonNull<ffi::QueryError>>,
