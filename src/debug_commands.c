@@ -826,7 +826,8 @@ DEBUG_COMMAND(GCForceInvoke) {
 
   if (sp->diskSpec) {
     SearchDisk_ForceGC(sp->diskSpec);
-    return RedisModule_ReplyWithSimpleString(ctx, "DONE");
+    RedisModule_ReplyWithSimpleString(ctx, "DONE");
+    return REDISMODULE_OK;
   } else if (sp->gc) {
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
