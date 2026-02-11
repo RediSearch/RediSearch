@@ -18,6 +18,7 @@
 #include "util/dllist.h"
 #include "stemmer.h"
 #include "types_rs.h"
+#include "query_term_rs.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -141,9 +142,6 @@ struct QueryParseCtx;
 
 /* Forward declaration of the opaque query node object */
 struct RSQueryNode;
-
-/* We support up to 30 user given flags for each token, flags 1 and 2 are taken by the engine */
-typedef uint32_t RSTokenFlags;
 
 /* A token in the query. The expanders receive query tokens and can expand the query with more query
  * tokens */

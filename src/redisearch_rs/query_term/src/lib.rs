@@ -6,3 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+/// We support up to 30 user given flags for each token, flags 1 and 2 are taken by the engine
+pub type RSTokenFlags = u32;
