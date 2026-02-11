@@ -212,23 +212,3 @@ impl Drop for Chain {
         }
     }
 }
-
-/// Mock implementation of `DMD_Free` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
-    unreachable!()
-}
-
-/// Mock implementation of `SEDestroy` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
-    unreachable!()
-}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset(_row: *mut ffi::RLookupRow) {}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe(_row: *mut ffi::RLookupRow) {}

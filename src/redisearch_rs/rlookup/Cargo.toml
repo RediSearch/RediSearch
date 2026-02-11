@@ -37,5 +37,16 @@ pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 value = { workspace = true, features = ["test_utils"] }
 
+# Crate required to invoke C symbols
+rlookup = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+redis_mock.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[features]
+unittest = []
+
 [lints]
 workspace = true
