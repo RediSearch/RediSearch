@@ -369,7 +369,7 @@ typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
 typedef enum TimerOp { TimerOp_Add, TimerOp_Del } TimerOp;
 
 typedef struct SpecOpCtx {
-  IndexSpec *spec;
+  StrongRef spec_ref;  // Holds a strong reference to prevent use-after-free during indexing
   SpecOp op;
 } SpecOpCtx;
 
