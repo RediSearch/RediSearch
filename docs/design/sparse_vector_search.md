@@ -525,3 +525,50 @@ Phase 1 enables:
 - Phase 2 (Indexing Pipeline) - uses `SparseVectorIndex::add()`
 - Phase 3 (Query Iterator) - uses `SparseVectorIndex::get_dimension()`
 - Phase 4 (RDB Serialization) - serializes `SparseVectorIndex`
+
+---
+
+## Annex A: Missing Dimensions and Scoring Behavior
+
+### Missing Dimensions in Documents
+
+When computing similarity scores (dot product or cosine), dimensions that are missing from a document are treated as **implicitly zero**. This is the natural behavior of sparse vector math.
+
+**Example:**
+```
+Query: {dim_10: 0.5, dim_20: 0.3, dim_999: 0.8}
+Doc A: {dim_10: 1.0, dim_20: 0.5}  # No dim_999
+Doc B: {dim_10: 0.2}               # No dim_20, no dim_999
+
+Dot product scores:
+- Doc A: 0.5×1.0 + 0.3×0.5 + 0.8×0 = 0.65
+- Doc B: 0.5×0.2 + 0.3×0   + 0.8×0 = 0.10
+```
+
+Missing dimensions contribute **0** to the score. No special handling is needed.
+
+### Query Dimensions Not in Index
+
+If a query contains dimensions that don't exist in any indexed document, those dimensions simply contribute **0** to all document scores. The ranking is determined by the dimensions that do match.
+
+### Query with ONLY Non-Existent Dimensions
+
+**Edge case:** If the query contains *only* dimensions that don't exist in the index:
+
+```
+Query: {dim_999: 0.8}
+Index dimensions: {dim_1, dim_2, dim_10, dim_20}  # dim_999 doesn't exist
+
+Result: [] (empty)
+```
+
+In this case, there are **no posting lists to iterate** for any query dimension. The result is an **empty result set** - no documents are returned.
+
+This behavior is consistent with:
+1. **Inverted index semantics**: We only have posting lists for dimensions that exist in at least one document
+2. **Text search analogy**: Searching for a term that doesn't exist in any document returns 0 results
+3. **Industry practice**: Other vector databases all return empty results when no query dimensions match indexed dimensions (To be reviewed)
+
+### Tie-Breaking for Equal Scores
+
+When multiple documents have identical scores, tie-breaking is resolved by **document ID** (lower ID wins). This provides deterministic, consistent ordering.
