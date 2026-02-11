@@ -91,6 +91,7 @@ configPair_t __configPairs[] = {
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
+  {"BG_INDEX_SLEEP_DURATION_US",      "search-bg-index-sleep-duration-us"},
   {"ON_OOM",                          "search-on-oom"},
   {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
@@ -1119,6 +1120,19 @@ CONFIG_GETTER(getIndexerYieldEveryOps) {
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
 }
 
+// BG_INDEX_SLEEP_DURATION_US
+CONFIG_SETTER(setBGIndexSleepDurationUS) {
+  unsigned int sleepDurationUS;
+  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, 0);
+  config->bgIndexingSleepDurationMicroseconds = sleepDurationUS;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getBGIndexSleepDurationUS) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingSleepDurationMicroseconds);
+}
+
 // MIN_TRIM_DELAY
 CONFIG_SETTER(setMinTrimDelay) {
   uint32_t minTrimDelayMS;
@@ -1545,6 +1559,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
+        {.name = "BG_INDEX_SLEEP_DURATION_US",
+         .helpText = "Sleep duration in microseconds during background indexing periodic sleep",
+         .setValue = setBGIndexSleepDurationUS,
+         .getValue = getBGIndexSleepDurationUS},
         {.name = "ON_OOM",
          .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
@@ -2075,6 +2093,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.indexerYieldEveryOpsWhileLoading)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bg-index-sleep-duration-us", DEFAULT_BG_INDEX_SLEEP_DURATION_US,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.bgIndexingSleepDurationMicroseconds)
     )
   )
 
