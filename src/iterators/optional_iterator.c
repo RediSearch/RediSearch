@@ -244,7 +244,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
 
 QueryIterator const* GetOptionalIteratorChild(QueryIterator *base) {
     if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+        OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
         return it->child;
     } else {
         return GetOptionalNonOptimizedIteratorChild(base);
@@ -273,7 +273,7 @@ void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
 
 QueryIterator const* GetOptionalOptimizedIteratorWildcard(QueryIterator *base) {
     if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+        OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
         return it->wcii;
     } else {
         return NULL;

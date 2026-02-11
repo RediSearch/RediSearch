@@ -604,12 +604,12 @@ PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printOptionalIt) {
-  PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config,
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
     GetOptionalIteratorChild(root), "OPTIONAL");
 }
 
 PRINT_PROFILE_FUNC(printOptionalOptimizedIt) {
-  PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config,
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
     GetOptionalIteratorChild(root), "OPTIONAL-OPTIMIZED");
 }
 
