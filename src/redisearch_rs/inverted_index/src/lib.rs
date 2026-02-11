@@ -254,6 +254,8 @@ pub trait Decoder {
 pub trait NumericDecoder: Decoder {}
 /// Marker trait for decoders producing term results.
 pub trait TermDecoder: Decoder {}
+/// Marker trait for decoders producing only document IDs.
+pub trait DocIdsDecoder: Decoder {}
 
 /// The capacity of the block vector used by [`InvertedIndex`].
 pub type BlockCapacity = u32;
