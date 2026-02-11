@@ -29,12 +29,19 @@ jobs:
             RediSearchDisk
             rust-speedb
             speedb-ent
+            redismodule-rs
 
       # Checkout repository with submodules (needed for Cargo.toml dependencies)
       - name: Checkout repository (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Configure Git/Cargo to authenticate with private repos using the app token
+      - name: Configure Git for private Cargo dependencies
+        uses: ./.github/actions/configure-cargo-auth
+        with:
           token: ${{ steps.app-token.outputs.token }}
 
       # Install Rust nightly toolchain with Miri

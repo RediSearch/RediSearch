@@ -1,0 +1,20 @@
+name: 'Configure Cargo Auth'
+description: 'Configure Git and Cargo to authenticate with private repositories'
+
+inputs:
+  token:
+    description: 'GitHub token for authentication'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure Git and Cargo for private dependencies
+      shell: bash
+      run: |
+        # Use environment variable to avoid persisting token in ~/.gitconfig on self-hosted runners
+        echo "GIT_CONFIG_COUNT=1" >> "$GITHUB_ENV"
+        echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${{ inputs.token }}@github.com/redislabsdev/.insteadOf" >> "$GITHUB_ENV"
+        echo "GIT_CONFIG_VALUE_0=https://github.com/redislabsdev/" >> "$GITHUB_ENV"
+        echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
+

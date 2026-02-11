@@ -102,6 +102,7 @@ jobs:
             RediSearchDisk
             rust-speedb
             speedb-ent
+            redismodule-rs
 
       # Checkout repository
       - name: Checkout repository (with submodules)
@@ -110,6 +111,13 @@ jobs:
         with:
           ref: ${{ inputs.checkout-ref }}
           submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Configure Git/Cargo to authenticate with private repos using the app token
+      - name: Configure Git for private Cargo dependencies
+        if: steps.secrets-status.outputs.ok == 'true'
+        uses: ./.github/actions/configure-cargo-auth
+        with:
           token: ${{ steps.app-token.outputs.token }}
 
       # Setup Rust toolchain

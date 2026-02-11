@@ -26,6 +26,7 @@ jobs:
             RediSearchDisk
             rust-speedb
             speedb-ent
+            redismodule-rs
 
       # Full checkout, with the above token for private repos (and current)
       - name: Checkout repository (with submodules)
@@ -34,11 +35,12 @@ jobs:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
 
-      # Setup build environment (dependencies, disk space, sccache)
+      # Setup build environment (dependencies, disk space, sccache, cargo auth)
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
           install-mode: sudo
+          github-token: ${{ steps.app-token.outputs.token }}
 
       # Install Python test dependencies early
       - name: Install Python test dependencies

@@ -126,28 +126,6 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.66.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
-dependencies = [
- "bitflags 2.10.0",
- "cexpr",
- "clang-sys",
- "lazy_static",
- "lazycell",
- "log",
- "peeking_take_while",
- "prettyplease",
- "proc-macro2",
- "quote 1.0.42",
- "regex",
- "rustc-hash 1.1.0",
- "shlex",
- "syn 2.0.111",
-]
-
-[[package]]
-name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
@@ -156,6 +134,8 @@ dependencies = [
  "cexpr",
  "clang-sys",
  "itertools 0.13.0",
+ "log",
+ "prettyplease",
  "proc-macro2",
  "quote 1.0.42",
  "regex",
@@ -351,6 +331,14 @@ name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
+
+[[package]]
+name = "common"
+version = "0.1.0"
+source = "git+https://github.com/redislabsdev/redismodule-rs.git?rev=d18df643dd056e0a89cb8e6c5708dfb1b8cadb49#d18df643dd056e0a89cb8e6c5708dfb1b8cadb49"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "criterion"
@@ -1421,13 +1409,14 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
+source = "git+https://github.com/redislabsdev/redismodule-rs.git?rev=d18df643dd056e0a89cb8e6c5708dfb1b8cadb49#d18df643dd056e0a89cb8e6c5708dfb1b8cadb49"
 dependencies = [
  "backtrace",
- "bindgen 0.66.1",
+ "bindgen 0.72.1",
  "bitflags 2.10.0",
  "cc",
  "cfg-if",
+ "common",
  "enum-primitive-derive",
  "libc",
  "linkme",
@@ -1443,7 +1432,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
+source = "git+https://github.com/redislabsdev/redismodule-rs.git?rev=d18df643dd056e0a89cb8e6c5708dfb1b8cadb49#d18df643dd056e0a89cb8e6c5708dfb1b8cadb49"
 dependencies = [
  "lazy_static",
  "proc-macro2",

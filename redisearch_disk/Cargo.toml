@@ -20,8 +20,8 @@ enumflags2 = "0.7"
 document = { path = "../deps/RediSearch/src/redisearch_rs/document" }
 ffi = { path = "../deps/RediSearch/src/redisearch_rs/ffi" }
 inverted_index = { path = "../deps/RediSearch/src/redisearch_rs/inverted_index" }
-# Notice: The redis-module dependency should be the same as in the corresponding OSS branch.
-redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "1ab84014c096dbfd431de0e34d174d15f16c0e42", default-features = false }
+# Private fork of redis-module. Keep in sync with [patch] section below.
+redis-module = { git = "https://github.com/redislabsdev/redismodule-rs.git", rev = "d18df643dd056e0a89cb8e6c5708dfb1b8cadb49", default-features = false }
 num-traits = "0.2.19"
 roaring = "0.10"
 rqe_iterators = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators" }
@@ -70,6 +70,11 @@ crate-type = ["staticlib", "rlib"]
 # Disable running benchmarks on the library itself - we only want to run
 # the benchmark binaries in benches/ directory
 bench = false
+
+# Patch redis-module for RediSearch submodule crates to use our private fork.
+# Keep rev in sync with redis-module in [dependencies] above.
+[patch."https://github.com/RedisLabsModules/redismodule-rs.git"]
+redis-module = { git = "https://github.com/redislabsdev/redismodule-rs.git", rev = "d18df643dd056e0a89cb8e6c5708dfb1b8cadb49", default-features = false }
 
 [lints.clippy]
 # `unsafe` pushes on you, the developer, the responsibility

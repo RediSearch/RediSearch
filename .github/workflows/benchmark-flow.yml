@@ -63,6 +63,7 @@ jobs:
             RediSearchDisk
             rust-speedb
             speedb-ent
+            redismodule-rs
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -92,13 +93,14 @@ jobs:
           submodules: recursive
           token: ${{ steps.app-token.outputs.token }}
 
-      # Setup build environment (dependencies, disk space, sccache)
+      # Setup build environment (dependencies, disk space, sccache, cargo auth)
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
           install-mode: sudo
           install-python-deps: 'true'
           python-requirements-file: deps/RediSearch/tests/benchmarks/requirements.txt
+          github-token: ${{ steps.app-token.outputs.token }}
 
       # Install latest without pin, to avoid the back-and-forth of releasing new redisbench-admin and needing a PR
       - name: Install latest redisbench-admin
