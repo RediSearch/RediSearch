@@ -24,6 +24,8 @@ jobs:
       cancel-in-progress: true
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
+    with:
+      enable_profiler: ${{ contains(github.event.pull_request.labels.*.name, 'benchmark-profile-enabler') }}
 
   msmarco-benchmark:
     name: Trigger MS MARCO Benchmark
@@ -42,3 +44,4 @@ jobs:
     secrets: inherit
     with:
       allowed_setup: oss-cluster-08-primaries-250gb-threads-8
+      enable_profiler: ${{ contains(github.event.pull_request.labels.*.name, 'benchmark-profile-enabler') }}

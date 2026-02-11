@@ -17,6 +17,9 @@ on:
         default: bin/linux-x64-release/RedisJSON/master/rejson.so
       profile_env:
         type: number
+      enable_profiler:
+        type: string
+        default: "false"
       benchmark_glob:
         type: string
         default: "search*.yml"
@@ -39,7 +42,7 @@ on:
 
 jobs:
   benchmark-steps:
-    name: "Benchmark rflex-standalone (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}"
+    name: "Benchmark rflex-standalone profiler=${{ inputs.enable_profiler }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }}"
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -132,8 +135,8 @@ jobs:
         timeout-minutes: 480
         working-directory: benchmarks
         env:
-          PERF_CALLGRAPH_MODE: dwarf
-          MAX_PROFILERS: 3
+          TF_VAR_parca_agent_token: ${{ secrets.TF_VAR_parca_agent_token }}
+          TF_VAR_enable_parca_agent: ${{ inputs.enable_profiler }}
           AWS_ACCESS_KEY_ID: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ secrets.PERFORMANCE_EC2_REGION }}
@@ -166,6 +169,7 @@ jobs:
           BIGREDIS_MAX_RAM: "4GB"
           SEARCH_CLUSTERSET: 1
           CLUSTER_NODE_TIMEOUT: 240000
+          DB_DIRNAME: "/mnt/flash"
 
         run: redisbench-admin run-remote
               --redis-server-binary "${REDIS_SERVER_BINARY}"

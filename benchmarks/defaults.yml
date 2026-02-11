@@ -2,7 +2,7 @@ version: 0.2
 
 remote:
  - type: oss-standalone
- - setup: redisearch-m5
+ - setup: redisearch-disk-i7i
 
 exporter:
   redistimeseries:

@@ -25,6 +25,10 @@ on:
         type: string
         default: master
         description: 'branch to use for rejson'
+      enable_profiler:
+        type: boolean
+        description: 'Enable profiler for benchmarks'
+        default: false
   workflow_call:
     inputs:
       extended:
@@ -38,6 +42,10 @@ on:
         type: boolean
         default: false
         description: 'if true, will notify failure on slack'
+      enable_profiler:
+        type: boolean
+        default: false
+        description: 'Enable profiler for benchmarks'
 
 jobs:
   # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-standalone
@@ -49,6 +57,7 @@ jobs:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-standalone
       allowed_setups: oss-standalone
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-02-primaries
   benchmark-search-oss-cluster-02-primaries:
@@ -59,6 +68,7 @@ jobs:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-02-primaries
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-04-primaries
   benchmark-search-oss-cluster-04-primaries:
@@ -69,6 +79,7 @@ jobs:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-04-primaries
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-08-primaries
   benchmark-search-oss-cluster-08-primaries:
@@ -79,6 +90,7 @@ jobs:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   # Tests: search-msmarco-6M-* supports oss-cluster-08-primaries-250gb-threads-8
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
@@ -89,6 +101,7 @@ jobs:
       benchmark_glob: "search-msmarco*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-16-primaries
   benchmark-search-oss-cluster-16-primaries:
@@ -99,6 +112,7 @@ jobs:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-16-primaries
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-20-primaries
   benchmark-search-oss-cluster-20-primaries:
@@ -109,6 +123,7 @@ jobs:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-20-primaries
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   # Tests: search-ftsb-1M-enwiki_abstract-* supports oss-cluster-24-primaries
   benchmark-search-oss-cluster-24-primaries:
@@ -119,6 +134,7 @@ jobs:
       benchmark_glob: "search*.yml"
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-24-primaries
+      enable_profiler: ${{ inputs.enable_profiler && 'true' || 'false' }}
 
   notify-failure:
     needs:
