@@ -1171,16 +1171,17 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    // Determine timeout callback based on policy
     BlockedClientTimeoutCB timeoutCB = NULL;
     int timeoutMS = 0;
+    // Optimization: if query timeout is disabled or policy is not RETURN, we can skip in-pipeline timeout checks
     if (r->reqConfig.queryTimeoutMS == 0 || r->reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
+      // Skip in-pipeline timeout checks
       AREQ_SetSkipTimeoutChecks(r, true);
     }
+    // Determine timeout callback based on policy
     if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       timeoutCB = QueryTimeoutFailCallback;
       timeoutMS = r->reqConfig.queryTimeoutMS;
-      // Skip timeout checks in background thread since we rely on the callback to signal timeout
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, r, timeoutMS, timeoutCB);
