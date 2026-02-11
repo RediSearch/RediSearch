@@ -528,6 +528,147 @@ Phase 1 enables:
 
 ---
 
+### Phase 2: Query Processing (Intersection-Based) ✅ IMPLEMENTED
+
+**Status:** Complete
+
+This phase implements the query processing logic for sparse vector search using intersection-based iteration.
+
+#### 2.1 Query Processing Strategy
+
+For sparse vector queries, we use an **Intersection-based** approach:
+
+1. **Query representation**: A query is a sparse vector `{dim_id: weight, ...}`
+2. **Iterator creation**: For each query dimension, create an `InvIndIterator` over the corresponding posting list
+3. **Intersection**: Use `Intersection<InvIndIterator>` to find documents that contain **all** query dimensions
+
+**Note:** Scoring (dot product computation) is a separate concern handled by a higher layer, not by the iterator itself.
+
+```
+Query: {dim_5: 0.8, dim_42: 0.3, dim_99: 0.5}
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│  Create InvIndIterator for each query dimension:        │
+│    - iter_5  = InvIndIterator(posting_list[dim_5])     │
+│    - iter_42 = InvIndIterator(posting_list[dim_42])    │
+│    - iter_99 = InvIndIterator(posting_list[dim_99])    │
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│  Intersection Iterator                                  │
+│    - Only yields docs present in ALL child iterators   │
+│    - Children sorted by estimated count (smallest first)│
+└─────────────────────────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────────────────────────┐
+│  SparseVectorQueryIterator                              │
+│    - Wraps Intersection                                 │
+│    - Returns matching documents with per-dimension      │
+│      weights accessible via aggregate children          │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 2.2 SparseVectorQueryIterator Design
+
+**New file: `src/redisearch_rs/sparse_vector_index/src/query.rs`**
+
+```rust
+use inverted_index::{IndexReaderCore, RSIndexResult, numeric::Numeric};
+use rqe_iterators::{Intersection, NoOpChecker, RQEIterator, inverted_index::InvIndIterator};
+
+/// Iterator for sparse vector queries.
+///
+/// Uses an intersection of per-dimension inverted index iterators to find
+/// documents that contain ALL query dimensions.
+pub struct SparseVectorQueryIterator<'index> {
+    /// The intersection iterator over dimension posting lists.
+    intersection: Intersection<'index, DimensionIterator<'index>>,
+}
+
+/// Type alias for dimension posting list iterator.
+type DimensionIterator<'index> = InvIndIterator<'index, IndexReaderCore<'index, Numeric>, NoOpChecker>;
+
+impl<'index> SparseVectorQueryIterator<'index> {
+    /// Create a query iterator from a sparse vector index and query.
+    ///
+    /// # Arguments
+    /// * `index` - The sparse vector index to query
+    /// * `query` - Query as `(dimension_id, weight)` pairs. Weights are stored
+    ///   in the query but not used by the iterator (scoring is a separate concern).
+    ///
+    /// # Returns
+    /// A query iterator, or `None` if any query dimension doesn't exist in the index.
+    pub fn new(
+        index: &'index SparseVectorIndex,
+        query: &[(u32, f64)],
+    ) -> Option<Self>;
+
+    /// Read the next matching document.
+    ///
+    /// Returns the intersection result (containing doc_id and aggregate children
+    /// with per-dimension weights from the index).
+    pub fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>;
+}
+```
+
+#### 2.3 Implementation Details
+
+**Query with Non-Existent Dimensions:**
+
+If any query dimension doesn't exist in the index, the intersection will be empty (no documents can match all dimensions). The constructor returns `None` in this case to signal that no results are possible.
+
+**Accessing Per-Dimension Weights:**
+
+The returned `RSIndexResult` is an aggregate result containing child results for each query dimension. Each child's numeric value can be accessed via `result.get(i).and_then(|c| c.as_numeric())` to retrieve the document's weight for that dimension.
+
+#### 2.4 Usage Example
+
+```rust
+let mut index = SparseVectorIndex::new();
+
+// Index documents
+index.add(1, &[(10, 0.5), (20, 0.3), (30, 0.8)])?;
+index.add(2, &[(10, 0.2), (20, 0.9), (30, 0.1)])?;
+index.add(3, &[(10, 0.7), (20, 0.4)])?;  // Missing dim 30
+
+// Query: find docs with all dimensions 10, 20, 30
+let query = [(10, 1.0), (20, 0.5), (30, 0.2)];
+let mut iter = SparseVectorQueryIterator::new(&index, &query)?;
+
+// Only docs 1 and 2 will match (doc 3 is missing dim 30)
+while let Some(result) = iter.read()? {
+    let doc_id = result.doc_id;
+    // Access per-dimension weights via result.get(i).as_numeric()
+}
+```
+
+#### 2.5 Deliverables
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| `query.rs` | `src/redisearch_rs/sparse_vector_index/src/` | Query iterator implementation |
+| `SparseVectorQueryIterator` | `query.rs` | Intersection-based query iterator |
+| Unit tests | `tests/sparse_vector_index.rs` | Query functionality tests (8 tests) |
+
+#### 2.6 Future Considerations
+
+**Union-Based Queries:**
+
+The current intersection-based approach requires documents to have ALL query dimensions. A future enhancement could add a union-based iterator for "best match" queries where documents are matched on any query dimensions. This would use `Union<InvIndIterator>` instead of `Intersection`.
+
+**Scoring Layer:**
+
+Dot product computation (`Σ q[dim] × d[dim]`) will be handled by a separate scoring layer that wraps the iterator and computes scores using both query weights and document weights from the iterator results.
+
+**Top-K Selection:**
+
+Score-based top-K selection with early termination (e.g., WAND algorithm) is planned for a future phase.
+
+---
+
 ## Annex A: Missing Dimensions and Scoring Behavior
 
 ### Missing Dimensions in Documents

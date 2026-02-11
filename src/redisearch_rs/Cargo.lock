@@ -2157,8 +2157,17 @@ dependencies = [
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "rqe_iterators",
  "rustc-hash 2.1.1",
  "workspace_hack",
+]
+
+[[package]]
+name = "sparse_vector_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "sparse_vector_index",
 ]
 
 [[package]]

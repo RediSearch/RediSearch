@@ -43,6 +43,8 @@
 //! - **Metric-agnostic storage**: The index stores raw weights only. Similarity
 //!   metrics (dot product, cosine) are applied at query time, not index time.
 
+mod query;
+
 use std::ptr;
 
 use ffi::{IndexFlags_Index_StoreNumeric, t_docId};
@@ -50,6 +52,8 @@ use inverted_index::{
     EntriesTrackingIndex, RSIndexResult, RSResultData, numeric::Numeric, t_fieldMask,
 };
 use rustc_hash::FxHashMap;
+
+pub use query::SparseVectorQueryIterator;
 
 /// All fields mask constant for sparse vector entries.
 const RS_FIELDMASK_ALL: t_fieldMask = !0;
