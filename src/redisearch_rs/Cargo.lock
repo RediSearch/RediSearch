@@ -1456,6 +1456,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_term"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "quote"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
