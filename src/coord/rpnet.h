@@ -69,6 +69,11 @@ typedef struct {
   // Pending replies while waiting for all shards' first responses
   arrayof(MRReply *) pendingReplies;   // Replies accumulated while waiting
   bool waitedForAllShards;             // True once all shards have sent their first response
+
+  // KNN context for SHARD_K_RATIO optimization in FT.AGGREGATE
+  // Set by buildDistRPChain, used by rpnetNext_Start command modifier callback
+  struct VectorQuery *knnVectorQuery;  // NOT owned, may be NULL
+  size_t knnQueryArgIndex;             // Index of query argument in MRCommand
 } RPNet;
 
 

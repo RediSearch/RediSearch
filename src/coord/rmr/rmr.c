@@ -571,6 +571,7 @@ struct MRIteratorCtx {
   IORuntimeCtx *ioRuntime;
   void (*privateDataDestructor)(void *);  // Destructor for privateData, called in MRIterator_Free
   void (*privateDataInit)(void *, MRIterator *);  // Init callback for privateData, called from iterStartCb
+  MRCommandModifier commandModifier;  // Callback to modify command before sending, called from iterStartCb
 };
 
 struct MRIteratorCallbackCtx {
@@ -697,6 +698,11 @@ void iterStartCb(void *p) {
 
   // Set the dispatch time value in the prepared placeholder
   MRCommand_SetDispatchTime(cmd);
+
+  // Call command modifier callback if set (e.g., to calculate effectiveK based on actual numShards)
+  if (it->ctx.commandModifier) {
+    it->ctx.commandModifier(cmd, numShards, privateData);
+  }
 
   for (size_t targetShardIdx = 1; targetShardIdx < numShards; targetShardIdx++) {
     it->cbxs[targetShardIdx].it = it;
@@ -836,12 +842,13 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
 }
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
-  return MR_IterateWithPrivateData(cmd, cb, NULL, NULL, NULL, iterStartCb, NULL);
+  return MR_IterateWithPrivateData(cmd, cb, NULL, NULL, NULL, NULL, iterStartCb, NULL);
 }
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
                                       void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      MRCommandModifier commandModifier,
                                       void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
@@ -863,6 +870,7 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
       .ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
       .privateDataDestructor = cbPrivateDataDestructor,
       .privateDataInit = cbPrivateDataInit,
+      .commandModifier = commandModifier,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };

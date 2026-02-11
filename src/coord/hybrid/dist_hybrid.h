@@ -23,13 +23,12 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
 
 // For testing purposes
-// numShards is passed from the main thread to ensure thread-safe access
+// If outKArgIndex is not NULL, stores the index of the K value argument in the MRCommand
+// (for later modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp,
-                            const VectorQuery *vq,
-                            size_t numShards);
+                            IndexSpec *sp, int *outKArgIndex);
 
 #ifdef __cplusplus
 }

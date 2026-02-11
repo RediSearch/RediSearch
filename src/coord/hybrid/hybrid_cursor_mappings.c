@@ -12,7 +12,9 @@
 #include "../../rmalloc.h"
 #include "../../../deps/rmutil/rm_assert.h"
 #include "query_error.h"
+#include "shard_window_ratio.h"
 #include <string.h>
+#include <stdatomic.h>
 #include "info/global_stats.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
@@ -25,7 +27,8 @@ typedef struct {
     size_t responseCount;
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
-    int numShards;                    // Total number of expected shards
+    _Atomic size_t numShards;         // Total number of expected shards (set atomically from IO thread)
+    HybridKnnContext *knnCtx;         // KNN context for SHARD_K_RATIO optimization (may be NULL)
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -200,7 +203,46 @@ static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
     rm_free(ctx);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, QueryError *status, const RSOomPolicy oomPolicy) {
+// Initialize callback context with numShards from iterator (called from IO thread in iterStartCb)
+// This ensures we wait for exactly as many responses as commands we sent.
+static void processCursorMappingContext_Init(void *ptr, MRIterator *it) {
+    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)ptr;
+    if (!ctx || !it) {
+        return;
+    }
+    size_t numShards = MRIterator_GetNumShards(it);
+    // Use atomic_store (not atomic_init) because the coordinator thread may already be
+    // calling atomic_load on numShards concurrently in ProcessHybridCursorMappings()
+    atomic_store(&ctx->numShards, numShards);
+}
+
+// Command modifier callback for SHARD_K_RATIO optimization.
+// Called from iterStartCb on IO thread before commands are sent to shards.
+void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData) {
+    if (!privateData || !cmd) {
+        return;
+    }
+    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
+    HybridKnnContext *knnCtx = ctx->knnCtx;
+    if (!knnCtx || knnCtx->kArgIndex < 0) {
+        return;
+    }
+    // Only apply optimization for multi-shard deployments with valid ratio
+    if (numShards <= 1 || knnCtx->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
+        return;
+    }
+    size_t effectiveK = calculateEffectiveK(knnCtx->originalK, knnCtx->shardWindowRatio, numShards);
+    if (effectiveK == knnCtx->originalK) {
+        return;
+    }
+    // Replace the K value argument in the command
+    char effectiveK_str[32];
+    int len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
+    MRCommand_ReplaceArg(cmd, knnCtx->kArgIndex, effectiveK_str, len);
+}
+
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef,
+                                 HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -215,18 +257,28 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
     pthread_cond_init(ctx->completionCond, NULL);
 
     // Setup callback context
+    // numShards is initialized to 0 and will be set atomically by processCursorMappingContext_Init
+    // when called from iterStartCb on the IO thread. This ensures we wait for exactly as many
+    // responses as commands were actually sent (based on the IO thread's topology snapshot).
     *ctx = (processCursorMappingCallbackContext){
         .searchMappings = StrongRef_Clone(searchMappingsRef),
         .vsimMappings = StrongRef_Clone(vsimMappingsRef),
-        .errors = array_new(QueryError, numShards),
+        .errors = array_new(QueryError, 0),
         .responseCount = 0,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
-        .numShards = numShards
+        .knnCtx = knnCtx,  // Store KNN context for command modifier callback
     };
+    // We must use atomic_init here (not rely on struct initialization)
+    // because the coord thread may call atomic_load on numShards before
+    // processCursorMappingContext_Init runs.
+    atomic_init(&ctx->numShards, 0);
 
-    // Start iteration (ctx is cleaned up manually in cleanupCtx, no destructor needed)
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL, NULL, iterStartCb, NULL);
+    // Start iteration with privateDataInit callback to set numShards from IO thread
+    // Pass HybridKnnCommandModifier if knnCtx is provided (for SHARD_K_RATIO optimization)
+    MRCommandModifier cmdModifier = knnCtx ? HybridKnnCommandModifier : NULL;
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL,
+                                               processCursorMappingContext_Init, cmdModifier, iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
@@ -234,9 +286,13 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         return false;
     }
     // Wait for all callbacks to complete
+    // numShards is re-read on each iteration because it may initially be 0
+    // (in case the IO thread iterStartCb did not run yet and did not initialize numShards yet).
+    // Once a reply arrives, iterStartCb has finished and numShards will be set.
     pthread_mutex_lock(ctx->mutex);
-    // initialize count with response counts in case some shards already sent a response
-    for (size_t count = ctx->responseCount; count < numShards; count = ctx->responseCount) {
+    size_t numShards;
+    while ((numShards = atomic_load(&ctx->numShards)) == 0 ||
+           ctx->responseCount < numShards) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
     pthread_mutex_unlock(ctx->mutex);

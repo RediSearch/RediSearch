@@ -223,6 +223,8 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     hybridReq->profileClocks.initClock = now;
+    // Initialize kArgIndex to -1 (not applicable) - set during command building if KNN query
+    hybridReq->kArgIndex = -1;
     return hybridReq;
 }
 
