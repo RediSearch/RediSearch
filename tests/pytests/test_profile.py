@@ -635,8 +635,14 @@ def parse_resp2_shards_list(shards_list):
       current_shard_name = item
       current_shard = {}
     elif isinstance(item, list) and len(item) >= 1:
-      # Key-value pair like ['Total profile time', '0.291']
-      current_shard[item[0]] = item[1] if len(item) > 1 else None
+      # Key-value pair like ['Total profile time', '0.291'] or multi-valued like
+      # ['Result processors profile', RP1, RP2, ...]
+      key = item[0]
+      value = item[1:] if len(item) > 1 else None
+      # Unwrap single-element values
+      if value and len(value) == 1:
+        value = value[0]
+      current_shard[key] = value
 
   # Don't forget the last shard
   if current_shard_name:
@@ -651,12 +657,24 @@ def extract_profile_coordinator_and_shards(env, res):
   Handles both FT.SEARCH and FT.AGGREGATE for RESP2 and RESP3, cluster and standalone.
   """
   if env.protocol == 3:
-    # RESP3: profile data is in a dict
-    profile = res.get('Profile', res)
-    shards = profile.get('Shards', {})
-    # Shards is a dict with shard names as keys, convert to list of values
-    shards_list = list(shards.values()) if isinstance(shards, dict) else shards
-    return profile.get('Coordinator', {}), shards_list
+    # RESP3: response structure varies by command type
+    # - Cluster FT.SEARCH: res['shards'] (lowercase) at top level
+    # - Cluster FT.AGGREGATE: res['Shards'] (uppercase) at top level
+    # - Standalone: res['profile'] at top level with profile data
+
+    # Check for cluster mode first (shards at top level)
+    shards = res.get('shards', res.get('Shards', None))
+    if shards is not None:
+      # Cluster mode - shards dict at top level
+      shards_list = list(shards.values()) if isinstance(shards, dict) else shards
+      # Filter out Coordinator from shards list (it has 'Total Coordinator time' key)
+      shards_list = [s for s in shards_list if 'Total Coordinator time' not in s]
+      coordinator = res.get('coordinator', res.get('Coordinator', {}))
+      return coordinator, shards_list
+
+    # Standalone mode - profile data at top level or nested under 'profile'
+    profile = res.get('profile', res)
+    return {}, [profile]
 
   # RESP2 format handling
 
@@ -691,9 +709,16 @@ def extract_profile_coordinator_and_shards(env, res):
     shards = parse_resp2_shards_list(shards_portion)
     return coordinator, shards
 
-  # Standalone format: res[-1] is a list of [key, value] pairs
+  # Standalone format: res[-1] is a list of [key, value, ...] pairs
   if isinstance(res[-1], list) and len(res[-1]) > 0 and isinstance(res[-1][0], list):
-    profile_dict = {item[0]: item[1] if len(item) > 1 else None for item in res[-1]}
+    profile_dict = {}
+    for item in res[-1]:
+      key = item[0]
+      value = item[1:] if len(item) > 1 else None
+      # Unwrap single-element values
+      if value and len(value) == 1:
+        value = value[0]
+      profile_dict[key] = value
     return {}, [profile_dict]
 
   # Fallback
