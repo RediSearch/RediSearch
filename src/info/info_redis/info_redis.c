@@ -64,7 +64,6 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     // Still emit the number of indexes and runtime configuration so operators can understand
     // why metrics are suppressed.
     AddToInfo_IndexesEmpty(ctx);
-    // Still emit runtime configuration so operators can understand why metrics are suppressed.
     AddToInfo_RSConfig(ctx);
     return;
   }
