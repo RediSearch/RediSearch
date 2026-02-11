@@ -68,6 +68,7 @@ class TestDebugCommands(object):
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
             'DISK_IO_CONTROL',
+            'DISKGC_FORCEINVOKE',
             'REGISTER_TEST_SCORERS',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
