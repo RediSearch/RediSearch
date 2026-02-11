@@ -485,8 +485,8 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    // Assert that timeout only occurs when skipTimeoutChecks is false
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks);
+    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
+    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
