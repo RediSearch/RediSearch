@@ -83,6 +83,21 @@ void shardResponseBarrier_Free(void *ptr) {
   }
 }
 
+// Initialize ShardCountBarrier base fields (called from iterStartCb when topology is known)
+// This is a generic init function that can be used as privateDataInit callback
+// when the privateData starts with a ShardCountBarrier (or is a ShardCountBarrier*)
+void shardCountBarrier_Init(void *ptr, MRIterator *it) {
+  ShardCountBarrier *barrier = (ShardCountBarrier *)ptr;
+  if (!barrier || !it) {
+    return;
+  }
+
+  size_t numShards = MRIterator_GetNumShards(it);
+  // Use atomic_store (not atomic_init) because coord thread may already be
+  // calling atomic_load on numShards concurrently
+  atomic_store(&barrier->numShards, numShards);
+}
+
 // Allocate and initialize a new ShardResponseBarrier
 // Notice: numShards and shardResponded init is postponed until NumShards is known
 // Returns NULL on allocation failure
@@ -97,8 +112,8 @@ ShardResponseBarrier *shardResponseBarrier_New() {
   // We must use atomic_init here (not rely on calloc zeroing)
   // because the coord thread may call atomic_load on numShards before
   // shardResponseBarrier_Init runs.
-  atomic_init(&barrier->numShards, 0);
-  atomic_init(&barrier->numResponded, 0);
+  atomic_init(&barrier->base.numShards, 0);
+  atomic_init(&barrier->base.numResponded, 0);
   atomic_init(&barrier->accumulatedTotal, 0);
   atomic_init(&barrier->hasShardError, false);
 
@@ -109,6 +124,7 @@ ShardResponseBarrier *shardResponseBarrier_New() {
 }
 
 // Initialize ShardResponseBarrier (called from iterStartCb when topology is known)
+// This initializes both the base ShardCountBarrier and the shardResponded array
 void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
   if (!barrier || !it) {
@@ -123,7 +139,7 @@ void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
     // shardResponseBarrier_Notify from accessing NULL shardResponded array
     // Use atomic_store (not atomic_init) because coord thread may already be
     // calling atomic_load on numShards concurrently in getNextReply()
-    atomic_store(&barrier->numShards, numShards);
+    atomic_store(&barrier->base.numShards, numShards);
   }
   // If allocation failed, numShards remains 0 (from atomic_init in shardResponseBarrier_New)
   // so Notify callback won't try to access the NULL shardResponded array
@@ -135,7 +151,7 @@ void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults, bo
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)privateData;
 
   // Validate shardId bounds
-  size_t numShards = atomic_load(&barrier->numShards);
+  size_t numShards = atomic_load(&barrier->base.numShards);
   if (shardIndex >= numShards) {
     return;
   }
@@ -149,15 +165,15 @@ void shardResponseBarrier_Notify(uint16_t shardIndex, long long totalResults, bo
     } else {
       atomic_store(&barrier->hasShardError, true);
     }
-    atomic_fetch_add(&barrier->numResponded, 1);
+    atomic_fetch_add(&barrier->base.numResponded, 1);
   }
 }
 
 static void shardResponseBarrier_UpdateTotalResults(RPNet *nc) {
   // Set the accumulated total now that all shards have responded
   // numShards == 0 means IO thread never initialized the barrier (timeout before init)
-  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
-  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
+  size_t numResponded = atomic_load(&nc->shardResponseBarrier->base.numResponded);
+  size_t numShards = atomic_load(&nc->shardResponseBarrier->base.numShards);
   if (numShards > 0 && numResponded >= numShards) {
     long long accumulatedTotal = atomic_load(&nc->shardResponseBarrier->accumulatedTotal);
     nc->base.parent->totalResults = accumulatedTotal;
@@ -184,8 +200,8 @@ static struct timespec *getAbsTimeout(RPNet *nc) {
 // Handle timeout (not enough shards responded) only if there were no errors
 // Also handles the case where numShards == 0 (IO thread never initialized barrier)
 static bool shardResponseBarrier_HandleTimeout(RPNet *nc) {
-  size_t numShards = atomic_load(&nc->shardResponseBarrier->numShards);
-  size_t numResponded = atomic_load(&nc->shardResponseBarrier->numResponded);
+  size_t numShards = atomic_load(&nc->shardResponseBarrier->base.numShards);
+  size_t numResponded = atomic_load(&nc->shardResponseBarrier->base.numResponded);
   // Timeout if: barrier not initialized (numShards == 0) OR not all shards responded
   if (!(atomic_load(&nc->shardResponseBarrier->hasShardError)) &&
       (numShards == 0 || numResponded < numShards)) {
@@ -274,8 +290,8 @@ int getNextReply(RPNet *nc) {
     // (in case the IO thread iterStartCb did not run yet and did not initialize the barrier yet).
     // Once a reply arrives, iterStartCb has finished and numShards will be set.
     size_t numShards;
-    while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
-           atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
+    while ((numShards = atomic_load(&nc->shardResponseBarrier->base.numShards)) == 0 ||
+           atomic_load(&nc->shardResponseBarrier->base.numResponded) < numShards) {
       // Check for timeout to avoid blocking indefinitely
       if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
         break;

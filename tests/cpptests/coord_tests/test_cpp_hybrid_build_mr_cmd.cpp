@@ -149,25 +149,29 @@ protected:
 
         // Now simulate the IO thread calling HybridKnnCommandModifier
         // Create a mock context structure that mimics processCursorMappingCallbackContext
-        // The actual struct layout is:
+        // The actual struct layout is (after refactoring to use ShardCountBarrier):
+        //   ShardCountBarrier shardBarrier;  <-- FIRST field (contains numShards and numResponded)
         //   StrongRef searchMappings;
         //   StrongRef vsimMappings;
         //   arrayof(QueryError) errors;
         //   size_t responseCount;
         //   pthread_mutex_t *mutex;
         //   pthread_cond_t *completionCond;
-        //   _Atomic size_t numShards;
         //   HybridKnnContext *knnCtx;  <-- knnCtx is the LAST field
         // We must match this layout exactly for the cast in HybridKnnCommandModifier to work
         HybridKnnContext knnCtxValue;
+        struct MockShardCountBarrier {
+            std::atomic<size_t> numShards;
+            std::atomic<size_t> numResponded;
+        };
         struct MockCallbackContext {
+            MockShardCountBarrier shardBarrier;  // Must be FIRST field, matching ShardCountBarrier
             StrongRef searchMappings;
             StrongRef vsimMappings;
             void *errors;           // arrayof(QueryError)
             size_t responseCount;
             pthread_mutex_t *mutex;
             pthread_cond_t *completionCond;
-            std::atomic<size_t> numShards;
             HybridKnnContext *knnCtx;  // Must be the last field, matching the real struct
         } mockCtx = {};
 
