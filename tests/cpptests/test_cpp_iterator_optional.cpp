@@ -758,9 +758,6 @@ protected:
     oi_base = NewOptionalIterator(child, &mockCtx->qctx, weight);
 
     // Replace the wildcard iterator with a mock for testing
-    QueryIterator *wcii = TakeOptionalOptimizedIteratorWildcard(oi_base);
-    ASSERT_TRUE(wcii != nullptr);
-    wcii->Free(wcii); // Free the original wildcard iterator
     mockWildcard = new MockIterator(wildcard);
     SetOptionalOptimizedIteratorWildcard(oi_base, reinterpret_cast<QueryIterator *>(mockWildcard));
   }
