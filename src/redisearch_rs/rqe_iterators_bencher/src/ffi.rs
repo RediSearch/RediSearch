@@ -22,23 +22,6 @@ use std::{
 // Direct C benchmark functions that eliminate FFI overhead
 // by implementing the benchmark loop entirely in C
 unsafe extern "C" {
-    /// Benchmark wildcard iterator read operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_wildcard_read_direct_c(
-        max_id: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-
-    /// Benchmark wildcard iterator skip_to operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_wildcard_skip_to_direct_c(
-        max_id: u64,
-        step: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-
     /// Benchmark optional iterator read operations directly in C
     /// Returns the number of iterations performed and total time in nanoseconds
     fn benchmark_optional_read_direct_c(
@@ -350,32 +333,6 @@ pub struct DirectBenchmarkResult {
 }
 
 impl QueryIterator {
-    /// Run direct C benchmark for wildcard read operations
-    pub fn benchmark_wildcard_read_direct(max_id: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_wildcard_read_direct_c(max_id, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-
-    /// Run direct C benchmark for wildcard skip_to operations
-    pub fn benchmark_wildcard_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_wildcard_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-
     /// Run direct C benchmark for optional read operations
     pub fn benchmark_optional_read_direct(max_id: u64) -> DirectBenchmarkResult {
         let mut iterations = 0u64;

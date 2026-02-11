@@ -53,7 +53,7 @@ pub unsafe extern "C" fn GetOptionalNonOptimizedIteratorChild(
         // SAFETY: Safe thanks to 1
         unsafe { *header }.type_,
         IteratorType_OPTIONAL_ITERATOR,
-        "Expected an optional (Non-Optimizzed) iterator"
+        "Expected an optional (Non-Optimized) iterator"
     );
     // SAFETY: Safe thanks to 1
     let wrapper =
