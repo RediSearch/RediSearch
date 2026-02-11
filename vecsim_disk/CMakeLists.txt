@@ -50,11 +50,17 @@ else()
 endif()
 
 # =============================================================================
-# Unit Tests (optional, enabled via BUILD_TESTS)
+# Unit Tests (optional, enabled via BUILD_TESTS from parent CMakeLists.txt)
 # =============================================================================
-option(BUILD_TESTS "Build vecsim_disk unit tests" ON)
+# Note: BUILD_TESTS is controlled by the top-level CMakeLists.txt to ensure
+# consistent class layout (ABI) with VectorSimilarity. Don't redefine it here.
 
 if(BUILD_TESTS)
+    # CRITICAL: Define BUILD_TESTS macro to match VectorSimilarity ABI.
+    # VecSimTieredIndex has conditional members (#ifdef BUILD_TESTS) that affect class layout.
+    # Both libraries MUST have the same BUILD_TESTS setting to avoid ODR violations/segfaults.
+    target_compile_definitions(vecsim_disk PUBLIC BUILD_TESTS)
+
     # Add test helpers include path so hnsw_disk.h can find hnsw_disk_test_helpers.h
     target_include_directories(vecsim_disk PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit

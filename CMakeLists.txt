@@ -104,6 +104,22 @@ set(COORD_TYPE "oss")
 # for redisearch to register its commands correctly.
 set(REDISEARCH_BUILD_SHARED OFF)
 
+# Master build tests option - controls whether test instrumentation is compiled.
+# When ON, both VectorSimilarity and vecsim_disk are compiled with BUILD_TESTS macro,
+# which adds test helper members to classes. This affects ABI/class layout, so both
+# libraries MUST have the same setting to avoid ODR violations.
+# Default ON for development; set to OFF for production/library builds.
+option(BUILD_TESTS "Build with test instrumentation (affects class layout)" ON)
+
+if(BUILD_TESTS)
+    # Enable VectorSimilarity tests so that BUILD_TESTS macro is defined.
+    # This ensures consistent class layout between VectorSimilarity and vecsim_disk
+    # (both have BUILD_TESTS conditional members that affect ODR).
+    set(VECSIM_BUILD_TESTS ON CACHE BOOL "Build vecsim tests" FORCE)
+else()
+    set(VECSIM_BUILD_TESTS OFF CACHE BOOL "Build vecsim tests" FORCE)
+endif()
+
 # Include RediSearch - this creates a static library named 'redisearch'
 add_subdirectory(deps/RediSearch)
 

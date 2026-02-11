@@ -421,6 +421,10 @@ public:
     HNSWDiskIndex<DataType, DistType>* getBackendIndex() {
         return static_cast<HNSWDiskIndex<DataType, DistType>*>(this->backendIndex);
     }
+
+    size_t indexMetaDataCapacity() const override {
+        return this->backendIndex->indexMetaDataCapacity() + this->frontendIndex->indexMetaDataCapacity();
+    }
 #endif
 };
 
