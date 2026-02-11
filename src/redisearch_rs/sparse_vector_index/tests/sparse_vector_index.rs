@@ -46,6 +46,11 @@ fn test_add_single_document() {
     assert!(index.get_dimension(20).is_some());
     assert!(index.get_dimension(30).is_some());
     assert!(index.get_dimension(40).is_none());
+
+    // Check that dimensions have no entry
+    assert!(index.get_dimension(1).is_none());
+    assert!(index.get_dimension(2).is_none());
+    assert!(index.get_dimension(3).is_none());
 }
 
 #[test]

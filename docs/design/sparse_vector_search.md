@@ -274,7 +274,7 @@ This phase establishes the foundational types and structures for sparse vector i
 **Implementation Summary:**
 - ✅ 1.1 New field type `INDEXFLD_T_SPARSE_VECTOR = 0x40` added to `src/field_spec.h`
 - ✅ 1.2 `sparse_vector_index` Rust crate created at `src/redisearch_rs/sparse_vector_index/`
-- ✅ 1.3 `Index_HasSparseVec = 0x100000` flag added to `src/spec.h`
+- ✅ 1.3 `Index_HasSparseVec = 0x80000` flag added to `src/spec.h`
 - ✅ `sparseVecOpts` union member added to FieldSpec
 - ✅ Unit tests passing for the Rust crate (7 tests)
 
@@ -495,7 +495,7 @@ Add flag for sparse vector support:
 
 ```c
 // In IndexFlags enum, add:
-Index_HasSparseVec = 0x100000,  // Index has sparse vector fields
+Index_HasSparseVec = 0x80000,  // Index has sparse vector fields
 ```
 
 **File: `src/spec.c`**
