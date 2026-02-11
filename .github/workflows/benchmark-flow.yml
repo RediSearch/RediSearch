@@ -60,6 +60,10 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh
 
+      - name: TEMP early setup for redisbench-admin
+        run: |
+          pip3 install --upgrade pip
+          python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: print version info
         run: redisbench-admin run-remote --version
       - name: Get Redis
