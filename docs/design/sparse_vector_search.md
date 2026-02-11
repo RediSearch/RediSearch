@@ -265,9 +265,27 @@ Industry approach aligns with this proposal:
 
 ## Implementation Plan
 
-### Phase 1: Core Data Structures
+### Phase 1: Core Data Structures ✅ IMPLEMENTED
+
+**Status:** Complete
 
 This phase establishes the foundational types and structures for sparse vector indexing.
+
+**Implementation Summary:**
+- ✅ 1.1 New field type `INDEXFLD_T_SPARSE_VECTOR = 0x40` added to `src/field_spec.h`
+- ✅ 1.2 `sparse_vector_index` Rust crate created at `src/redisearch_rs/sparse_vector_index/`
+- ✅ 1.3 `Index_HasSparseVec = 0x100000` flag added to `src/spec.h`
+- ✅ `sparseVecOpts` union member added to FieldSpec
+- ✅ Unit tests passing for the Rust crate (7 tests)
+
+**Design Decision: Metric-Agnostic Index**
+
+The index stores raw dimension weights only. Similarity metrics (dot product, cosine) are applied at **query time**, not at index time. This design allows:
+- The same index to be queried with different metrics
+- No redundant storage of norms or normalized weights
+- Query-time flexibility without re-indexing
+
+For cosine similarity, document L2 norms should be computed at indexing time and stored in the **DocumentMetadata** (DocTable), keeping the index structure simple.
 
 #### 1.1 New Field Type
 
@@ -289,22 +307,16 @@ typedef enum {
 
 Update `INDEXFLD_NUM_TYPES` to 7.
 
-Define the similarity metric enum:
-
-```c
-typedef enum {
-  SPARSE_VEC_DOT_PRODUCT = 0,  // Default: raw dot product
-  SPARSE_VEC_COSINE = 1,       // Cosine similarity (requires norm storage)
-} SparseVecMetric;
-```
-
 Add sparse vector options to the `FieldSpec` union:
 
 ```c
 // In FieldSpec struct, add to the union:
 struct {
-  struct SparseVectorIndex *sparseVecIndex;  // The index structure
-  SparseVecMetric metric;                     // Similarity metric
+  // Sparse vector index (Rust-based, opaque pointer).
+  // The index is metric-agnostic; similarity metrics (dot product, cosine)
+  // are applied at query time. For cosine similarity, document norms should
+  // be stored in DocumentMetadata.
+  struct SparseVectorIndex *sparseVecIndex;
 } sparseVecOpts;
 ```
 
@@ -327,25 +339,15 @@ src/redisearch_rs/sparse_vector_index/
 **Core implementation (`src/lib.rs`):**
 
 ```rust
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use ffi::t_docId;
 use inverted_index::{EntriesTrackingIndex, numeric::Numeric};
-
-/// Similarity metric for sparse vector search.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SparseVecMetric {
-    #[default]
-    DotProduct = 0,
-    Cosine = 1,
-}
 
 /// Sparse vector index storing dimension_id -> posting list mappings.
 ///
 /// Each posting list is an InvertedIndex with Numeric encoding,
-/// storing (doc_id, weight) pairs. This structure is analogous to
-/// how TagIndex maps tag values to InvertedIndex instances, but uses
-/// a HashMap for O(1) dimension lookup instead of a Trie.
+/// storing (doc_id, weight) pairs. The index is metric-agnostic:
+/// similarity metrics (dot product, cosine) are applied at query time.
 ///
 /// # Design Rationale
 ///
@@ -353,111 +355,45 @@ pub enum SparseVecMetric {
 ///   No prefix matching is needed, so O(1) HashMap lookup is preferred.
 /// - **Numeric encoder reuse**: The existing Numeric encoder efficiently
 ///   stores (doc_id, float) pairs with delta encoding and float compression.
-/// - **EntriesTrackingIndex**: Wraps InvertedIndex to track entry count,
-///   matching the pattern used by NumericRangeTree.
+/// - **Metric-agnostic**: The index stores raw weights only. For cosine
+///   similarity, document norms should be stored in DocumentMetadata.
+#[derive(Debug, Default)]
 pub struct SparseVectorIndex {
     /// Mapping from dimension ID to its posting list.
-    /// Uses u32 for dimension IDs (supports vocabularies up to 4B dimensions).
-    dimensions: HashMap<u32, EntriesTrackingIndex<Numeric>>,
+    dimensions: FxHashMap<u32, EntriesTrackingIndex<Numeric>>,
 
     /// Total number of unique documents indexed.
     num_docs: u64,
-
-    /// Optional: per-document L2 norms for cosine similarity.
-    /// Only populated when metric is Cosine.
-    /// Maps doc_id -> L2 norm of the document's sparse vector.
-    doc_norms: Option<HashMap<t_docId, f64>>,
-
-    /// Similarity metric to use for queries.
-    metric: SparseVecMetric,
 
     /// Total memory used by all posting lists (bytes).
     memory_usage: usize,
 }
 
 impl SparseVectorIndex {
-    /// Create a new sparse vector index with the specified similarity metric.
-    pub fn new(metric: SparseVecMetric) -> Self {
-        Self {
-            dimensions: HashMap::new(),
-            num_docs: 0,
-            doc_norms: if metric == SparseVecMetric::Cosine {
-                Some(HashMap::new())
-            } else {
-                None
-            },
-            metric,
-            memory_usage: 0,
-        }
+    /// Create a new empty sparse vector index.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Add a sparse vector for a document.
-    ///
-    /// # Arguments
-    /// * `doc_id` - The document ID
-    /// * `entries` - Slice of (dimension_id, weight) pairs
-    ///
-    /// # Returns
-    /// The number of bytes the index grew by.
-    pub fn add(&mut self, doc_id: t_docId, entries: &[(u32, f64)]) -> usize {
-        let mut bytes_added = 0;
-
-        // Compute and store norm if using cosine similarity
-        if let Some(ref mut norms) = self.doc_norms {
-            let norm: f64 = entries.iter().map(|(_, w)| w * w).sum::<f64>().sqrt();
-            norms.insert(doc_id, norm);
-        }
-
+    pub fn add(&mut self, doc_id: t_docId, entries: &[(u32, f64)]) -> io::Result<usize> {
         // Add each dimension entry to its posting list
         for &(dim_id, weight) in entries {
             let posting_list = self.dimensions.entry(dim_id).or_insert_with(|| {
-                EntriesTrackingIndex::new(Numeric::default())
+                EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric)
             });
-
-            bytes_added += posting_list.write_numeric_entry(doc_id, weight);
+            bytes_added += posting_list.add_record(&record)?;
         }
-
         self.num_docs += 1;
-        self.memory_usage += bytes_added;
-        bytes_added
+        Ok(bytes_added)
     }
 
     /// Get the posting list for a specific dimension.
-    ///
-    /// Returns `None` if the dimension has no indexed documents.
     pub fn get_dimension(&self, dim_id: u32) -> Option<&EntriesTrackingIndex<Numeric>> {
         self.dimensions.get(&dim_id)
     }
 
-    /// Get the number of unique dimensions in the index.
-    pub fn num_dimensions(&self) -> usize {
-        self.dimensions.len()
-    }
-
-    /// Get the total number of indexed documents.
-    pub fn num_docs(&self) -> u64 {
-        self.num_docs
-    }
-
-    /// Get the similarity metric used by this index.
-    pub fn metric(&self) -> SparseVecMetric {
-        self.metric
-    }
-
-    /// Get the L2 norm for a document (only available for Cosine metric).
-    pub fn get_doc_norm(&self, doc_id: t_docId) -> Option<f64> {
-        self.doc_norms.as_ref()?.get(&doc_id).copied()
-    }
-
-    /// Get total memory usage in bytes.
-    pub fn memory_usage(&self) -> usize {
-        self.memory_usage
-    }
-
-    /// Check if the index is empty.
-    pub fn is_empty(&self) -> bool {
-        self.num_docs == 0
-    }
+    // ... additional accessor methods
 }
 ```
 
@@ -545,7 +481,7 @@ SparseVectorIndex *openSparseVectorIndex(FieldSpec *fs, bool create_if_missing) 
     RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_SPARSE_VECTOR));
 
     if (!fs->sparseVecOpts.sparseVecIndex && create_if_missing) {
-        fs->sparseVecOpts.sparseVecIndex = SparseVectorIndex_New(fs->sparseVecOpts.metric);
+        fs->sparseVecOpts.sparseVecIndex = SparseVectorIndex_New();
     }
     return fs->sparseVecOpts.sparseVecIndex;
 }
@@ -558,8 +494,8 @@ SparseVectorIndex *openSparseVectorIndex(FieldSpec *fs, bool create_if_missing) 
 Add flag for sparse vector support:
 
 ```c
-// In Index_Flags enum, add:
-#define Index_HasSparseVec 0x8000  // Index has sparse vector fields
+// In IndexFlags enum, add:
+Index_HasSparseVec = 0x100000,  // Index has sparse vector fields
 ```
 
 **File: `src/spec.c`**
@@ -571,12 +507,13 @@ Update `IndexSpec_AddField` to handle sparse vector fields and set the flag when
 | Component | Location | Description |
 |-----------|----------|-------------|
 | `INDEXFLD_T_SPARSE_VECTOR` | `src/field_spec.h` | New field type enum value |
-| `SparseVecMetric` | `src/field_spec.h` | Similarity metric enum |
 | `sparseVecOpts` | `src/field_spec.h` | FieldSpec union member |
 | `sparse_vector_index` crate | `src/redisearch_rs/sparse_vector_index/` | Core Rust implementation |
-| `SparseVectorIndex` struct | Rust crate | HashMap-based index structure |
-| `openSparseVectorIndex()` | `src/sparse_vector_index.c` | C accessor function |
+| `SparseVectorIndex` struct | Rust crate | Metric-agnostic HashMap-based index structure |
+| `openSparseVectorIndex()` | `src/sparse_vector_index.c` | C accessor function (Phase 6) |
 | `Index_HasSparseVec` | `src/spec.h` | IndexSpec flag |
+
+**Note:** Similarity metrics (dot product, cosine) are query-time concerns. For cosine similarity, document L2 norms should be stored in `DocumentMetadata` (DocTable).
 
 #### 1.6 Dependencies
 

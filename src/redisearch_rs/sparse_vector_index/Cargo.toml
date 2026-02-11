@@ -1,0 +1,19 @@
+[package]
+name = "sparse_vector_index"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffi.workspace = true
+inverted_index.workspace = true
+rustc-hash.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+proptest = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

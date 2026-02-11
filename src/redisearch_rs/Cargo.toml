@@ -12,6 +12,7 @@ members = [
     "inverted_index",
     "inverted_index_bencher",
     "numeric_range_tree",
+    "sparse_vector_index",
     "thin_vec",
     "qint",
     "query_error",
@@ -90,6 +91,7 @@ fnv = { path = "./fnv" }
 hyperloglog = { path = "./hyperloglog" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+sparse_vector_index = { path = "./sparse_vector_index" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query_error = { path = "./query_error" }

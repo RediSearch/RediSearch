@@ -2150,6 +2150,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sparse_vector_index"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "inverted_index",
+ "pretty_assertions",
+ "proptest",
+ "rustc-hash 2.1.1",
+ "workspace_hack",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
