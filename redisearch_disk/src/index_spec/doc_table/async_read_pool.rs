@@ -6,6 +6,8 @@
 //!
 //! Uses a tokio runtime with an mpsc channel for efficient async task management.
 
+use std::time::SystemTime;
+
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use super::{DocTable, DocumentMetadata};
@@ -45,6 +47,7 @@ async fn read_and_send_outcome(
 /// Returns true if processing should continue, false if stop was requested.
 fn process_outcome_static<F, G>(
     outcome: ReadOutcome,
+    expiration_point: SystemTime,
     metrics: &mut AsyncReadMetrics,
     success_callback: &mut F,
     failure_callback: &mut G,
@@ -60,10 +63,17 @@ where
             dmd,
             user_data,
         } => {
+            // Check if document has expired
+            if let Some(doc_expiration) = dmd.expiration
+                && doc_expiration <= expiration_point
+            {
+                metrics.reads_expired += 1;
+                return failure_callback(user_data);
+            }
             metrics.reads_found += 1;
             success_callback(doc_id, dmd, user_data);
             *results_processed += 1;
-            true // Always continue for success
+            true
         }
         ReadOutcome::NotFound { user_data } => {
             metrics.reads_not_found += 1;
@@ -87,6 +97,7 @@ where
     metrics: &'a mut AsyncReadMetrics,
     success_callback: &'a mut F,
     failure_callback: &'a mut G,
+    expiration_point: SystemTime,
     results_processed: u16,
     /// Set to true when failure callback returns false, indicating processing should stop.
     stop_requested: bool,
@@ -103,6 +114,7 @@ where
         *self.pending_count -= 1;
         let should_continue = process_outcome_static(
             outcome,
+            self.expiration_point,
             self.metrics,
             self.success_callback,
             self.failure_callback,
@@ -293,8 +305,10 @@ impl<'a> AsyncReadPool<'a> {
     /// # Arguments
     /// * `timeout_ms` - 0 for non-blocking, >0 to wait up to that many milliseconds
     /// * `max_results` - Maximum number of results to process
-    /// * `success_callback` - Called for each ready result with (doc_id, dmd, user_data)
-    /// * `failure_callback` - Called for each failed read with user_data
+    /// * `expiration_point` - Documents with expiration <= this time are treated as failures
+    /// * `success_callback` - Called for each ready result with (doc_id, dmd, user_data).
+    /// * `failure_callback` - Called for each failed/expired read with user_data.
+    ///   Returns `true` to continue processing, `false` to stop.
     ///
     /// # Returns
     /// Number of pending reads remaining.
@@ -302,6 +316,7 @@ impl<'a> AsyncReadPool<'a> {
         &mut self,
         timeout_ms: u32,
         max_results: u16,
+        expiration_point: SystemTime,
         mut success_callback: F,
         mut failure_callback: G,
     ) -> u16
@@ -315,6 +330,7 @@ impl<'a> AsyncReadPool<'a> {
             metrics: &mut self.metrics,
             success_callback: &mut success_callback,
             failure_callback: &mut failure_callback,
+            expiration_point,
             results_processed: 0,
             stop_requested: false,
         };

@@ -1,6 +1,6 @@
 use ffi::{RSQueryTerm, t_docId, t_fieldMask};
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector};
-use rqe_iterators::inverted_index::InvIndIterator;
+use rqe_iterators::{NoOpChecker, inverted_index::InvIndIterator};
 use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
 };
@@ -180,7 +180,7 @@ impl InvertedIndex {
             RSIndexResult::term_with_term_ptr(query_term, RSOffsetVector::empty(), 0, 0, 0)
                 .weight(weight);
 
-        let iter = InvIndIterator::new(reader, result, None);
+        let iter = InvIndIterator::new(reader, result, NoOpChecker);
         Ok(iter)
     }
 

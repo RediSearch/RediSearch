@@ -93,6 +93,7 @@ fn test_output_info_metrics_with_data() {
             reads_found: 8,
             reads_not_found: 1,
             reads_errors: 1,
+            reads_expired: 0,
         },
     };
     ctx.store_index_metrics("test_index", metrics);

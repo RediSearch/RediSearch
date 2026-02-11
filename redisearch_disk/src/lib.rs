@@ -84,6 +84,8 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
         basic: BasicDiskAPI {
             open: Some(open),
             close: Some(close),
+            startGCThreadPool: Some(start_gc_thread_pool),
+            stopGCThreadPool: Some(stop_gc_thread_pool),
             openIndexSpec: Some(index_spec_open),
             closeIndexSpec: Some(index_spec_close),
             indexSpecRdbSave: Some(index_spec_rdb_save),
@@ -199,6 +201,14 @@ extern "C" fn is_async_io_supported(disk: *mut RedisSearchDisk) -> bool {
     };
     disk_ctx.is_async_io_supported()
 }
+
+/// Starts the GC thread pool.
+/// Currently a no-op placeholder for future implementation.
+extern "C" fn start_gc_thread_pool() {}
+
+/// Stops the GC thread pool.
+/// Currently a no-op placeholder for future implementation.
+extern "C" fn stop_gc_thread_pool() {}
 
 /// Opens an index.
 ///
@@ -914,7 +924,8 @@ unsafe fn validate_poll_inputs<'a>(
 /// 1. `pool` must have been returned from [`index_spec_create_async_read_pool`].
 /// 2. `results` must be a valid pointer to an array of `results_capacity` AsyncReadResult.
 /// 3. `failed_user_data` must be a valid pointer to an array of `failed_capacity` u64.
-/// 4. `allocate_dmd` must be a valid callback function.
+/// 4. `expiration_point` must be a valid timespec for expiration checking.
+/// 5. `allocate_dmd` must be a valid callback function.
 ///
 /// # Returns
 /// AsyncPollResult with counts of ready, failed, and pending reads.
@@ -925,6 +936,7 @@ unsafe extern "C" fn index_spec_poll_async_reads(
     results_capacity: u16,
     failed_user_data: *mut u64,
     failed_capacity: u16,
+    expiration_point: ffi::timespec,
     allocate_dmd: ffi::AllocateDMDCallback,
 ) -> ffi::AsyncPollResult {
     let empty_result = ffi::AsyncPollResult {
@@ -956,10 +968,12 @@ unsafe extern "C" fn index_spec_poll_async_reads(
     let document_type = handle.document_type;
     let mut ready_count = 0u16;
     let mut failed_count = 0u16;
+    let expiration_time = timespec_to_system_time(&expiration_point);
 
     let pending_count = handle.pool.poll_with_callbacks(
         timeout_ms,
         results_capacity,
+        expiration_time,
         |doc_id, dmd, user_data| {
             // SAFETY: allocate_dmd is a C callback provided by the caller. The caller guarantees
             // it is a valid function pointer. We pass a valid pointer to the key data and its length.

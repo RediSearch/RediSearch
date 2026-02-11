@@ -1,6 +1,6 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
-use rqe_iterators::inverted_index::InvIndIterator;
+use rqe_iterators::{NoOpChecker, inverted_index::InvIndIterator};
 use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
 };
@@ -115,7 +115,7 @@ impl TagInvertedIndex {
         );
         let reader = TagPostingsListReader::new(iterator, tag.to_string())?;
 
-        let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), None);
+        let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), NoOpChecker);
 
         Ok(iter)
     }

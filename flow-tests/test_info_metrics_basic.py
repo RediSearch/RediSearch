@@ -40,7 +40,8 @@ def test_info_search_basic(redis_env):
         'async_total_reads_requested': 0,
         'async_reads_found': 0,
         'async_reads_not_found': 0,
-        'async_reads_errors': 0
+        'async_reads_errors': 0,
+        'async_reads_expired': 0
     }
     redis_env.assertEqual(info_before['search_disk_doc_table'], expected_doc_table)
     redis_env.assertEqual(info_before['search_disk_text_inverted_index'], expected_cf_metrics)
@@ -83,7 +84,8 @@ def test_info_search_basic(redis_env):
         'async_total_reads_requested': 0,
         'async_reads_found': 0,
         'async_reads_not_found': 0,
-        'async_reads_errors': 0
+        'async_reads_errors': 0,
+        'async_reads_expired': 0
     }
     redis_env.assertEqual(disk_doc_after_create, expected_dt)
 
@@ -156,7 +158,8 @@ def test_info_search_basic(redis_env):
         'async_total_reads_requested': 0,
         'async_reads_found': 0,
         'async_reads_not_found': 0,
-        'async_reads_errors': 0
+        'async_reads_errors': 0,
+        'async_reads_expired': 0
     }
     redis_env.assertEqual(disk_doc_after_pop, expected_dt)
 

@@ -209,5 +209,6 @@ impl DiskContext {
         sink.add_u64(c"async_reads_found", metrics.reads_found);
         sink.add_u64(c"async_reads_not_found", metrics.reads_not_found);
         sink.add_u64(c"async_reads_errors", metrics.reads_errors);
+        sink.add_u64(c"async_reads_expired", metrics.reads_expired);
     }
 }

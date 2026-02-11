@@ -7,7 +7,7 @@ use redisearch_disk::{
     },
 };
 use rqe_iterators::{RQEIterator, SkipToOutcome};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 
 fn get_temp_doc_table() -> DocTable {
@@ -651,6 +651,7 @@ fn pool_basic_add_and_poll() {
     let poll_result = pool.poll_with_callbacks(
         1000,
         1,
+        SystemTime::now(),
         |_doc_id, dmd, user_data| {
             result_dmd = Some(dmd);
             result_user_data = user_data;
@@ -725,6 +726,7 @@ fn pool_multiple_documents() {
         let poll_result = pool.poll_with_callbacks(
             1000,
             10,
+            SystemTime::now(),
             |_doc_id, dmd, user_data| {
                 all_results.push((dmd, user_data));
             },
@@ -754,7 +756,7 @@ fn pool_non_blocking_poll() {
     let mut pool = AsyncReadPool::new(&doc_table, 10).expect("Failed to create pool");
 
     // Poll empty pool - should return immediately with 0
-    let poll_result = pool.poll_with_callbacks(0, 1, |_, _, _| {}, |_| true);
+    let poll_result = pool.poll_with_callbacks(0, 1, SystemTime::now(), |_, _, _| {}, |_| true);
     assert_eq!(poll_result, 0);
 }
 
@@ -796,6 +798,7 @@ fn pool_not_found_documents_omitted() {
         let poll_result = pool.poll_with_callbacks(
             1000,
             10,
+            SystemTime::now(),
             |_doc_id, dmd, user_data| {
                 all_results.push((dmd, user_data));
             },
@@ -861,7 +864,7 @@ fn pool_does_not_spawn_threads() {
         pool.add_read(doc_id, i);
     }
 
-    let _ = pool.poll_with_callbacks(1000, 10, |_, _, _| {}, |_| true);
+    let _ = pool.poll_with_callbacks(1000, 10, SystemTime::now(), |_, _, _| {}, |_| true);
 
     let thread_count_after_work = get_thread_count();
 

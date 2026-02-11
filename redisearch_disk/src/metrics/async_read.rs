@@ -14,6 +14,8 @@ pub struct Metrics {
     pub reads_not_found: u64,
     /// Number of reads that failed with an error.
     pub reads_errors: u64,
+    /// Number of reads that were filtered out due to document expiration.
+    pub reads_expired: u64,
 }
 
 impl AddAssign for Metrics {
@@ -22,6 +24,7 @@ impl AddAssign for Metrics {
         self.reads_found += other.reads_found;
         self.reads_not_found += other.reads_not_found;
         self.reads_errors += other.reads_errors;
+        self.reads_expired += other.reads_expired;
     }
 }
 
@@ -35,6 +38,7 @@ pub struct AtomicMetrics {
     reads_found: AtomicU64,
     reads_not_found: AtomicU64,
     reads_errors: AtomicU64,
+    reads_expired: AtomicU64,
 }
 
 impl AtomicMetrics {
@@ -48,6 +52,8 @@ impl AtomicMetrics {
             .fetch_add(other.reads_not_found, Ordering::Relaxed);
         self.reads_errors
             .fetch_add(other.reads_errors, Ordering::Relaxed);
+        self.reads_expired
+            .fetch_add(other.reads_expired, Ordering::Relaxed);
     }
 
     /// Loads the current metrics as a `Metrics` snapshot.
@@ -57,6 +63,7 @@ impl AtomicMetrics {
             reads_found: self.reads_found.load(Ordering::Relaxed),
             reads_not_found: self.reads_not_found.load(Ordering::Relaxed),
             reads_errors: self.reads_errors.load(Ordering::Relaxed),
+            reads_expired: self.reads_expired.load(Ordering::Relaxed),
         }
     }
 }

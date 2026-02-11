@@ -26,7 +26,7 @@ use crate::{
 };
 use document::DocumentType;
 use ffi::t_docId;
-use rqe_iterators::inverted_index::InvIndIterator;
+use rqe_iterators::{NoOpChecker, inverted_index::InvIndIterator};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
@@ -361,7 +361,7 @@ impl DocTable {
 
         let reader = DocTableReader::new(iterator)?;
 
-        let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), None);
+        let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), NoOpChecker);
 
         Ok(iter)
     }
