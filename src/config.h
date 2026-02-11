@@ -187,6 +187,7 @@ typedef struct {
   // Sleep duration in microseconds during background indexing. We sleep periodically
   // (every `numBGIndexingIterationsBeforeSleep` iterations) to allow the main thread
   // to acquire the GIL and process commands.
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
   uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
