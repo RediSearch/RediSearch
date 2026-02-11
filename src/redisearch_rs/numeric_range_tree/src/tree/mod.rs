@@ -256,8 +256,8 @@ impl NumericRangeTree {
     }
 
     /// Returns an iterator over all nodes in the tree (depth-first traversal).
-    pub fn iter(&self) -> crate::PreOrderDfsIterator<'_> {
-        crate::PreOrderDfsIterator::new(self)
+    pub fn iter(&self) -> crate::ReversePreOrderDfsIterator<'_> {
+        crate::ReversePreOrderDfsIterator::new(self)
     }
 
     /// Calculate the total memory usage of the tree, in bytes.
