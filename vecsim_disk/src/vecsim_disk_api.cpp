@@ -11,6 +11,7 @@
 
 #include "vecsim_disk_api.h"
 #include "factory/disk_index_factory.h"
+#include "utils/consistency_lock.h"
 
 VecSimIndex* VecSimDisk_CreateIndex(const VecSimParamsDisk* params) {
     if (!params) {
@@ -31,3 +32,7 @@ void VecSimDisk_FreeIndex(VecSimIndex* index) {
         delete index;
     }
 }
+
+void VecSimDisk_AcquireConsistencyLock() { vecsim_disk::getConsistencyMutex().lock(); }
+
+void VecSimDisk_ReleaseConsistencyLock() { vecsim_disk::getConsistencyMutex().unlock(); }

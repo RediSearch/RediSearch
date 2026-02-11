@@ -254,12 +254,12 @@ protected:
     template <ElementFlags FLAG>
     void markAs(idType internalId) {
         std::shared_lock<std::shared_mutex> lock(metadataMutex_);
-        __atomic_fetch_or(&idToMetaData[internalId].flags, FLAG, 0);
+        __atomic_fetch_or(&idToMetaData[internalId].flags, FLAG, __ATOMIC_RELAXED);
     }
     template <ElementFlags FLAG>
     void unmarkAs(idType internalId) {
         std::shared_lock<std::shared_mutex> lock(metadataMutex_);
-        __atomic_fetch_and(&idToMetaData[internalId].flags, ~FLAG, 0);
+        __atomic_fetch_and(&idToMetaData[internalId].flags, static_cast<ElementFlags>(~FLAG), __ATOMIC_RELAXED);
     }
     template <ElementFlags FLAG>
     bool isMarkedAs(idType internalId) const {
@@ -284,7 +284,7 @@ private:
     // Does NOT perform bounds checking.
     template <ElementFlags FLAG>
     bool isMarkedAsUnsafe(idType internalId) const {
-        return __atomic_load_n(&idToMetaData[internalId].flags, 0) & FLAG;
+        return __atomic_load_n(&idToMetaData[internalId].flags, __ATOMIC_RELAXED) & FLAG;
     }
     // =========================================================================
     // Member Variables
@@ -912,7 +912,7 @@ bool HNSWDiskIndex<DataType, DistType>::isInProcess(idType id) const {
     if (id >= idToMetaData.size()) {
         return true; // Unknown ID treated as in-process (not ready)
     }
-    return __atomic_load_n(&idToMetaData[id].flags, 0) & DISK_IN_PROCESS;
+    return isMarkedAsUnsafe<DISK_IN_PROCESS>(id);
 }
 
 template <typename DataType, typename DistType>

@@ -12,6 +12,7 @@
 #include "VecSim/vec_sim_tiered_index.h"
 #include "algorithms/hnsw/hnsw_disk.h"
 #include "storage/hnsw_storage.h"
+#include "utils/consistency_lock.h"
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -231,13 +232,6 @@ private:
         AsyncDiskJob* disk_job = static_cast<AsyncDiskJob*>(job);
         auto index = static_cast<TieredHNSWDiskIndex<DataType, DistType>*>(job->index);
 
-        // Remove repair job from map before starting (releases our shared_ptr reference)
-        if (disk_job->type == DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB) {
-            RepairDiskJob* repair_job = static_cast<RepairDiskJob*>(disk_job);
-            std::lock_guard<std::mutex> lock(index->pending_repairs_guard);
-            index->pending_repairs.erase(GraphNodeType(repair_job->node_id, repair_job->level));
-        }
-
         // Remove from submitted_jobs (we now own a reference on the stack if it was there)
         std::shared_ptr<AsyncDiskJob> job_owner;
         {
@@ -246,6 +240,25 @@ private:
             assert(it != index->submitted_jobs.end());
             job_owner = std::move(it->second); // Take ownership
             index->submitted_jobs.erase(it);
+        }
+
+        // Remove repair job from pending_repairs BEFORE adding to currently_running.
+        // This ensures the job is never in both structures simultaneously, preventing
+        // a data race where submitRepairs (under pending_repairs_guard) and
+        // pendByCurrentlyRunning (under running_guard) could both push_back to the
+        // job's pending_jobs vector concurrently.
+        //
+        // Note: This creates a tiny window where a repair job is in neither structure.
+        // If a fork happens exactly in this window, the repair job won't be replicated.
+        // This is acceptable because:
+        // 1. Repair jobs are non-critical optimizations, not correctness requirements
+        // 2. The leader still completes the repair; replica gets repaired state via data sync
+        // 3. Repairs for deletions will be re-generated on the replica anyway
+        // 4. Over-linked nodes will be repaired when that graph area is traversed later
+        if (disk_job->type == DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB) {
+            RepairDiskJob* repair_job = static_cast<RepairDiskJob*>(disk_job);
+            std::lock_guard<std::mutex> lock(index->pending_repairs_guard);
+            index->pending_repairs.erase(GraphNodeType(repair_job->node_id, repair_job->level));
         }
 
         {

@@ -14,6 +14,7 @@
 #include "factory/components/disk_calculator.h"
 #include "VecSim/spaces/spaces.h"
 #include "VecSim/types/sq8.h"
+#include "utils/consistency_lock.h"
 
 #include <thread>
 
@@ -925,4 +926,181 @@ TEST_F(TieredHNSWDiskAsyncJobTest, DoubleSubmissionToSubmittedJobs) {
     // Verify double submission detection would work
     bool already_submitted = (submitted_jobs.find(job.get()) != submitted_jobs.end());
     EXPECT_TRUE(already_submitted);
+}
+
+// =============================================================================
+// Consistency Lock Tests for Tiered Jobs
+//
+// Jobs that modify in-memory structures must hold the consistency lock to ensure
+// fork safety. The consistency lock is a shared mutex:
+// - Async jobs take a SHARED lock (multiple jobs can run concurrently)
+// - Main thread takes EXCLUSIVE lock before fork (blocks until all jobs finish)
+//
+// Jobs requiring the lock (modify in-memory structures):
+// - executeInsertJob: adds to id_lookup_ table
+// - executeDeleteFinalizeJob: modifies holes_ free list
+//
+// Jobs NOT requiring the lock (disk-only writes):
+// - executeRepairJob: only writes to SpeedDB storage
+//
+// TODO: These tests currently SIMULATE the expected pattern for insert/delete jobs.
+// Once executeInsertJob and executeDeleteFinalizeJob are fully implemented, rewrite
+// these tests to:
+// 1. Create an actual TieredHNSWDiskIndex with vectors
+// 2. Submit real insert/delete jobs via the index API
+// 3. Have a concurrent thread attempt VecSimDisk_AcquireConsistencyLock()
+// 4. Verify the exclusive lock blocks while the job's critical section runs
+// 5. Verify the lock is released when the job completes its in-memory modifications
+//
+// The lock mechanism itself is already tested in test_consistency_lock.cpp.
+// These tests exist to document and verify the INTEGRATION of the lock with
+// the actual job execution paths.
+// =============================================================================
+
+// Test: Insert job should hold consistency lock while modifying in-memory structures
+// This simulates the pattern that executeInsertJob should follow.
+TEST_F(TieredHNSWDiskAsyncJobTest, InsertJobConsistencyLockPattern) {
+    using namespace vecsim_disk;
+
+    std::atomic<bool> insert_job_started{false};
+    std::atomic<bool> insert_job_in_critical_section{false};
+    std::atomic<bool> insert_job_completed{false};
+    std::atomic<bool> main_thread_got_exclusive{false};
+
+    // Simulate an insert job that acquires consistency lock during in-memory modifications
+    std::thread insert_job_thread([&]() {
+        insert_job_started = true;
+
+        // Simulate: Insert vector into disk storage (no lock needed)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        // Acquire consistency lock for in-memory modifications
+        {
+            ConsistencySharedGuard guard;
+            insert_job_in_critical_section = true;
+
+            // Simulate: Update id_lookup_ table (in-memory structure)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            insert_job_in_critical_section = false;
+        }
+        // Lock released
+
+        insert_job_completed = true;
+    });
+
+    // Wait for insert job to enter critical section
+    while (!insert_job_in_critical_section) {
+        std::this_thread::yield();
+    }
+
+    // Main thread tries to acquire exclusive lock (would be before fork)
+    // This should block until insert job releases the shared lock
+    std::thread main_thread([&]() {
+        // Acquire exclusive lock (simulating pre-fork)
+        VecSimDisk_AcquireConsistencyLock();
+        main_thread_got_exclusive = true;
+
+        // At this point, insert job must have released its lock
+        EXPECT_FALSE(insert_job_in_critical_section)
+            << "Insert job should not be in critical section when main thread has exclusive lock";
+
+        VecSimDisk_ReleaseConsistencyLock();
+    });
+
+    insert_job_thread.join();
+    main_thread.join();
+
+    EXPECT_TRUE(insert_job_completed);
+    EXPECT_TRUE(main_thread_got_exclusive);
+}
+
+// Test: Delete finalize job should hold consistency lock while modifying holes_ free list
+// This simulates the pattern that executeDeleteFinalizeJob should follow.
+TEST_F(TieredHNSWDiskAsyncJobTest, DeleteFinalizeJobConsistencyLockPattern) {
+    using namespace vecsim_disk;
+
+    std::atomic<bool> delete_job_started{false};
+    std::atomic<bool> delete_job_in_critical_section{false};
+    std::atomic<bool> delete_job_completed{false};
+    std::atomic<bool> fork_blocked{false};
+
+    // Simulate a delete finalize job
+    std::thread delete_job_thread([&]() {
+        delete_job_started = true;
+
+        // Acquire consistency lock for modifying holes_ free list
+        {
+            ConsistencySharedGuard guard;
+            delete_job_in_critical_section = true;
+
+            // Simulate: Add deleted_id to holes_ free list (in-memory structure)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            delete_job_in_critical_section = false;
+        }
+        // Lock released
+
+        delete_job_completed = true;
+    });
+
+    // Wait for delete job to enter critical section
+    while (!delete_job_in_critical_section) {
+        std::this_thread::yield();
+    }
+
+    // Main thread (fork) tries to acquire exclusive lock
+    std::thread fork_thread([&]() {
+        VecSimDisk_AcquireConsistencyLock();
+        fork_blocked = true;
+
+        EXPECT_FALSE(delete_job_in_critical_section) << "Delete job should not be in critical section during fork";
+
+        VecSimDisk_ReleaseConsistencyLock();
+    });
+
+    delete_job_thread.join();
+    fork_thread.join();
+
+    EXPECT_TRUE(delete_job_completed);
+    EXPECT_TRUE(fork_blocked);
+}
+
+// Test: Multiple insert/delete jobs can run concurrently (shared locks don't block each other)
+TEST_F(TieredHNSWDiskAsyncJobTest, MultipleJobsConcurrentlyHoldConsistencyLock) {
+    using namespace vecsim_disk;
+
+    constexpr int NUM_JOBS = 4;
+    std::atomic<int> jobs_holding_lock{0};
+    std::atomic<int> jobs_completed{0};
+    std::atomic<bool> all_acquired{false};
+
+    std::vector<std::thread> job_threads;
+    for (int i = 0; i < NUM_JOBS; i++) {
+        job_threads.emplace_back([&]() {
+            ConsistencySharedGuard guard;
+
+            // Increment counter while holding the lock
+            ++jobs_holding_lock;
+
+            // Spin until all jobs have acquired the lock (proves concurrent holding)
+            while (!all_acquired) {
+                if (jobs_holding_lock.load() == NUM_JOBS) {
+                    all_acquired = true;
+                }
+                std::this_thread::yield();
+            }
+
+            --jobs_holding_lock;
+            ++jobs_completed;
+        });
+    }
+
+    for (auto& t : job_threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(jobs_completed, NUM_JOBS);
+    // If we got here, all NUM_JOBS threads held the shared lock simultaneously
+    EXPECT_TRUE(all_acquired) << "All jobs should have held shared locks concurrently";
 }

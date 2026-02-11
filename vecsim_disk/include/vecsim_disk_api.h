@@ -34,6 +34,21 @@ typedef struct SpeeDBHandles {
     rocksdb_column_family_handle_t* cf;
 } SpeeDBHandles;
 
+/**
+ * @brief Acquire the global consistency lock for exclusive access.
+ * Call from main thread before fork to ensure disk and in-memory data structures
+ * are in a consistent state. Async jobs hold a shared lock while applying changes;
+ * this blocks until all such jobs complete. Safe to call even if no indexes exist.
+ * Must be paired with VecSimDisk_ReleaseConsistencyLock().
+ */
+void VecSimDisk_AcquireConsistencyLock();
+
+/**
+ * @brief Release the global consistency lock.
+ * Call from main thread after fork to allow async jobs to resume.
+ */
+void VecSimDisk_ReleaseConsistencyLock();
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus
