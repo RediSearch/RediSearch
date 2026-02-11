@@ -293,17 +293,17 @@ impl QueryWarningCode {
     pub const fn to_c_str(self) -> &'static CStr {
         match self {
             Self::Ok => c"Success (not a warning)",
-            Self::TimedOut => c"SEARCH_TIMEOUT: Timeout limit was reached",
-            Self::ReachedMaxPrefixExpansions => c"SEARCH_PREFIX_EXPANSIONS_LIMIT: Max prefix expansions limit was reached",
+            Self::TimedOut => c"Timeout limit was reached",
+            Self::ReachedMaxPrefixExpansions => c"Max prefix expansions limit was reached",
             Self::OutOfMemoryShard => {
-                c"SEARCH_OOM_SHARD: Shard failed to execute the query due to insufficient memory"
+                c"Shard failed to execute the query due to insufficient memory"
             }
             Self::OutOfMemoryCoord => {
-                c"SEARCH_OOM_COORD: One or more shards failed to execute the query due to insufficient memory"
+                c"One or more shards failed to execute the query due to insufficient memory"
             }
-            Self::UnavailableSlots => c"SEARCH_SLOTS_UNAVAIL: Query requires unavailable slots",
+            Self::UnavailableSlots => c"Query requires unavailable slots",
             Self::AsmInaccurateResults => {
-                c"SEARCH_ASM_INACCURATE_RESULTS: Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
+                c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
             }
         }
     }
