@@ -34,6 +34,10 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
+      build_redis:
+        type: boolean
+        default: false
+        description: "Build Redis from source (unstable branch)"
 
 jobs:
   benchmark-steps:
@@ -55,6 +59,20 @@ jobs:
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh
+
+      - name: print version info
+        run: redisbench-admin run-remote --version
+      - name: Get Redis
+        if: ${{ inputs.build_redis }}
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: unstable
+          path: redis
+      - name: Build Redis
+        if: ${{ inputs.build_redis }}
+        working-directory: redis
+        run: sudo make install BUILD_TLS=yes
 
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
@@ -107,6 +125,7 @@ jobs:
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
               --collect_search_memory True
+              ${{ inputs.build_redis && '--redis-server-binary /usr/local/bin/redis-server' || '' }}
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
