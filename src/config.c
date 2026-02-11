@@ -1125,7 +1125,7 @@ CONFIG_GETTER(getIndexerYieldEveryOps) {
 #define BG_INDEX_SLEEP_DURATION_US_MAX 999999
 CONFIG_SETTER(setBGIndexSleepDurationUS) {
   unsigned int sleepDurationUS;
-  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, 0);
+  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
@@ -2109,7 +2109,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-bg-index-sleep-duration-us", DEFAULT_BG_INDEX_SLEEP_DURATION_US,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       BG_INDEX_SLEEP_DURATION_US_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.bgIndexingSleepDurationMicroseconds)
     )
