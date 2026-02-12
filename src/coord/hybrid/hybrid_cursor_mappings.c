@@ -16,7 +16,7 @@
 #include <string.h>
 #include <stdatomic.h>
 #include "info/global_stats.h"
-#include "coord/rpnet.h"  // For ShardCountBarrier
+#include "coord/shard_barrier.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6
