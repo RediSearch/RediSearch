@@ -28,6 +28,7 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "search_disk.h"
 #include "info/global_stats.h"
 #include "sorting_vector_rs.h"
 
@@ -758,6 +759,15 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
+  // Check if we're using disk storage
+  if (ctx->spec->diskSpec) {
+    // Index tags using disk API
+    SearchDisk_IndexTags(ctx->spec->diskSpec, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, fs->index);
+    ctx->spec->stats.numRecords++;
+    return 0;
+  }
+
+  // In-memory indexing
   TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
