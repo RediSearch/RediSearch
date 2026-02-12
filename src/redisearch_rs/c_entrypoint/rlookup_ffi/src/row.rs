@@ -366,7 +366,7 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RLookupRow_SetSortingVector(
+pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     row: Option<NonNull<OpaqueRLookupRow>>,
     sv: *const sorting_vector::RSSortingVector<RSValueFFI>,
 ) {

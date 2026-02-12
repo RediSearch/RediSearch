@@ -78,19 +78,8 @@ pub mod opaque {
                 // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_mut() }
             }
-        }
 
-        impl<'a> super::super::RLookupRow<'a, value::RSValueFFI> {
-            /// Converts a non-null mutable pointer to an [`OpaqueRLookupRow`] to a mutable
-            /// reference to a [`Self`].
-            ///
-            /// # Safety
-            ///
-            /// The pointer itself must have been created via
-            /// [`c_ffi_utils::opaque::IntoOpaque::as_opaque_mut_ptr`], as the alignment of the value
-            /// pointed to by `opaque` must also be an alignment-compatible address for
-            /// a [`Self`].
-            pub const unsafe fn from_opaque_non_null<'b>(
+            unsafe fn from_opaque_non_null<'b>(
                 opaque: NonNull<OpaqueRLookupRow<'a>>,
             ) -> &'b mut Self {
                 // Safety: see trait's safety requirement.
@@ -98,11 +87,10 @@ pub mod opaque {
             }
 
             /// Converts [`Self`] mutable reference into a `NonNull<OpaqueRLookupRow>`.
-            pub const fn as_opaque_non_null(&mut self) -> NonNull<OpaqueRLookupRow<'a>> {
+            fn as_opaque_non_null(&mut self) -> NonNull<OpaqueRLookupRow<'a>> {
                 NonNull::from_mut(self).cast()
             }
         }
-
         const _ASSERT_SIZE_AND_ALIGN: () = {
             #[allow(unreachable_code, clippy::never_loop)]
             loop {

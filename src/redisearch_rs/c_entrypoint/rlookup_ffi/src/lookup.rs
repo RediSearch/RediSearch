@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::row::RLookupRow;
 use c_ffi_utils::opaque::IntoOpaque;
 use libc::size_t;
 use rlookup::{
     IndexSpec, IndexSpecCache, OpaqueRLookup, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
     SchemaRule,
 };
+use rlookup::{OpaqueRLookupRow, RLookupRow};
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
