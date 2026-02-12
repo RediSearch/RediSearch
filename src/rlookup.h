@@ -234,13 +234,6 @@ static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
 // Flags do not persist to the key, they are just options to GetKey()
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
 
-/**
- * Wipes the row, retaining its memory but decrefing any included values.
- * This does not free all the memory consumed by the row, but simply resets
- * the row data (preserving any caches) so that it may be refilled.
- */
-void RLookupRow_Wipe(RLookupRow *row);
-
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */
   RLOOKUP_LOAD_KEYLIST,

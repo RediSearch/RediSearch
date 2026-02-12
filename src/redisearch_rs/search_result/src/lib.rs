@@ -13,7 +13,7 @@ use crate::bindings::DocumentMetadata;
 use enumflags2::{BitFlags, bitflags};
 use inverted_index::RSIndexResult;
 use rlookup::RLookup;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 use value::RSValueFFI;
 
 #[bitflags]
@@ -103,10 +103,7 @@ impl<'index> SearchResult<'index> {
 
         self._flags = SearchResultFlags::empty();
 
-        // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
-        unsafe {
-            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self._row_data).cast::<ffi::RLookupRow>());
-        }
+        self._row_data.wipe();
 
         // explicitly drop the DMD here to make clear we maintain the
         // same "drop order" as the old C implementation had.
