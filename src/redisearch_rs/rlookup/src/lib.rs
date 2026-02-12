@@ -23,7 +23,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
-    RLookupOptions,
+    RLookupOptions, opaque::OpaqueRLookup,
 };
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;

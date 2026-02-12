@@ -29,6 +29,7 @@ exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr",
 
 [export.rename]
 "OpaqueRLookupRow" = "RLookupRow"
+"OpaqueRLookup" = "RLookup"
 "RLookupHeader" = "RLookup"
 "RLookupKeyHeader" = "RLookupKey"
 "RLookupRow_RSValueFFI" = "RLookupRow"

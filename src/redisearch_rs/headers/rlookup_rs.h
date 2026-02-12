@@ -110,6 +110,13 @@ typedef uint32_t RLookupOption;
 typedef struct IndexSpecCache IndexSpecCache;
 
 /**
+ * An append-only list of [`RLookupKey`]s.
+ *
+ * This type maintains a mapping from string names to [`RLookupKey`]s.
+ */
+typedef struct RLookup RLookup;
+
+/**
  * [`RSSortingVector`] acts as a cache for sortable fields in a document.
  *
  * It has a constant length, determined upfront on creation. It can't be resized.
@@ -159,20 +166,20 @@ typedef struct RLookupKey {
   struct RLookupKey *next;
 } RLookupKey;
 
-typedef struct KeyList {
-  struct RLookupKey *head;
-  struct RLookupKey *tail;
-  uint32_t rowlen;
-} KeyList;
-
-typedef struct RLookup {
-  struct KeyList keys;
-} RLookup;
-
 /**
  * A type with size `N`.
  */
 typedef uint8_t Size_48[48];
+
+/**
+ * An opaque query error which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `QueryError`
+ * structure exactly.
+ */
+typedef struct ALIGNED(8) RLookup {
+  Size_48 _0;
+} RLookup;
 
 typedef Size_48 OpaqueRLookupRowSize;
 
