@@ -29,6 +29,7 @@ pub use index_result::{
 };
 use smallvec::SmallVec;
 
+pub mod block_max_score;
 pub mod controlled_cursor;
 pub mod debug;
 pub mod doc_ids_only;
@@ -289,7 +290,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -301,6 +302,18 @@ pub struct IndexBlock {
 
     /// The total number of non-unique entries in this block
     num_entries: u16,
+
+    /// Maximum term frequency in this block. Used to compute block-level score upper bounds
+    /// for block-max score optimization. A value of 0 with num_entries > 0 indicates that
+    /// scoring metadata is not available (e.g., for indexes that don't track frequency).
+    max_freq: u32,
+
+    /// Maximum document score in this block. Used to compute block-level score upper bounds.
+    max_doc_score: f32,
+
+    /// Minimum document length in this block. Used to compute block-level score upper bounds.
+    /// Shorter documents with the same term frequency get higher TF-IDF/BM25 scores.
+    min_doc_len: u32,
 
     /// The encoded entries in this block
     buffer: Vec<u8>,
@@ -319,6 +332,9 @@ impl<'de> Deserialize<'de> for IndexBlock {
             first_doc_id: t_docId,
             last_doc_id: t_docId,
             num_entries: u16,
+            max_freq: u32,
+            max_doc_score: f32,
+            min_doc_len: u32,
             buffer: Vec<u8>,
         }
 
@@ -333,13 +349,16 @@ impl<'de> Deserialize<'de> for IndexBlock {
             first_doc_id: ib.first_doc_id,
             last_doc_id: ib.last_doc_id,
             num_entries: ib.num_entries,
+            max_freq: ib.max_freq,
+            max_doc_score: ib.max_doc_score,
+            min_doc_len: ib.min_doc_len,
             buffer: ib.buffer,
         })
     }
 }
 
 /// The type of repair needed for a block after a garbage collection scan.
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 enum RepairType {
     /// This block can be deleted completely.
     Delete {
@@ -367,6 +386,13 @@ impl IndexBlock {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
             num_entries: 0,
+            // Initialize scoring metadata with values that will be updated on first entry.
+            // max_freq = 0 with num_entries > 0 would be invalid for a real block
+            // (every entry has freq >= 1), so we can use max_freq = 0 as a sentinel
+            // to indicate "no metadata available" if needed.
+            max_freq: 0,
+            max_doc_score: 0.0,
+            min_doc_len: u32::MAX,
             buffer: Vec::new(),
         };
         TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
@@ -399,6 +425,32 @@ impl IndexBlock {
         &self.buffer
     }
 
+    /// Returns `true` if this block has valid scoring metadata for block-max score optimization.
+    ///
+    /// Scoring metadata is considered valid if `max_freq > 0` or `num_entries == 0` (empty block).
+    /// A block with `max_freq == 0` and `num_entries > 0` indicates that scoring metadata was
+    /// not tracked during indexing (e.g., for index types that don't store frequency).
+    pub const fn has_scoring_metadata(&self) -> bool {
+        // Every real entry has freq >= 1, so max_freq = 0 with num_entries > 0
+        // indicates metadata is not available.
+        self.max_freq > 0 || self.num_entries == 0
+    }
+
+    /// Get the maximum term frequency in this block.
+    pub const fn max_freq(&self) -> u32 {
+        self.max_freq
+    }
+
+    /// Get the maximum document score in this block.
+    pub const fn max_doc_score(&self) -> f32 {
+        self.max_doc_score
+    }
+
+    /// Get the minimum document length in this block.
+    pub const fn min_doc_len(&self) -> u32 {
+        self.min_doc_len
+    }
+
     const fn writer(&mut self) -> ControlledCursor<'_> {
         ControlledCursor::new(&mut self.buffer)
     }
@@ -406,6 +458,25 @@ impl IndexBlock {
     /// Returns the total number of index blocks in existence.
     pub fn total_blocks() -> usize {
         TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Create a test block with specific scoring metadata.
+    ///
+    /// This is intended for testing block max score computation without
+    /// needing to add actual records to the block.
+    #[cfg(test)]
+    pub(crate) fn test_with_scoring_metadata(
+        max_freq: u32,
+        min_doc_len: u32,
+        max_doc_score: f32,
+    ) -> Self {
+        let mut block = Self::new(1);
+        block.max_freq = max_freq;
+        block.min_doc_len = min_doc_len;
+        block.max_doc_score = max_doc_score;
+        // Set num_entries > 0 so has_scoring_metadata() works correctly
+        block.num_entries = 1;
+        block
     }
 
     /// Repair a block by removing records which no longer exists according to `doc_exists`. If a
@@ -522,7 +593,41 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Add a new record to the index and return by how much memory grew. It is expected that
     /// the document ID of the record is greater than or equal the last document ID in the index.
+    ///
+    /// This method does not track `max_doc_score` or `min_doc_len` for block-max score optimization.
+    /// Use [`add_record_with_metadata`](Self::add_record_with_metadata) if you need to track these values.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        self.add_record_inner(record, None, None)
+    }
+
+    /// Add a new record to the index with document metadata for block-max score optimization.
+    ///
+    /// This method tracks `max_doc_score` and `min_doc_len` per block, enabling the block-max
+    /// score optimization to skip blocks that cannot contain top-K results.
+    ///
+    /// # Arguments
+    /// * `record` - The index record to add
+    /// * `doc_len` - The document length in tokens (used for TF-IDF/BM25 normalization)
+    /// * `doc_score` - The a-priori document score (e.g., PageRank-like boost)
+    ///
+    /// # Returns
+    /// The number of bytes by which memory grew.
+    pub fn add_record_with_metadata(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: u32,
+        doc_score: f32,
+    ) -> std::io::Result<usize> {
+        self.add_record_inner(record, Some(doc_len), Some(doc_score))
+    }
+
+    /// Internal implementation for adding records, with optional metadata tracking.
+    fn add_record_inner(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: Option<u32>,
+        doc_score: Option<f32>,
+    ) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
 
         let same_doc = match (
@@ -579,6 +684,17 @@ impl<E: Encoder> InvertedIndex<E> {
         debug_assert!(block.num_entries.saturating_add(1) < u16::MAX);
         block.num_entries += 1;
         block.last_doc_id = doc_id;
+
+        // Update block-level scoring metadata for block-max score optimization.
+        block.max_freq = block.max_freq.max(record.freq);
+
+        // Update doc_len and doc_score if provided
+        if let Some(len) = doc_len {
+            block.min_doc_len = block.min_doc_len.min(len);
+        }
+        if let Some(score) = doc_score {
+            block.max_doc_score = block.max_doc_score.max(score);
+        }
 
         // We took ownership of the block so put it back
         mem_growth += self.add_block(block);
@@ -701,7 +817,7 @@ impl<E: Encoder> InvertedIndex<E> {
 }
 
 /// Result of scanning the index for garbage collection
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct GcScanDelta {
     /// The index of the last block in the index at the time of the scan. This is used to ensure
     /// that the index has not changed since the scan was performed.
@@ -726,7 +842,7 @@ impl GcScanDelta {
 }
 
 /// Result of scanning a block for garbage collection
-#[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct BlockGcScanResult {
     /// The index of the block in the inverted index
     index: usize,
@@ -920,8 +1036,38 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// the document ID of the record is greater than or equal the last document ID in the index.
     ///
     /// The total number of entries in the index is incremented by one.
+    ///
+    /// This method does not track `max_doc_score` or `min_doc_len` for block-max score optimization.
+    /// Use [`add_record_with_metadata`](Self::add_record_with_metadata) if you need to track these values.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let mem_growth = self.index.add_record(record)?;
+
+        self.number_of_entries += 1;
+
+        Ok(mem_growth)
+    }
+
+    /// Add a new record to the index with document metadata for block-max score optimization.
+    ///
+    /// This method tracks `max_doc_score` and `min_doc_len` per block, enabling the block-max
+    /// score optimization to skip blocks that cannot contain top-K results.
+    ///
+    /// The total number of entries in the index is incremented by one.
+    ///
+    /// # Arguments
+    /// * `record` - The index record to add
+    /// * `doc_len` - The document length in tokens (used for TF-IDF/BM25 normalization)
+    /// * `doc_score` - The a-priori document score (e.g., PageRank-like boost)
+    ///
+    /// # Returns
+    /// The number of bytes by which memory grew.
+    pub fn add_record_with_metadata(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: u32,
+        doc_score: f32,
+    ) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record_with_metadata(record, doc_len, doc_score)?;
 
         self.number_of_entries += 1;
 
@@ -1066,8 +1212,36 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
     /// Add a new record to the index and return by how much memory grew. It is expected that
     /// the document ID of the record is greater than or equal the last document ID in the index.
+    ///
+    /// This method does not track `max_doc_score` or `min_doc_len` for block-max score optimization.
+    /// Use [`add_record_with_metadata`](Self::add_record_with_metadata) if you need to track these values.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let mem_growth = self.index.add_record(record)?;
+
+        self.field_mask |= record.field_mask;
+
+        Ok(mem_growth)
+    }
+
+    /// Add a new record to the index with document metadata for block-max score optimization.
+    ///
+    /// This method tracks `max_doc_score` and `min_doc_len` per block, enabling the block-max
+    /// score optimization to skip blocks that cannot contain top-K results.
+    ///
+    /// # Arguments
+    /// * `record` - The index record to add
+    /// * `doc_len` - The document length in tokens (used for TF-IDF/BM25 normalization)
+    /// * `doc_score` - The a-priori document score (e.g., PageRank-like boost)
+    ///
+    /// # Returns
+    /// The number of bytes by which memory grew.
+    pub fn add_record_with_metadata(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: u32,
+        doc_score: f32,
+    ) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record_with_metadata(record, doc_len, doc_score)?;
 
         self.field_mask |= record.field_mask;
 
@@ -1224,6 +1398,59 @@ pub trait IndexReader<'index> {
 
     /// Refresh buffer pointers in case blocks were reallocated without GC changes
     fn refresh_buffer_pointers(&mut self);
+
+    /// Skip to the first block containing doc_id >= target, but also skip
+    /// any blocks whose max score is below `min_score`.
+    ///
+    /// Returns `true` if positioned at a valid block, `false` if EOF.
+    ///
+    /// When `min_score = 0.0`, this behaves identically to [`skip_to`](Self::skip_to).
+    ///
+    /// The default implementation falls back to regular `skip_to`, ignoring the threshold.
+    /// Readers that support block-level scoring metadata can override this to skip
+    /// low-scoring blocks.
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        _min_score: f64,
+        _scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.skip_to(doc_id)
+    }
+
+    /// Get the max score for the current block, or `f64::MAX` if unknown.
+    ///
+    /// The default implementation returns `f64::MAX`, indicating that no
+    /// block-level score information is available (conservative: never skip).
+    fn current_block_max_score(&self, _scorer: &block_max_score::BlockScorer) -> f64 {
+        f64::MAX
+    }
+
+    /// Get the index of the current block being read.
+    ///
+    /// This is useful for tracking block skipping statistics.
+    fn current_block_index(&self) -> usize {
+        0
+    }
+
+    /// Advance to the next block that has `max_score >= min_score`.
+    ///
+    /// This is called internally by `read_with_threshold` when the current
+    /// block's score is below threshold. It skips blocks until finding one
+    /// with sufficient max score.
+    ///
+    /// Returns `true` if positioned at a valid block, `false` if EOF.
+    ///
+    /// The default implementation returns `true` (no skipping), since most
+    /// readers don't support block-level scoring.
+    fn advance_to_next_promising_block(
+        &mut self,
+        _min_score: f64,
+        _scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        // Default: no block skipping, just return true to continue reading
+        true
+    }
 }
 
 /// Marker trait for readers producing numeric values.
@@ -1359,6 +1586,100 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             self.current_buffer = Cursor::new(&current_block.buffer);
             self.current_buffer.set_position(position);
         }
+    }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        if self.ii.blocks.is_empty() {
+            return false;
+        }
+
+        // First, find the block containing doc_id using the existing skip_to logic
+        let mut target_block_idx = if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
+            // We are already in a block that could contain doc_id
+            self.current_block_idx
+        } else if self.ii.blocks.last().unwrap().last_doc_id < doc_id {
+            // The document ID is greater than the last document ID in the index
+            return false;
+        } else {
+            // Find the block containing doc_id
+            let search_start = self.current_block_idx + 1;
+            if let Some(next_block) = self.ii.blocks.get(search_start)
+                && next_block.last_doc_id >= doc_id
+            {
+                search_start
+            } else {
+                let relative_idx = self.ii.blocks[search_start..]
+                    .binary_search_by_key(&doc_id, |b| b.last_doc_id)
+                    .unwrap_or_else(|insertion_point| insertion_point);
+                search_start + relative_idx
+            }
+        };
+
+        // Now skip blocks whose max score is below the threshold
+        while target_block_idx < self.ii.blocks.len() {
+            let block = &self.ii.blocks[target_block_idx];
+            let block_max = scorer.block_max_score(block);
+
+            if block_max >= min_score {
+                break;
+            }
+            target_block_idx += 1;
+        }
+
+        if target_block_idx >= self.ii.blocks.len() {
+            return false;
+        }
+
+        // Only reset the block if we're moving to a different block.
+        // If we stay in the current block, don't reset the cursor position.
+        if target_block_idx != self.current_block_idx {
+            self.set_current_block(target_block_idx);
+        }
+        true
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        if self.current_block_idx >= self.ii.blocks.len() {
+            return 0.0;
+        }
+        let block = &self.ii.blocks[self.current_block_idx];
+        scorer.block_max_score(block)
+    }
+
+    fn current_block_index(&self) -> usize {
+        self.current_block_idx
+    }
+
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        // Start from the next block
+        let mut target_block_idx = self.current_block_idx + 1;
+
+        // Skip blocks whose max score is below the threshold
+        while target_block_idx < self.ii.blocks.len() {
+            let block = &self.ii.blocks[target_block_idx];
+            let block_max = scorer.block_max_score(block);
+
+            if block_max >= min_score {
+                break;
+            }
+            target_block_idx += 1;
+        }
+
+        if target_block_idx >= self.ii.blocks.len() {
+            return false;
+        }
+
+        self.set_current_block(target_block_idx);
+        true
     }
 }
 
@@ -1512,6 +1833,19 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     fn refresh_buffer_pointers(&mut self) {
         self.inner.refresh_buffer_pointers();
     }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.inner.skip_to_with_threshold(doc_id, min_score, scorer)
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        self.inner.current_block_max_score(scorer)
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReaderCore<'index, E>> {
@@ -1648,6 +1982,19 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
 
     fn refresh_buffer_pointers(&mut self) {
         self.inner.refresh_buffer_pointers();
+    }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.inner.skip_to_with_threshold(doc_id, min_score, scorer)
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        self.inner.current_block_max_score(scorer)
     }
 }
 
@@ -1812,6 +2159,19 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
 
     fn refresh_buffer_pointers(&mut self) {
         self.inner.refresh_buffer_pointers();
+    }
+
+    fn skip_to_with_threshold(
+        &mut self,
+        doc_id: t_docId,
+        min_score: f64,
+        scorer: &block_max_score::BlockScorer,
+    ) -> bool {
+        self.inner.skip_to_with_threshold(doc_id, min_score, scorer)
+    }
+
+    fn current_block_max_score(&self, scorer: &block_max_score::BlockScorer) -> f64 {
+        self.inner.current_block_max_score(scorer)
     }
 }
 
