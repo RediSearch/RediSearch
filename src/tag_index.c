@@ -20,6 +20,8 @@
 #include "resp3.h"
 #include "iterators/inverted_index_iterator.h"
 #include "index_result/query_term/query_term.h"
+#include "search_disk.h"
+#include "spec.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -237,6 +239,14 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
  * Returns NULL if there is no such tag in the index */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex) {
+
+  // Check if we're using disk storage
+  if (sctx && sctx->spec && sctx->spec->diskSpec) {
+    // Create token and call disk API
+    RSToken tok = {.str = (char *)value, .len = len};
+    // For tags, we use tokenId 0
+    return SearchDisk_NewTagIterator(sctx->spec->diskSpec, &tok, 0, fieldIndex, weight);
+  }
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {

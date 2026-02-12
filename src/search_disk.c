@@ -97,6 +97,19 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     return it;
 }
 
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldIndex fieldIndex, double weight) {
+    RS_ASSERT(disk && index && tok);
+    RSQueryTerm *term = NewQueryTerm(tok, tokenId);
+    // Tags don't use IDF scoring, so we set them to 0
+    term->idf = 0.0;
+    term->bm25_idf = 0.0;
+    QueryIterator *it = disk->index.newTagIterator(index, term, fieldIndex, weight);
+    if (!it) {
+        Term_Free(term);
+    }
+    return it;
+}
+
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
     RS_ASSERT(disk && index);
     return disk->index.newWildcardIterator(index, weight);

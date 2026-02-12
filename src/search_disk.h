@@ -125,6 +125,23 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
 
 /**
+ * @brief Create a tag IndexIterator for a specific tag value
+ *
+ * This function creates a tag IndexIterator that wraps the disk API and can be used
+ * in RediSearch query execution pipelines.
+ *
+ * @param index Pointer to the index
+ * @param tok Pointer to the token (contains tag value string) (token information is copied into the term, caller keeps ownership of the token)
+ * @param tokenId Token ID for the term
+ * @param fieldMask Field mask indicating which fields are present
+ * @param weight Weight for the term (used in scoring)
+ * @param idf Inverse document frequency for the term
+ * @param bm25_idf BM25 inverse document frequency for the term
+ * @return Pointer to the IndexIterator, or NULL on error
+ */
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldIndex fieldIndex, double weight);
+
+/**
  * @brief Create an IndexIterator for all the existing documents
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
