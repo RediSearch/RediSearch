@@ -762,7 +762,12 @@ FIELD_BULK_INDEXER(tagIndexer) {
   // Check if we're using disk storage
   if (ctx->spec->diskSpec) {
     // Index tags using disk API
-    SearchDisk_IndexTags(ctx->spec->diskSpec, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, fs->index);
+    if (!SearchDisk_IndexTags(ctx->spec->diskSpec, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, fs->index)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not index tags in disk storage");
+      return -1;
+    }
+    // TODO: Handle suffix trie for disk mode if needed
+    // For now, suffix trie is only supported in memory mode
     ctx->spec->stats.numRecords++;
     return 0;
   }

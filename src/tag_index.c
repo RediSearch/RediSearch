@@ -248,6 +248,11 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
     return SearchDisk_NewTagIterator(sctx->spec->diskSpec, &tok, 0, fieldIndex, weight);
   }
 
+  // In-memory mode - idx must not be NULL
+  if (!idx) {
+    return NULL;
+  }
+
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
     return NULL;

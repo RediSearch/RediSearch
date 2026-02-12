@@ -1428,11 +1428,16 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_ASSERT(qn->type == QN_TAG);
   QueryTagNode *node = &qn->tag;
-  TagIndex *idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX);
 
-  if (!idx) {
-    // There are no documents to traverse.
-    return NULL;
+  // For disk mode, we don't have an in-memory TagIndex, so pass NULL
+  // The disk check will be done in TagIndex_OpenReader
+  TagIndex *idx = NULL;
+  if (!q->sctx->spec->diskSpec) {
+    idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX);
+    if (!idx) {
+      // There are no documents to traverse.
+      return NULL;
+    }
   }
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
