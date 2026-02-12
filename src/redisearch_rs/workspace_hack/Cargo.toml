@@ -19,6 +19,7 @@ bindgen = { version = "0.72", default-features = false, features = ["logging", "
 clap = { version = "4" }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
@@ -47,6 +48,7 @@ bindgen = { version = "0.72", default-features = false, features = ["logging", "
 clap = { version = "4" }
 clap_builder = { version = "4", default-features = false, features = ["color", "help", "std", "suggestions", "usage"] }
 either = { version = "1", default-features = false, features = ["use_std"] }
+insta = { version = "1", features = ["filters"] }
 itertools = { version = "0.13" }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }

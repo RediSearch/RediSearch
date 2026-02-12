@@ -11,6 +11,7 @@ ffi.workspace = true
 field.workspace = true
 thin_vec.workspace = true
 qint.workspace = true
+redis_reply.workspace = true
 smallvec = { workspace = true, features = ["serde", "union"] }
 varint.workspace = true
 serde.workspace = true
