@@ -131,6 +131,45 @@ pub unsafe extern "C" fn RLookupKey_GetSvIdx(key: *const RLookupKey) -> u16 {
     key.svidx
 }
 
+/// Get the name of the field.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_char {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    key.name
+}
+
+/// Get the length of the name field in bytes.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    key.name_len
+}
+
+/// Get the path of the field.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_char {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    key.path
+}
+
 /// Get a RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the
