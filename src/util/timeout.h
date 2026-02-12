@@ -117,6 +117,15 @@ static inline int TimedOut_WithCtx_Gran(TimeoutCtx *ctx, uint32_t gran) {
   return TimedOut_WithCounter_Gran(&ctx->timeout, &ctx->counter, gran);
 }
 
+// Check if time has been reached
+static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
+  int rc = TimedOut(timeout);
+  if (status && rc == TIMED_OUT) {
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+  }
+  return rc;
+}
+
 #ifdef __cplusplus
 }
 #endif
