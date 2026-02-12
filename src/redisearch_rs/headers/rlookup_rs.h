@@ -14,6 +14,10 @@ typedef uint32_t RLookupOptions;
 typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
 
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
+
 
 enum RLookupKeyFlag
 #ifdef __cplusplus
@@ -106,6 +110,13 @@ typedef uint32_t RLookupOption;
 typedef struct IndexSpecCache IndexSpecCache;
 
 /**
+ * An append-only list of [`RLookupKey`]s.
+ *
+ * This type maintains a mapping from string names to [`RLookupKey`]s.
+ */
+typedef struct RLookup RLookup;
+
+/**
  * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
  * or from dynamic values stored in the row during processing.
  *
@@ -118,6 +129,21 @@ typedef struct IndexSpecCache IndexSpecCache;
  * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
  */
 typedef struct RLookupRow RLookupRow;
+
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_48[48];
+
+/**
+ * An opaque query error which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `QueryError`
+ * structure exactly.
+ */
+typedef struct ALIGNED(8) RLookup {
+  Size_48 _0;
+} RLookup;
 
 typedef struct RLookupKey {
   /**
@@ -156,16 +182,6 @@ typedef struct RLookupKey {
    */
   struct RLookupKey *next;
 } RLookupKey;
-
-typedef struct KeyList {
-  struct RLookupKey *head;
-  struct RLookupKey *tail;
-  uint32_t rowlen;
-} KeyList;
-
-typedef struct RLookup {
-  struct KeyList keys;
-} RLookup;
 
 typedef struct RLookupRow RLookupRow;
 

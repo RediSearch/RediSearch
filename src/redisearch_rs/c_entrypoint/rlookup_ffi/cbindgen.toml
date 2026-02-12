@@ -10,11 +10,18 @@ typedef uint32_t RLookupOptions;
 // forward declarations for types that are only used as a pointer
 typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
+
+// Required to ensure that the alignment declared by cbindgen is respected on
+// the C/C++ side.
+#define ALIGNED(n) __attribute__((aligned(n)))
 """
 
 [parse]
 parse_deps = true
-include = ["rlookup"]
+include = ["c_ffi_utils", "rlookup"]
+
+[layout]
+aligned_n = "ALIGNED"
 
 [export]
 include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
@@ -22,5 +29,6 @@ exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr",
 
 [export.rename]
 "RLookupRow_RSValueFFI" = "RLookupRow"
+"OpaqueRLookup" = "RLookup"
 "RLookupHeader" = "RLookup"
 "RLookupKeyHeader" = "RLookupKey"

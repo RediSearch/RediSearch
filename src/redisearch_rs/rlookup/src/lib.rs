@@ -23,7 +23,7 @@ pub use bindings::IndexSpecCache;
 pub use index_spec::IndexSpec;
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
-    RLookupOptions,
+    RLookupOptions, opaque::OpaqueRLookup,
 };
 pub use row::RLookupRow;
 pub use schema_rule::SchemaRule;
