@@ -87,34 +87,6 @@ void CoordReduceDebugCtx_IncrementReduceCount(void) {
 int CoordReduceDebugCtx_GetReduceCount(void) {
   return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
 }
-
-// Global reply debug context (for pausing before reply after acquiring lock)
-static ReplyDebugCtx globalReplyDebugCtx = {0};
-
-bool ReplyDebugCtx_IsPaused(void) {
-  return atomic_load(&globalReplyDebugCtx.pause);
-}
-
-void ReplyDebugCtx_SetPause(bool pause) {
-  atomic_store(&globalReplyDebugCtx.pause, pause);
-}
-
-bool ReplyDebugCtx_ShouldPause(void) {
-  return atomic_load(&globalReplyDebugCtx.shouldPause);
-}
-
-void ReplyDebugCtx_SetShouldPause(bool shouldPause) {
-  atomic_store(&globalReplyDebugCtx.shouldPause, shouldPause);
-}
-
-void ReplyDebugCtx_CheckAndPause(void) {
-  if (ReplyDebugCtx_ShouldPause()) {
-    ReplyDebugCtx_SetPause(true);
-    while (ReplyDebugCtx_IsPaused()) {
-      usleep(1000);
-    }
-  }
-}
 #endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
@@ -2166,63 +2138,6 @@ DEBUG_COMMAND(getCoordReduceCount) {
 
   return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
 }
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REPLY <0|1>
- * 0: no pause
- * 1: pause before reply (before acquiring replying lock)
- */
-DEBUG_COMMAND(setPauseBeforeReply) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  long long shouldPause;
-  if (RedisModule_StringToLongLong(argv[2], &shouldPause) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_REPLY'");
-  }
-
-  ReplyDebugCtx_SetShouldPause(shouldPause != 0);
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER GET_IS_REPLY_PAUSED
- */
-DEBUG_COMMAND(getIsReplyPaused) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  return RedisModule_ReplyWithBool(ctx, ReplyDebugCtx_IsPaused());
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_REPLY_RESUME
- */
-DEBUG_COMMAND(setReplyResume) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  if (!ReplyDebugCtx_IsPaused()) {
-    return RedisModule_ReplyWithError(ctx, "Reply is not paused");
-  }
-
-  ReplyDebugCtx_SetPause(false);
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
 #endif
 
 /**
@@ -2298,16 +2213,6 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
-  }
-  // Reply pause commands (only available with ENABLE_ASSERT)
-  if (!strcmp("SET_PAUSE_BEFORE_REPLY", op)) {
-    return setPauseBeforeReply(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("GET_IS_REPLY_PAUSED", op)) {
-    return getIsReplyPaused(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("SET_REPLY_RESUME", op)) {
-    return setReplyResume(ctx, argv + 1, argc - 1);
   }
 #endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
