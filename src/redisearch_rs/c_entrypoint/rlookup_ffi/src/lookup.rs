@@ -9,8 +9,8 @@
 
 use libc::size_t;
 use rlookup::{
-    IndexSpec, IndexSpecCache, OpaqueRLookupRow, RLookup, RLookupKey, RLookupKeyFlag,
-    RLookupKeyFlags, RLookupRow, SchemaRule,
+    IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey,
+    RLookupKeyFlag, RLookupKeyFlags, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
@@ -39,19 +39,21 @@ use std::{
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
-    src: *const RLookup<'a>,
-    dest: Option<NonNull<RLookup<'a>>>,
+pub unsafe extern "C" fn RLookup_AddKeysFrom(
+    src: *const OpaqueRLookup,
+    dest: Option<NonNull<OpaqueRLookup>>,
     flags: u32,
 ) {
-    // Safety: ensured by caller (2.)
-    let dest = unsafe { dest.unwrap().as_mut() };
-
-    // We're doing the assert here in the middle to avoid extra type conversions.
-    assert_ne!(src, dest, "`src` and `dst` must not be the same");
-
     // Safety: ensured by caller (1.)
-    let src = unsafe { src.as_ref().unwrap() };
+    let src = unsafe { RLookup::from_opaque_ptr(src).unwrap() };
+
+    // Safety: ensured by caller (2.)
+    let dest = unsafe { RLookup::from_opaque_non_null(dest.unwrap()) };
+
+    assert!(
+        !ptr::addr_eq(src, dest),
+        "`src` and `dst` must not be the same"
+    );
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
@@ -72,11 +74,11 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
 /// 4. The nul terminator must be within `isize::MAX` from `name`
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
-    lookup: *const RLookup<'_>,
+    lookup: *const OpaqueRLookup,
     name: *const c_char,
 ) -> *const ffi::FieldSpec {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_ref().unwrap() };
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
     // Safety: ensured by caller (2., 3., 4.)
     let name = unsafe { CStr::from_ptr(name) };
@@ -108,13 +110,13 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_Read(
-    lookup: Option<NonNull<RLookup<'_>>>,
+pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
     name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
+) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
@@ -149,14 +151,14 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
-    lookup: Option<NonNull<RLookup<'_>>>,
+pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
     name: *const c_char,
     name_len: size_t,
     flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
+) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     let name = CStr::from_bytes_with_nul(
         // `name_len` is a value as returned by `strlen` and therefore **does not**
@@ -194,13 +196,13 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_Write(
-    lookup: Option<NonNull<RLookup<'_>>>,
+pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
     name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
+) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
@@ -234,14 +236,14 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
-    lookup: Option<NonNull<RLookup<'_>>>,
+pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
     name: *const c_char,
     name_len: size_t,
     flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
+) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     let name = CStr::from_bytes_with_nul(
         // `name_len` is a value as returned by `strlen` and therefore **does not**
@@ -281,14 +283,14 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_Load(
-    lookup: Option<NonNull<RLookup<'_>>>,
+pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
     name: *const c_char,
     field_name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
+) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
@@ -329,15 +331,15 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
-    lookup: Option<NonNull<RLookup<'_>>>,
+pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
     name: *const c_char,
     name_len: size_t,
     field_name: *const c_char,
     flags: u32,
-) -> Option<NonNull<RLookupKey<'_>>> {
+) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
@@ -371,7 +373,7 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetLength(
-    lookup: *const RLookup<'_>,
+    lookup: *const OpaqueRLookup,
     row: *const OpaqueRLookupRow,
     skip_field_index: Option<NonNull<bool>>,
     skip_field_index_len: size_t,
@@ -380,7 +382,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
     rule: *const ffi::SchemaRule,
 ) -> size_t {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_ref().unwrap() };
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
@@ -421,11 +423,11 @@ pub unsafe extern "C" fn RLookup_GetLength(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_Init(
-    lookup: Option<NonNull<RLookup<'_>>>,
+    lookup: Option<NonNull<OpaqueRLookup>>,
     spcache: Option<NonNull<ffi::IndexSpecCache>>,
 ) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
     let spcache = spcache.map(|spcache| {
         // Safety: ensured by caller (2. & 3.)
         unsafe { IndexSpecCache::from_raw(spcache) }
@@ -445,9 +447,11 @@ pub unsafe extern "C" fn RLookup_Init(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
+pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>) {
     // Safety: ensured by caller (1.,2.)
-    unsafe { lookup.unwrap().drop_in_place() };
+    unsafe {
+        lookup.unwrap().cast::<RLookup>().drop_in_place();
+    }
 }
 
 /// Initialize the lookup with fields from a Redis hash.
@@ -472,7 +476,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
-    lookup: Option<NonNull<RLookup<'a>>>,
+    lookup: Option<NonNull<OpaqueRLookup>>,
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
@@ -482,7 +486,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     let search_ctx = unsafe { search_ctx.unwrap().as_mut() };
 
     // Safety: ensured by caller (2.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     // Safety: ensured by caller (3.)
     let dst_row = unsafe { dst_row.unwrap().as_mut() };

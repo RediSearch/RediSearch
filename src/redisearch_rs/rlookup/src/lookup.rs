@@ -19,13 +19,7 @@ use crate::{
 };
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
-use std::{
-    borrow::Cow,
-    ffi::CStr,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-    ptr,
-};
+use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut};
@@ -50,14 +44,9 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
-/// cbindgen:no-export
 #[derive(Debug)]
-#[repr(C)]
 pub struct RLookup<'a> {
-    /// RLookup fields exposed to C.
-    // Because we must be able to re-interpret pointers to `RLookup` to `RLookupHeader`
-    // THIS MUST BE THE FIRST FIELD DONT MOVE IT
-    header: RLookupHeader<'a>,
+    keys: KeyList<'a>,
 
     // Flags/options
     options: RLookupOptions,
@@ -70,27 +59,7 @@ pub struct RLookup<'a> {
     id: RLookupId,
 }
 
-#[derive(Debug)]
-#[repr(C)]
-pub struct RLookupHeader<'a> {
-    keys: KeyList<'a>,
-}
-
 // ===== impl RLookup =====
-
-impl<'a> Deref for RLookup<'a> {
-    type Target = RLookupHeader<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl<'a> DerefMut for RLookup<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.header
-    }
-}
 
 impl Default for RLookup<'_> {
     fn default() -> Self {
@@ -101,9 +70,7 @@ impl Default for RLookup<'_> {
 impl<'a> RLookup<'a> {
     pub fn new() -> Self {
         Self {
-            header: RLookupHeader {
-                keys: KeyList::new(),
-            },
+            keys: KeyList::new(),
             options: RLookupOptions::empty(),
             index_spec_cache: None,
             #[cfg(debug_assertions)]
@@ -376,7 +343,6 @@ impl<'a> RLookup<'a> {
         // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
         // See <https://github.com/rust-lang/rust/issues/54663>
         let mut cursor = self
-            .header
             .keys
             .find_by_name_mut(&name)
             .expect("key should have been created above");
@@ -419,7 +385,7 @@ impl<'a> RLookup<'a> {
 
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
     pub(crate) const fn get_row_len(&self) -> u32 {
-        self.header.keys.rowlen
+        self.keys.rowlen
     }
 
     pub fn load_rule_fields(
@@ -517,6 +483,20 @@ fn load_specific_keys<'a>(
     unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
 }
 
+pub mod opaque {
+    use super::RLookup;
+    use c_ffi_utils::opaque::Size;
+
+    /// An opaque query error which can be passed by value to C.
+    ///
+    /// The size and alignment of this struct must match the Rust `QueryError`
+    /// structure exactly.
+    #[repr(C, align(8))]
+    pub struct OpaqueRLookup(Size<48>);
+
+    c_ffi_utils::opaque!(RLookup<'_>, OpaqueRLookup);
+}
+
 #[cfg(test)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
@@ -534,19 +514,6 @@ mod tests {
     use pretty_assertions::assert_eq;
     #[cfg(not(miri))]
     use proptest::prelude::*;
-
-    // Compile time check to ensure that `RLookup` can safely be re-interpreted as `RLookupHeader` (has the same
-    // layout at the beginning).
-    const _: () = {
-        // RLookup is larger than RLookupHeader because it has additional Rust fields
-        assert!(std::mem::size_of::<RLookup>() >= std::mem::size_of::<RLookupHeader>());
-        assert!(std::mem::align_of::<RLookup>() == std::mem::align_of::<RLookupHeader>());
-
-        assert!(
-            ::std::mem::offset_of!(RLookup, header.keys)
-                == ::std::mem::offset_of!(RLookupHeader, keys)
-        );
-    };
 
     #[test]
     fn rlookup_init() {
