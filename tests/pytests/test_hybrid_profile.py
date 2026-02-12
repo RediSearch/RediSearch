@@ -993,7 +993,7 @@ def test_profile_with_shard_error():
              'PARAMS', 2, 'blob', 'aaaaaaaa']
 
     # Verify the command returns an error (not a crash)
-    env.expect(*query).error().contains('no such index')
+    env.expect(*query).error().contains('SEARCH_INDEX_NOT_FOUND: Index not found: idx_partial')
 
 def test_profile_errors():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')

@@ -36,7 +36,7 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
     // Extract just the prefix part (including the colon and space)
     size_t prefix_len = colon_pos - full_rust_message + 2; // +2 for ": "
     char *error_prefix = rm_malloc(prefix_len + 1);
-    strncpy(error_prefix, full_rust_message, prefix_len);
+    memcpy(error_prefix, full_rust_message, prefix_len);
     error_prefix[prefix_len] = '\0';
 
     rm_asprintf(&detail, "%s%s%s", error_prefix, message, formatted);
