@@ -23,6 +23,12 @@ double QueryTerm_Idf(RSQueryTerm const *t);
 /* Set the idf of the term. */
 void QueryTerm_SetIdf(RSQueryTerm *t, double idf);
 
+/* Get the BM25 idf of the term. This is used for BM25 scoring. */
+double QueryTerm_Bm25Idf(RSQueryTerm const *t);
+
+/* Set the BM25 idf of the term. */
+void QueryTerm_SetBm25Idf(RSQueryTerm *t, double bm25_idf);
+
 #ifdef __cplusplus
 }
 #endif
