@@ -62,11 +62,7 @@ pub struct SearchResult<'index> {
 impl Drop for SearchResult<'_> {
     fn drop(&mut self) {
         self.clear();
-
-        // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
-        unsafe {
-            ffi::RLookupRow_Reset(ptr::from_mut(&mut self._row_data).cast::<ffi::RLookupRow>());
-        }
+        self._row_data.reset_dyn_values();
     }
 }
 

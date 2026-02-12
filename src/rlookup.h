@@ -241,12 +241,6 @@ static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
  */
 void RLookupRow_Wipe(RLookupRow *row);
 
-/**
- * Frees all the memory consumed by the row. Implies Wipe(). This should be used
- * when the row object will no longer be used.
- */
-void RLookupRow_Reset(RLookupRow *row);
-
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */
   RLOOKUP_LOAD_KEYLIST,
