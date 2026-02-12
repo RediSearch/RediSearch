@@ -134,6 +134,16 @@ impl NumericRange {
         self.hll.count()
     }
 
+    /// Returns true if this range is completely contained within [min, max].
+    pub const fn contained_in(&self, min: f64, max: f64) -> bool {
+        self.min_val >= min && self.max_val <= max
+    }
+
+    /// Returns true if this range overlaps with [min, max].
+    pub const fn overlaps(&self, min: f64, max: f64) -> bool {
+        !(min > self.max_val || max < self.min_val)
+    }
+
     /// Get the minimum value in this range.
     pub const fn min_val(&self) -> f64 {
         self.min_val

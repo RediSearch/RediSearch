@@ -10,9 +10,7 @@
 #include "doc_table.h"
 #include "util/timeout.h"
 
-#include <utility>    // std::move
 #include <iterator>   // ranges::distance
-#include <algorithm>  // ranges::lower_bound
 
 namespace RediSearch {
 namespace GeoShape {
@@ -112,7 +110,7 @@ void QIter_Rewind(QueryIterator *ctx) {
 
 QueryIterator CPPQueryIterator::init_base() {
   return QueryIterator{
-      .type = ID_LIST_ITERATOR,
+      .type = ID_LIST_SORTED_ITERATOR,
       .atEOF = false,
       .lastDocId = 0,
       .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
