@@ -32,6 +32,7 @@
 #include "result_processor.h"
 #include "profile/options.h"
 #include "reply_empty.h"
+#include "debug_commands.h"
 
 // Multi threading data structure
 typedef struct {
@@ -413,6 +414,10 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
+#ifdef ENABLE_ASSERT
+    ReplyDebugCtx_CheckAndPause();
+#endif
+
     if (__atomic_exchange_n(&req->replying, true, __ATOMIC_ACQ_REL)) {
       // Timeout callback owns reply - skip to cleanup without replying
       cursor_done = true;
@@ -606,6 +611,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
 
     startPipeline(req, rp, &results, &r, &rc);
+
+#ifdef ENABLE_ASSERT
+    ReplyDebugCtx_CheckAndPause();
+#endif
 
     if (__atomic_exchange_n(&req->replying, true, __ATOMIC_ACQ_REL)) {
       // Timeout callback owns reply - skip to cleanup without replying

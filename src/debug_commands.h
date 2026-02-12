@@ -75,6 +75,20 @@ int CoordReduceDebugCtx_GetPauseBeforeN(void);
 void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
+
+// Struct used for debugging reply (pause before reply before acquiring lock)
+// Only available in debug builds to avoid affecting release performance
+typedef struct ReplyDebugCtx {
+  atomic_bool pause;           // Atomic bool to wait for the resume command
+  atomic_bool shouldPause;     // Whether to pause before reply
+} ReplyDebugCtx;
+
+// ReplyDebugCtx API function declarations
+bool ReplyDebugCtx_IsPaused(void);
+void ReplyDebugCtx_SetPause(bool pause);
+bool ReplyDebugCtx_ShouldPause(void);
+void ReplyDebugCtx_SetShouldPause(bool shouldPause);
+void ReplyDebugCtx_CheckAndPause(void);
 #endif
 
 // Yield counter functions

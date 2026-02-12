@@ -972,6 +972,32 @@ def resetCoordReduceDebug(env):
     except Exception:
         pass  # Ignore error if coordinator is not paused
 
+# Reply Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeReply(env, shouldPause):
+    """Set whether to pause before reply after acquiring the replying lock.
+
+    Args:
+        env: The test environment.
+        shouldPause: 1 to enable pause, 0 to disable.
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_REPLY', shouldPause).ok()
+
+def getIsReplyPaused(env):
+    """Check if the reply is currently paused."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_REPLY_PAUSED')
+
+def setReplyResume(env):
+    """Resume the reply from a pause."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_REPLY_RESUME').ok()
+
+def resetReplyDebug(env):
+    """Reset the reply debug context (disable pause and resume if paused)."""
+    setPauseBeforeReply(env, 0)
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_REPLY_RESUME')
+    except Exception:
+        pass  # Ignore error if reply is not paused
+
 def isEnableAssertEnabled(env):
     """
     Check if ENABLE_ASSERT is enabled in the build.
