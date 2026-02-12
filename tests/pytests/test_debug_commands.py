@@ -806,7 +806,7 @@ class TestQueryDebugCommands(object):
 
         if workers > 0:
             # With workers, ON_TIMEOUT FAIL is not supported with TIMEOUT_AFTER_N
-            with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL"):
+            with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0"):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
         else:
             # Without workers, ON_TIMEOUT FAIL should work with TIMEOUT_AFTER_N
