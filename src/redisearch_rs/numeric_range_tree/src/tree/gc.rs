@@ -15,12 +15,13 @@
 
 use std::collections::HashMap;
 
-use inverted_index::{GcApplyInfo, GcScanDelta};
+use inverted_index::{GcApplyInfo, GcScanDelta, IndexBlock, RSIndexResult};
 
 use super::{AddResult, NumericRangeTree, apply_signed_delta};
-use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
 use crate::range::Hll;
+use crate::{NumericIndex, NumericRangeNode};
+use serde::Serialize;
 
 /// GC delta data for a single node, as computed by the child process.
 ///
@@ -67,6 +68,89 @@ pub struct CompactIfSparseResult {
 }
 
 impl NumericRangeTree {
+    /// Scan all nodes in a tree for GC work.
+    ///
+    /// Traverses the tree in pre-order DFS and scans each node's range for deleted
+    /// documents.
+    /// Returns a buffer containing the serialized index-tagged deltas.
+    /// The buffer is empty if there's no work to do.
+    ///
+    /// # Buffer Wire format
+    ///
+    /// Only nodes with actual GC work are written:
+    /// ```text
+    /// [node_index: u32 LE][delta_msgpack][64-byte hll_with][64-byte hll_without]
+    /// ```
+    pub fn scan_nodes(&self, doc_exists: &dyn Fn(ffi::t_docId) -> bool) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        for (index, range) in self
+            .indexed_iter()
+            .filter_map(|(index, node)| node.range().map(|range| (index, range)))
+        {
+            Self::scan_and_write_to_buffer(index, range.entries(), &doc_exists, &mut buffer)
+        }
+        buffer
+    }
+
+    /// Scan a single node's numeric index and write the result to a buffer.
+    ///
+    /// Returns `true` if GC work was found and written, `false` if not.
+    ///
+    /// Wire format for each entry:
+    /// ```text
+    /// [node_index: u32 LE][delta_msgpack][64-byte hll_with][64-byte hll_without]
+    /// ```
+    fn scan_and_write_to_buffer(
+        node_idx: NodeIndex,
+        inverted_index: &NumericIndex,
+        doc_exists: &dyn Fn(ffi::t_docId) -> bool,
+        buffer: &mut Vec<u8>,
+    ) {
+        // HLL tracking for cardinality (re)estimation
+        let mut majority_hll = Hll::new();
+        let mut last_block_hll = Hll::new();
+        let mut last_block_ptr: *const IndexBlock = std::ptr::null();
+
+        let mut repair_fn = |res: &RSIndexResult<'_>, block: &IndexBlock| {
+            let bp = block as *const IndexBlock;
+            if bp != last_block_ptr {
+                majority_hll.merge(&last_block_hll);
+                last_block_hll.clear();
+                last_block_ptr = bp;
+            }
+            // SAFETY: We know this is a numeric index result
+            let value = unsafe { res.as_numeric_unchecked() };
+            crate::range::update_cardinality(&mut majority_hll, value);
+        };
+
+        let Ok(Some(deltas)) = inverted_index.scan_gc(doc_exists, Some(&mut repair_fn)) else {
+            return;
+        };
+
+        // Remember position in case serialization fails.
+        let start_pos = buffer.len();
+
+        // Write node index as u32 LE.
+        buffer.extend_from_slice(&u32::from(node_idx).to_le_bytes());
+
+        // Serialize delta.
+        if deltas
+            .serialize(&mut rmp_serde::Serializer::new(&mut *buffer))
+            .is_err()
+        {
+            // Remove everything we wrote for this entry.
+            buffer.truncate(start_pos);
+            return;
+        }
+
+        // Merge majority into last_block to get "with last block" registers.
+        last_block_hll.merge(&majority_hll);
+
+        // Write registers: first "with last block", then "without last block".
+        buffer.extend_from_slice(last_block_hll.registers());
+        buffer.extend_from_slice(majority_hll.registers());
+    }
+
     /// Apply a GC delta to a single node by index.
     ///
     /// Looks up the node in the arena, applies the delta to its range's
