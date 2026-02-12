@@ -94,6 +94,7 @@ def testGetConfigOptions(env):
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
     check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('BG_INDEX_SLEEP_DURATION_US')
     check_config('ON_OOM')
     check_config('_MIN_TRIM_DELAY_MS')
     check_config('_MAX_TRIM_DELAY_MS')
@@ -128,6 +129,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 5).equal('OK')
     env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
     env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 1000).equal('OK')
     env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 8000).equal('OK')
@@ -150,6 +152,9 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
+    # Test BG_INDEX_SLEEP_DURATION_US validation (max 999999 due to usleep POSIX limit, min 1)
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 0).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 1000000).contains('BG_INDEX_SLEEP_DURATION_US must be between 1 and 999999')
     # Test _MIN_TRIM_DELAY_MS validation
     env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', -1).contains('Value is outside acceptable bounds')
@@ -241,6 +246,7 @@ def testInitConfig():
     _test_config_num('_BG_INDEX_MEM_PCT_THR', 100)
     _test_config_num('BM25STD_TANH_FACTOR', 4)
     _test_config_num('_BG_INDEX_OOM_PAUSE_TIME', 0)
+    _test_config_num('BG_INDEX_SLEEP_DURATION_US', 5)
 
 
 # True/False arguments
@@ -560,6 +566,7 @@ numericConfigs = [
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
     ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
     ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
+    ('search-bg-index-sleep-duration-us', 'BG_INDEX_SLEEP_DURATION_US', 1, 1, 999999, False, False),
     ('search-_trimming-state-check-delay-ms', '_TRIMMING_STATE_CHECK_DELAY_MS', 100, 1, UINT32_MAX, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
