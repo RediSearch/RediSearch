@@ -238,7 +238,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
     for (size_t i = 0; i < num_warnings; i++) {
       const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
       // Set an error to be later picked up and sent as a warning
-      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+      if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
         timed_out = true;
       } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
         QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);

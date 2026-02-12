@@ -61,7 +61,7 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-    ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
+    ReplyWarning(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT), suffix);
     timeoutOccurred = true;
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error

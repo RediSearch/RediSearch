@@ -273,7 +273,7 @@ impl QueryError {
 // be passed to functions and easily handled via switch/case logic.
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, FromRepr, PartialEq, Eq)]
 #[repr(u8)]
 pub enum QueryWarningCode {
     #[default]

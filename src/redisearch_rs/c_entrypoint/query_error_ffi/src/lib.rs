@@ -60,6 +60,20 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     code.to_c_str().as_ptr()
 }
 
+/// Returns a human-readable string representing the provided [`QueryWarningCode`].
+///
+/// This function should always return without a panic for any value provided.
+/// It is unique among the `QueryWarning_*` API as the only function which allows
+/// an invalid [`QueryWarningCode`] to be provided.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryWarning_Strwarning(maybe_code: u8) -> *const c_char {
+    let Some(code) = QueryWarningCode::from_repr(maybe_code) else {
+        return c"Unknown warning code".as_ptr();
+    };
+
+    code.to_c_str().as_ptr()
+}
+
 /// Returns the maximum valid numeric value for [`QueryErrorCode`].
 ///
 /// This is intended for C/C++ tests/tools that want to iterate over all codes without

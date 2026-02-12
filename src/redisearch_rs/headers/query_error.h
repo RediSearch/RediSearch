@@ -181,6 +181,15 @@ bool QueryError_HasError(const struct QueryError *query_error);
 const char *QueryError_Strerror(uint8_t maybe_code);
 
 /**
+ * Returns a human-readable string representing the provided [`QueryWarningCode`].
+ *
+ * This function should always return without a panic for any value provided.
+ * It is unique among the `QueryWarning_*` API as the only function which allows
+ * an invalid [`QueryWarningCode`] to be provided.
+ */
+const char *QueryWarning_Strwarning(uint8_t maybe_code);
+
+/**
  * Returns the maximum valid numeric value for [`QueryErrorCode`].
  *
  * This is intended for C/C++ tests/tools that want to iterate over all codes without
