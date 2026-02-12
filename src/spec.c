@@ -4068,9 +4068,13 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       RedisSearchCtx_LockSpecWrite(&sctx);
       DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
+      // Mark this spec as handled by changing its op to SpecOp_Del.
+      // This avoids the need to use array_del_fast which would:
+      // 1. Leak the StrongRef of the removed element
+      // 2. Invalidate indices stored in the dictionary
       size_t index = entry->v.u64;
+      to_specs->specsOps[index].op = SpecOp_Del;
       dictDelete(to_specs->specs, spec->specName);
-      array_del_fast(to_specs->specsOps, index);
     } else {
       IndexSpec_DeleteDoc(spec, ctx, from_key);
     }
