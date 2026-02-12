@@ -102,7 +102,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:index_result>
-    $<TARGET_OBJECTS:query_term>
     $<TARGET_OBJECTS:mempool>
     $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>

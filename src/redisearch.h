@@ -18,6 +18,7 @@
 #include "util/dllist.h"
 #include "stemmer.h"
 #include "types_rs.h"
+#include "query_term.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -142,12 +143,9 @@ struct QueryParseCtx;
 /* Forward declaration of the opaque query node object */
 struct RSQueryNode;
 
-/* We support up to 30 user given flags for each token, flags 1 and 2 are taken by the engine */
-typedef uint32_t RSTokenFlags;
-
 /* A token in the query. The expanders receive query tokens and can expand the query with more query
  * tokens */
-typedef struct {
+typedef struct RSToken {
   /* The token string - which may or may not be NULL terminated */
   char *str;
   /* The token length */
@@ -210,25 +208,6 @@ typedef struct RSQueryExpanderCtx {
 typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 /* A free function called after the query expansion phase is over, to release per-query data */
 typedef void (*RSFreeFunction)(void *);
-
-/* A single term being evaluated in query time */
-typedef struct RSQueryTerm {
-  /* The term string, not necessarily NULL terminated, hence the length is given as well */
-  char *str;
-  /* The term length */
-  size_t len;
-  /* Inverse document frequency of the term in the index. See
-   * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
-  double idf;
-
-  /* Each term in the query gets an incremental id */
-  int id;
-  /* Flags given by the engine or by the query expander */
-  RSTokenFlags flags;
-
-  /* Inverse document frequency of the term in the index for computing BM25 */
-  double bm25_idf;
-} RSQueryTerm;
 
 /**************************************
  * Scoring Function API
