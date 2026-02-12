@@ -87,6 +87,50 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
         .map_or(ptr::null(), ptr::from_ref)
 }
 
+/// Get the flags (indicating the type and other attributes) for a `RLookupKey`.
+///
+/// The flag F_SVSRC means the target array is a sorting vector.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupKey_GetFlags(key: *const RLookupKey) -> u32 {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    key.flags.bits()
+}
+
+/// Get the index into the array where the value resides.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupKey_GetDstIdx(key: *const RLookupKey) -> u16 {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    key.dstidx
+}
+
+/// Get the index within the sort vector where the value is located.
+///
+/// If the source of this value points to a sort vector, then this is the
+/// index within the sort vector that the value is located.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupKey_GetSvIdx(key: *const RLookupKey) -> u16 {
+    // Safety: ensured by caller (1.)
+    let key = unsafe { key.as_ref().unwrap() };
+
+    key.svidx
+}
+
 /// Get a RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the
