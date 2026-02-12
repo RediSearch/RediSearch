@@ -577,7 +577,10 @@ mod not_miri {
     fn numeric_revalidate_needs_revalidation_before_reads() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = test.test.context.numeric_inverted_index().as_numeric();
+        let ii = {
+            use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+            Numeric::from_mut_opaque(test.test.context.numeric_inverted_index()).inner_mut()
+        };
 
         // Trigger GC on the index so needs_revalidation() returns true.
         test.test.remove_document(ii, 1);
@@ -621,7 +624,10 @@ mod not_miri {
             inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>,
             NoOpChecker,
         > {
-            let ii = self.test.context.numeric_inverted_index().as_numeric();
+            let ii = {
+                use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+                Numeric::from_mut_opaque(self.test.context.numeric_inverted_index()).inner_mut()
+            };
             let context = &self.test.context;
 
             NumericBuilder::new(ii.reader())
@@ -689,7 +695,10 @@ mod not_miri {
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = test.test.context.numeric_inverted_index().as_numeric();
+        let ii = {
+            use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+            Numeric::from_mut_opaque(test.test.context.numeric_inverted_index()).inner_mut()
+        };
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }
