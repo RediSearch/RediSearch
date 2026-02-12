@@ -1873,7 +1873,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       RedisModule_Reply_Set(reply);
       RedisModule_Reply_SetEnd(reply);
     } else {
-      RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perform query");
+      RedisModule_ReplyWithError(ctx, err ? MRReply_String(err, NULL) : "Could not perform query");
     }
     goto cleanup;
   }
