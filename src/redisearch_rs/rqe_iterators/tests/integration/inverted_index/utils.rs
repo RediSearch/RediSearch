@@ -411,7 +411,10 @@ pub(super) mod not_miri {
         pub(crate) fn numeric_inverted_index(
             &self,
         ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
-            self.context.numeric_inverted_index().as_numeric()
+            use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+            Numeric::extract_ii_from_mut(self.context.numeric_inverted_index())
+                .expect("expected Numeric variant")
+                .inner_mut()
         }
 
         /// Get the term inverted index from the TestContext (non-wide).
