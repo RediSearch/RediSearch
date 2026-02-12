@@ -9,7 +9,6 @@
 
 use crate::{
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
 };
 
@@ -26,7 +25,6 @@ mod test_utils;
 pub use test_utils::RSValueMock;
 
 pub mod shared;
-pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object
@@ -38,14 +36,8 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value backed by a rm_alloc'd string
-    RmAllocString(RmAllocString),
-    /// String value backed by a constant C string
-    ConstString(ConstString),
-    /// String value backed by a Redis string
-    RedisString(RedisString),
-    /// String value
-    String(Box<RsValueString>),
+    /// String value (placeholder)
+    String(String),
     /// Array value
     Array(Vec<SharedRsValue>),
     /// Reference value
