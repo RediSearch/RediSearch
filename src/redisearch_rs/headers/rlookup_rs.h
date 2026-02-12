@@ -258,6 +258,38 @@ void RLookup_AddKeysFrom(const struct RLookup *src,
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
 
 /**
+ * Get the flags (indicating the type and other attributes) for a `RLookupKey`.
+ *
+ * The flag F_SVSRC means the target array is a sorting vector.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+uint32_t RLookupKey_GetFlags(const struct RLookupKey *key);
+
+/**
+ * Get the index into the array where the value resides.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+uint16_t RLookupKey_GetDstIdx(const struct RLookupKey *key);
+
+/**
+ * Get the index within the sort vector where the value is located.
+ *
+ * If the source of this value points to a sort vector, then this is the
+ * index within the sort vector that the value is located.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+uint16_t RLookupKey_GetSvIdx(const struct RLookupKey *key);
+
+/**
  * Get a RLookup key for a given name.
  *
  * A key is returned only if it's already in the lookup table (available from the
