@@ -290,6 +290,33 @@ uint16_t RLookupKey_GetDstIdx(const struct RLookupKey *key);
 uint16_t RLookupKey_GetSvIdx(const struct RLookupKey *key);
 
 /**
+ * Get the name of the field.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+const char *RLookupKey_GetName(const struct RLookupKey *key);
+
+/**
+ * Get the length of the name field in bytes.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+size_t RLookupKey_GetNameLen(const struct RLookupKey *key);
+
+/**
+ * Get the path of the field.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+const char *RLookupKey_GetPath(const struct RLookupKey *key);
+
+/**
  * Get a RLookup key for a given name.
  *
  * A key is returned only if it's already in the lookup table (available from the
