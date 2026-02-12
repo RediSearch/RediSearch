@@ -29,6 +29,21 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
+  pr-design-check:
+    name: PR Design Files Check
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check for PR design files
+        run: |
+          if find .pr-design -type f ! -name 'README.md' 2>/dev/null | grep -q .; then
+            echo "❌ .pr-design/ contains files that must be cleaned up before merging."
+            echo "Either delete them or move valuable docs to docs/design/"
+            find .pr-design -type f ! -name 'README.md'
+            exit 1
+          fi
+
   test-matrix:
     needs: [get-latest-redis-tag, lint]
     uses: ./.github/workflows/flow-test.yml
@@ -46,6 +61,7 @@ jobs:
     needs:
       - get-latest-redis-tag
       - lint
+      - pr-design-check
       - test-matrix
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
