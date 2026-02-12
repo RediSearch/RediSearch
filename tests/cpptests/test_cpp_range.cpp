@@ -11,6 +11,7 @@
 #include "gtest/gtest.h"
 
 #include "numeric_index.h"
+#include "numeric_range_tree.h"
 #include "rmutil/alloc.h"
 #include "index_utils.h"
 #include "redisearch_api.h"
@@ -45,15 +46,15 @@ protected:
 };
 
 TEST_F(RangeTest, testRangeTree) {
-  NumericRangeTree *t = NewNumericRangeTree();
+  NumericRangeTree *t = NewNumericRangeTree(false);
   ASSERT_TRUE(t != NULL);
 
   for (size_t i = 0; i < 50000; i++) {
 
-    NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000), false);
+    NumericRangeTree_AddCompat(t, i + 1, (double)(1 + prng() % 5000), false);
   }
-  ASSERT_EQ(t->numRanges, 8);
-  ASSERT_EQ(t->numEntries, 50000);
+  ASSERT_EQ(NumericRangeTree_GetNumRanges(t), 8);
+  ASSERT_EQ(NumericRangeTree_GetNumEntries(t), 50000);
 
   struct {
     double min;
@@ -62,18 +63,17 @@ TEST_F(RangeTest, testRangeTree) {
 
   for (int r = 0; rngs[r].min || rngs[r].max; r++) {
     NumericFilter nf = { .min = rngs[r].min, .max = rngs[r].max };
-    Vector *v = NumericRangeTree_Find(t, &nf);
-    ASSERT_TRUE(Vector_Size(v) > 0);
-    // printf("Got %d ranges for %f..%f...\n", Vector_Size(v), rngs[r].min, rngs[r].max);
-    for (int i = 0; i < Vector_Size(v); i++) {
-      NumericRange *l;
-      Vector_Get(v, i, &l);
+    NumericRangeTreeFindResult result = NumericRangeTree_Find(t, &nf);
+    ASSERT_TRUE(result.len > 0);
+    // printf("Got %zu ranges for %f..%f...\n", result.len, rngs[r].min, rngs[r].max);
+    for (size_t i = 0; i < result.len; i++) {
+      const NumericRange *l = result.ranges[i];
       ASSERT_TRUE(l);
-      // printf("%f...%f\n", l->minVal, l->maxVal);
-      ASSERT_FALSE(l->minVal > rngs[r].max);
-      ASSERT_FALSE(l->maxVal < rngs[r].min);
+      // printf("%f...%f\n", NumericRange_MinVal(l), NumericRange_MaxVal(l));
+      ASSERT_FALSE(NumericRange_MinVal(l) > rngs[r].max);
+      ASSERT_FALSE(NumericRange_MaxVal(l) < rngs[r].min);
     }
-    Vector_Free(v);
+    NumericRangeTreeFindResult_Free(result);
   }
   NumericRangeTree_Free(t);
 }
@@ -87,7 +87,7 @@ struct uint8_arr {
 };
 
 void testRangeIteratorHelper(bool isMulti) {
-  NumericRangeTree *t = NewNumericRangeTree();
+  NumericRangeTree *t = NewNumericRangeTree(false);
   ASSERT_TRUE(t != NULL);
 
   const size_t N = 100000;
@@ -102,7 +102,7 @@ void testRangeIteratorHelper(bool isMulti) {
       double value = (double)(1 + prng() % (N / 5));
       lookup[docId].v[mult] = value;
       // printf("Adding %ld > %f\n", docId, value);
-      NumericRangeTree_Add(t, docId, value, isMulti);
+      NumericRangeTree_AddCompat(t, docId, value, isMulti);
     }
   }
 
@@ -195,8 +195,8 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 48);
-  ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
+  ASSERT_EQ(NumericRangeTree_GetNumRanges(t), !isMulti ? 15 : 41);
+  ASSERT_EQ(NumericRangeTree_GetNumEntries(t), !isMulti ? N : N * MULT_COUNT);
 
 
   // test loading limited range
@@ -239,7 +239,7 @@ TEST_F(RangeTest, testRangeIteratorMulti) {
 TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
-  NumericRangeTree *rt = NewNumericRangeTree();
+  NumericRangeTree *rt = NewNumericRangeTree(false);
   // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records
   size_t empty_numeric_mem_size = 32;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
@@ -248,7 +248,7 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   }
 
   ASSERT_EQ(numeric_tree_mem, empty_numeric_mem_size);
-  ASSERT_EQ(numeric_tree_mem, rt->invertedIndexesSize);
+  ASSERT_EQ(numeric_tree_mem, NumericRangeTree_GetInvertedIndexesSize(rt));
 
   NumericRangeTree_Free(rt);
 }
@@ -289,7 +289,9 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
 
   auto print_failure = [&]() {
     std::cout << "Expected range memory = " << expected_mem << std::endl;
-    std::cout << "Failed range mem: " << InvertedIndex_MemUsage(failed_range->range->entries) << std::endl;
+    // With the Rust port, failed_range is never set since internal stats consistency
+    // is maintained by Rust. This lambda is kept for API compatibility.
+    std::cout << "Failed range is no longer set with opaque types" << std::endl;
   };
 
   // add docs with random numbers
@@ -307,8 +309,8 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
 
   // check memory
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
-  ASSERT_EQ(rt->invertedIndexesSize, numeric_tree_mem);
-  ASSERT_EQ(rt->invertedIndexesSize, expected_mem);
+  ASSERT_EQ(NumericRangeTree_GetInvertedIndexesSize(rt), numeric_tree_mem);
+  ASSERT_EQ(NumericRangeTree_GetInvertedIndexesSize(rt), expected_mem);
 
   if (failed_range) {
     print_failure();
@@ -342,8 +344,8 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
     print_failure();
     FAIL();
   }
-  ASSERT_EQ(rt->invertedIndexesSize, numeric_tree_mem);
-  ASSERT_EQ(rt->invertedIndexesSize, expected_mem);
+  ASSERT_EQ(NumericRangeTree_GetInvertedIndexesSize(rt), numeric_tree_mem);
+  ASSERT_EQ(NumericRangeTree_GetInvertedIndexesSize(rt), expected_mem);
 
 }
 
@@ -363,7 +365,7 @@ TEST_F(RangeIndexTest, testNumericTreeOverhead) {
   // add docs to one field to trigger its index creation.
   ::addDocumentWrapper(ctx, index, numToDocStr(1).c_str(), "n1", "1");
   overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
-  ASSERT_EQ(overhead, sizeof(NumericRangeTree));
+  ASSERT_EQ(overhead, NumericRangeTree_BaseSize());
 
   // Delete the doc, the overhead shouldn't change
   auto rv = RS::deleteDocument(ctx, index, numToDocStr(1).c_str());
@@ -376,14 +378,14 @@ TEST_F(RangeIndexTest, testNumericTreeOverhead) {
   gc->callbacks.periodicCallback(gc->gcCtx);
 
   overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
-  ASSERT_EQ(overhead, sizeof(NumericRangeTree));
+  ASSERT_EQ(overhead, NumericRangeTree_BaseSize());
 
   // Add a doc to trigger the creation of the second index
   ::addDocumentWrapper(ctx, index, numToDocStr(1).c_str(), "n1", "1");
   ::addDocumentWrapper(ctx, index, numToDocStr(2).c_str(), "n2", "1");
   overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
 
-  ASSERT_EQ(overhead, 2 * sizeof(NumericRangeTree));
+  ASSERT_EQ(overhead, 2 * NumericRangeTree_BaseSize());
 }
 // int benchmarkNumericRangeTree() {
 //   NumericRangeTree *t = NewNumericRangeTree();

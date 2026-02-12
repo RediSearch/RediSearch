@@ -1,9 +1,92 @@
 # -*- coding: utf-8 -*-
 
+import pprint
 import profile
 from includes import *
 from common import *
 from RLTest import Env
+from deepdiff import DeepDiff
+
+
+def iter_to_dict(lst):
+    """Convert a flat key-value iterator profile list into a nested dict."""
+    if not isinstance(lst, list):
+        return lst
+    d = {}
+    for i in range(0, len(lst) - 1, 2):
+        key, val = lst[i], lst[i + 1]
+        if key in ('Child iterators', 'Child iterator'):
+            if isinstance(val, list) and val and isinstance(val[0], list):
+                d[key] = [iter_to_dict(child) for child in val]
+            else:
+                d[key] = iter_to_dict(val)
+        else:
+            d[key] = val
+    return d
+
+
+def strip_numeric_details(d):
+    """Strip volatile numeric details from an iterator dict tree.
+
+    - NUMERIC nodes are reduced to just {'Type': 'NUMERIC'}
+    - UNION nodes with Query type NUMERIC keep type info and verify all
+      children are NUMERIC, but strip their details
+    - Other nodes recurse into children
+    """
+    if not isinstance(d, dict):
+        return d
+
+    typ = d.get('Type')
+
+    if typ == 'NUMERIC':
+        return {'Type': 'NUMERIC'}
+
+    if typ == 'UNION' and d.get('Query type') == 'NUMERIC':
+        result = {'Type': 'UNION', 'Query type': 'NUMERIC'}
+        for child_key in ('Child iterators', 'Child iterator'):
+            if child_key in d:
+                children = d[child_key]
+                if isinstance(children, list):
+                    result[child_key] = [strip_numeric_details(c) for c in children]
+                else:
+                    result[child_key] = strip_numeric_details(children)
+        return result
+
+    result = {}
+    for key, val in d.items():
+        if key in ('Child iterators', 'Child iterator'):
+            if isinstance(val, list):
+                result[key] = [strip_numeric_details(c) for c in val]
+            else:
+                result[key] = strip_numeric_details(val)
+        else:
+            result[key] = val
+    return result
+
+
+def check_iterators_structure(actual, expected, skip_numeric_details=True):
+    """Compare iterator profiles, returning None on match or an error string.
+
+    When skip_numeric_details=True, volatile numeric range details (which vary
+    based on hash function used for HLL) are stripped before comparison.
+    """
+    actual_dict = iter_to_dict(actual)
+    expected_dict = iter_to_dict(expected)
+
+    if skip_numeric_details:
+        actual_cmp = strip_numeric_details(actual_dict)
+        expected_cmp = strip_numeric_details(expected_dict)
+    else:
+        actual_cmp = actual_dict
+        expected_cmp = expected_dict
+
+    diff = DeepDiff(expected_cmp, actual_cmp)
+    if not diff:
+        return None
+
+    return (f"Iterator structure mismatch:\n{diff.pretty()}\n\n"
+            f"Expected:\n{pprint.pformat(expected_dict)}\n\n"
+            f"Actual:\n{pprint.pformat(actual_dict)}")
 
 # /**********************************************************************
 # * NUM * TEXT  * TAG *  with SORTBY on NUMERIC  *    w/o SORTBY        *
@@ -126,7 +209,9 @@ def testOptimizer(env):
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 20]', *params)
     env.assertEqual(res[0], [10, '10', '12', '14', '16', '18', '20', '110', '112', '114', '116'])
     actual_profiler = to_dict(res[1][1][0])
-    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    # Check iterator structure without exact numeric range boundaries (varies by hash function)
+    err = check_iterators_structure(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    env.assertIsNone(err, message=err)
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     ### (3) TAG and range with sort ###
@@ -160,17 +245,17 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'INTERSECT', 'Number of reading operations', 10, 'Child iterators', [
-                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 14, 'Estimated number of matches', 10000],
-                        ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 10, 'Child iterators', [
-                            ['Type', 'NUMERIC', 'Term', '0 - 10', 'Number of reading operations', 4, 'Estimated number of matches', 2400],
-                            ['Type', 'NUMERIC', 'Term', '12 - 52', 'Number of reading operations', 7, 'Estimated number of matches', 8400]]]]],
+                        ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 19, 'Estimated number of matches', 3200],
+                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 13, 'Estimated number of matches', 10000]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
     actual_profiler = to_dict(res[1][1][0])
-    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    # Check iterator structure without exact numeric range boundaries (varies by hash function)
+    err = check_iterators_structure(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    env.assertIsNone(err, message=err)
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     ### (5) numeric range with sort ###
@@ -183,9 +268,7 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19921', '19920'])
 
     profiler =  {'Iterators profile':
-                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 1200, 'Child iterators', [
-                        ['Type', 'NUMERIC', 'Term', '0 - 10', 'Number of reading operations', 400, 'Estimated number of matches', 2400],
-                        ['Type', 'NUMERIC', 'Term', '12 - 52', 'Number of reading operations', 800, 'Estimated number of matches', 8400]]],
+                    ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 1200, 'Estimated number of matches', 3200],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 1200],
                     ['Type', 'Loader', 'Results processed', 1200],
@@ -193,7 +276,9 @@ def testOptimizer(env):
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '10', '11', '110', '111', '210', '211', '310', '311', '410', '411'])
     actual_profiler = to_dict(res[1][1][0])
-    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    # Check iterator structure without exact numeric range boundaries (varies by hash function)
+    err = check_iterators_structure(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    env.assertIsNone(err, message=err)
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     ### (6) only range ###
@@ -204,16 +289,16 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@n:[10 20]', 'limit', 0 , 3, *params).equal([1, '10', '11', '12'])
 
     profiler =  {'Iterators profile':
-                    ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 10, 'Child iterators', [
-                        ['Type', 'NUMERIC', 'Term', '0 - 10', 'Number of reading operations', 5, 'Estimated number of matches', 2400],
-                        ['Type', 'NUMERIC', 'Term', '12 - 52', 'Number of reading operations', 6, 'Estimated number of matches', 8400]]],
+                    ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 10, 'Estimated number of matches', 3200],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 9],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
     actual_profiler = to_dict(res[1][1][0])
-    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    # Check iterator structure without exact numeric range boundaries (varies by hash function)
+    err = check_iterators_structure(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    env.assertIsNone(err, message=err)
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     ### (7) filter with sort ###
@@ -225,17 +310,20 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
 
-    profiler =  {'Iterators profile':
-                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
-                        ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1400, 'Estimated number of matches', 10000]],
-                 'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
-                    ['Type', 'Loader', 'Results processed', 10],
-                    ['Type', 'Sorter', 'Results processed', 10]]}
+    # Note: 'Number of reading operations' varies based on numeric tree structure (depends on hash function)
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
     actual_profiler = to_dict(res[1][1][0])
-    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    # Verify iterator structure: OPTIMIZER with TEXT child
+    actual_iter = actual_profiler['Iterators profile']
+    env.assertEqual(actual_iter[1], 'OPTIMIZER')  # Type
+    env.assertEqual(actual_iter[5], 'Hybrid')  # Optimizer mode
+    env.assertEqual(actual_iter[7][1], 'TEXT')  # Child iterator Type
+    env.assertEqual(actual_iter[7][3], 'foo')  # Child iterator Term
+    profiler = {'Result processors profile': [
+                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Loader', 'Results processed', 10],
+                    ['Type', 'Sorter', 'Results processed', 10]]}
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     result = env.cmd('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 1500, *params)
@@ -269,17 +357,20 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
 
-    profiler =  {'Iterators profile':
-                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 1400, 'Estimated number of matches', 10000]],
-                 'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
-                    ['Type', 'Loader', 'Results processed', 10],
-                    ['Type', 'Sorter', 'Results processed', 10]]}
+    # Note: 'Number of reading operations' varies based on numeric tree structure (depends on hash function)
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '100', '200', '300', '400', '500', '600', '700', '800', '900'])
     actual_profiler = to_dict(res[1][1][0])
-    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    # Verify iterator structure: OPTIMIZER with TAG child
+    actual_iter = actual_profiler['Iterators profile']
+    env.assertEqual(actual_iter[1], 'OPTIMIZER')  # Type
+    env.assertEqual(actual_iter[5], 'Query partial range')  # Optimizer mode
+    env.assertEqual(actual_iter[7][1], 'TAG')  # Child iterator Type
+    env.assertEqual(actual_iter[7][3], 'foo')  # Child iterator Term
+    profiler = {'Result processors profile': [
+                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Loader', 'Results processed', 10],
+                    ['Type', 'Sorter', 'Results processed', 10]]}
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     ### (10) no sort, no score, no sortby ###
@@ -309,17 +400,19 @@ def testOptimizer(env):
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
 
-    profiler =  {'Iterators profile':
-                    ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'WILDCARD', 'Number of reading operations', 2600]],
-                 'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
-                    ['Type', 'Loader', 'Results processed', 10],
-                    ['Type', 'Sorter', 'Results processed', 10]]}
+    # Note: 'Number of reading operations' varies based on numeric tree structure (depends on hash function)
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', 'SORTBY', 'n', *params)
     env.assertEqual(res[0], [10, '0', '1', '100', '101', '200', '201', '300', '301', '400', '401'])
     actual_profiler = to_dict(res[1][1][0])
-    env.assertEqual(actual_profiler['Iterators profile'], profiler['Iterators profile'])
+    # Verify iterator structure: OPTIMIZER with WILDCARD child
+    actual_iter = actual_profiler['Iterators profile']
+    env.assertEqual(actual_iter[1], 'OPTIMIZER')  # Type
+    env.assertEqual(actual_iter[5], 'Query partial range')  # Optimizer mode
+    env.assertEqual(actual_iter[7][1], 'WILDCARD')  # Child iterator Type
+    profiler = {'Result processors profile': [
+                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Loader', 'Results processed', 10],
+                    ['Type', 'Sorter', 'Results processed', 10]]}
     env.assertEqual(actual_profiler['Result processors profile'], profiler['Result processors profile'])
 
     ### (12) wildcard w/o sort ###

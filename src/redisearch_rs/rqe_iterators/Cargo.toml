@@ -24,6 +24,7 @@ libc.workspace = true
 query_error.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true
+numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
