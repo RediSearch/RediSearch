@@ -119,6 +119,10 @@ enum QueryWarningCode
   QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD,
   QUERY_WARNING_CODE_UNAVAILABLE_SLOTS,
   QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS,
+  QUERY_WARNING_CODE_TIMED_OUT_SEARCH,
+  QUERY_WARNING_CODE_TIMED_OUT_VSIM,
+  QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH,
+  QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM,
 };
 #ifndef __cplusplus
 typedef uint8_t QueryWarningCode;
@@ -174,6 +178,15 @@ bool QueryError_HasError(const struct QueryError *query_error);
  * an invalid [`QueryErrorCode`] to be provided.
  */
 const char *QueryError_Strerror(uint8_t maybe_code);
+
+/**
+ * Returns a human-readable string representing the provided [`QueryWarningCode`].
+ *
+ * This function should always return without a panic for any value provided.
+ * It is unique among the `QueryWarningCode_*` API as the only function which allows
+ * an invalid [`QueryWarningCode`] to be provided.
+ */
+const char *QueryWarningCode_Strerror(uint8_t maybe_code);
 
 /**
  * Returns a [`QueryErrorCode`] given an error message.
@@ -343,11 +356,15 @@ bool QueryError_HasQueryOOMWarning(const struct QueryError *query_error);
 void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 
 /**
- * Returns a [`QueryWarningCode`] given an warnings message.
+ * Returns a [`QueryWarningCode`] given a warning message.
  *
- * This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
- * [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
- * [`QueryWarningCode::Ok`] is returned.
+ * This supports the following warning codes:
+ * - [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
+ *   [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`]
+ * - FT.HYBRID specific: [`QueryWarningCode::TimedOutSearch`], [`QueryWarningCode::TimedOutVsim`],
+ *   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`], [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`]
+ *
+ * If another message is provided, [`QueryWarningCode::Ok`] is returned.
  *
  * # Safety
  *
