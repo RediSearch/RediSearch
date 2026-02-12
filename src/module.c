@@ -1176,7 +1176,7 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 Version supportedVersion = {
     .majorVersion = 8,
     .minorVersion = 4,
-    .patchVersion = IsEnterprise() ? 0 : 1,
+    .patchVersion = 1,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
@@ -1257,6 +1257,9 @@ bool IsEnterpriseBuild() {
 }
 
 int CheckSupportedVestion() {
+  if (IsEnterprise()) {
+    supportedVersion.patchVersion = 0;  // ASM support was backported to 8.4.0 in RE
+  }
   if (CompareVersions(redisVersion, supportedVersion) < 0) {
     return REDISMODULE_ERR;
   }
