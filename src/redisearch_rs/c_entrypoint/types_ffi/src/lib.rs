@@ -112,13 +112,23 @@ pub extern "C" fn NewHybridResult() -> *mut RSIndexResult<'static> {
 
 /// Allocate a new token record with a given term and weight. This result should be freed using
 /// [`IndexResult_Free`].
+///
+/// # Safety
+///
+/// `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
+/// caller transfers ownership — it must not be freed separately.
 #[unsafe(no_mangle)]
-pub extern "C" fn NewTokenRecord<'result>(
+pub unsafe extern "C" fn NewTokenRecord<'result>(
     term: *mut RSQueryTerm,
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
-    let result =
-        RSIndexResult::term_with_term_ptr(term, RSOffsetVector::empty(), 0, 0, 0).weight(weight);
+    let term = if term.is_null() {
+        None
+    } else {
+        // SAFETY: caller guarantees `term` was created via `NewQueryTerm`.
+        unsafe { Some(Box::from_raw(term)) }
+    };
+    let result = RSIndexResult::with_term(term, RSOffsetVector::empty(), 0, 0, 0).weight(weight);
     Box::into_raw(Box::new(result))
 }
 
@@ -238,7 +248,8 @@ pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
 
     result
         .as_term()
-        .map_or(ptr::null_mut(), |term| term.query_term())
+        .and_then(|term| term.query_term())
+        .map_or(ptr::null_mut(), |t| ptr::from_ref(t).cast_mut())
 }
 
 /// Get the term offsets from a result if it is a term result. If the result is not a term, then
