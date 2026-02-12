@@ -1023,14 +1023,17 @@ pub unsafe extern "C" fn IndexReader_NumEstimated(ir: *const IndexReader) -> u64
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+/// - `ii` must be either NULL or a valid pointer to an `InvertedIndex` instance.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexReader_IsIndex(
     ir: *const IndexReader,
     ii: *const InvertedIndex,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
-    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    if ii.is_null() {
+        return false;
+    }
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &*ir };
