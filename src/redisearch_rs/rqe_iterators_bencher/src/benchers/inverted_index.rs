@@ -9,17 +9,15 @@
 
 //! Benchmark inverted index iterator.
 
-use std::{hint::black_box, ptr, time::Duration};
+use std::{hint::black_box, time::Duration};
 
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{IndexReader, RSIndexResult};
+use inverted_index::{IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
 use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
-
-use crate::ffi::QueryIterator;
 
 use rqe_iterators_test_utils::TestContext;
 
@@ -134,143 +132,108 @@ impl NumericBencher {
 
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Dense");
-        self.c_read(&mut group, &self.context_dense);
         self.rust_read(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn read_sparse(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Sparse");
-        self.c_read(&mut group, &self.context_sparse);
         self.rust_read(&mut group, &self.context_sparse);
         group.finish();
     }
 
     fn read_dense_multi(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Dense Multi");
-        self.c_read(&mut group, &self.context_dense_multi);
         self.rust_read(&mut group, &self.context_dense_multi);
         group.finish();
     }
 
     fn read_sparse_multi(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Sparse Multi");
-        self.c_read(&mut group, &self.context_sparse_multi);
         self.rust_read(&mut group, &self.context_sparse_multi);
         group.finish();
     }
 
     fn read_dense_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Dense Expired");
-        self.c_read(&mut group, &self.context_dense_expired);
         self.rust_read(&mut group, &self.context_dense_expired);
         group.finish();
     }
 
     fn read_sparse_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Sparse Expired");
-        self.c_read(&mut group, &self.context_sparse_expired);
         self.rust_read(&mut group, &self.context_sparse_expired);
         group.finish();
     }
 
     fn read_dense_multi_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Dense Multi Expired");
-        self.c_read(&mut group, &self.context_dense_multi_expired);
         self.rust_read(&mut group, &self.context_dense_multi_expired);
         group.finish();
     }
 
     fn read_sparse_multi_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "Read Sparse Multi Expired");
-        self.c_read(&mut group, &self.context_sparse_multi_expired);
         self.rust_read(&mut group, &self.context_sparse_multi_expired);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Dense");
-        self.c_skip_to(&mut group, &self.context_dense);
         self.rust_skip_to(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Sparse");
-        self.c_skip_to(&mut group, &self.context_sparse);
         self.rust_skip_to(&mut group, &self.context_sparse);
         group.finish();
     }
 
     fn skip_to_dense_multi(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Dense Multi");
-        self.c_skip_to(&mut group, &self.context_dense_multi);
         self.rust_skip_to(&mut group, &self.context_dense_multi);
         group.finish();
     }
 
     fn skip_to_sparse_multi(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Sparse Multi");
-        self.c_skip_to(&mut group, &self.context_sparse_multi);
         self.rust_skip_to(&mut group, &self.context_sparse_multi);
         group.finish();
     }
 
     fn skip_to_dense_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Dense Expired");
-        self.c_skip_to(&mut group, &self.context_dense_expired);
         self.rust_skip_to(&mut group, &self.context_dense_expired);
         group.finish();
     }
 
     fn skip_to_sparse_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Sparse Expired");
-        self.c_skip_to(&mut group, &self.context_sparse_expired);
         self.rust_skip_to(&mut group, &self.context_sparse_expired);
         group.finish();
     }
 
     fn skip_to_dense_multi_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Dense Multi Expired");
-        self.c_skip_to(&mut group, &self.context_dense_multi_expired);
         self.rust_skip_to(&mut group, &self.context_dense_multi_expired);
         group.finish();
     }
 
     fn skip_to_sparse_multi_expired(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Numeric", "SkipTo Sparse Multi Expired");
-        self.c_skip_to(&mut group, &self.context_sparse_multi_expired);
         self.rust_skip_to(&mut group, &self.context_sparse_multi_expired);
         group.finish();
     }
 
-    fn c_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        group.bench_function("C", |b| {
-            let ii = context.numeric_inverted_index();
-            let ii_ptr = ptr::from_mut(ii);
-            let fs = context.field_spec();
-
-            b.iter(|| {
-                let it = unsafe {
-                    QueryIterator::new_numeric(
-                        ii_ptr.cast(),
-                        Some(context.sctx),
-                        Some(fs.index),
-                        None,
-                    )
-                };
-
-                while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-    }
-
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
         group.bench_function("Rust", |b| {
-            let ii = context.numeric_inverted_index().as_numeric();
+            let ii = {
+                use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+                Numeric::extract_ii_from_mut(context.numeric_inverted_index())
+                    .expect("expected Numeric variant")
+                    .inner_mut()
+            };
             let fs = context.field_spec();
 
             b.iter(|| {
@@ -294,39 +257,18 @@ impl NumericBencher {
         });
     }
 
-    fn c_skip_to<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        group.bench_function("C", |b| {
-            let ii = context.numeric_inverted_index();
-            let ii_ptr = ptr::from_mut(ii);
-            let fs = context.field_spec();
-
-            b.iter(|| {
-                let it = unsafe {
-                    QueryIterator::new_numeric(
-                        ii_ptr.cast(),
-                        Some(context.sctx),
-                        Some(fs.index),
-                        None,
-                    )
-                };
-
-                while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
-                    != ::ffi::IteratorStatus_ITERATOR_EOF
-                {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-    }
-
     fn rust_skip_to<M: Measurement>(
         &self,
         group: &mut BenchmarkGroup<'_, M>,
         context: &TestContext,
     ) {
         group.bench_function("Rust", |b| {
-            let ii = context.numeric_inverted_index().as_numeric();
+            let ii = {
+                use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+                Numeric::extract_ii_from_mut(context.numeric_inverted_index())
+                    .expect("expected Numeric variant")
+                    .inner_mut()
+            };
             let fs = context.field_spec();
 
             b.iter(|| {
@@ -607,3 +549,92 @@ where
     }
 }
  */
+
+/// Benchmarks for the wildcard inverted index iterator.
+pub struct WildcardBencher {
+    context_dense: TestContext,
+    context_sparse: TestContext,
+}
+
+impl Default for WildcardBencher {
+    fn default() -> Self {
+        let dense_iter = || 1..INDEX_SIZE;
+        let sparse_iter = || (1..INDEX_SIZE).map(|i| i * SPARSE_DELTA);
+
+        Self {
+            context_dense: TestContext::wildcard(dense_iter()),
+            context_sparse: TestContext::wildcard(sparse_iter()),
+        }
+    }
+}
+
+impl WildcardBencher {
+    pub fn bench(&self, c: &mut Criterion) {
+        self.read_dense(c);
+        self.read_sparse(c);
+        self.skip_to_dense(c);
+        self.skip_to_sparse(c);
+    }
+
+    fn read_dense(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Wildcard", "Read Dense");
+        self.rust_read(&mut group, &self.context_dense);
+        group.finish();
+    }
+
+    fn read_sparse(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Wildcard", "Read Sparse");
+        self.rust_read(&mut group, &self.context_sparse);
+        group.finish();
+    }
+
+    fn skip_to_dense(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Wildcard", "SkipTo Dense");
+        self.rust_skip_to(&mut group, &self.context_dense);
+        group.finish();
+    }
+
+    fn skip_to_sparse(&self, c: &mut Criterion) {
+        let mut group = benchmark_group(c, "Wildcard", "SkipTo Sparse");
+        self.rust_skip_to(&mut group, &self.context_sparse);
+        group.finish();
+    }
+
+    fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
+        use rqe_iterators::inverted_index::Wildcard;
+
+        group.bench_function("Rust", |b| {
+            let ii = DocIdsOnly::extract_ii_from(context.wildcard_inverted_index())
+                .expect("expected DocumentIdOnly variant");
+            b.iter(|| {
+                let mut it = Wildcard::new(ii.reader(), context.sctx, 1.0);
+                while let Ok(Some(current)) = it.read() {
+                    black_box(current);
+                }
+            });
+        });
+    }
+
+    fn rust_skip_to<M: Measurement>(
+        &self,
+        group: &mut BenchmarkGroup<'_, M>,
+        context: &TestContext,
+    ) {
+        use rqe_iterators::inverted_index::Wildcard;
+
+        group.bench_function("Rust", |b| {
+            let ii = DocIdsOnly::extract_ii_from(context.wildcard_inverted_index())
+                .expect("expected DocumentIdOnly variant");
+            b.iter(|| {
+                let mut it = Wildcard::new(ii.reader(), context.sctx, 1.0);
+                while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
+                    match outcome {
+                        SkipToOutcome::Found(current) | SkipToOutcome::NotFound(current) => {
+                            black_box(current);
+                        }
+                    }
+                }
+            });
+        });
+    }
+}

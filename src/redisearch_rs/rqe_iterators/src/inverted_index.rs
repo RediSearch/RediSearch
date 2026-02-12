@@ -11,8 +11,11 @@
 
 use std::{f64, ptr::NonNull};
 
-use ffi::{NumericRangeTree, t_docId};
-use inverted_index::{IndexReader, NumericReader, RSIndexResult, TermReader};
+use ffi::{NumericRangeTree, RedisSearchCtx, t_docId};
+use inverted_index::{
+    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
+    TermReader, opaque::OpaqueEncoding,
+};
 
 use crate::expiration_checker::{ExpirationChecker, NoOpChecker};
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -554,6 +557,147 @@ where
 
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.it.revalidate()
+    }
+}
+
+/// An iterator over all existing documents in an index.
+///
+/// Used for wildcard queries (`*`) when the index tracks all existing
+/// documents via `spec->existingDocs`.
+///
+/// # Type Parameters
+///
+/// * `'index` - The lifetime of the index being iterated over.
+/// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
+pub struct Wildcard<'index, E: DecodedBy> {
+    it: InvIndIterator<'index, IndexReaderCore<'index, E>>,
+    context: NonNull<RedisSearchCtx>,
+}
+
+impl<'index, E> Wildcard<'index, E>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+{
+    /// Create an iterator returning all documents from the existingDocs index.
+    ///
+    /// `context` is the search context used to check for expiration.
+    ///
+    /// `weight` is the weight applied to all results.
+    ///
+    /// # Safety
+    ///
+    /// 1. `context` must be a valid pointer to a `RedisSearchCtx`.
+    /// 2. `context.spec` must be a valid pointer to an `IndexSpec`.
+    /// 3. 1 and 2 must stay valid during the iterator's lifetime.
+    /// 4. `context.spec.existingDocs`, when non-null, must point to an opaque `InvertedIndex`
+    ///    whose variant matches the encoding type `E`.
+    pub fn new(
+        reader: IndexReaderCore<'index, E>,
+        context: NonNull<RedisSearchCtx>,
+        weight: f64,
+    ) -> Self {
+        use ffi::RS_FIELDMASK_ALL;
+
+        let result = RSIndexResult::virt()
+            .weight(weight)
+            .field_mask(RS_FIELDMASK_ALL)
+            .frequency(1);
+
+        Self {
+            it: InvIndIterator::new(reader, result, NoOpChecker),
+            context,
+        }
+    }
+
+    /// Check if the iterator should abort revalidation.
+    ///
+    /// Returns true if the existingDocs index has been garbage collected.
+    fn should_abort(&self) -> bool {
+        // SAFETY: context is valid per constructor contract
+        let sctx_ref = unsafe { self.context.as_ref() };
+        // SAFETY: spec is valid per constructor contract
+        let spec = unsafe { sctx_ref.spec.as_ref() };
+        // SAFETY: spec is not NULL per constructor contract
+        let spec = unsafe { spec.unwrap_unchecked() };
+
+        let existing_docs = spec
+            .existingDocs
+            .cast::<inverted_index::opaque::InvertedIndex>();
+        if existing_docs.is_null() {
+            // the garbage collector may set existing_docs to NULL after garbage collecting all documents
+            return true;
+        }
+
+        // SAFETY: existing_docs is valid per constructor contract and we just checked it's not NULL
+        let existing_docs = unsafe { existing_docs.as_ref().unwrap_unchecked() };
+        // SAFETY: 4. guarantees the variant matches E
+        let ii = unsafe { E::extract_ii_from(existing_docs).unwrap_unchecked() };
+
+        !self.it.reader.is_index(ii)
+    }
+
+    /// Get a reference to the underlying reader.
+    pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
+        &self.it.reader
+    }
+
+    /// Swap the underlying inverted index of the reader. Used by C tests to trigger revalidation.
+    pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<E>) {
+        self.it.reader.swap_index(index);
+    }
+}
+
+impl<'index, E> RQEIterator<'index> for Wildcard<'index, E>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+{
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.it.current()
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read()
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.it.skip_to(doc_id)
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        self.it.rewind()
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id()
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        self.it.at_eof()
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if self.should_abort() {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
         self.it.revalidate()
     }
 }
