@@ -63,7 +63,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
 
     int internalRes = evalInternal(eval, f->args->args[ii], args[ii]);
 
-    if (internalRes == EXPR_EVAL_ERR) {
+    if (internalRes == EXPR_EVAL_ERR && f->Call != func_exists) {
       goto cleanup;
     }
   }
