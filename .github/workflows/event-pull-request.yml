@@ -22,10 +22,12 @@ jobs:
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
-  miri:
-    name: Run Miri
-    uses: ./.github/workflows/task-miri.yml
-    secrets: inherit
+  # TODO: Miri is temporarily disabled due to proc-macro2/quote build script issues
+  # See: https://github.com/rust-lang/miri/issues/3292
+  # miri:
+  #   name: Run Miri
+  #   uses: ./.github/workflows/task-miri.yml
+  #   secrets: inherit
 
   microbench:
     name: Run Micro Benchmarks
@@ -40,7 +42,7 @@ jobs:
     needs:
       - lint
       - test
-      - miri
+      # - miri  # Temporarily disabled
       - microbench
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}

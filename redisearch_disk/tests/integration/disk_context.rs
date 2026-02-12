@@ -3,7 +3,9 @@ use std::ffi::CStr;
 
 use redisearch_disk::disk_context::DiskContext;
 use redisearch_disk::info_sink::InfoSink;
-use redisearch_disk::metrics::{AsyncReadMetrics, ColumnFamilyMetrics, IndexMetrics};
+use redisearch_disk::metrics::{
+    AsyncReadMetrics, ColumnFamilyMetrics, DocTableMetrics, IndexMetrics,
+};
 
 /// Mock implementation of InfoSink for testing.
 #[derive(Debug, Default)]
@@ -78,10 +80,13 @@ fn test_output_info_metrics_with_data() {
 
     // Inject metrics directly using store_index_metrics
     let metrics = IndexMetrics {
-        doc_table: ColumnFamilyMetrics {
-            estimate_num_keys: 100,
-            active_memtable_size: 1024,
-            ..Default::default()
+        doc_table: DocTableMetrics {
+            column_family: ColumnFamilyMetrics {
+                estimate_num_keys: 100,
+                active_memtable_size: 1024,
+                ..Default::default()
+            },
+            deleted_ids_count: 5,
         },
         inverted_index: ColumnFamilyMetrics {
             estimate_num_keys: 50,
@@ -123,6 +128,7 @@ fn test_output_info_metrics_with_data() {
         find_field("disk_doc_table", "active_memtable_size"),
         Some(1024)
     );
+    assert_eq!(find_field("disk_doc_table", "deleted_ids_count"), Some(5));
 
     // Inverted index metrics
     assert_eq!(

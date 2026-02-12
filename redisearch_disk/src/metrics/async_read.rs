@@ -3,6 +3,8 @@
 use std::ops::AddAssign;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::info_sink::InfoSink;
+
 /// Metrics collected during async read pool operation.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Metrics {
@@ -25,6 +27,17 @@ impl AddAssign for Metrics {
         self.reads_not_found += other.reads_not_found;
         self.reads_errors += other.reads_errors;
         self.reads_expired += other.reads_expired;
+    }
+}
+
+impl Metrics {
+    /// Outputs the async read metrics to an info sink.
+    pub fn output_to_info_sink(&self, sink: &mut impl InfoSink) {
+        sink.add_u64(c"async_total_reads_requested", self.total_reads_requested);
+        sink.add_u64(c"async_reads_found", self.reads_found);
+        sink.add_u64(c"async_reads_not_found", self.reads_not_found);
+        sink.add_u64(c"async_reads_errors", self.reads_errors);
+        sink.add_u64(c"async_reads_expired", self.reads_expired);
     }
 }
 

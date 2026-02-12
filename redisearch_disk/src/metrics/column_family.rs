@@ -3,6 +3,7 @@
 use std::ops::AddAssign;
 
 use crate::database::SpeedbMultithreadedDatabase;
+use crate::info_sink::InfoSink;
 use speedb::{AsColumnFamilyRef, properties};
 use tracing::warn;
 
@@ -135,6 +136,52 @@ impl Metrics {
     /// 3. SST files' size
     pub fn total_memory(&self) -> u64 {
         self.size_all_mem_tables + self.estimate_table_readers_mem + self.live_sst_files_size
+    }
+
+    /// Outputs the column family metrics to an info sink.
+    pub fn output_to_info_sink(&self, sink: &mut impl InfoSink) {
+        // Memtable metrics
+        sink.add_u64(c"num_immutable_memtables", self.num_immutable_memtables);
+        sink.add_u64(
+            c"num_immutable_memtables_flushed",
+            self.num_immutable_memtables_flushed,
+        );
+        sink.add_u64(c"mem_table_flush_pending", self.mem_table_flush_pending);
+        sink.add_u64(c"active_memtable_size", self.active_memtable_size);
+        sink.add_u64(c"size_all_mem_tables", self.size_all_mem_tables);
+        sink.add_u64(
+            c"num_entries_active_memtable",
+            self.num_entries_active_memtable,
+        );
+        sink.add_u64(c"num_entries_imm_memtables", self.num_entries_imm_memtables);
+        sink.add_u64(
+            c"num_deletes_active_memtable",
+            self.num_deletes_active_memtable,
+        );
+        sink.add_u64(c"num_deletes_imm_memtables", self.num_deletes_imm_memtables);
+
+        // Compaction metrics
+        sink.add_u64(c"compaction_pending", self.compaction_pending);
+        sink.add_u64(c"num_running_compactions", self.num_running_compactions);
+        sink.add_u64(c"num_running_flushes", self.num_running_flushes);
+        sink.add_u64(
+            c"estimate_pending_compaction_bytes",
+            self.estimate_pending_compaction_bytes,
+        );
+
+        // Data size estimates
+        sink.add_u64(c"estimate_num_keys", self.estimate_num_keys);
+        sink.add_u64(c"estimate_live_data_size", self.estimate_live_data_size);
+        sink.add_u64(c"live_sst_files_size", self.live_sst_files_size);
+
+        // Version tracking
+        sink.add_u64(c"num_live_versions", self.num_live_versions);
+
+        // Memory usage
+        sink.add_u64(
+            c"estimate_table_readers_mem",
+            self.estimate_table_readers_mem,
+        );
     }
 }
 

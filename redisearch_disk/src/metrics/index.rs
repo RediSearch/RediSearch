@@ -1,11 +1,11 @@
 //! Per-index aggregate metrics.
 
-use super::{AsyncReadMetrics, ColumnFamilyMetrics};
+use super::{AsyncReadMetrics, ColumnFamilyMetrics, DocTableMetrics};
 
 /// Metrics for a single index, containing both doc_table and inverted_index metrics.
 #[derive(Debug, Default, Clone)]
 pub struct Metrics {
-    pub doc_table: ColumnFamilyMetrics,
+    pub doc_table: DocTableMetrics,
     pub inverted_index: ColumnFamilyMetrics,
     pub async_read: AsyncReadMetrics,
 }
