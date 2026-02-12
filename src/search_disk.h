@@ -114,7 +114,7 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  *
  * @param index Pointer to the index
  */
-void SearchDisk_ForceGC(RedisSearchDiskIndexSpec *index);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
