@@ -61,15 +61,6 @@ typedef enum {
  */
 typedef struct RLookupKey RLookupKey;
 
-/** The index into the array where the value resides  */
-uint16_t RLookupKey_GetDstIdx(const RLookupKey* key);
-
-/**
- * If the source of this value points to a sort vector, then this is the
- * index within the sort vector that the value is located
- */
-uint16_t RLookupKey_GetSvIdx(const RLookupKey* key);
-
 /** The name of this field. */
 const char * RLookupKey_GetName(const RLookupKey* key);
 
@@ -78,12 +69,6 @@ const char * RLookupKey_GetPath(const RLookupKey* key);
 
 /** The length of the name field in bytes. */
 size_t RLookupKey_GetNameLen(const RLookupKey* key);
-
-/**
- * Indicate the type and other attributes
- * Can be F_SVSRC which means the target array is a sorting vector)
- */
-uint32_t RLookupKey_GetFlags(const RLookupKey* key);
 
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \

@@ -15,19 +15,6 @@
 #include "value.h"
 #include "util/arr.h"
 
-/** The index into the array where the value resides  */
-inline uint16_t RLookupKey_GetDstIdx(const RLookupKey* key) {
-    // return key->_dstidx;
-}
-
-/**
- * If the source of this value points to a sort vector, then this is the
- * index within the sort vector that the value is located
- */
-inline uint16_t RLookupKey_GetSvIdx(const RLookupKey* key) {
-    // return key->_svidx;
-}
-
 /** The name of this field. */
 inline const char * RLookupKey_GetName(const RLookupKey* key) {
     // return key->_name;
@@ -41,14 +28,6 @@ inline const char * RLookupKey_GetPath(const RLookupKey* key) {
 /** The length of the name field in bytes. */
 inline size_t RLookupKey_GetNameLen(const RLookupKey* key) {
     // return key->_name_len;
-}
-
-/**
- * Indicate the type and other attributes
- * Can be F_SVSRC which means the target array is a sorting vector)
- */
-inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
-    // return key->_flags;
 }
 
 static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
