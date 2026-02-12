@@ -760,6 +760,7 @@ fn test_into_iter_clone() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn overaligned_allocations() {
     #[repr(align(256))]
     struct Foo(usize);

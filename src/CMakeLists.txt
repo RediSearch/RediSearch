@@ -80,6 +80,7 @@ file(GLOB SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/info/info_redis/types/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/module-init/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/obfuscation/*.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/profile/*.c"
 
     "${root}/deps/cndict/cndict_data.c"
     "${root}/deps/libnu/*.c"
@@ -101,6 +102,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:index_result>
+    $<TARGET_OBJECTS:query_term>
     $<TARGET_OBJECTS:mempool>
     $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:rscore>

@@ -9,6 +9,7 @@
 
 #include "inverted_index_iterator.h"
 #include "redis_index.h"
+#include "idf.h"
 
 void InvIndIterator_Free(QueryIterator *it) {
   if (!it) return;
@@ -52,7 +53,9 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
 
 static ValidateStatus TermCheckAbort(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  if (!it->sctx) {
+  // Skip validation if search context is not set up for term lookup.
+  // This happens in tests that don't have a full spec with keysDict.
+  if (!it->sctx || !it->sctx->spec || !it->sctx->spec->keysDict) {
     return VALIDATE_OK;
   }
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
@@ -433,23 +436,6 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
 
   QueryIterator *ret = &numIt->base.base;
   return ret;
-}
-
-static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
-   // (totalDocs + 1) because logb is used, and logb(1.99) = 0 and logb(2.00) = 1)
-  return logb(1.0F + (totalDocs + 1) / (double)(termDocs ?: 1));
-}
-
-// IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
-// IDF computation).
-static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
-  // totalDocs should never be less than termDocs, as that causes an underflow
-  // wraparound in the below calculation.
-  // Yet, that can happen in some scenarios of deletions/updates, until fixed in
-  // the next GC run.
-  // In that case, we set totalDocs to termDocs, as a temporary fix.
-  totalDocs = MAX(totalDocs, termDocs);
-  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,

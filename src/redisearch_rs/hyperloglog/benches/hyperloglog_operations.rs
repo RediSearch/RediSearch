@@ -7,13 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::hash::Hasher;
+use std::{hash::Hasher, hint::black_box};
 
 use criterion::{
-    BenchmarkGroup, Criterion, Throughput, black_box, criterion_group, criterion_main,
-    measurement::WallTime,
+    BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main, measurement::WallTime,
 };
-use hyperloglog::{CFnvHasher, HyperLogLog, HyperLogLog10, Murmur3Hasher};
+use hyperloglog::{CFnvHasher, HyperLogLog, HyperLogLog10, Murmur3Hasher, WyHasher};
 
 // Benchmark-only hasher wrappers (not used in production)
 
@@ -95,34 +94,6 @@ impl Hasher for FxHasher {
 }
 
 impl hash32::Hasher for FxHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        self.0.finish() as u32
-    }
-}
-
-/// WyHash hasher wrapper (truncated to 32 bits).
-struct WyHasher(wyhash::WyHash);
-
-impl Default for WyHasher {
-    fn default() -> Self {
-        Self(wyhash::WyHash::with_seed(0))
-    }
-}
-
-impl Hasher for WyHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0.finish()
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.write(bytes);
-    }
-}
-
-impl hash32::Hasher for WyHasher {
     #[inline]
     fn finish32(&self) -> u32 {
         self.0.finish() as u32

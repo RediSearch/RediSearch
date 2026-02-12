@@ -7,17 +7,125 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IndexFlags, t_docId};
+use std::ptr;
+
+use ffi::{
+    IndexFlags, IndexSpec, NumericRangeTree, QueryEvalCtx, RedisSearchCtx, SchemaRule, t_docId,
+};
 use inverted_index::{
     Encoder, InvertedIndex, RSIndexResult, RSResultKind, test_utils::TermRecordCompare,
 };
 use rqe_iterators::{RQEIterator, SkipToOutcome};
+
+/// Mock search context creating fake objects for testing.
+/// It can be used to test expiration but not validation.
+/// Use [`TestContext`] instead to test revalidation.
+///
+/// Uses raw pointers for storage to avoid Stacked Borrows violations.
+/// Box would claim Unique ownership which gets invalidated when the library
+/// code creates references through the pointer chain (e.g., `sctx.spec.as_ref()`).
+/// Raw pointers don't participate in borrow tracking, so they're compatible
+/// with the library's reference creation.
+pub(crate) struct MockContext {
+    #[allow(dead_code)] // Holds allocation that spec.rule points to
+    rule: *mut SchemaRule,
+    spec: *mut IndexSpec,
+    sctx: *mut RedisSearchCtx,
+    #[allow(dead_code)]
+    qctx: *mut QueryEvalCtx,
+    /// fake NumericRangeTree, cannot be used but those tests do not call revalidate()
+    numeric_range_tree: *mut NumericRangeTree,
+}
+
+impl Drop for MockContext {
+    fn drop(&mut self) {
+        // Deallocate all the structs using the global allocator directly.
+        // We can't use Box::from_raw because that would create a Box with a Unique
+        // tag, but the memory's borrow stack may have been modified by SharedReadOnly
+        // tags from the library code's reference creation.
+        unsafe {
+            std::alloc::dealloc(
+                self.rule as *mut u8,
+                std::alloc::Layout::new::<SchemaRule>(),
+            );
+            std::alloc::dealloc(self.spec as *mut u8, std::alloc::Layout::new::<IndexSpec>());
+            std::alloc::dealloc(
+                self.sctx as *mut u8,
+                std::alloc::Layout::new::<RedisSearchCtx>(),
+            );
+            std::alloc::dealloc(
+                self.qctx as *mut u8,
+                std::alloc::Layout::new::<QueryEvalCtx>(),
+            );
+            std::alloc::dealloc(
+                self.numeric_range_tree as *mut u8,
+                std::alloc::Layout::new::<NumericRangeTree>(),
+            );
+        }
+    }
+}
+
+impl MockContext {
+    pub(crate) fn new(max_doc_id: t_docId, num_docs: usize) -> Self {
+        // Allocate each struct using Box::into_raw to get raw pointers.
+        // We store raw pointers (not Boxes) because the library code creates
+        // references through the pointer chain which would invalidate Box's
+        // Unique ownership tag under Stacked Borrows.
+
+        // Create boxes and immediately convert to raw pointers
+        let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
+        let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<IndexSpec>() }));
+        let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
+        let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
+        let numeric_range_tree_ptr =
+            Box::into_raw(Box::new(unsafe { std::mem::zeroed::<NumericRangeTree>() }));
+
+        // Initialize all structs through raw pointers
+        unsafe {
+            // Initialize SchemaRule
+            (*rule_ptr).index_all = false;
+
+            // Initialize IndexSpec
+            (*spec_ptr).rule = rule_ptr;
+            (*spec_ptr).monitorDocumentExpiration = true; // Only depends on API availability, so always true
+            (*spec_ptr).monitorFieldExpiration = true; // Only depends on API availability, so always true
+            (*spec_ptr).docs.maxDocId = max_doc_id;
+            (*spec_ptr).docs.size = if num_docs > 0 {
+                num_docs
+            } else {
+                max_doc_id as usize
+            };
+            (*spec_ptr).stats.scoring.numDocuments = (*spec_ptr).docs.size;
+
+            // Initialize RedisSearchCtx
+            (*sctx_ptr).spec = spec_ptr;
+
+            // Initialize QueryEvalCtx
+            (*qctx_ptr).sctx = sctx_ptr;
+            (*qctx_ptr).docTable = ptr::addr_of_mut!((*spec_ptr).docs);
+
+            // Store raw pointers directly (don't convert back to Box)
+            Self {
+                rule: rule_ptr,
+                spec: spec_ptr,
+                sctx: sctx_ptr,
+                qctx: qctx_ptr,
+                numeric_range_tree: numeric_range_tree_ptr,
+            }
+        }
+    }
+
+    pub(crate) fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
+        ptr::NonNull::new(self.numeric_range_tree).expect("NumericRangeTree should not be null")
+    }
+}
 
 /// Test basic read and skip_to functionality for a given iterator.
 pub(super) struct BaseTest<E> {
     doc_ids: Vec<t_docId>,
     pub(super) ii: InvertedIndex<E>,
     expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    pub(super) mock_ctx: MockContext,
 }
 
 /// assert that both records are equal
@@ -49,10 +157,13 @@ impl<E: Encoder> BaseTest<E> {
             ii.add_record(&record).expect("failed to add record");
         }
 
+        let mock_ctx = MockContext::new(0, 0);
+
         Self {
             doc_ids,
             ii,
             expected_record,
+            mock_ctx,
         }
     }
 
@@ -175,29 +286,97 @@ impl<E: Encoder> BaseTest<E> {
 #[cfg(not(miri))]
 // Those tests rely on ffi calls which are not supported in miri.
 pub(super) mod not_miri {
+    use super::*;
     use ffi::{
-        FieldExpiration, IndexFlags, IndexFlags_Index_StoreByteOffsets,
-        IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs,
-        IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexSpec, QueryEvalCtx,
-        RedisSearchCtx, SchemaRule, t_docId, t_expirationTimePoint, t_fieldIndex,
+        IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
+        IndexFlags_Index_WideSchema, t_docId,
     };
     use field::FieldMaskOrIndex;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult};
-    use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
-    use std::{cell::UnsafeCell, pin::Pin, ptr};
+    use rqe_iterators::{ExpirationChecker, RQEIterator, RQEValidateStatus, SkipToOutcome};
+    use std::collections::HashSet;
 
-    use super::check_record;
+    // Re-export TestContext and GlobalGuard from the main library's test_utils module
+    pub use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
-    /// Test fields expiration.
-    pub struct ExpirationTest<E> {
-        pub(crate) doc_ids: Vec<t_docId>,
-        pub(crate) ii: InvertedIndex<E>,
-        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
-        mock_ctx: Pin<Box<MockContext>>,
+    /// ---------- Expiration Tests ----------
+
+    /// A mock expiration checker for testing.
+    ///
+    /// This allows testing expiration logic without requiring TTL tables.
+    /// The `ExpirationTest` will mark documents as expired in this mock checker
+    /// instead of in the TTL tables.
+    #[derive(Debug, Clone)]
+    pub struct MockExpirationChecker {
+        expired_docs: HashSet<t_docId>,
     }
 
-    impl<E: Encoder> ExpirationTest<E> {
-        pub(crate) fn new(
+    impl MockExpirationChecker {
+        pub fn new(expired_docs: HashSet<t_docId>) -> Self {
+            Self { expired_docs }
+        }
+
+        pub fn mark_expired(&mut self, doc_id: t_docId) {
+            self.expired_docs.insert(doc_id);
+        }
+    }
+
+    impl ExpirationChecker for MockExpirationChecker {
+        fn has_expiration(&self) -> bool {
+            !self.expired_docs.is_empty()
+        }
+
+        fn is_expired(&self, result: &RSIndexResult) -> bool {
+            self.expired_docs.contains(&result.doc_id)
+        }
+    }
+
+    /// The type of index used in the expiration test.
+    enum ExpirationIndexType {
+        Numeric,
+        Term,
+        TermWide,
+    }
+
+    /// Test fields expiration using TestContext's inverted index.
+    /// Supports both numeric and term index types.
+    /// Uses a `MockExpirationChecker` instead of TTL tables for expiration tracking.
+    pub struct ExpirationTest {
+        pub(crate) doc_ids: Vec<t_docId>,
+        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        pub(crate) context: TestContext,
+        index_type: ExpirationIndexType,
+        mock_checker: MockExpirationChecker,
+        _guard: GlobalGuard,
+    }
+
+    impl ExpirationTest {
+        /// Create a new numeric expiration test.
+        pub(crate) fn numeric(
+            expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+            n_docs: u64,
+            multi: bool,
+        ) -> Self {
+            let create_record = &*expected_record;
+            // Generate a set of document IDs for testing.
+            let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
+
+            // Create a TestContext which creates the inverted index via NumericRangeTree
+            let context = TestContext::numeric(doc_ids.iter().map(|id| create_record(*id)), multi);
+
+            Self {
+                doc_ids,
+                expected_record,
+                context,
+                index_type: ExpirationIndexType::Numeric,
+                mock_checker: MockExpirationChecker::new(HashSet::new()),
+                _guard: GlobalGuard::default(),
+            }
+        }
+
+        /// Create a new term expiration test.
+        pub(crate) fn term(
             ii_flags: IndexFlags,
             expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
             n_docs: u64,
@@ -207,36 +386,76 @@ pub(super) mod not_miri {
             // Generate a set of document IDs for testing.
             let doc_ids = (1..=n_docs).map(|i| i as t_docId).collect::<Vec<_>>();
 
-            let mut ii = InvertedIndex::<E>::new(ii_flags);
+            // Create a TestContext which creates the inverted index
+            let context =
+                TestContext::term(ii_flags, doc_ids.iter().map(|id| create_record(*id)), multi);
 
-            for doc_id in doc_ids.iter() {
-                let record = create_record(*doc_id);
-                ii.add_record(&record).expect("failed to add record");
-                if multi {
-                    // add each record twice in multi mode
-                    ii.add_record(&record).expect("failed to add record");
-                }
-            }
-
-            let mock_ctx = MockContext::new(0, 0);
+            let index_type = if (ii_flags & IndexFlags_Index_WideSchema) != 0 {
+                ExpirationIndexType::TermWide
+            } else {
+                ExpirationIndexType::Term
+            };
 
             Self {
                 doc_ids,
-                ii,
                 expected_record,
-                mock_ctx,
+                context,
+                index_type,
+                mock_checker: MockExpirationChecker::new(HashSet::new()),
+                _guard: GlobalGuard::default(),
+            }
+        }
+
+        /// Get the numeric inverted index from the TestContext.
+        /// Panics if this is not a numeric expiration test.
+        pub(crate) fn numeric_inverted_index(
+            &self,
+        ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
+            self.context.numeric_inverted_index().as_numeric()
+        }
+
+        /// Get the term inverted index from the TestContext (non-wide).
+        /// Panics if this is not a term expiration test or if it uses wide schema.
+        pub(crate) fn term_inverted_index(
+            &self,
+        ) -> &inverted_index::FieldMaskTrackingIndex<inverted_index::full::Full> {
+            self.context.term_inverted_index()
+        }
+
+        /// Get the term inverted index from the TestContext (wide schema).
+        /// Panics if this is not a term expiration test or if it doesn't use wide schema.
+        pub(crate) fn term_inverted_index_wide(
+            &self,
+        ) -> &inverted_index::FieldMaskTrackingIndex<inverted_index::full::FullWide> {
+            self.context.term_inverted_index_wide()
+        }
+
+        /// Get the text field bit from the TestContext.
+        pub(crate) fn text_field_bit(&self) -> ffi::t_fieldMask {
+            self.context.text_field_bit()
+        }
+
+        /// Create a mock expiration checker.
+        /// Returns a clone of the internal mock checker with all currently expired documents.
+        pub(crate) fn create_mock_checker(&self) -> MockExpirationChecker {
+            self.mock_checker.clone()
+        }
+
+        /// Get the number of unique documents in the index.
+        fn unique_docs(&self) -> u32 {
+            match self.index_type {
+                ExpirationIndexType::Numeric => self.numeric_inverted_index().unique_docs(),
+                ExpirationIndexType::Term => self.term_inverted_index().unique_docs(),
+                ExpirationIndexType::TermWide => self.term_inverted_index_wide().unique_docs(),
             }
         }
 
         /// Mark the index as expired for the given document IDs.
-        pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, index: FieldMaskOrIndex) {
-            let mock_ctx = unsafe { Pin::get_unchecked_mut(Pin::as_mut(&mut self.mock_ctx)) };
-            mock_ctx.mark_index_expired(ids, index);
-        }
-
-        pub(crate) fn context(&self) -> ptr::NonNull<RedisSearchCtx> {
-            ptr::NonNull::new(&self.mock_ctx.sctx as *const _ as *mut _)
-                .expect("mock context should not be null")
+        /// This updates the mock expiration checker instead of the TTL tables.
+        pub(crate) fn mark_index_expired(&mut self, ids: Vec<t_docId>, _field: FieldMaskOrIndex) {
+            for id in ids {
+                self.mock_checker.mark_expired(id);
+            }
         }
 
         /// test read of expired documents.
@@ -262,7 +481,7 @@ pub(super) mod not_miri {
             assert_eq!(it.read().unwrap(), None);
             assert!(it.at_eof());
             assert_eq!(it.num_estimated(), self.doc_ids.len());
-            assert_eq!(it.num_estimated(), self.ii.unique_docs() as usize);
+            assert_eq!(it.num_estimated(), self.unique_docs() as usize);
 
             // try reading at eof
             assert!(matches!(it.read(), Ok(None)));
@@ -335,189 +554,7 @@ pub(super) mod not_miri {
         }
     }
 
-    /// Mock search context used in tests requiring access to the context.
-    struct MockContext {
-        rule: SchemaRule,
-        spec: IndexSpec,
-        sctx: RedisSearchCtx,
-        qctx: QueryEvalCtx,
-    }
-
-    impl Default for MockContext {
-        fn default() -> Self {
-            let rule: SchemaRule = unsafe { std::mem::zeroed() };
-            let spec: IndexSpec = unsafe { std::mem::zeroed() };
-            let sctx: RedisSearchCtx = unsafe { std::mem::zeroed() };
-            let qctx: QueryEvalCtx = unsafe { std::mem::zeroed() };
-
-            Self {
-                rule,
-                spec,
-                sctx,
-                qctx,
-            }
-        }
-    }
-
-    impl Drop for MockContext {
-        fn drop(&mut self) {
-            unsafe {
-                ffi::array_free(self.spec.fieldIdToIndex as _);
-            }
-
-            unsafe {
-                ffi::TimeToLiveTable_Destroy(&mut self.spec.docs.ttl as _);
-            }
-        }
-    }
-
-    impl MockContext {
-        fn new(max_doc_id: t_docId, num_docs: usize) -> Pin<Box<Self>> {
-            // Need to Pin the whole struct so pointers remain valid.
-            let mut boxed = Box::pin(Self::default());
-
-            // SAFETY: We need to set up self-referential pointers after pinning.
-            // The struct is now pinned and won't move, so these pointers will remain valid.
-            unsafe {
-                let ptr = boxed.as_mut().get_unchecked_mut();
-
-                // Initialize SchemaRule
-                ptr.rule.index_all = false;
-
-                // Initialize IndexSpec
-                ptr.spec.rule = &mut ptr.rule;
-                ptr.spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
-                ptr.spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
-                ptr.spec.docs.maxDocId = max_doc_id;
-                ptr.spec.docs.size = if num_docs > 0 {
-                    num_docs
-                } else {
-                    max_doc_id as usize
-                };
-                ptr.spec.stats.scoring.numDocuments = ptr.spec.docs.size;
-
-                // Initialize RedisSearchCtx
-                ptr.sctx.spec = &mut ptr.spec;
-
-                // Initialize QueryEvalCtx
-                ptr.qctx.sctx = &mut ptr.sctx;
-                ptr.qctx.docTable = &mut ptr.spec.docs;
-            }
-
-            boxed
-        }
-
-        /// Mark the given field of the given documents as expired.
-        fn mark_index_expired(&mut self, ids: Vec<t_docId>, field: FieldMaskOrIndex) {
-            // Already expired
-            let expiration = t_expirationTimePoint {
-                tv_nsec: 1,
-                tv_sec: 1,
-            };
-
-            for id in ids {
-                self.ttl_add(id, field, expiration);
-            }
-
-            // Set up the mock current time further in the future than the expiration point.
-            self.sctx.time.current = t_expirationTimePoint {
-                tv_sec: 100,
-                tv_nsec: 100,
-            };
-        }
-
-        /// Add a TTL entry for the given field in the given document.
-        fn ttl_add(
-            &mut self,
-            doc_id: t_docId,
-            field: FieldMaskOrIndex,
-            expiration: t_expirationTimePoint,
-        ) {
-            self.verify_ttl_init();
-
-            let fe = match field {
-                FieldMaskOrIndex::Index(index) => {
-                    let fe_entry = FieldExpiration {
-                        index,
-                        point: expiration,
-                    };
-
-                    let fe = unsafe {
-                        ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, 1)
-                    };
-                    let fe = fe.cast();
-                    unsafe {
-                        *fe = fe_entry;
-                    };
-
-                    fe
-                }
-                FieldMaskOrIndex::Mask(mask) => {
-                    let mut entries = vec![];
-                    // Add a FieldExpiration for each bit set in the mask
-                    let mut value = mask;
-                    while value != 0 {
-                        let index = value.trailing_zeros();
-                        let fe_entry = FieldExpiration {
-                            index: index as u16,
-                            point: expiration,
-                        };
-                        entries.push(fe_entry);
-                        value &= value - 1;
-                    }
-
-                    let fe = unsafe {
-                        ffi::array_new_sz(
-                            std::mem::size_of::<FieldExpiration>() as u16,
-                            0,
-                            entries.len() as u32,
-                        )
-                    };
-
-                    let fe = fe.cast::<FieldExpiration>();
-                    for (i, fe_entry) in entries.into_iter().enumerate() {
-                        unsafe {
-                            *fe.offset(i as isize) = fe_entry;
-                        }
-                    }
-
-                    fe
-                }
-            };
-
-            let doc_expiration_time = ffi::t_expirationTimePoint {
-                tv_sec: i64::MAX,
-                tv_nsec: i64::MAX,
-            };
-
-            unsafe {
-                ffi::TimeToLiveTable_Add(self.spec.docs.ttl, doc_id, doc_expiration_time, fe as _);
-            }
-        }
-
-        /// Ensure the spec TTL table is initialized.
-        fn verify_ttl_init(&mut self) {
-            if !self.spec.fieldIdToIndex.is_null() {
-                return;
-            }
-
-            // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
-            let arr =
-                unsafe { ffi::array_new_sz(std::mem::size_of::<t_fieldIndex>() as u16, 0, 128) };
-            let arr = arr.cast::<t_fieldIndex>();
-
-            for i in 0..128 as t_fieldIndex {
-                unsafe {
-                    arr.offset(i as isize).write(i);
-                }
-            }
-
-            self.spec.fieldIdToIndex = arr as _;
-            unsafe {
-                ffi::TimeToLiveTable_VerifyInit(&mut self.spec.docs.ttl);
-            }
-        }
-    }
+    /// ---------- Revalidate Tests ----------
 
     pub enum RevalidateIndexType {
         Numeric,
@@ -525,45 +562,41 @@ pub(super) mod not_miri {
     }
 
     /// Test the revalidation of the iterator.
-    pub struct RevalidateTest<E> {
+    pub struct RevalidateTest {
         #[allow(dead_code)]
         doc_ids: Vec<t_docId>,
-        // FIXME: horrible hack so we can get a mutable reference to the InvertedIndex while holding an immutable one through the iterator.
-        // We should get rid of it once we have designed a proper way to manage concurrent access to the II.
-        pub ii: UnsafeCell<InvertedIndex<E>>,
+        pub context: TestContext,
+        _guard: GlobalGuard,
     }
 
-    impl<E: Encoder + DecodedBy> RevalidateTest<E> {
+    impl RevalidateTest {
         pub fn new(
             index_type: RevalidateIndexType,
             expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
             n_docs: u64,
         ) -> Self {
-            let create_record = &*expected_record;
             // Generate a set of odd document IDs for testing, starting from 1.
             let doc_ids = (0..=n_docs)
                 .map(|i| (2 * i + 1) as t_docId)
                 .collect::<Vec<_>>();
 
-            let ii_flags = match index_type {
-                RevalidateIndexType::Numeric => IndexFlags_Index_StoreNumeric,
+            let context = match index_type {
+                RevalidateIndexType::Numeric => {
+                    TestContext::numeric(doc_ids.iter().map(|id| expected_record(*id)), false)
+                }
                 RevalidateIndexType::Term => {
-                    IndexFlags_Index_StoreFreqs
+                    let flags = IndexFlags_Index_StoreFreqs
                         | IndexFlags_Index_StoreTermOffsets
                         | IndexFlags_Index_StoreFieldFlags
-                        | IndexFlags_Index_StoreByteOffsets
+                        | IndexFlags_Index_StoreByteOffsets;
+                    TestContext::term(flags, doc_ids.iter().map(|id| expected_record(*id)), false)
                 }
             };
 
-            let mut ii = InvertedIndex::<E>::new(ii_flags);
-            for doc_id in doc_ids.iter() {
-                let record = create_record(*doc_id);
-                ii.add_record(&record).expect("failed to add record");
-            }
-
             Self {
                 doc_ids,
-                ii: UnsafeCell::new(ii),
+                context,
+                _guard: GlobalGuard::default(),
             }
         }
 
@@ -597,40 +630,12 @@ pub(super) mod not_miri {
             );
         }
 
-        /// test revalidate returns `Aborted` when the underlying index disappears
-        pub fn revalidate_after_index_disappears<'index, I>(&self, it: &mut I, full_iterator: bool)
-        where
-            I: for<'iterator> RQEIterator<'index>,
-        {
-            // First, verify the iterator works normally and read at least one document
-            // TODO: update this comment once we actually implement CheckAbort:
-            // This is important because CheckAbort functions need current->data.term.term to be set
-            assert_eq!(
-                it.revalidate().expect("revalidate failed"),
-                RQEValidateStatus::Ok
-            );
-            assert!(it.read().expect("failed to read").is_some());
-            assert_eq!(
-                it.revalidate().expect("revalidate failed"),
-                RQEValidateStatus::Ok
-            );
-
-            if full_iterator {
-                // Full iterators don't have sctx, so they can't detect disappearance
-                // They will always return Ok regardless of index state
-                assert_eq!(
-                    it.revalidate().expect("revalidate failed"),
-                    RQEValidateStatus::Ok
-                );
-            } else {
-                todo!()
-            }
-        }
-
         /// Remove the document with the given id from the inverted index.
-        pub fn remove_document(&self, doc_id: t_docId) {
-            let ii = unsafe { &mut *self.ii.get() };
-
+        pub fn remove_document<E: Encoder + DecodedBy>(
+            &self,
+            ii: &mut InvertedIndex<E>,
+            doc_id: t_docId,
+        ) {
             let scan_delta = ii
                 .scan_gc(
                     |d| d != doc_id,
@@ -643,8 +648,11 @@ pub(super) mod not_miri {
         }
 
         /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
-        pub fn revalidate_after_document_deleted<'index, I>(&self, it: &mut I)
-        where
+        pub fn revalidate_after_document_deleted<'index, I, E: Encoder + DecodedBy>(
+            &self,
+            it: &mut I,
+            ii: &mut InvertedIndex<E>,
+        ) where
             I: for<'iterator> RQEIterator<'index>,
         {
             assert_eq!(
@@ -681,7 +689,7 @@ pub(super) mod not_miri {
             );
 
             // Remove an element before the current iteration position.
-            self.remove_document(self.doc_ids[0]);
+            self.remove_document(ii, self.doc_ids[0]);
             assert_eq!(
                 it.revalidate().expect("revalidate failed"),
                 RQEValidateStatus::Ok
@@ -690,7 +698,7 @@ pub(super) mod not_miri {
             assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
             // Remove an element after the current iteration position.
-            self.remove_document(self.doc_ids[4]);
+            self.remove_document(ii, self.doc_ids[4]);
             assert_eq!(
                 it.revalidate().expect("revalidate failed"),
                 RQEValidateStatus::Ok
@@ -700,7 +708,7 @@ pub(super) mod not_miri {
 
             // Remove the element at the current position of the iterator.
             // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
-            self.remove_document(self.doc_ids[2]);
+            self.remove_document(ii, self.doc_ids[2]);
             let res = it.revalidate().expect("revalidate failed");
             let current_doc = match res {
                 RQEValidateStatus::Moved {
@@ -733,7 +741,7 @@ pub(super) mod not_miri {
             assert_eq!(it.last_doc_id(), last_doc_id);
             assert_eq!(it.current().unwrap().doc_id, last_doc_id);
 
-            self.remove_document(last_doc_id);
+            self.remove_document(ii, last_doc_id);
             // revalidate should return Moved without current doc and be at EOF.
             let res = it.revalidate().expect("revalidate failed");
             assert!(matches!(res, RQEValidateStatus::Moved { current: None }));
@@ -743,4 +751,4 @@ pub(super) mod not_miri {
 }
 
 #[cfg(not(miri))]
-pub use not_miri::{ExpirationTest, RevalidateIndexType, RevalidateTest};
+pub use not_miri::{ExpirationTest, MockExpirationChecker, RevalidateIndexType, RevalidateTest};

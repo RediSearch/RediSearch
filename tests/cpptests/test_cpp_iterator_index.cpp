@@ -19,6 +19,8 @@ extern "C" {
 #include "src/tag_index.h"
 #include "src/numeric_index.h"
 #include "redisearch_rs/headers/triemap.h"
+#include "redisearch_rs/headers/iterators_rs.h"
+#include "src/index_result/query_term/query_term.h"
 
 extern "C" {
 #include "src/redis_index.h"
@@ -225,15 +227,15 @@ public:
             AddEntry(docId, value);
         }
     }
-    void CreateIterator(double value) {
-        CreateIterator(value, value);
+    void CreateIterator(double value, const RedisSearchCtx *sctx) {
+        CreateIterator(value, value, sctx);
     }
-    void CreateIterator(double min, double max) {
+    void CreateIterator(double min, double max, const RedisSearchCtx *sctx) {
         ASSERT_TRUE(idx != nullptr);
         FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
         flt = NewNumericFilter(min, max, 1, 1, 1, nullptr);
-        iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, nullptr, min, max);
+        iterator = NewInvIndIterator_NumericQuery(idx, sctx, &fieldCtx, flt, nullptr, min, max);
         ASSERT_TRUE(iterator != nullptr);
     }
 };
@@ -243,7 +245,8 @@ TEST_F(IndexIteratorTestEdges, SkipMultiValues) {
     AddEntry(1, 1.0);
     AddEntry(1, 2.0);
     AddEntry(1, 3.0);
-    CreateIterator(1.0, 3.0);
+    MockQueryEvalCtx mockQctx(1, 3);
+    CreateIterator(1.0, 3.0, &mockQctx.sctx);
 
     // Read the first entry. Expect to get the entry with value 1.0
     ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
@@ -260,8 +263,9 @@ TEST_F(IndexIteratorTestEdges, GetCorrectValue) {
     AddEntry(1, 1.0);
     AddEntry(1, 2.0);
     AddEntry(1, 3.0);
+    MockQueryEvalCtx mockQctx(1, 3);
     // Create an iterator that reads only entries with value 2.0
-    CreateIterator(2.0, 3.0);
+    CreateIterator(2.0, 3.0, &mockQctx.sctx);
     // Read the first entry. Expect to get the entry with value 2.0
     ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
     ASSERT_EQ(iterator->current->docId, 1);
@@ -274,8 +278,9 @@ TEST_F(IndexIteratorTestEdges, GetCorrectValue) {
 TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
     // Fill the index with entries, all with value 1.0
     AddEntries(1, 1234, 1.0);
+    MockQueryEvalCtx mockQctx(1234, 1234);
     // Create an iterator that reads only entries with value 2.0
-    CreateIterator(2.0);
+    CreateIterator(2.0, &mockQctx.sctx);
     // Attempt to skip to the first entry, expecting EOF since no entries match the filter
     ASSERT_EQ(iterator->SkipTo(iterator, 1), ITERATOR_EOF);
 }
@@ -906,14 +911,14 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             InvertedIndex *dummyIdx = NewInvertedIndex(InvIndIterator_GetReaderFlags(invIt), &memsize);
 
             // Temporarily replace the iterator's index pointer
-            IndexReader_SwapIndex(invIt->reader, dummyIdx);
+            InvIndIterator_Rs_SwapIndex(invIt, dummyIdx);
 
             // Now Revalidate should return VALIDATE_ABORTED because the stored index
             // doesn't match what the lookup returns
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
 
             // Restore the original index pointer for proper cleanup
-            IndexReader_SwapIndex(invIt->reader, dummyIdx);
+            InvIndIterator_Rs_SwapIndex(invIt, dummyIdx);
 
             // Clean up the dummy index
             InvertedIndex_Free(dummyIdx);

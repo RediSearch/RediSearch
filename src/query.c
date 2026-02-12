@@ -15,6 +15,7 @@
 #include "geo_index.h"
 #include "query.h"
 #include "config.h"
+#include "iterators/iterator_api.h"
 #include "query_error.h"
 #include "redis_index.h"
 #include "iterators_rs.h"
@@ -48,6 +49,8 @@
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
+#include "idf.h"
+#include "index_result/query_term/query_term.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
@@ -520,14 +523,22 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
 
   if (q->sctx->spec->diskSpec) {
-    RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, qn->tn.str, qn->tn.len, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
+    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie should be initialized");
+    size_t rlen = 0;
+    runeBuf buf;
+    rune *runes = runeBufFill(qn->tn.str, qn->tn.len, &buf, &rlen);
+    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    runeBufFree(&buf);
+    size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
+    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &qn->tn, q->tokenId++, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, idf, bm25_idf);
   } else {
     return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
 }
 
-static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
+static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, QueryEvalCtx *q,
   QueryNodeOptions *opts, QueryIterator ***its, size_t *itsSz, size_t *itsCap) {
   // Create a token for the reader
   RSToken tok = (RSToken){
@@ -540,8 +551,9 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
   QueryIterator *ir = NULL;
 
   if (q->sctx->spec->diskSpec) {
-    RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & opts->fieldMask, 1);
+    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf);
   } else {
     // Open an index reader
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
@@ -577,10 +589,11 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // an upper limit on the number of expansions is enforced to avoid stuff like "*"
   int hasNext;
-  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) &&
+  size_t numDocsInTerm = 0;
+  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocsInTerm, &dist)) &&
          (itsSz < q->config->maxPrefixExpansions)) {
     target_str = runesToStr(rstr, slen, &tok_len);
-    addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
+    addTerm(target_str, tok_len, numDocsInTerm, q, opts, &its, &itsSz, &itsCap);
     rm_free(target_str);
   }
   TrieIterator_Free(it);
@@ -591,9 +604,14 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
 
   // Add an iterator over the inverted index of the empty string for fuzzy search
   if (!prefixMode && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    addTerm("", 0, q, opts, &its, &itsSz, &itsCap);
+    size_t rlen = 0;
+    runeBuf buf;
+    rune *runes = runeBufFill("", 1, &buf, &rlen);
+    TrieNode *emptyNode = TrieNode_Get(terms->root, runes, rlen, true, NULL);
+    runeBufFree(&buf);
+    size_t numDocsInEmpty = emptyNode ? emptyNode->numDocs : 0;
+    addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
   }
-
 
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, true, opts->weight, type, str, q->config);
@@ -608,7 +626,7 @@ typedef struct {
   double weight;
 } TrieCallbackCtx;
 
-static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
+static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
 static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
@@ -770,7 +788,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   rangeItersAddIterator(ctx, ir);
 }
 
-static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
+static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
@@ -781,7 +799,9 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   tok.str = runesToStr(r, n, &tok.len);
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, ctx->q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -804,7 +824,17 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSToken tok = {.str = (char *)s, .len = n};
   QueryIterator *ir = NULL;
   if (q->sctx->spec->diskSpec) {
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, tok.str, tok.len, q->opts->fieldmask & ctx->opts->fieldMask, 1);
+    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie is NULL");
+    // The iterator comes from the Suffix Trie, but the actual number of documents is stored in the Terms Trie.
+    size_t rlen = 0;
+    runeBuf buf;
+    rune *runes = runeBufFill(tok.str, tok.len, &buf, &rlen);
+    TrieNode *trienode = TrieNode_Get(q->sctx->spec->terms->root, runes, rlen, true, NULL);
+    runeBufFree(&buf);
+    size_t numDocsInTerm = trienode ? trienode->numDocs : 0;
+    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
+    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, &tok, q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf);
   } else {
     ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
                                         q->opts->fieldmask & ctx->opts->fieldMask, 1);
@@ -1000,7 +1030,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If iterator was created successfully, and we have a metric to yield, update the
   // Only create MetricRequest entries for iterators that actually yield metrics
   if (it && qn->vn.vq->scoreField &&
-      (it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR)) {
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR || it->type == METRIC_SORTED_BY_SCORE_ITERATOR)) {
     MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
 
     // Create a handle that points to the iterator's ownKey field

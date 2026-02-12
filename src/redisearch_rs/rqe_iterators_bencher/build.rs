@@ -7,31 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::{bind_foreign_c_symbols, generate_c_bindings, git_root};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    bind_foreign_c_symbols();
-
-    // Compile the wildcard iterator benchmark C file
-    let root = git_root().expect("Could not find git root");
-
-    // Generate C bindings - fail build if this doesn't work
-    let mut headers = [
-        "iterator_api.h",
-        "inverted_index_iterator.h",
-        "not_iterator.h",
-        "optional_iterator.h",
-        "intersection_iterator.h",
-        "union_iterator.h",
-    ]
-    .iter()
-    .map(|h| root.join("src").join("iterators").join(h))
-    .collect::<Vec<_>>();
-
-    // Add the Rust-generated iterators header
-    headers.push(root.join("src/redisearch_rs/headers/iterators_rs.h"));
-
-    generate_c_bindings(headers, ".*/iterators/.*.h|.*/headers/iterators_rs.h|.*/config.h")?;
-
-    Ok(())
+fn main() {
+    build_utils::bind_foreign_c_symbols();
 }

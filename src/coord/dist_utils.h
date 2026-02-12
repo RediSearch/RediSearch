@@ -18,7 +18,6 @@ extern "C" {
 #endif
 
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
-bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx);
 
 #ifdef __cplusplus
 }

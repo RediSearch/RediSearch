@@ -63,7 +63,7 @@ fn rerun_if_rust_changes(dir: &Path) -> std::io::Result<()> {
 /// Generate a C header file via `cbindgen` for the calling crate.
 /// It'll read `cbindgen` configuration from the `cbindgen.toml` file at the crate root
 /// and output the header file to `header_path`.
-pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_cbindgen(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
     let config =
         cbindgen::Config::from_file("cbindgen.toml").expect("Failed to find cbindgen config");
     println!("cargo::rerun-if-changed=cbindgen.toml");
@@ -160,7 +160,7 @@ fn link_c_plusplus() {
         .compile("link-cplusplus");
 }
 
-fn link_static_lib(
+pub fn link_static_lib(
     bin_root: &Path,
     lib_subdir: &str,
     lib_name: &str,

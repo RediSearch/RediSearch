@@ -2502,3 +2502,169 @@ def test_coord_dispatch_time_metric():
   query_vector = np.array([1.0, 1.0], dtype=np.float32).tobytes()
   env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello0', 'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
   dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.HYBRID', dispatch_times_per_shard)
+
+
+@skip(cluster=True)
+def test_vecsim_hnsw_tiered_info_metrics():
+  """
+  Test the new vector index metrics: direct_hnsw_insertions and flat_buffer_size.
+  Covers:
+  - Non-tiered indexes return 0 for tiered-specific metrics (INFO MODULES and FT.INFO)
+  - Flat buffer size tracking across multiple indexes
+  - Direct insertions when flat buffer is full
+  - Cumulative behavior of direct insertions counter
+  - Key deletions and index drops
+  - FT.INFO field statistics for individual indexes
+  """
+  buffer_limit = 10
+  env = Env(moduleArgs=f'WORKERS 2 TIERED_HNSW_BUFFER_LIMIT {buffer_limit}')
+  conn = getConnectionByEnv(env)
+  dim = 4
+
+  def get_field_stats(idx):
+    """Get field statistics as a dict for the first field of an index."""
+    ft_info = index_info(env, idx)
+    return to_dict(ft_info['field statistics'][0])
+
+  # --- Test 1: Non-tiered (FLAT) index returns 0 for tiered-specific metrics ---
+  env.expect('FT.CREATE', 'idx_flat', 'PREFIX', '1', 'flat:', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+  for i in range(5):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'flat:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], 0)
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0)
+
+  # Verify FT.INFO for FLAT index also returns 0 for tiered-specific metrics
+  field_stats = get_field_stats('idx_flat')
+  env.assertEqual(field_stats['direct_hnsw_insertions'], 0)
+  env.assertEqual(field_stats['flat_buffer_size'], 0)
+
+  # --- Test 2: Flat buffer tracking across multiple indexes ---
+  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+
+  env.expect('FT.CREATE', 'idx_hnsw1', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw1:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx_hnsw2', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw2:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+  # Insert vectors into first index up to buffer limit
+  for i in range(buffer_limit):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  # Insert vectors into second index (partial fill)
+  vectors_in_idx2 = 5
+  for i in range(vectors_in_idx2):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw2:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit + vectors_in_idx2,
+                  message="Flat buffer should aggregate across indexes")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], 0,
+                  message="No direct insertions yet")
+
+  # Verify FT.INFO for individual indexes
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['flat_buffer_size'], buffer_limit)
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], 0)
+  field_stats2 = get_field_stats('idx_hnsw2')
+  env.assertEqual(field_stats2['flat_buffer_size'], vectors_in_idx2)
+  env.assertEqual(field_stats2['direct_hnsw_insertions'], 0)
+
+  # --- Test 3: Direct insertions to idx1 when buffer is full ---
+  extra_vectors = 5
+  for i in range(buffer_limit, buffer_limit + extra_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], extra_vectors,
+                  message="Extra vectors should be counted as direct insertions")
+
+  # Verify FT.INFO shows direct insertions for idx_hnsw1
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], extra_vectors)
+  env.assertEqual(field_stats1['flat_buffer_size'], buffer_limit)
+
+  # --- Test 4: Direct insertions are cumulative - insert more vector to idx1 ---
+  more_vectors = 3
+  for i in range(buffer_limit + extra_vectors, buffer_limit + extra_vectors + more_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  total_direct = extra_vectors + more_vectors
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions should be cumulative")
+
+  # Verify FT.INFO shows cumulative direct insertions
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], total_direct)
+
+  # --- Test 5: Key deletions reduce flat buffer size ---
+  # Delete some keys from idx2 (which has vectors in flat buffer)
+  deleted_keys = 3
+  for i in range(deleted_keys):
+    conn.execute_command('DEL', f'hnsw2:{i}')
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit + vectors_in_idx2 - deleted_keys,
+                  message="Flat buffer size should decrease after key deletions")
+  # Direct insertions counter should not change
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions should not decrease after deletions")
+
+  # --- Test 6: Dropping an index reduces flat buffer size ---
+  env.expect('FT.DROPINDEX', 'idx_hnsw2').ok()
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit,
+                  message="Flat buffer size should decrease after dropping index")
+
+  # --- Test 7: After draining, flat buffer empties but direct insertions preserved ---
+  env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0,
+                  message="Flat buffer should be empty after draining")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions count should be preserved after draining")
+
+  # Verify FT.INFO after draining
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['flat_buffer_size'], 0,
+                  message="FT.INFO flat buffer should be empty after draining")
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], total_direct,
+                  message="FT.INFO direct insertions should be preserved after draining")
+
+  # --- Test 8: Direct insertions when WORKERS=0 (no tiered buffering) ---
+  # Change workers to 0 at runtime - this disables tiered indexing
+  env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+
+  # Create a new HNSW index after workers are disabled
+  env.expect('FT.CREATE', 'idx_hnsw_no_workers', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw_nw:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+  # Insert vectors - should go directly to HNSW since workers=0
+  workers_0_vectors = 7
+  for i in range(workers_0_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw_nw:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0,
+                  message="Flat buffer should remain 0 when WORKERS=0")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct + workers_0_vectors,
+                  message="Direct insertions should increase when WORKERS=0")
+
+  # Verify FT.INFO for the new index shows direct insertions and no flat buffer
+  field_stats_nw = get_field_stats('idx_hnsw_no_workers')
+  env.assertEqual(field_stats_nw['flat_buffer_size'], 0,
+                  message="FT.INFO flat buffer should be 0 when WORKERS=0")
+  env.assertEqual(field_stats_nw['direct_hnsw_insertions'], workers_0_vectors,
+                  message="FT.INFO should show direct insertions when WORKERS=0")

@@ -720,7 +720,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
   });
 
   // Run multiple iterations to increase coverage of different timing scenarios
-  for (int iteration = 0; iteration < 1000; iteration+=2) {
+  for (int iteration = 0; iteration < 500; iteration++) {
     // Add documents to create work for the GC
     std::string doc1 = "doc1_" + std::to_string(iteration);
     std::string doc2 = "doc2_" + std::to_string(iteration);
@@ -739,7 +739,7 @@ TEST_F(FGCTestTag, testPipeErrorDuringApply) {
     FGC_ForkAndWaitBeforeApply(fgc);
 
     // Signal the closer thread to close the pipe after a variable delay
-    delay_usec = iteration;
+    delay_usec = iteration * 2;
     should_close = true;
 
     // Apply should handle the pipe closure gracefully without crashing
