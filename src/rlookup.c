@@ -15,21 +15,6 @@
 #include "value.h"
 #include "util/arr.h"
 
-/** The name of this field. */
-inline const char * RLookupKey_GetName(const RLookupKey* key) {
-    // return key->_name;
-}
-
-/** The path of this field. */
-inline const char * RLookupKey_GetPath(const RLookupKey* key) {
-    // return key->_path;
-}
-
-/** The length of the name field in bytes. */
-inline size_t RLookupKey_GetNameLen(const RLookupKey* key) {
-    // return key->_name_len;
-}
-
 static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
     // return key->_next;
 }

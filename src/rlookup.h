@@ -61,15 +61,6 @@ typedef enum {
  */
 typedef struct RLookupKey RLookupKey;
 
-/** The name of this field. */
-const char * RLookupKey_GetName(const RLookupKey* key);
-
-/** The path of this field. */
-const char * RLookupKey_GetPath(const RLookupKey* key);
-
-/** The length of the name field in bytes. */
-size_t RLookupKey_GetNameLen(const RLookupKey* key);
-
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
     const RLookupKey* key; \
