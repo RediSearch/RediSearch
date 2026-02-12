@@ -112,7 +112,7 @@ jobs:
           owner: redislabsdev
           repositories: |
             Redis
-            RediSearchDisk
+            RediSearchEnterprise
             rust-speedb
             speedb-ent
             redismodule-rs

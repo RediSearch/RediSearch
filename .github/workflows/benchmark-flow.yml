@@ -1,7 +1,7 @@
-# Executes the actual benchmark work - builds RediSearchDisk module, sets up Redis infrastructure,
+# Executes the actual benchmark work - builds RediSearchEnterprise module, sets up Redis infrastructure,
 # runs redisbench-admin on AWS, and generates performance comparison reports for PRs. This is the
 # reusable workflow that does the heavy lifting for each benchmark configuration.
-name: Run a Benchmark Flow (RediSearchDisk)
+name: Run a Benchmark Flow (RediSearchEnterprise)
 
 on:
   workflow_call:
@@ -60,7 +60,7 @@ jobs:
           owner: redislabsdev
           repositories: |
             Redis
-            RediSearchDisk
+            RediSearchEnterprise
             rust-speedb
             speedb-ent
             redismodule-rs
@@ -108,7 +108,7 @@ jobs:
           pip install --upgrade pip
           pip install -U redisbench-admin
 
-      - name: Build RediSearchDisk module
+      - name: Build RediSearchEnterprise module
         run: PROFILE=Release ./build.sh build
 
       # Setup Redis (checkout, build, cache)
