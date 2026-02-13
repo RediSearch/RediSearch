@@ -219,7 +219,7 @@ extern "C" {
 /**
  * Get the flags (indicating the type and other attributes) for a `RLookupKey`.
  *
- * The flag F_SVSRC means the target array is a sorting vector.
+ * The flag `RLookupKeyFlag::SvSrc` means the target array is a sorting vector.
  *
  * # Safety
  *
