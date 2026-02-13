@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 /// A type with size `N`.
 #[repr(transparent)]
 pub struct Size<const N: usize>(std::mem::MaybeUninit<[u8; N]>);
@@ -38,6 +40,10 @@ pub trait IntoOpaque: Sized {
     /// `*mut Self::Opaque`.
     fn as_opaque_mut_ptr(&mut self) -> *mut Self::Opaque;
 
+    /// Converts [`Self`] mutable reference into an
+    /// `NonNull<Self::Opaque>`.
+    fn as_opaque_non_null(&mut self) -> NonNull<Self::Opaque>;
+
     /// Converts an [`Self::Opaque`] back to [`Self`].
     ///
     /// # Safety
@@ -66,6 +72,17 @@ pub trait IntoOpaque: Sized {
     /// pointed to by `opaque` must also be an alignment-compatible address for
     /// a [`Self`].
     unsafe fn from_opaque_mut_ptr<'a>(opaque: *mut Self::Opaque) -> Option<&'a mut Self>;
+
+    /// Converts a nonnull pointer to a [`Self::Opaque`] to a mutable
+    /// reference to a [`Self`].
+    ///
+    /// # Safety
+    ///
+    /// The pointer itself must have been created via
+    /// [`IntoOpaque::as_opaque_mut_ptr`], as the alignment of the value
+    /// pointed to by `opaque` must also be an alignment-compatible address for
+    /// a [`Self`].
+    unsafe fn from_opaque_non_null<'a>(opaque: NonNull<Self::Opaque>) -> &'a mut Self;
 }
 
 /// Implements [`IntoOpaque`] for the passed type,
@@ -131,6 +148,10 @@ macro_rules! opaque {
                 std::ptr::from_mut(self).cast()
             }
 
+            fn as_opaque_non_null(&mut self) -> ::std::ptr::NonNull<Self::Opaque> {
+                ::std::ptr::NonNull::from(self).cast()
+            }
+
             unsafe fn from_opaque(opaque: Self::Opaque) -> Self {
                 // Safety: see trait's safety requirement.
                 unsafe { std::mem::transmute(opaque) }
@@ -142,6 +163,11 @@ macro_rules! opaque {
             }
 
             unsafe fn from_opaque_mut_ptr<'__lt>(opaque: *mut Self::Opaque) -> Option<&'__lt mut Self> {
+                // Safety: see trait's safety requirement.
+                unsafe { opaque.cast::<Self>().as_mut() }
+            }
+
+            unsafe fn from_opaque_non_null<'__lt>(opaque: ::std::ptr::NonNull<Self::Opaque>) -> &'__lt mut Self {
                 // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_mut() }
             }
