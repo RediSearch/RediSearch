@@ -39,6 +39,64 @@ typedef struct AsyncPollResult {
   uint16_t pending_count; // Number of reads still in flight
 } AsyncPollResult;
 
+// ============================================================================
+// Compaction Callback Types
+// ============================================================================
+
+/**
+ * @brief Scoring stats delta for compaction.
+ *
+ * Tracks changes to scoring statistics that need to be applied after compaction.
+ * All values represent decrements (documents/terms removed during compaction).
+ */
+typedef struct SearchDisk_ScoringStatsDelta {
+  uint64_t num_docs_removed;        // Number of documents removed during compaction
+  uint64_t total_docs_len_removed;  // Total document length removed (for avgDocLen)
+} SearchDisk_ScoringStatsDelta;
+
+/**
+ * @brief Callback struct for compaction operations.
+ *
+ * Passed from C to Rust. Rust invokes these callbacks to perform operations
+ * on C-owned data structures after compaction completes.
+ *
+ * All function pointers are optional (can be NULL).
+ */
+typedef struct SearchDisk_CompactionCallbacks {
+  // === Synchronization Callbacks ===
+  // Acquire fork blocker semaphore (placeholder for Phase 6)
+  void (*acquire_fork_blocker)(void *ctx);
+  // Release fork blocker semaphore (placeholder for Phase 6)
+  void (*release_fork_blocker)(void *ctx);
+  // Acquire IndexSpec write lock before applying delta
+  void (*acquire_write_lock)(void *ctx);
+  // Release IndexSpec write lock after applying delta
+  void (*release_write_lock)(void *ctx);
+
+  // === Memory Update Callbacks ===
+  /**
+   * @brief Update a term's document count in the Serving Trie.
+   *
+   * @param ctx Opaque context pointer (typically IndexSpec*)
+   * @param term Pointer to term string (NOT null-terminated)
+   * @param term_len Length of term in bytes
+   * @param doc_count_decrement Number of documents to decrement from the term's count
+   */
+  void (*update_trie_term)(void *ctx, const char *term, size_t term_len, size_t doc_count_decrement);
+
+  /**
+   * @brief Update IndexScoringStats.
+   *
+   * @param ctx Opaque context pointer (typically IndexSpec*)
+   * @param delta Pointer to ScoringStatsDelta with the changes
+   */
+  void (*update_scoring_stats)(void *ctx, const SearchDisk_ScoringStatsDelta *delta);
+
+  // === Context ===
+  // Opaque pointer passed to all callbacks (typically IndexSpec*)
+  void *ctx;
+} SearchDisk_CompactionCallbacks;
+
 // Result structure containing both DMD and user data (for successful reads only)
 typedef struct AsyncReadResult {
   RSDocumentMetadata *dmd;  // Pointer to allocated DMD (caller must free with DMD_Return)

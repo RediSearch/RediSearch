@@ -346,3 +346,20 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
  * @param ctx Redis module info context
  */
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+
+// Compaction Callbacks API
+
+// Forward declaration to avoid circular dependency
+struct IndexSpec;
+
+/**
+ * @brief Create a compaction callbacks struct for an IndexSpec
+ *
+ * Creates a SearchDisk_CompactionCallbacks struct populated with callback
+ * functions that update the IndexSpec's in-memory structures (trie, scoring stats)
+ * after disk compaction completes.
+ *
+ * @param sp Pointer to the IndexSpec
+ * @return Populated SearchDisk_CompactionCallbacks struct
+ */
+SearchDisk_CompactionCallbacks SearchDisk_CreateCompactionCallbacks(struct IndexSpec *sp);

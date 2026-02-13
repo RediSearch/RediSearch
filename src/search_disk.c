@@ -10,6 +10,8 @@
 #include "search_disk.h"
 #include "config.h"
 #include "index_result/query_term/query_term.h"
+#include "spec.h"
+#include "trie/trie_type.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -232,4 +234,62 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);
+}
+
+// ============================================================================
+// Compaction Callback Implementations
+// ============================================================================
+
+// Placeholder - will be implemented in Phase 6 (ForkGCSyncMechanism)
+static void SearchDisk_AcquireForkBlocker(void *ctx) {
+  (void)ctx;  // Unused for now
+  // TODO: sem_wait(&sp->fork_blocker);
+}
+
+// Placeholder - will be implemented in Phase 6 (ForkGCSyncMechanism)
+static void SearchDisk_ReleaseForkBlocker(void *ctx) {
+  (void)ctx;  // Unused for now
+  // TODO: sem_post(&sp->fork_blocker);
+}
+
+static void SearchDisk_AcquireWriteLock(void *ctx) {
+  IndexSpec *sp = (IndexSpec *)ctx;
+  pthread_rwlock_wrlock(&sp->rwlock);
+}
+
+static void SearchDisk_ReleaseWriteLock(void *ctx) {
+  IndexSpec *sp = (IndexSpec *)ctx;
+  pthread_rwlock_unlock(&sp->rwlock);
+}
+
+static void SearchDisk_UpdateTrieTerm(void *ctx, const char *term, size_t term_len, size_t doc_count_decrement) {
+  IndexSpec *sp = (IndexSpec *)ctx;
+  RS_ASSERT(sp->terms);
+  RS_ASSERT(doc_count_decrement > 0);
+  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+
+  // If the term was deleted (numDocs reached 0), update numTerms
+  if (result == TRIE_DECR_DELETED) {
+    sp->stats.scoring.numTerms--;
+  }
+}
+
+static void SearchDisk_UpdateScoringStats(void *ctx, const SearchDisk_ScoringStatsDelta *delta) {
+  IndexSpec *sp = (IndexSpec *)ctx;
+  sp->stats.scoring.numDocuments -= delta->num_docs_removed;
+  sp->stats.scoring.totalDocsLen -= delta->total_docs_len_removed;
+  // Note: numTerms is updated in UpdateTrieTerm when terms are deleted
+}
+
+SearchDisk_CompactionCallbacks SearchDisk_CreateCompactionCallbacks(IndexSpec *sp) {
+  SearchDisk_CompactionCallbacks callbacks = {
+    .acquire_fork_blocker = SearchDisk_AcquireForkBlocker,
+    .release_fork_blocker = SearchDisk_ReleaseForkBlocker,
+    .acquire_write_lock = SearchDisk_AcquireWriteLock,
+    .release_write_lock = SearchDisk_ReleaseWriteLock,
+    .update_trie_term = SearchDisk_UpdateTrieTerm,
+    .update_scoring_stats = SearchDisk_UpdateScoringStats,
+    .ctx = sp,
+  };
+  return callbacks;
 }
