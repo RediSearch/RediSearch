@@ -454,7 +454,7 @@ fn load_specific_keys<'a>(
     keys: Vec<Pin<&mut RLookupKey>>,
     status: &mut ffi::QueryError,
 ) -> i32 {
-    let lookup = ptr::from_mut(lookup).cast::<ffi::RLookup>();
+    let lookup = lookup.as_opaque_mut_ptr().cast::<ffi::RLookup>();
     let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
 
     let mut keys = keys
@@ -487,12 +487,17 @@ pub mod opaque {
     use super::RLookup;
     use c_ffi_utils::opaque::Size;
 
+    #[cfg(debug_assertions)]
+    type OpaqueRLookupSize = Size<48>;
+    #[cfg(not(debug_assertions))]
+    type OpaqueRLookupSize = Size<40>;
+
     /// An opaque query error which can be passed by value to C.
     ///
     /// The size and alignment of this struct must match the Rust `QueryError`
     /// structure exactly.
     #[repr(C, align(8))]
-    pub struct OpaqueRLookup(Size<48>);
+    pub struct OpaqueRLookup(OpaqueRLookupSize);
 
     c_ffi_utils::opaque!(RLookup<'_>, OpaqueRLookup);
 }

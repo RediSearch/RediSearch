@@ -134,13 +134,26 @@ typedef struct RSSortingVector RSSortingVector;
 typedef uint8_t Size_48[48];
 
 /**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_40[40];
+
+#if defined(ENABLE_ASSERT)
+typedef Size_48 OpaqueRLookupSize;
+#endif
+
+#if !defined(ENABLE_ASSERT)
+typedef Size_40 OpaqueRLookupSize;
+#endif
+
+/**
  * An opaque query error which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `QueryError`
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookup {
-  Size_48 _0;
+  OpaqueRLookupSize _0;
 } RLookup;
 
 typedef struct RLookupKey {
@@ -180,11 +193,6 @@ typedef struct RLookupKey {
    */
   struct RLookupKey *next;
 } RLookupKey;
-
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_40[40];
 
 #if defined(ENABLE_ASSERT)
 typedef Size_48 OpaqueRLookupRowSize;

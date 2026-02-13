@@ -44,16 +44,17 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
     dest: Option<NonNull<OpaqueRLookup>>,
     flags: u32,
 ) {
+    let dest = dest.unwrap();
+    assert!(
+        !ptr::addr_eq(src, dest.as_ptr().cast_const()),
+        "`src` and `dst` must not be the same"
+    );
+
     // Safety: ensured by caller (1.)
     let src = unsafe { RLookup::from_opaque_ptr(src).unwrap() };
 
     // Safety: ensured by caller (2.)
-    let dest = unsafe { RLookup::from_opaque_non_null(dest.unwrap()) };
-
-    assert!(
-        !ptr::addr_eq(src, dest),
-        "`src` and `dst` must not be the same"
-    );
+    let dest = unsafe { RLookup::from_opaque_non_null(dest) };
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
@@ -474,7 +475,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>)
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
+pub unsafe extern "C" fn RLookup_LoadRuleFields(
     search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
     lookup: Option<NonNull<OpaqueRLookup>>,
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
