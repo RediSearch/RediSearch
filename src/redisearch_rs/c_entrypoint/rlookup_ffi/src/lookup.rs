@@ -12,7 +12,7 @@ use c_ffi_utils::opaque::IntoOpaque;
 use libc::size_t;
 use rlookup::{
     IndexSpec, IndexSpecCache, OpaqueRLookup, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
-    SchemaRule,
+    RLookupOptions, SchemaRule,
 };
 use std::{
     borrow::Cow,
@@ -60,6 +60,48 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
     dest.add_keys_from(src, flags);
+}
+
+/// Disables the given set of `RLookup` options.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. All bits set in `options` must correspond to a value of the enum.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_DisableOptions(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    options: u32,
+) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    let options = RLookupOptions::from_bits(options).unwrap();
+
+    lookup.disable_options(options);
+}
+
+/// Enables the given set of `RLookup` options.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. All bits set in `options` must correspond to a value of the enum.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_EnableOptions(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    options: u32,
+) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    let options = RLookupOptions::from_bits(options).unwrap();
+
+    lookup.enable_options(options);
 }
 
 /// Find a field in the index spec cache of the lookup.
@@ -437,6 +479,21 @@ pub unsafe extern "C" fn RLookup_Init(
     });
 
     lookup.init(spcache);
+}
+
+/// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: Option<NonNull<OpaqueRLookup>>) -> bool {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    lookup.has_index_spec_cache()
 }
 
 /// Releases any resources created by this lookup object. Note that if there are

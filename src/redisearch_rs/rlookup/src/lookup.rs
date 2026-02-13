@@ -88,6 +88,18 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache = spcache;
     }
 
+    pub fn disable_options(&mut self, options: RLookupOptions) {
+        self.options &= !options;
+    }
+
+    pub fn enable_options(&mut self, options: RLookupOptions) {
+        self.options |= options;
+    }
+
+    pub const fn has_index_spec_cache(&self) -> bool {
+        self.index_spec_cache.is_some()
+    }
+
     pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
         self.index_spec_cache
             .as_ref()
