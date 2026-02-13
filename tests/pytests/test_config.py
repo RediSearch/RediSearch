@@ -70,6 +70,7 @@ def testGetConfigOptions(env):
     check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('BM25STD_TANH_FACTOR')
     check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('BG_INDEX_SLEEP_DURATION_US')
     check_config('_BG_INDEX_MEM_PCT_THR')
 
 @skip(cluster=True)
@@ -103,6 +104,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 5).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
 
@@ -123,6 +125,9 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', (2**32)+1).contains('Value is outside acceptable bounds')
+    # Test BG_INDEX_SLEEP_DURATION_US validation (max 999999 due to usleep POSIX limit, min 1)
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 0).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 1000000).contains('BG_INDEX_SLEEP_DURATION_US must be between 1 and 999999')
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -174,6 +179,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['BG_INDEX_SLEEP_DURATION_US'][0], '1')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -211,6 +217,7 @@ def testInitConfig():
     test_arg_num('BM25STD_TANH_FACTOR', 8)
     test_arg_num('_BG_INDEX_MEM_PCT_THR', 100)
     test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 0)
+    test_arg_num('BG_INDEX_SLEEP_DURATION_US', 5)
 
 
 # True/False arguments
