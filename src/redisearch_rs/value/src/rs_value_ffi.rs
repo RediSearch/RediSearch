@@ -9,6 +9,7 @@
 
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ptr;
 use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, slice};
 
 pub struct RSValueFFIRef<'a>(ManuallyDrop<RSValueFFI>, PhantomData<&'a ffi::RSValue>);
@@ -29,6 +30,12 @@ impl Deref for RSValueFFIRef<'_> {
 /// 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
 #[repr(transparent)]
 pub struct RSValueFFI(NonNull<ffi::RSValue>);
+
+// const assertion to ensure that the layout of `RSValueFFI` is AND STAYS the same as `*mut ffi::RSValue`
+const _: () = {
+    assert!(size_of::<RSValueFFI>() == size_of::<*mut ffi::RSValue>());
+    assert!(align_of::<RSValueFFI>() == align_of::<*mut ffi::RSValue>());
+};
 
 // Clone is used to increment the reference count of the underlying C struct.
 impl Clone for RSValueFFI {
@@ -84,6 +91,78 @@ impl RSValueFFI {
         let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), str.len()) };
 
         Self(NonNull::new(value).expect("RSValue_NewCopiedString returned a null pointer"))
+    }
+
+    pub fn new_array(
+        values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = RSValueFFI>,
+    ) -> Self {
+        let iter = values.into_iter();
+        let len = u32::try_from(iter.len()).unwrap();
+
+        let value = if len > 0 {
+            // Safety: RSValue_AllocateArray allocates memory for `len` RSValue pointers
+            let arr = NonNull::new(unsafe { ffi::RSValue_AllocateArray(len) })
+                .expect("RSValue_AllocateArray returned null pointer");
+
+            for (i, value) in iter.enumerate() {
+                // Safety: `arr` was allocated for `len` elements, and `i < len`
+                let ptr = unsafe { arr.add(i) };
+                // Safety: we allocated the array above
+                unsafe {
+                    ptr.write(value.as_raw());
+                }
+
+                // Prevent the RSValueFFI from decrementing the refcount when dropped,
+                // as ownership is transferred to the array.
+                std::mem::forget(value);
+            }
+
+            // Safety: RSValue_NewArray takes ownership of the `arr` pointer
+            unsafe { ffi::RSValue_NewArray(arr.as_ptr(), len) }
+        } else {
+            // Safety: we pass NULL and 0 which the implementation treats as "empty array"
+            unsafe { ffi::RSValue_NewArray(ptr::null_mut(), 0) }
+        };
+
+        Self(NonNull::new(value).expect("RSValue_NewArray returned a null pointer"))
+    }
+
+    pub fn new_map(
+        entries: impl IntoIterator<IntoIter: ExactSizeIterator, Item = (RSValueFFI, RSValueFFI)>,
+    ) -> Self {
+        let iter = entries.into_iter();
+        let len = u32::try_from(iter.len()).unwrap();
+
+        // Safety: RSValueMap_AllocUninit allocates memory for `len` RSValueMapEntry structs
+        let mut map = unsafe { ffi::RSValueMap_AllocUninit(len) };
+
+        for (i, (key, value)) in iter.enumerate() {
+            // Safety: `map` was allocated for `len` entries, and `i < len`
+            unsafe {
+                ffi::RSValueMap_SetEntry(&mut map, i, key.as_raw(), value.as_raw());
+            }
+            // Prevent the RSValueFFI from decrementing the refcount when dropped,
+            // as ownership is transferred to the map.
+            std::mem::forget(key);
+            std::mem::forget(value);
+        }
+
+        // Safety: RSValue_NewMap takes ownership of the `map`
+        let value = unsafe { ffi::RSValue_NewMap(map) };
+
+        Self(NonNull::new(value).expect("RSValue_NewMap returned a null pointer"))
+    }
+
+    pub fn new_trio(left: RSValueFFI, middle: RSValueFFI, right: RSValueFFI) -> Self {
+        // Safety: RSValue_NewTrio takes ownership of all three values
+        let value = unsafe { ffi::RSValue_NewTrio(left.as_raw(), middle.as_raw(), right.as_raw()) };
+        // Prevent the RSValueFFI from decrementing the refcount when dropped,
+        // as ownership is transferred to the trio.
+        std::mem::forget(left);
+        std::mem::forget(middle);
+        std::mem::forget(right);
+
+        Self(NonNull::new(value).expect("RSValue_NewTrio returned a null pointer"))
     }
 
     pub fn get_type(&self) -> ffi::RSValueType {
