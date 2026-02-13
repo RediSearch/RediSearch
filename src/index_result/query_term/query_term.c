@@ -42,3 +42,7 @@ double QueryTerm_Bm25Idf(RSQueryTerm const *t) {
 void QueryTerm_SetBm25Idf(RSQueryTerm *const t, double bm25_idf) {
     t->bm25_idf = bm25_idf;
 }
+
+int RSQueryTerm_GetId(const RSQueryTerm *term) {
+  return term->id;
+}

@@ -29,6 +29,9 @@ double QueryTerm_Bm25Idf(RSQueryTerm const *t);
 /* Set the BM25 idf of the term. */
 void QueryTerm_SetBm25Idf(RSQueryTerm *t, double bm25_idf);
 
+/* Get the id of the term. */
+int RSQueryTerm_GetId(const RSQueryTerm *term);
+
 #ifdef __cplusplus
 }
 #endif
