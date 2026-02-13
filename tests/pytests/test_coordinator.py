@@ -136,7 +136,10 @@ def test_index_missing_on_one_shard(env):
 
     # Create an index on all shards
     index_name = 'idx'
-    env.expect('FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect(
+        'FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT',
+        'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+        'DISTANCE_METRIC', 'L2').ok()
 
     # Drop the index on only one shard (without recreating it)
     first_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
@@ -154,7 +157,16 @@ def test_index_missing_on_one_shard(env):
     # Query via the cluster connection
     env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
     env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
+    env.expect('FT.HYBRID', index_name, 'SEARCH', '*',
+               'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb')\
+                .error().contains(error_msg)
+    env.expect('FT.SYNUPDATE', index_name, '1', 'a', 'b')\
+                .error().contains(error_msg)
+    env.expect('FT.ALTER', index_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC')\
+                .error().contains(error_msg)
+    env.expect('FT.TAGVALS', index_name, 'n').error().contains(error_msg)
     env.expect('FT.MGET', index_name, 'doc1').error().contains(error_msg)
+    env.expect('FT.DROP', index_name).error().contains(error_msg)
 
 @skip(cluster=False)
 def test_timeout():
