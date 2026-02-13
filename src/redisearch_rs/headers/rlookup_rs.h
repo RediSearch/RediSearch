@@ -508,6 +508,17 @@ size_t RLookup_GetLength(const struct RLookup *lookup,
                          const SchemaRule *rule);
 
 /**
+ * Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint32_t RLookup_GetRowLen(const struct RLookup *lookup);
+
+/**
  * Initialize the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *

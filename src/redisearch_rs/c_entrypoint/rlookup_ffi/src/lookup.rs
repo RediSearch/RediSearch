@@ -455,6 +455,21 @@ pub unsafe extern "C" fn RLookup_GetLength(
     )
 }
 
+/// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_GetRowLen(lookup: *const OpaqueRLookup) -> u32 {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+
+    lookup.get_row_len()
+}
+
 /// Initialize the lookup. If cache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
