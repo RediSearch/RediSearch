@@ -20,11 +20,6 @@ mod rs_value_ffi;
 #[cfg(feature = "c_ffi_impl")]
 pub use rs_value_ffi::*;
 
-#[cfg(feature = "test_utils")]
-mod test_utils;
-#[cfg(feature = "test_utils")]
-pub use test_utils::RSValueMock;
-
 pub mod shared;
 pub mod strings;
 pub mod trio;

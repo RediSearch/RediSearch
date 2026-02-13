@@ -18,7 +18,7 @@ use std::{
 };
 use value::RSValueFFI;
 
-pub type RLookupRow<'a> = rlookup::RLookupRow<'a, RSValueFFI>;
+pub type RLookupRow<'a> = rlookup::RLookupRow<'a>;
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
@@ -326,7 +326,7 @@ pub unsafe extern "C" fn RLookupRow_Get(
     // Safety: ensured by caller (2.)
     let row = unsafe { row.as_ref().unwrap() };
 
-    row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
+    row.get(key).map(|x| NonNull::new(x.as_raw()).unwrap())
 }
 
 /// Returns the sorting vector for the row, or null if none exists.
@@ -339,7 +339,7 @@ pub unsafe extern "C" fn RLookupRow_Get(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_GetSortingVector(
     row: *const RLookupRow,
-) -> *const sorting_vector::RSSortingVector<RSValueFFI> {
+) -> *const sorting_vector::RSSortingVector {
     // Safety: ensured by caller (1.)
     let row = unsafe { row.as_ref().unwrap() };
 
@@ -359,7 +359,7 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn RLookupRow_SetSortingVector(
     row: Option<NonNull<RLookupRow>>,
-    sv: *const sorting_vector::RSSortingVector<RSValueFFI>,
+    sv: *const sorting_vector::RSSortingVector,
 ) {
     // Safety: ensured by caller (1.)
     let row = unsafe { row.unwrap().as_mut() };
