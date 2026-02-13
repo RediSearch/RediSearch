@@ -228,6 +228,22 @@ typedef struct RSQueryTerm {
   double bm25_idf;
 } RSQueryTerm;
 
+/* RSQueryTerm accessor functions for encapsulated string access */
+static inline const char* RSQueryTerm_GetStr(const RSQueryTerm* term) {
+  return term ? term->str : NULL;
+}
+
+/* Get both str and len in one call for efficiency */
+static inline void RSQueryTerm_GetStrLen(const RSQueryTerm* term, const char** str, size_t* len) {
+  if (term && str && len) {
+    *str = term->str;
+    *len = term->len;
+  } else if (str && len) {
+    *str = NULL;
+    *len = 0;
+  }
+}
+
 /**************************************
  * Scoring Function API
  **************************************/

@@ -246,7 +246,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     RSQueryTerm *term = IndexResult_QueryTermRef(r);
     double idf = QueryTerm_Bm25Idf(term);
     ret = CalculateBM25Std(b, k1, idf, f, dmd->docLen, ctx->indexStats.avgDocLen, r->weight, scrExp,
-                           term->str);
+                           RSQueryTerm_GetStr(term));
   } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
     // and skip the tag check on the next line.
