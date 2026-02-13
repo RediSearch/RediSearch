@@ -108,25 +108,6 @@ static inline uint32_t RLookup_GetRowLen(const RLookup* rlookup) {
     // return rlookup->keys.rowlen;
 }
 
-// /**
-//  * Enables the given set of RLookup options.
-//  */
-static inline void RLookup_EnableOptions(RLookup* rlookup, uint32_t options) {
-    // rlookup->_options |= options;
-}
-
-/**
- * Disables the given set of RLookup options.
- */
-static inline void RLookup_DisableOptions(RLookup* rlookup, uint32_t options) {
-    // rlookup->_options &= ~options;
-}
-
-/** Returns `true` if this RLookup has an associated IndexSpecCache. */
-static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
-//     return rlookup->_spcache != NULL;
-}
-
 // If the key cannot be found, do not mark it as an error, but create it and
 // mark it as F_UNRESOLVED
 #define RLOOKUP_OPT_UNRESOLVED_OK 0x01
