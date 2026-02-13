@@ -247,7 +247,7 @@ void RLookup_AddKeysFrom(const struct RLookup *src,
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. All bits set in `options` must correspond to a value of the enum.
+ * 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -259,7 +259,7 @@ void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. All bits set in `options` must correspond to a value of the enum.
+ * 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
