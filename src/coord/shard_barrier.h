@@ -52,7 +52,7 @@ typedef struct ShardResponseBarrier {
 // Initialize ShardCountBarrier base fields (called from iterStartCb when topology is known)
 // This is a generic init function that can be used as privateDataInit callback
 // when the privateData starts with a ShardCountBarrier (or is a ShardCountBarrier*)
-void shardCountBarrier_Init(void *ptr, struct MRIterator *it);
+void shardCountBarrier_Init(void *ptr, const struct MRIterator *it);
 
 // Allocate and initialize a new ShardResponseBarrier
 // Notice: numShards and shardResponded init is postponed until shardResponseBarrier_Init is called
@@ -61,7 +61,7 @@ ShardResponseBarrier *shardResponseBarrier_New(void);
 
 // Initialize ShardResponseBarrier (called from iterStartCb when topology is known)
 // This initializes both the base ShardCountBarrier and the shardResponded array
-void shardResponseBarrier_Init(void *ptr, struct MRIterator *it);
+void shardResponseBarrier_Init(void *ptr, const struct MRIterator *it);
 
 // Free a ShardResponseBarrier - used as destructor callback for MRIterator
 void shardResponseBarrier_Free(void *ptr);

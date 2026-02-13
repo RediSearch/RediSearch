@@ -570,7 +570,7 @@ struct MRIteratorCtx {
   int8_t itRefCount;
   IORuntimeCtx *ioRuntime;
   void (*privateDataDestructor)(void *);  // Destructor for privateData, called in MRIterator_Free
-  void (*privateDataInit)(void *, MRIterator *);  // Init callback for privateData, called from iterStartCb
+  void (*privateDataInit)(void *, const MRIterator *);  // Init callback for privateData, called from iterStartCb
   MRCommandModifier commandModifier;  // Callback to modify command before sending, called from iterStartCb
 };
 
@@ -847,7 +847,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
                                       MRCommandModifier commandModifier,
                                       void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);

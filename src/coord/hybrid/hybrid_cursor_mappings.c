@@ -211,8 +211,8 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
     if (!privateData || !cmd) {
         return;
     }
-    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
-    HybridKnnContext *knnCtx = ctx->knnCtx;
+    const processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)privateData;
+    const HybridKnnContext *knnCtx = ctx->knnCtx;
     if (!knnCtx || knnCtx->kArgIndex < 0) {
         return;
     }
@@ -224,14 +224,19 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
     if (effectiveK == knnCtx->originalK) {
         return;
     }
+
     // Replace the K value argument in the command
     char effectiveK_str[32];
     int len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
     MRCommand_ReplaceArg(cmd, knnCtx->kArgIndex, effectiveK_str, len);
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef,
-                                 HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd,
+                                 StrongRef searchMappingsRef,
+                                 StrongRef vsimMappingsRef,
+                                 HybridKnnContext *knnCtx,
+                                 QueryError *status,
+                                 const RSOomPolicy oomPolicy) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -264,11 +269,11 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     atomic_init(&ctx->shardBarrier.numShards, 0);
     atomic_init(&ctx->shardBarrier.numResponded, 0);
 
-    // Start iteration with shardCountBarrier_Init callback to set numShards from IO thread
-    // Note: shardBarrier MUST be the first field in processCursorMappingCallbackContext
-    // so that shardCountBarrier_Init can cast the context pointer directly to ShardCountBarrier*
     // Pass HybridKnnCommandModifier if knnCtx is provided (for SHARD_K_RATIO optimization)
-    MRCommandModifier cmdModifier = knnCtx ? HybridKnnCommandModifier : NULL;
+    MRCommandModifier cmdModifier = knnCtx ? &HybridKnnCommandModifier : NULL;
+
+    // Start iteration with shardCountBarrier_Init callback to set numShards
+    // from IO thread
     MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL,
                                                shardCountBarrier_Init, cmdModifier, iterStartCb, NULL);
     if (!it) {
@@ -279,7 +284,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     }
     // Wait for all callbacks to complete
     // numShards is re-read on each iteration because it may initially be 0
-    // (in case the IO thread iterStartCb did not run yet and did not initialize numShards yet).
+    // (in case the IO thread iterStartCb did not run yet and did not initialize
+    // numShards yet).
     // Once a reply arrives, iterStartCb has finished and numShards will be set.
     pthread_mutex_lock(ctx->mutex);
     size_t numShards;
@@ -287,7 +293,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
            ctx->responseCount < numShards) {
         pthread_cond_wait(ctx->completionCond, ctx->mutex);
     }
-    pthread_mutex_unlock(ctx->mutex);
+    pthread_mutex_unlock(ctx->mutex); // NOSONAR: standard pthread cond_wait pattern, only one mutex is used
     bool success = true;
     if (array_len(ctx->errors)) {
         for (size_t i = 0; i < array_len(ctx->errors); i++) {

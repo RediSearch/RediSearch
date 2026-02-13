@@ -63,9 +63,10 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
  * Handles shard errors by recording them in the status parameter while continuing to process all shards.
  * Returns true even if all shards fail with warnings (e.g., OOM), resulting in empty mapping arrays and allowing the caller to handle the warnings.
  *
- * Note: The number of expected shards is obtained from the IO thread's topology snapshot via
- * a privateDataInit callback. This ensures we wait for exactly as many responses as commands
- * were actually sent, avoiding race conditions with topology changes.
+ * Note: The number of expected shards is obtained from the IO thread's topology
+ * snapshot via a privateDataInit callback. This ensures we wait for exactly as
+ * many responses as commands were actually sent, avoiding race conditions with
+ * topology changes.
  *
  * @param cmd The MRCommand to execute
  * @param searchMappings Empty array to populate with search cursor mappings
@@ -75,8 +76,12 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
  * @param oomPolicy OOM policy to determine error handling behavior
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings,
-                                 HybridKnnContext *knnCtx, QueryError *status, RSOomPolicy oomPolicy);
+bool ProcessHybridCursorMappings(const MRCommand *cmd,
+                                 StrongRef searchMappings,
+                                 StrongRef vsimMappings,
+                                 HybridKnnContext *knnCtx,
+                                 QueryError *status,
+                                 RSOomPolicy oomPolicy);
 
 /**
  * Release resources associated with a cursor mapping

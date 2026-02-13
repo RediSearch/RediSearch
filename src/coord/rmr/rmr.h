@@ -119,7 +119,8 @@ typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 /**
  * Callback type for modifying commands before they are sent to shards.
- * Called from iterStartCb on the IO thread after numShards is known but before commands are sent.
+ * Called from iterStartCb on the IO thread after numShards is known but before
+ * commands are sent.
  * This allows calculating values like effectiveK based on the actual topology.
  *
  * @param cmd The command to modify (will be copied for each shard after this callback)
@@ -146,7 +147,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData,
                                       void (*cbPrivateDataDestructor)(void *),
-                                      void (*cbPrivateDataInit)(void *, MRIterator *),
+                                      void (*cbPrivateDataInit)(void *, const MRIterator *),
                                       MRCommandModifier commandModifier,
                                       void (*iterStartCb)(void *), StrongRef *iterStartCbPrivateData);
 

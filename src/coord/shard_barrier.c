@@ -25,7 +25,7 @@ void shardResponseBarrier_Free(void *ptr) {
 // This is a generic init function that can be used as privateDataInit callback
 // when the privateData starts with a ShardCountBarrier (or is a
 // ShardCountBarrier*)
-void shardCountBarrier_Init(void *ptr, MRIterator *it) {
+void shardCountBarrier_Init(void *ptr, const MRIterator *it) {
   ShardCountBarrier *barrier = (ShardCountBarrier *)ptr;
   if (!barrier || !it) {
     return;
@@ -66,7 +66,7 @@ ShardResponseBarrier *shardResponseBarrier_New(void) {
 // Initialize ShardResponseBarrier (called from iterStartCb when topology is
 // known)
 // This initializes both the base ShardCountBarrier and the shardResponded array
-void shardResponseBarrier_Init(void *ptr, MRIterator *it) {
+void shardResponseBarrier_Init(void *ptr, const MRIterator *it) {
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)ptr;
   if (!barrier || !it) {
     return;

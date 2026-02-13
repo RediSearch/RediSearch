@@ -23,8 +23,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
 
 // For testing purposes
-// If outKArgIndex is not NULL, stores the index of the K value argument in the MRCommand
-// (for later modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,

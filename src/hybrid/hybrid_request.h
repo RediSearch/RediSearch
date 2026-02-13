@@ -36,8 +36,10 @@ typedef struct HybridRequest {
     ProfileClocks profileClocks;
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
-    // Index of the K value argument in the MRCommand for SHARD_K_RATIO optimization.
-    // Set during command building, used by command modifier callback. -1 if not applicable.
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
     int kArgIndex;
 } HybridRequest;
 

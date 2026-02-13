@@ -65,7 +65,7 @@ static void aggregateIteratorContext_Free(void *ptr) {
 }
 
 // Initialize the barrier in AggregateIteratorContext (called from iterStartCb)
-static void aggregateIteratorContext_Init(void *ptr, MRIterator *it) {
+static void aggregateIteratorContext_Init(void *ptr, const MRIterator *it) {
   AggregateIteratorContext *ctx = (AggregateIteratorContext *)ptr;
   if (ctx && ctx->barrier) {
     shardResponseBarrier_Init(ctx->barrier, it);
@@ -83,16 +83,12 @@ static void aggregateKnnCommandModifier(MRCommand *cmd, size_t numShards, void *
   if (!knnCtx || !knnCtx->vq) {
     return;
   }
-
-  KNNVectorQuery *knn_query = &knnCtx->vq->knn;
-  double ratio = knn_query->shardWindowRatio;
-
+  const KNNVectorQuery *knn_query = &knnCtx->vq->knn;
   // Only apply optimization for multi-shard deployments with valid ratio
-  if (numShards <= 1 || ratio >= MAX_SHARD_WINDOW_RATIO) {
+  if (numShards <= 1 || knn_query->shardWindowRatio >= MAX_SHARD_WINDOW_RATIO) {
     return;
   }
-
-  size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, numShards);
+  size_t effectiveK = calculateEffectiveK(knn_query->k, knn_query->shardWindowRatio, numShards);
   if (effectiveK == knn_query->k) {
     return;
   }
@@ -158,7 +154,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   }
 
   // Determine if we need the command modifier callback
-  MRCommandModifier cmdModifier = iterCtx->knnCtx ? aggregateKnnCommandModifier : NULL;
+  MRCommandModifier cmdModifier = iterCtx->knnCtx ? &aggregateKnnCommandModifier : NULL;
 
   // Always use MR_IterateWithPrivateData with the wrapper context
   // The iterator takes ownership of iterCtx and will free it via aggregateIteratorContext_Free
@@ -291,7 +287,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   // Store the query arg index and VectorQuery in output parameters if KNN context is present
   // The command modifier will use the actual numShards from the IO thread's topology
   if (knnCtx) {
-    KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+    const KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
     double ratio = knn_query->shardWindowRatio;
     if (ratio < MAX_SHARD_WINDOW_RATIO) {
       // Store the VectorQuery and query arg index for the command modifier
@@ -321,7 +317,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions pr
   array_free(tmparr);
 }
 
-static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *),
+static void buildDistRPChain(AREQ *r, const MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *),
                              VectorQuery *knnVq, size_t knnQueryArgIndex) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, nextFunc); // This will take ownership of the command

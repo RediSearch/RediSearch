@@ -229,8 +229,9 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
-// If outKArgIndex is not NULL, stores the index of the K value argument in the MRCommand
-// (for later modification by the command modifier callback in SHARD_K_RATIO optimization).
+// If outKArgIndex is not NULL, stores the index of the K value argument in the
+// MRCommand (for later modification by the command modifier callback in
+// SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
@@ -720,7 +721,8 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     }
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, hreq->tailPipeline->qctx.err, oomPolicy)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef,
+                            knnCtx, hreq->tailPipeline->qctx.err, oomPolicy)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
