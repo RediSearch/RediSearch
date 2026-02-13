@@ -42,7 +42,7 @@ def parse_client_list(client_list_output):
         clients.append(client)
     return clients
 
-def is_client_blocked(conn, client_id):
+def is_client_blocked(env, client_id):
     """Check if a client is blocked based on its flags.
 
     A client is blocked when it has the 'b' flag set, which indicates
@@ -55,6 +55,7 @@ def is_client_blocked(conn, client_id):
     Returns:
         True if the client is blocked, False otherwise.
     """
+    conn = getConnectionByEnv(env)
     output = conn.execute_command('CLIENT', 'LIST', 'ID', client_id)
     clients = parse_client_list(output)
     if not clients:
