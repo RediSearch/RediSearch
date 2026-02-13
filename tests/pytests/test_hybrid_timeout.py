@@ -41,6 +41,16 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
+def test_hybrid_debug_with_no_index_error():
+    """Test error when index does not exist"""
+    env = Env(enableDebugCommand=True)
+    env.expect(
+        '_FT.DEBUG', 'FT.HYBRID', 'nonexistent_idx',
+        'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error()\
+        .contains('SEARCH_INDEX_NOT_FOUND: Index not found: nonexistent_idx')
+
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -190,4 +200,3 @@ def test_tail_property_not_loaded_error():
                           '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
                           query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
                           'AS', 'doubled_score').error().contains('SEARCH_PROP_NOT_FOUND: Property not loaded nor in pipeline: `__score`')
-

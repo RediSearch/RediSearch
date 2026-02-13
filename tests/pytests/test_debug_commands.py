@@ -21,6 +21,10 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'dump_invidx').error().contains('wrong number of arguments')
         self.env.expect(debug_cmd()).error().contains('wrong number of arguments')
 
+    def testDebugNoIndex(self):
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
+        self.env.expect(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [

@@ -127,6 +127,35 @@ def test_error_propagation_from_shards(env):
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
 
+@skip(cluster=False, min_shards=2)
+def test_index_missing_on_one_shard(env):
+    """Tests that we get an error if the index is missing on one shard.
+    """
+
+    first_conn = env.getConnection(0)
+
+    # Create an index on all shards
+    index_name = 'idx'
+    env.expect('FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    # Drop the index on only one shard (without recreating it)
+    first_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    first_conn.execute_command('_FT.DROPINDEX', index_name)
+
+    error_msg = f'SEARCH_INDEX_NOT_FOUND: Index not found: {index_name}'
+
+    # Query via the shard connection
+    try:
+        first_conn.execute_command('_FT.INFO', index_name)
+        env.assertTrue(False) # Should not reach this point
+    except Exception as e:
+        env.assertContains(error_msg, str(e))
+
+    # Query via the cluster connection
+    env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
+    env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
+    env.expect('FT.MGET', index_name, 'doc1').error().contains(error_msg)
+
 @skip(cluster=False)
 def test_timeout():
     """Tests that timeouts are handled properly by the coordinator.
