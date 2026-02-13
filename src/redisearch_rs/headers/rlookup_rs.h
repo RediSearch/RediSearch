@@ -242,6 +242,30 @@ void RLookup_AddKeysFrom(const struct RLookup *src,
                          uint32_t flags);
 
 /**
+ * Disables the given set of `RLookup` options.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. All bits set in `options` must correspond to a value of the enum.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
+
+/**
+ * Enables the given set of `RLookup` options.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. All bits set in `options` must correspond to a value of the enum.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
+
+/**
  * Find a field in the index spec cache of the lookup.
  *
  * # Safety
@@ -456,6 +480,17 @@ size_t RLookup_GetLength(const struct RLookup *lookup,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
+
+/**
+ * Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
 
 /**
  * Releases any resources created by this lookup object. Note that if there are
