@@ -72,7 +72,13 @@ runs:
     # This action automatically handles GitHub Actions cache for sccache
     - name: Run sccache-cache
       uses: mozilla-actions/sccache-action@v0.0.8
-      env:
-        SCCACHE_GHA_ENABLED: "true"
-        RUSTC_WRAPPER: "sccache"
+
+    # Export sccache environment variables for subsequent steps
+    # CARGO_INCREMENTAL=0 is required because incremental compilation is incompatible with sccache
+    - name: Configure sccache environment
+      shell: bash
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+        echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
 
