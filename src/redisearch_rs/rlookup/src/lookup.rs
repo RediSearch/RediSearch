@@ -17,6 +17,7 @@ use crate::{
     bindings::{FieldSpecOption, FieldSpecOptions, IndexSpecCache},
     field_spec::FieldSpec,
 };
+use c_ffi_utils::opaque::IntoOpaque;
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
 use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
@@ -454,7 +455,7 @@ fn load_specific_keys<'a>(
     keys: Vec<Pin<&mut RLookupKey>>,
     status: &mut ffi::QueryError,
 ) -> i32 {
-    let lookup = ptr::from_mut(lookup).cast::<ffi::RLookup>();
+    let lookup = lookup.as_opaque_mut_ptr().cast::<ffi::RLookup>();
     let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
 
     let mut keys = keys
@@ -487,12 +488,17 @@ pub mod opaque {
     use super::RLookup;
     use c_ffi_utils::opaque::{Size, Transmute};
 
+    #[cfg(debug_assertions)]
+    type OpaqueRLookupSize = Size<48>;
+    #[cfg(not(debug_assertions))]
+    type OpaqueRLookupSize = Size<40>;
+
     /// An opaque query error which can be passed by value to C.
     ///
     /// The size and alignment of this struct must match the Rust `QueryError`
     /// structure exactly.
     #[repr(C, align(8))]
-    pub struct OpaqueRLookup(Size<48>);
+    pub struct OpaqueRLookup(OpaqueRLookupSize);
 
     // Safety: `OpaqueQueryError` is defined as a `MaybeUninit` slice of
     // bytes with the same size and alignment as `QueryError`, so any valid
