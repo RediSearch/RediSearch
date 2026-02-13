@@ -24,7 +24,7 @@ use value::RSValueFFI;
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
-/// 2. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -54,7 +54,7 @@ pub unsafe extern "C" fn RLookup_WriteKey(
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
-/// 2. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 3. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -80,7 +80,7 @@ pub unsafe extern "C" fn RLookup_WriteOwnKey(
 ///
 /// # Safety
 ///
-/// 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -97,7 +97,7 @@ pub unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<OpaqueRLookupRow>>)
 ///
 /// # Safety
 ///
-/// 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -113,8 +113,8 @@ pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<OpaqueRLookupRow>>
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 2. `src` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
-/// 3. `dst` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 2. `src` must be a [valid], non-null pointer to an [`RLookupRow`].
+/// 3. `dst` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 4. `src` and `dst` must not be the same lookup row.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -168,7 +168,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 ///     1. `name_len` must be same as `strlen(name)`
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
-/// 4. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -222,7 +222,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
 ///     1. `name_len` must be same as `strlen(name)`
 ///     2. The entire memory range of this cstr must be contained within a single allocation!
 ///     3. `name` must be non-null even for a zero-length cstr.
-/// 4. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 5. `value` must be a [valid], non-null pointer to an [`ffi::RSValue`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -268,11 +268,11 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// # Safety
 ///
-/// 1. `src_row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 2. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 3. `dst_row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 3. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 4. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 5. `src_row` and `dst_row` must not point to the same [`OpaqueRLookupRow`].
+/// 5. `src_row` and `dst_row` must not point to the same [`RLookupRow`].
 /// 6. `src_lookup` and `dst_lookup` must not point to the same [`RLookup`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -311,7 +311,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
     dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
 }
 
-/// Retrieves an item from the given `OpaqueRLookupRow` based on the provided `RLookupKey`.
+/// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
 ///
 /// The function first checks for dynamic values, and if not found, it checks the sorting vector
 /// if the `SvSrc` flag is set in the key.
@@ -321,7 +321,7 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
-/// 2. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -342,7 +342,7 @@ pub unsafe extern "C" fn RLookupRow_Get(
 ///
 /// # Safety
 ///
-/// 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -361,7 +361,7 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 ///
 /// # Safety
 ///
-/// 1. `row` must be a [valid], non-null pointer to an [`OpaqueRLookupRow`].
+/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 2. `sv` must be either null or a [valid], non-null pointer to an [`sorting_vector::RSSortingVector`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
