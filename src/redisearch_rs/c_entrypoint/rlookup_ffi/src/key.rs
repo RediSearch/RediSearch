@@ -9,7 +9,7 @@
 
 use libc::size_t;
 use rlookup::RLookupKey;
-use std::ffi::c_char;
+use std::{ffi::c_char, ptr};
 
 /// Get the flags (indicating the type and other attributes) for a `RLookupKey`.
 ///
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.name
+    key.name().as_ptr()
 }
 
 /// Get the length of the name field in bytes.
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.name_len
+    key.name().count_bytes()
 }
 
 /// Get the path of the field.
@@ -91,5 +91,5 @@ pub unsafe extern "C" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.path
+    key.path().as_ref().map_or(ptr::null(), |k| k.as_ptr())
 }
