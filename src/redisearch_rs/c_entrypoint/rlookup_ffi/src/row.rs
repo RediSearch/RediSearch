@@ -177,7 +177,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     lookup: Option<NonNull<RLookup<'a>>>,
     name: *const c_char,
     name_len: size_t,
-    row: Option<NonNull<OpaqueRLookupRow<'a>>>,
+    row: Option<NonNull<OpaqueRLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
@@ -231,7 +231,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     lookup: Option<NonNull<RLookup<'a>>>,
     name: *const c_char,
     name_len: size_t,
-    row: Option<NonNull<OpaqueRLookupRow<'a>>>,
+    row: Option<NonNull<OpaqueRLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: ensured by caller (1.)
@@ -278,9 +278,9 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
-    src_row: *const OpaqueRLookupRow<'a>,
+    src_row: *const OpaqueRLookupRow,
     src_lookup: *const RLookup<'a>,
-    dst_row: Option<NonNull<OpaqueRLookupRow<'a>>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow>>,
     dst_lookup: Option<NonNull<RLookup<'a>>>,
     create_missing_keys: bool,
 ) {

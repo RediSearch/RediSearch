@@ -373,7 +373,7 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_GetLength(
     lookup: *const RLookup<'_>,
-    row: *const OpaqueRLookupRow<'_>,
+    row: *const OpaqueRLookupRow,
     skip_field_index: Option<NonNull<bool>>,
     skip_field_index_len: size_t,
     required_flags: u32,
@@ -474,7 +474,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<RLookup<'_>>>) {
 pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
     lookup: Option<NonNull<RLookup<'a>>>,
-    dst_row: Option<NonNull<OpaqueRLookupRow<'a>>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
     status: Option<NonNull<ffi::QueryError>>,

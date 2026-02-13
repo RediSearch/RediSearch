@@ -19,8 +19,6 @@ use value::RSValueTrait;
 // This is a modified version of an inline of the existing `opaque!` macro, that unfortunately really doesn't work with lifetimes.
 // TODO: refactor to use one common macro, jira ticket MOD-13960
 pub mod opaque {
-    use std::marker::PhantomData;
-
     use c_ffi_utils::opaque::{Size, Transmute};
     use value::RSValueFFI;
 
@@ -29,7 +27,7 @@ pub mod opaque {
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
     #[repr(C, align(8))]
-    pub struct OpaqueRLookupRow<'a>(OpaqueRLookupRowSize, PhantomData<&'a ()>);
+    pub struct OpaqueRLookupRow(OpaqueRLookupRowSize);
 
     #[cfg(debug_assertions)]
     type OpaqueRLookupRowSize = Size<48>;
@@ -39,7 +37,7 @@ pub mod opaque {
     // Safety: `OpaqueRLookupRow` is defined as a `MaybeUninit` slice of
     // bytes with the same size and alignment as `RLookupRow`, so any valid
     // `OpaqueRLookupRow` has a bit pattern which is a valid `RLookupRow`.
-    unsafe impl<'a> Transmute<super::RLookupRow<'a, RSValueFFI>> for OpaqueRLookupRow<'a> {}
+    unsafe impl<'a> Transmute<super::RLookupRow<'a, RSValueFFI>> for OpaqueRLookupRow {}
 
     mod __opaque {
         use std::ptr::NonNull;
@@ -47,7 +45,7 @@ pub mod opaque {
         use super::*;
 
         impl<'a> c_ffi_utils::opaque::IntoOpaque for super::super::RLookupRow<'a, value::RSValueFFI> {
-            type Opaque = OpaqueRLookupRow<'a>;
+            type Opaque = OpaqueRLookupRow;
 
             fn into_opaque(self) -> Self::Opaque {
                 // Safety:
@@ -91,14 +89,14 @@ pub mod opaque {
             /// pointed to by `opaque` must also be an alignment-compatible address for
             /// a [`Self`].
             pub const unsafe fn from_opaque_non_null<'b>(
-                opaque: NonNull<OpaqueRLookupRow<'a>>,
+                opaque: NonNull<OpaqueRLookupRow>,
             ) -> &'b mut Self {
                 // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_mut() }
             }
 
             /// Converts [`Self`] mutable reference into a `NonNull<OpaqueRLookupRow>`.
-            pub const fn as_opaque_non_null(&mut self) -> NonNull<OpaqueRLookupRow<'a>> {
+            pub const fn as_opaque_non_null(&mut self) -> NonNull<OpaqueRLookupRow> {
                 NonNull::from_mut(self).cast()
             }
         }
@@ -109,13 +107,13 @@ pub mod opaque {
                 // Safety: this code never runs
                 unsafe {
                     std::mem::transmute::<
-                        OpaqueRLookupRow<'_>,
+                        OpaqueRLookupRow,
                         super::super::RLookupRow<'_, value::RSValueFFI>,
                     >(break)
                 };
             }
             assert!(
-                std::mem::align_of::<OpaqueRLookupRow<'_>>()
+                std::mem::align_of::<OpaqueRLookupRow>()
                     == std::mem::align_of::<super::super::RLookupRow<'_, value::RSValueFFI>>()
             );
         };
@@ -127,7 +125,7 @@ pub mod opaque {
             >() {
             }
 
-            assert_impl_transmute_size::<OpaqueRLookupRow<'_>>();
+            assert_impl_transmute_size::<OpaqueRLookupRow>();
         };
     }
 }
