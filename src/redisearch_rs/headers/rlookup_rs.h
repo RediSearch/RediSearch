@@ -174,6 +174,65 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Get the flags (indicating the type and other attributes) for a `RLookupKey`.
+ *
+ * The flag `RLookupKeyFlag::SvSrc` means the target array is a sorting vector.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+uint32_t RLookupKey_GetFlags(const struct RLookupKey *key);
+
+/**
+ * Get the index into the array where the value resides.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+uint16_t RLookupKey_GetDstIdx(const struct RLookupKey *key);
+
+/**
+ * Get the index within the sort vector where the value is located.
+ *
+ * If the source of this value points to a sort vector, then this is the
+ * index within the sort vector that the value is located.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+uint16_t RLookupKey_GetSvIdx(const struct RLookupKey *key);
+
+/**
+ * Get the name of the field.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+const char *RLookupKey_GetName(const struct RLookupKey *key);
+
+/**
+ * Get the length of the name field in bytes.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+size_t RLookupKey_GetNameLen(const struct RLookupKey *key);
+
+/**
+ * Get the path of the field.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ */
+const char *RLookupKey_GetPath(const struct RLookupKey *key);
+
+/**
  * Add all non-overridden keys from `src` to `dest`.
  *
  * For each key in `src`, check if it already exists *by name*.
