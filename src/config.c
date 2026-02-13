@@ -1117,7 +1117,7 @@ CONFIG_SETTER(setBGIndexSleepDurationUS) {
   int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
       "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
       BG_INDEX_SLEEP_DURATION_US_MAX);
     return REDISMODULE_ERR;
