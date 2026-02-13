@@ -100,14 +100,6 @@ RLookupIterator RLookup_Iter(const RLookup* rlookup);
 /** Returns an mutable iterator over the keys in this RLookup */
 RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup);
 
-// /**
-//  * Returns the length of the data row.
-//  * This is not necessarily the number of lookup keys
-//  */
-static inline uint32_t RLookup_GetRowLen(const RLookup* rlookup) {
-    // return rlookup->keys.rowlen;
-}
-
 // If the key cannot be found, do not mark it as an error, but create it and
 // mark it as F_UNRESOLVED
 #define RLOOKUP_OPT_UNRESOLVED_OK 0x01
