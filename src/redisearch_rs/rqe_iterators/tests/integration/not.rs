@@ -511,6 +511,7 @@ fn skip_to_at_eof_returns_none() {
         5,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Exhaust the iterator - child covers full range so NOT produces nothing
@@ -536,6 +537,7 @@ fn skip_to_child_behind_child_skip_returns_eof() {
         10,
         1.0,
         NOT_ITERATOR_LARGE_TIMEOUT,
+        false,
     );
 
     // Read first doc (1) to advance child to position 2
