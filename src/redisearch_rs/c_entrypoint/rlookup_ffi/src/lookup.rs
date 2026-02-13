@@ -87,7 +87,7 @@ pub unsafe extern "C" fn RLookup_DisableOptions(
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. All bits set in `options` must correspond to a value of the enum.
+/// 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
