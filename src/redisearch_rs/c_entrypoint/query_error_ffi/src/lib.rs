@@ -46,7 +46,7 @@ pub unsafe extern "C" fn QueryError_HasError(query_error: *const OpaqueQueryErro
     unsafe { !QueryError_IsOk(query_error) }
 }
 
-/// Returns a human-readable string representing the provided [`QueryErrorCode`].
+/// Returns the full default error string for a [`QueryErrorCode`] (prefix + message).
 ///
 /// This function should always return without a panic for any value provided.
 /// It is unique among the `QueryError_*` API as the only function which allows
@@ -58,6 +58,30 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     };
 
     code.to_c_str().as_ptr()
+}
+
+/// Returns only the error prefix string for a [`QueryErrorCode`] (e.g. `"SEARCH_TIMEOUT: "`).
+///
+/// Returns an empty string for `Ok` and `"Unknown status code"` for invalid codes.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryError_StrerrorPrefix(maybe_code: u8) -> *const c_char {
+    let Some(code) = QueryErrorCode::from_repr(maybe_code) else {
+        return c"Unknown status code".as_ptr();
+    };
+
+    code.prefix_c_str().as_ptr()
+}
+
+/// Returns only the default message for a [`QueryErrorCode`] (without the prefix).
+///
+/// Returns `"Unknown status code"` for invalid codes.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryError_StrerrorDefaultMessage(maybe_code: u8) -> *const c_char {
+    let Some(code) = QueryErrorCode::from_repr(maybe_code) else {
+        return c"Unknown status code".as_ptr();
+    };
+
+    code.default_message_c_str().as_ptr()
 }
 
 /// Returns a human-readable string representing the provided [`QueryWarningCode`].
