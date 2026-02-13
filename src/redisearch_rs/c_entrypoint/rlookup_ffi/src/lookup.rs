@@ -10,7 +10,8 @@
 use crate::row::RLookupRow;
 use libc::size_t;
 use rlookup::{
-    IndexSpec, IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule,
+    IndexSpec, IndexSpecCache, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
+    RLookupOptions, SchemaRule,
 };
 use std::{
     borrow::Cow,
@@ -58,11 +59,50 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
     dest.add_keys_from(src, flags);
 }
 
+/// Disables the given set of `RLookup` options.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_DisableOptions(
+    lookup: Option<NonNull<RLookup<'_>>>,
+    options: u32,
+) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    let options = RLookupOptions::from_bits(options).unwrap();
+
+    lookup.disable_options(options);
+}
+
+/// Enables the given set of `RLookup` options.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_EnableOptions(lookup: Option<NonNull<RLookup<'_>>>, options: u32) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.unwrap().as_mut() };
+
+    let options = RLookupOptions::from_bits(options).unwrap();
+
+    lookup.enable_options(options);
+}
+
 /// Find a field in the index spec cache of the lookup.
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -86,7 +126,7 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
         .map_or(ptr::null(), ptr::from_ref)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the
 /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
@@ -94,7 +134,7 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -126,7 +166,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the
 /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
@@ -134,7 +174,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -173,14 +213,14 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table, unless the
 /// override flag is set.
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -212,14 +252,14 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table, unless the
 /// override flag is set.
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -258,7 +298,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table (unless the
 /// override flag is set), and it is not already loaded. It will override an existing key if it was
@@ -267,7 +307,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` and `field_name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -305,7 +345,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
         .map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table (unless the
 /// override flag is set), and it is not already loaded. It will override an existing key if it was
@@ -314,7 +354,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` and `field_name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -409,12 +449,27 @@ pub unsafe extern "C" fn RLookup_GetLength(
     )
 }
 
+/// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn RLookup_GetRowLen(lookup: *const RLookup<'_>) -> u32 {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.as_ref().unwrap() };
+
+    lookup.get_row_len()
+}
+
 /// Initialize the lookup. If cache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
 /// 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
 ///
@@ -426,6 +481,7 @@ pub unsafe extern "C" fn RLookup_Init(
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
+
     let spcache = spcache.map(|spcache| {
         // Safety: ensured by caller (2. & 3.)
         unsafe { IndexSpecCache::from_raw(spcache) }
@@ -434,13 +490,28 @@ pub unsafe extern "C" fn RLookup_Init(
     lookup.init(spcache);
 }
 
+/// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const RLookup<'_>) -> bool {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { lookup.as_ref().unwrap() };
+
+    lookup.has_index_spec_cache()
+}
+
 /// Releases any resources created by this lookup object. Note that if there are
 /// lookup keys created with RLOOKUP_F_NOINCREF, those keys will no longer be
 /// valid after this call!
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. `lookup` **must not** be used again after this function is called.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
