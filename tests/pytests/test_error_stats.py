@@ -23,8 +23,10 @@ def test_search_error_stats_tracking(env):
             index_error_key = key
             break
 
-    env.assertTrue(index_error_key is not None, message="SEARCH_INDEX_NOT_FOUND should appear in errorstats")
-    env.assertEqual(final_stats[index_error_key]['count'], 1, message="SEARCH_INDEX_NOT_FOUND count should be 1")
+    env.assertTrue(index_error_key is not None,
+                   message="SEARCH_INDEX_NOT_FOUND should appear in errorstats")
+    env.assertEqual(final_stats[index_error_key]['count'], 1,
+                    message="SEARCH_INDEX_NOT_FOUND count should be 1")
 
     # Check SEARCH_ARG_UNRECOGNIZED appears with count=1
     arg_error_key = None
@@ -33,5 +35,24 @@ def test_search_error_stats_tracking(env):
             arg_error_key = key
             break
 
-    env.assertTrue(arg_error_key is not None, message="SEARCH_ARG_UNRECOGNIZED should appear in errorstats")
-    env.assertEqual(final_stats[arg_error_key]['count'], 1, message="SEARCH_ARG_UNRECOGNIZED count should be 1")
+    env.assertTrue(arg_error_key is not None,
+                   message="SEARCH_ARG_UNRECOGNIZED should appear in errorstats")
+
+    # In cluster mode with multiple shards, FT.DROPINDEX uses
+    # MastersFanoutCommandHandler which fans out _FT.DROPINDEX to all shards
+    # without coordinator-level argument validation.
+    # The error counting behavior is:
+    # - Single shard / standalone: command executed locally, 1 error returned
+    #   to client → count=1
+    # - Multi-shard cluster: the coordinator executes _FT.DROPINDEX locally
+    #   (1 error) AND returns an error to the client via allOKReducer
+    #   (1 more error) → count=2 on coordinator
+    # Note: Remote shards each count 1 error, but INFO errorstats only shows
+    # the coordinator's stats.
+    if env.isCluster() and env.shardsCount > 1:
+        expected_count = 2
+    else:
+        expected_count = 1
+
+    env.assertEqual(final_stats[arg_error_key]['count'], expected_count,
+                    message=f"SEARCH_ARG_UNRECOGNIZED count should be {expected_count}")
