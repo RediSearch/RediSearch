@@ -203,7 +203,7 @@ void RLookup_AddKeysFrom(const struct RLookup *src,
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The memory pointed to by `name` must contain a valid nul terminator at the
  *    end of the string.
  * 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -215,7 +215,7 @@ void RLookup_AddKeysFrom(const struct RLookup *src,
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
 
 /**
- * Get a RLookup key for a given name.
+ * Get an RLookup key for a given name.
  *
  * A key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
@@ -223,7 +223,7 @@ const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, cons
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The memory pointed to by `name` must contain a valid nul terminator at the
  *    end of the string.
  * 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -240,7 +240,7 @@ const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, cons
 struct RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name, uint32_t flags);
 
 /**
- * Get a RLookup key for a given name.
+ * Get an RLookup key for a given name.
  *
  * A key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
@@ -248,7 +248,7 @@ struct RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name,
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The memory pointed to by `name` must contain a valid nul terminator at the
  *    end of the string.
  * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -269,14 +269,14 @@ struct RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup,
                                          uint32_t flags);
 
 /**
- * Get a RLookup key for a given name.
+ * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table, unless the
  * override flag is set.
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The memory pointed to by `name` must contain a valid nul terminator at the
  *    end of the string.
  * 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -293,14 +293,14 @@ struct RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup,
 struct RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint32_t flags);
 
 /**
- * Get a RLookup key for a given name.
+ * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table, unless the
  * override flag is set.
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The memory pointed to by `name` must contain a valid nul terminator at the
  *    end of the string.
  * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -321,7 +321,7 @@ struct RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup,
                                           uint32_t flags);
 
 /**
- * Get a RLookup key for a given name.
+ * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table (unless the
  * override flag is set), and it is not already loaded. It will override an existing key if it was
@@ -330,7 +330,7 @@ struct RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup,
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
  *    end of the string.
  * 3. `name` and `field_name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -350,7 +350,7 @@ struct RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup,
                                        uint32_t flags);
 
 /**
- * Get a RLookup key for a given name.
+ * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table (unless the
  * override flag is set), and it is not already loaded. It will override an existing key if it was
@@ -359,7 +359,7 @@ struct RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup,
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
  *    end of the string.
  * 3. `name` and `field_name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -406,7 +406,7 @@ size_t RLookup_GetLength(const struct RLookup *lookup,
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
  * 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
  *
@@ -421,7 +421,7 @@ void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. `lookup` **must not** be used again after this function is called.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

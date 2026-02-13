@@ -62,7 +62,7 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom<'a>(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -86,7 +86,7 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
         .map_or(ptr::null(), ptr::from_ref)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the
 /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
@@ -94,7 +94,7 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is returned only if it's already in the lookup table (available from the
 /// pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -173,14 +173,14 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx(
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table, unless the
 /// override flag is set.
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -212,14 +212,14 @@ pub unsafe extern "C" fn RLookup_GetKey_Write(
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table, unless the
 /// override flag is set.
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -258,7 +258,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
     lookup.get_key_write(name, flags).map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table (unless the
 /// override flag is set), and it is not already loaded. It will override an existing key if it was
@@ -267,7 +267,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` and `field_name` must be [valid] for reads of bytes up to and including the nul terminator.
@@ -305,7 +305,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
         .map(NonNull::from)
 }
 
-/// Get a RLookup key for a given name.
+/// Get an RLookup key for a given name.
 ///
 /// A key is created and returned only if it's NOT in the lookup table (unless the
 /// override flag is set), and it is not already loaded. It will override an existing key if it was
@@ -314,7 +314,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. The memory pointed to by `name` and `field_name` must contain a valid nul terminator at the
 ///    end of the string.
 /// 3. `name` and `field_name` must be [valid] for reads of `name_len` bytes up to and including the nul terminator.
@@ -414,7 +414,7 @@ pub unsafe extern "C" fn RLookup_GetLength(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`]
 /// 3. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated
 ///
@@ -426,6 +426,7 @@ pub unsafe extern "C" fn RLookup_Init(
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.unwrap().as_mut() };
+
     let spcache = spcache.map(|spcache| {
         // Safety: ensured by caller (2. & 3.)
         unsafe { IndexSpecCache::from_raw(spcache) }
@@ -440,7 +441,7 @@ pub unsafe extern "C" fn RLookup_Init(
 ///
 /// # Safety
 ///
-/// 1. `lookup` must be a [valid], non-null pointer to a `RLookup`
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
 /// 2. `lookup` **must not** be used again after this function is called.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
