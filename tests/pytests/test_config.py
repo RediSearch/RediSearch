@@ -15,6 +15,9 @@ def testConfigErrors(env):
     env.expect('ft.config', 'idx').error().contains('wrong number of arguments')
     env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', 3) \
         .equal('Max depth for range cannot be higher than max depth for balance')
+    # Test BG_INDEX_SLEEP_DURATION_US validation (max 999999 due to usleep POSIX limit, min 1)
+    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_DURATION_US', 0).contains('Value is outside acceptable bounds')
+    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_DURATION_US', 1000000).contains('BG_INDEX_SLEEP_DURATION_US must be between 1 and 999999')
 
 @skip(cluster=True)
 def testGetConfigOptions(env):
@@ -57,6 +60,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
     assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == 'INDEX_CURSOR_LIMIT'
     assert env.expect('ft.config', 'get', 'INDEXER_YIELD_EVERY_OPS').res[0][0] == 'INDEXER_YIELD_EVERY_OPS'
+    assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_DURATION_US').res[0][0] == 'BG_INDEX_SLEEP_DURATION_US'
     assert env.expect('ft.config', 'get', '_BG_INDEX_MEM_PCT_THR').res[0][0] == '_BG_INDEX_MEM_PCT_THR'
     assert env.expect('ft.config', 'get', '_BG_INDEX_OOM_PAUSE_TIME').res[0][0] == '_BG_INDEX_OOM_PAUSE_TIME'
 
@@ -93,6 +97,7 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect('ft.config', 'set', '_MAX_RESULTS_TO_UNSORTED_MODE', 1).equal('OK')
+    env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_DURATION_US', 5).equal('OK')
     env.expect('ft.config', 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
 
 def testSetConfigOptionsErrors(env):
@@ -158,6 +163,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['BG_INDEX_SLEEP_DURATION_US'][0], '1')
 
 @skip(cluster=True)
 def testInitConfig(env):
@@ -195,6 +201,7 @@ def testInitConfig(env):
     test_arg_num('INDEXER_YIELD_EVERY_OPS', 123)
     test_arg_num('_BG_INDEX_MEM_PCT_THR', 90)
     test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 10)
+    test_arg_num('BG_INDEX_SLEEP_DURATION_US', 5)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):
