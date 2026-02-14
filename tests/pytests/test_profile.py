@@ -18,7 +18,7 @@ def testProfileSearch(env):
   conn.execute_command('hset', '2', 't', 'world')
 
   env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('no such index')
-  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
 
   # test WILDCARD
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '*', 'nocontent')
@@ -189,10 +189,9 @@ def testProfileErrors(env):
   env.expect('ft.profile', 'idx', 'SEARCH').error().contains('wrong number of arguments')
   env.expect('ft.profile', 'idx', 'SEARCH', 'QUERY').error().contains('wrong number of arguments')
   # wrong `query` type
-  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH` or `AGGREGATE` provided')
+  env.expect('ft.profile', 'idx', 'redis', 'QUERY', '*').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
   # miss `QUERY` keyword
-  if not env.isCluster():
-    env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
+  env.expect('ft.profile', 'idx', 'SEARCH', 'FIND', '*').error().contains('The QUERY keyword is expected')
 
 @skip(cluster=True)
 def testProfileNumeric(env):
@@ -962,6 +961,7 @@ def testProfileBM25NormMax(env):
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
   env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
 
+
 def testProfileVectorSearchMode():
   """Test Vector search mode field in FT.PROFILE for both SEARCH and AGGREGATE"""
   env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)  # Use RESP3 for easier dict access
@@ -1305,3 +1305,4 @@ def testCoordinatorQueueTimeInProfile():
   env.assertGreaterEqual(coord_queue_time, pause_duration_ms * 0.8,  # Allow 20% tolerance
     message=f"Coordinator queue time ({coord_queue_time}ms) should capture queue wait. "
             f"Expected >= {pause_duration_ms * 0.8}ms. Full result: {result}")
+
