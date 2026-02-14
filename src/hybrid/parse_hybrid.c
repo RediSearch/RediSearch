@@ -134,11 +134,7 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
 
   const char *ratioStr;
   size_t ratioStrLen;
-  if (AC_GetString(ac, &ratioStr, &ratioStrLen, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid SHARD_K_RATIO value");
-    return REDISMODULE_ERR;
-  }
-
+  ratioStr = AC_GetStringNC(ac, &ratioStrLen);
   double shardKRatio;
   if (!ValidateShardKRatio(ratioStr, &shardKRatio, status)) {
     return REDISMODULE_ERR;

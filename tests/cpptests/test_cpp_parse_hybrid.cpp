@@ -1523,7 +1523,30 @@ TEST_F(ParseHybridTest, testShardKRatioInvalidNonNumeric) {
     "Invalid shard k ratio value 'invalid'");
 }
 
+TEST_F(ParseHybridTest, testShardKRatioMissingValue) {
+  // Test missing SHARD_K_RATIO value
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value 'PARAMS'");
+}
+
 TEST_F(ParseHybridTest, testShardKRatioMissingValueAtEnd) {
+  // Test missing SHARD_K_RATIO value
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS,
+    "Missing argument value for SHARD_K_RATIO");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioWrongPosition) {
   // Test missing SHARD_K_RATIO value at end of command (no PARAMS after it)
   // NOTE: Current implementation doesn't loop to check for SHARD_K_RATIO after PARAMS,
   // so it's reported as "Unknown argument" instead of "Missing argument value"
