@@ -21,7 +21,8 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   ProfileOptions profileOptions,
                                   MRCommand *xcmd, arrayof(char *) serialized,
                                   IndexSpec *sp,
-                                  const VectorQuery *vq);
+                                  const VectorQuery *vq,
+                                  size_t numShards);
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -126,7 +127,7 @@ protected:
         MRCommand xcmd;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
                                      nullptr, testIndexSpec,
-                                     passNullVectorQuery ? nullptr : vq);
+                                     passNullVectorQuery ? nullptr : vq, numShards);
 
         // Verify the command was built correctly
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -163,6 +164,9 @@ protected:
 
     // Helper function to test command transformation
     void testCommandTransformationWithoutIndexSpec(const std::vector<const char*>& inputArgs) {
+        // Access the global NumShards variable
+        extern size_t NumShards;
+
         // Convert vector to array for ArgvList constructor
         std::vector<const char*> argsWithNull = inputArgs;
         argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
@@ -174,7 +178,7 @@ protected:
         // SHARD_K_RATIO here)
         MRCommand xcmd;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     nullptr, nullptr, nullptr);
+                                     nullptr, nullptr, nullptr, NumShards);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -197,6 +201,9 @@ protected:
 
     // Helper function to test command transformation
     void testCommandTransformationWithIndexSpec(const std::vector<const char*>& inputArgs) {
+      // Access the global NumShards variable
+      extern size_t NumShards;
+
       // Convert vector to array for ArgvList constructor
       std::vector<const char*> argsWithNull = inputArgs;
       argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
@@ -216,7 +223,7 @@ protected:
       // SHARD_K_RATIO here)
       MRCommand xcmd;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                   nullptr, sp, nullptr);
+                                   nullptr, sp, nullptr, NumShards);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
