@@ -283,15 +283,14 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
 /** Write a forward-index entry to the index */
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
   RSIndexResult rec = {.data.term_tag = RSResultData_Term,
+                       .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  RSQueryTerm *term = IndexResult_QueryTermRef(&rec);
-  term = NULL;
-  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(&rec);
   if (ent->vw) {
-    RSOffsetVector_SetData(offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
+    rec.data.term.borrowed.offsets.data = VVW_GetByteData(ent->vw);
+    rec.data.term.borrowed.offsets.len = VVW_GetByteLength(ent->vw);
   }
   return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }

@@ -21,12 +21,12 @@ fn test_encode_full() {
     // Test cases for the full encoder and decoder.
     let tests = [
         // (delta, frequency, field mask, term offsets vector, expected encoding)
-        (0, 1, 1, vec![1i8, 2, 3], vec![0, 0, 1, 1, 3, 1, 2, 3]),
+        (0, 1, 1, vec![1u8, 2, 3], vec![0, 0, 1, 1, 3, 1, 2, 3]),
         (
             10,
             5,
             u32::MAX as t_fieldMask,
-            vec![1i8, 2, 3, 4],
+            vec![1u8, 2, 3, 4],
             vec![48, 10, 5, 255, 255, 255, 255, 4, 1, 2, 3, 4],
         ),
         (256, 1, 1, vec![1, 2, 3], vec![1, 0, 1, 1, 1, 3, 1, 2, 3]),
@@ -70,7 +70,7 @@ fn test_encode_full() {
     for (delta, freq, field_mask, offsets, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
 
-        let record = TestTermRecord::new(doc_id, field_mask, freq, offsets);
+        let record = TestTermRecord::new(doc_id, field_mask, freq, &offsets);
 
         let bytes_written =
             Full::encode(&mut buf, delta, &record.record).expect("to encode freqs only record");
@@ -99,12 +99,12 @@ fn test_encode_full_wide() {
     // Test cases for the full wide encoder and decoder.
     let tests = [
         // (delta, frequency, field mask, term offsets vector, expected encoding)
-        (0, 1, 1, vec![1i8, 2, 3], vec![0, 0, 1, 3, 1, 1, 2, 3]),
+        (0, 1, 1, vec![1u8, 2, 3], vec![0, 0, 1, 3, 1, 1, 2, 3]),
         (
             10,
             5,
             u32::MAX as t_fieldMask,
-            vec![1i8, 2, 3, 4],
+            vec![1u8, 2, 3, 4],
             vec![0, 10, 5, 4, 142, 254, 254, 254, 127, 1, 2, 3, 4],
         ),
         (256, 1, 1, vec![1, 2, 3], vec![1, 0, 1, 1, 3, 1, 1, 2, 3]),
@@ -165,7 +165,7 @@ fn test_encode_full_wide() {
     for (delta, freq, field_mask, offsets, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
 
-        let record = TestTermRecord::new(doc_id, field_mask, freq, offsets);
+        let record = TestTermRecord::new(doc_id, field_mask, freq, &offsets);
 
         let bytes_written =
             FullWide::encode(&mut buf, delta, &record.record).expect("to encode freqs only record");
@@ -195,7 +195,7 @@ fn test_encode_full_field_mask_overflow() {
     let buf = [0u8; 100];
     let mut cursor = Cursor::new(buf);
 
-    let record = TestTermRecord::new(10, u32::MAX as t_fieldMask + 1, 1, vec![1]);
+    let record = TestTermRecord::new(10, u32::MAX as t_fieldMask + 1, 1, &[1]);
     let _res = Full::encode(&mut cursor, 0, &record.record);
 }
 
@@ -204,7 +204,7 @@ fn test_encode_full_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 3];
     let mut cursor = Cursor::new(buf);
-    let record = TestTermRecord::new(10, 1, 1, vec![1]);
+    let record = TestTermRecord::new(10, 1, 1, &[1]);
 
     let res = Full::encode(&mut cursor, 0, &record.record);
     assert_eq!(res.is_err(), true);
@@ -290,7 +290,7 @@ fn test_seek_full() {
     let found =
         Full::seek(&mut buf, 10, 30, &mut record_decoded).expect("to decode freqs offsets record");
 
-    let record_expected = TestTermRecord::new(30, 13, 3, vec![5i8, 6, 7, 8]);
+    let record_expected = TestTermRecord::new(30, 13, 3, &[5u8, 6, 7, 8]);
 
     assert!(found);
     assert_eq!(
@@ -301,7 +301,7 @@ fn test_seek_full() {
     let found =
         Full::seek(&mut buf, 30, 40, &mut record_decoded).expect("to decode freqs offsets record");
 
-    let record_expected = TestTermRecord::new(55, 4, 9, vec![20i8, 21]);
+    let record_expected = TestTermRecord::new(55, 4, 9, &[20u8, 21]);
 
     assert!(found);
     assert_eq!(
@@ -337,7 +337,7 @@ fn test_seek_full_wide() {
     let found =
         FullWide::seek(&mut buf, 10, 30, &mut record_decoded).expect("to decode full record");
 
-    let record_expected = TestTermRecord::new(30, 13, 3, vec![5i8, 6, 7, 8]);
+    let record_expected = TestTermRecord::new(30, 13, 3, &[5u8, 6, 7, 8]);
 
     assert!(found);
     assert_eq!(
@@ -348,7 +348,7 @@ fn test_seek_full_wide() {
     let found =
         FullWide::seek(&mut buf, 30, 40, &mut record_decoded).expect("to decode full record");
 
-    let record_expected = TestTermRecord::new(55, 4, 9, vec![20i8, 21]);
+    let record_expected = TestTermRecord::new(55, 4, 9, &[20u8, 21]);
 
     assert!(found);
     assert_eq!(

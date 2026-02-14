@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData, TermDecoder};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetSlice, RSResultData, TermDecoder};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -86,9 +86,9 @@ pub fn decode_term_record_offsets<'index>(
     // borrow the offsets vector from the cursor
     let start = cursor.position() as usize;
     let end = start + offsets_sz as usize;
-    let data = {
-        let offsets = cursor.get_ref();
-        if end > offsets.len() {
+    let offsets = {
+        let buf = cursor.get_ref();
+        if end > buf.len() {
             // record wrongly claims to have `offsets_sz` offsets but the actual array is shorter.
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
@@ -96,13 +96,11 @@ pub fn decode_term_record_offsets<'index>(
             ));
         }
         // SAFETY: We just checked that `end` is in bound.
-        let offsets = unsafe { offsets.get_unchecked(start..end) };
-        offsets.as_ptr() as *mut _
+        let sub_slice = unsafe { buf.get_unchecked(start..end) };
+        RSOffsetSlice::from_slice(sub_slice)
     };
 
     cursor.set_position(end as u64);
-
-    let offsets = RSOffsetVector::with_data(data, offsets_sz);
 
     result.doc_id = base + delta as t_docId;
     result.field_mask = field_mask;

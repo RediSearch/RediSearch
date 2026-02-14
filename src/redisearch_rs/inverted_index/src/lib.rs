@@ -17,12 +17,6 @@ pub mod reader;
 #[doc(hidden)]
 pub mod test_utils;
 
-// Re-export codec submodules at crate root for backward compatibility.
-pub use codec::{
-    doc_ids_only, fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full,
-    numeric, offsets_only, raw_doc_ids_only,
-};
-
 // Re-export codec traits at crate root.
 pub use codec::*;
 
@@ -34,8 +28,9 @@ pub use gc::{GcApplyInfo, GcScanDelta};
 
 // Re-export result types.
 pub use index_result::{
-    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
-    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord, ResultMetrics_Reset_func,
+    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetSlice, RSOffsetVector,
+    RSQueryTerm, RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
+    ResultMetrics_Reset_func,
 };
 
 // Re-export reader types.

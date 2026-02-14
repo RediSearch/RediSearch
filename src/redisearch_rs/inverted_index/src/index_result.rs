@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{alloc::Layout, ffi::c_char, fmt::Debug, marker::PhantomData, ptr};
+use std::{alloc::Layout, fmt::Debug, marker::PhantomData, ptr};
 
 use enumflags2::{BitFlags, bitflags};
 use ffi::{
@@ -49,35 +49,55 @@ unsafe extern "C" {
     unsafe fn RSYieldableMetrics_Clone(src: *mut RSYieldableMetric) -> *mut RSYieldableMetric;
 }
 
-/// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
-/// over it with RSIndexResult_IterateOffsets
+/// Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
+/// iterating over it with RSIndexResult_IterateOffsets.
+///
+/// This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
+/// Use [`RSOffsetVector`] for owned offset data.
 #[repr(C)]
-#[derive(PartialEq, Eq)]
-pub struct RSOffsetVector<'index> {
-    /// At this point the data ownership is still managed by the caller.
-    // TODO: switch to a Cow once the caller code has been ported to Rust.
-    pub data: *mut c_char,
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct RSOffsetSlice<'index> {
+    /// Pointer to the borrowed offset data.
+    pub data: *mut u8,
     pub len: u32,
-    /// data may be borrowed from the reader.
-    /// The data pointer does not allow lifetime so use a PhantomData to carry the lifetime for it instead.
+    /// The data pointer does not carry a lifetime, so use a `PhantomData` to track it instead.
     _phantom: PhantomData<&'index ()>,
 }
 
-impl Debug for RSOffsetVector<'_> {
+impl Debug for RSOffsetSlice<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.data.is_null() {
-            return write!(f, "RSOffsetVector(null)");
+            return write!(f, "RSOffsetSlice(null)");
         }
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
         let offsets =
-            unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
+            unsafe { std::slice::from_raw_parts(self.data.cast_const(), self.len as usize) };
 
-        write!(f, "RSOffsetVector {offsets:?}")
+        write!(f, "RSOffsetSlice {offsets:?}")
     }
 }
 
-impl RSOffsetVector<'_> {
-    /// Create a new, empty offset vector ready to receive data
+impl<'index> RSOffsetSlice<'index> {
+    /// Create an offset slice borrowing from the given byte slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bytes.len() > u32::MAX as usize`.
+    pub fn from_slice(bytes: &'index [u8]) -> Self {
+        assert!(
+            bytes.len() <= u32::MAX as usize,
+            "offset slice length exceeds u32::MAX"
+        );
+        Self {
+            data: bytes.as_ptr().cast_mut(),
+            len: bytes.len() as u32,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl RSOffsetSlice<'_> {
+    /// Create a new, empty offset slice.
     pub const fn empty() -> Self {
         Self {
             data: ptr::null_mut(),
@@ -86,39 +106,22 @@ impl RSOffsetVector<'_> {
         }
     }
 
-    /// Create a new offset vector with the given data pointer and length.
-    pub const fn with_data(data: *mut c_char, len: u32) -> Self {
-        Self {
-            data,
-            len,
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Free the data inside this offset
-    ///
-    /// # Safety
-    /// The caller must ensure that the `data` pointer was allocated using [`Self::to_owned()`].
-    pub fn free_data(&mut self) {
+    /// Return the offset data as a byte slice.
+    pub const fn as_bytes(&self) -> &[u8] {
         if self.data.is_null() {
-            return;
+            &[]
+        } else {
+            // SAFETY: We checked that data is not NULL and `len` is guaranteed to be a valid
+            // length for the data pointer.
+            unsafe { std::slice::from_raw_parts(self.data, self.len as usize) }
         }
-
-        let layout = Layout::array::<c_char>(self.len as usize).unwrap();
-        // SAFETY: Caller is to ensure data has been allocated via the global allocator
-        // and points to an array matching the length of `offsets`.
-        unsafe { std::alloc::dealloc(self.data.cast(), layout) };
-
-        self.data = std::ptr::null_mut();
-        self.len = 0;
     }
 
-    /// Create an owned copy of this offset vector, allocating new memory for the data. This data
-    /// should be freed using [`Self::free_data()`].
-    pub fn to_owned(&self) -> RSOffsetVector<'static> {
+    /// Create an owned copy of this offset slice, allocating new memory for the data.
+    pub fn to_owned(&self) -> RSOffsetVector {
         let data = if self.len > 0 {
             debug_assert!(!self.data.is_null(), "data must not be null");
-            let layout = Layout::array::<c_char>(self.len as usize).unwrap();
+            let layout = Layout::array::<u8>(self.len as usize).unwrap();
             // SAFETY: we just checked that len > 0
             let data = unsafe { std::alloc::alloc(layout).cast() };
             // SAFETY:
@@ -137,7 +140,73 @@ impl RSOffsetVector<'_> {
         RSOffsetVector {
             data,
             len: self.len,
-            _phantom: PhantomData,
+        }
+    }
+}
+
+/// Owned encoded offsets of a term in a document.
+///
+/// This type owns the data and will free it on drop. Use [`RSOffsetSlice`] for borrowed offset
+/// data.
+///
+/// The `#[repr(C)]` layout is identical to [`RSOffsetSlice`] (minus the zero-sized `PhantomData`),
+/// so a `&RSOffsetVector` can be safely cast to `&RSOffsetSlice<'_>`.
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+pub struct RSOffsetVector {
+    /// Pointer to the owned offset data, allocated via the global allocator.
+    pub data: *mut u8,
+    pub len: u32,
+}
+
+impl Debug for RSOffsetVector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.data.is_null() {
+            return write!(f, "RSOffsetVector(null)");
+        }
+        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+        let offsets =
+            unsafe { std::slice::from_raw_parts(self.data.cast_const(), self.len as usize) };
+
+        write!(f, "RSOffsetVector {offsets:?}")
+    }
+}
+
+impl RSOffsetVector {
+    /// Create a new, empty offset vector.
+    pub const fn empty() -> Self {
+        Self {
+            data: ptr::null_mut(),
+            len: 0,
+        }
+    }
+
+    /// Return a borrowed view of this owned offset vector.
+    pub const fn as_slice(&self) -> &RSOffsetSlice<'_> {
+        // SAFETY: `RSOffsetVector` and `RSOffsetSlice` have identical `#[repr(C)]` layout
+        // (data: *mut u8, len: u32). The trailing `PhantomData` in `RSOffsetSlice` is
+        // zero-sized and doesn't affect layout.
+        unsafe { &*(ptr::from_ref(self) as *const RSOffsetSlice<'_>) }
+    }
+
+    /// Return the offset data as a byte slice.
+    pub const fn as_bytes(&self) -> &[u8] {
+        if self.data.is_null() {
+            &[]
+        } else {
+            // SAFETY: We checked that data is not NULL and `len` is guaranteed to be a valid
+            // length for the data pointer.
+            unsafe { std::slice::from_raw_parts(self.data, self.len as usize) }
+        }
+    }
+}
+
+impl Drop for RSOffsetVector {
+    fn drop(&mut self) {
+        if !self.data.is_null() {
+            let layout = Layout::array::<u8>(self.len as usize).unwrap();
+            // SAFETY: Data was allocated via the global allocator with the matching layout.
+            unsafe { std::alloc::dealloc(self.data, layout) };
         }
     }
 }
@@ -153,7 +222,7 @@ pub enum RSTermRecord<'index> {
         /// The encoded offsets in which the term appeared in the document
         ///
         /// A decoder can choose to borrow this data from the index block, hence the `'index` lifetime.
-        offsets: RSOffsetVector<'index>,
+        offsets: RSOffsetSlice<'index>,
     },
     Owned {
         /// The term that brought up this record.
@@ -164,8 +233,8 @@ pub enum RSTermRecord<'index> {
 
         /// The encoded offsets in which the term appeared in the document
         ///
-        /// The owned version will make a copy of the offsets data, hence that `'static` lifetime.
-        offsets: RSOffsetVector<'static>,
+        /// The owned version owns a copy of the offsets data, which is freed on drop.
+        offsets: RSOffsetVector,
     },
 }
 
@@ -177,28 +246,22 @@ impl PartialEq for RSTermRecord<'_> {
 
 impl Eq for RSTermRecord<'_> {}
 
-impl Drop for RSTermRecord<'_> {
-    fn drop(&mut self) {
-        if let RSTermRecord::Owned { offsets, .. } = self {
-            offsets.free_data();
-        }
-        // Borrowed: Option<Box<RSQueryTerm>> drops automatically.
-    }
-}
+// No manual Drop needed — `RSOffsetSlice` is `Copy` (no-op drop) and `RSOffsetVector`
+// implements `Drop` to free its data. The compiler-generated drop does the right thing.
 
 impl<'index> RSTermRecord<'index> {
     /// Create a new term record without term pointer and offsets.
     pub const fn new() -> Self {
         Self::Borrowed {
             term: None,
-            offsets: RSOffsetVector::empty(),
+            offsets: RSOffsetSlice::empty(),
         }
     }
 
     /// Create a new borrowed term record with the given term and offsets.
     pub const fn with_term(
         term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetVector<'index>,
+        offsets: RSOffsetSlice<'index>,
     ) -> RSTermRecord<'index> {
         Self::Borrowed { term, offsets }
     }
@@ -208,18 +271,11 @@ impl<'index> RSTermRecord<'index> {
         matches!(self, RSTermRecord::Owned { .. })
     }
 
-    /// Get the offsets of this term record.
+    /// Get the offsets of this term record as a byte slice.
     pub const fn offsets(&self) -> &[u8] {
-        let offsets = match self {
-            RSTermRecord::Borrowed { offsets, .. } => offsets,
-            RSTermRecord::Owned { offsets, .. } => offsets,
-        };
-
-        if offsets.data.is_null() {
-            &[]
-        } else {
-            // SAFETY: We checked that data is not NULL and `len` is guaranteed to be a valid length for the data pointer.
-            unsafe { std::slice::from_raw_parts(offsets.data as *const u8, offsets.len as usize) }
+        match self {
+            RSTermRecord::Borrowed { offsets, .. } => offsets.as_bytes(),
+            RSTermRecord::Owned { offsets, .. } => offsets.as_bytes(),
         }
     }
 
@@ -246,36 +302,21 @@ impl<'index> RSTermRecord<'index> {
                 .query_term()
                 .map_or(ptr::null_mut(), |t| ptr::from_ref(t).cast_mut()),
             offsets: match self {
-                RSTermRecord::Borrowed { offsets, .. } | RSTermRecord::Owned { offsets, .. } => {
-                    offsets.to_owned()
-                }
+                RSTermRecord::Borrowed { offsets, .. } => offsets.to_owned(),
+                RSTermRecord::Owned { offsets, .. } => offsets.as_slice().to_owned(),
             },
         }
     }
 
     /// Set the offsets of this term record, replacing any existing offsets.
-    pub fn set_offsets(&mut self, offsets: RSOffsetVector<'index>) {
+    pub fn set_offsets(&mut self, offsets: RSOffsetSlice<'index>) {
         match self {
             RSTermRecord::Borrowed { offsets: o, .. } => {
                 *o = offsets;
             }
             RSTermRecord::Owned { offsets: o, .. } => {
-                o.free_data();
+                // Assign the new owned copy; the old value is auto-dropped, freeing old data.
                 *o = offsets.to_owned();
-            }
-        }
-    }
-}
-
-impl RSTermRecord<'static> {
-    /// Clear the offsets of this term record, freeing the memory used by the offsets.
-    pub fn clear_offsets(&mut self) {
-        match self {
-            RSTermRecord::Borrowed { .. } => {
-                panic!("Cannot clear offsets of a borrowed term record");
-            }
-            RSTermRecord::Owned { offsets, .. } => {
-                offsets.free_data();
             }
         }
     }
@@ -746,7 +787,7 @@ impl<'index> RSIndexResult<'index> {
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub const fn with_term(
         term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetVector<'index>,
+        offsets: RSOffsetSlice<'index>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
         freq: u32,
@@ -909,20 +950,6 @@ impl<'index> RSIndexResult<'index> {
     /// `None`.
     pub const fn as_term(&self) -> Option<&RSTermRecord<'index>> {
         match &self.data {
-            RSResultData::Term(term) => Some(term),
-            RSResultData::Union(_)
-            | RSResultData::Intersection(_)
-            | RSResultData::Virtual
-            | RSResultData::Numeric(_)
-            | RSResultData::Metric(_)
-            | RSResultData::HybridMetric(_) => None,
-        }
-    }
-
-    /// Get this record as a mutable term record if possible. If the record is not a term,
-    /// returns `None`.
-    pub const fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
-        match &mut self.data {
             RSResultData::Term(term) => Some(term),
             RSResultData::Union(_)
             | RSResultData::Intersection(_)
