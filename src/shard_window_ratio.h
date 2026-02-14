@@ -98,8 +98,9 @@ void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK,
  * @param cmd The MRCommand to modify
  * @param kArgIndex Index of the K value argument in cmd (as returned by MRCommand_appendVsim)
  * @param effectiveK The calculated effective K value for shards
+ * @param originalK The original K value from the VectorQuery
  */
-void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK);
+void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK, size_t originalK);
 
 #ifdef __cplusplus
 }

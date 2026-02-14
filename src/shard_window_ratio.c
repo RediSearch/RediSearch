@@ -52,11 +52,11 @@ void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK,
     MRCommand_ReplaceArgSubstring(cmd, query_arg_index, k_pos, k_len, effectiveK_str, newK_len);
 }
 
-void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK) {
-    if (kArgIndex < 0) {
-        return;  // No KNN K argument to modify
+void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK, size_t originalK) {
+    // Fast path: No modification needed if K values are the same
+    if (originalK == effectiveK) {
+        return;
     }
-
     char effectiveK_str[32];
     size_t newK_len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
     MRCommand_ReplaceArg(cmd, kArgIndex, effectiveK_str, newK_len);

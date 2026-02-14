@@ -257,7 +257,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     double shardWindowRatio = vq->knn.shardWindowRatio;
     if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO && numShards > 1) {
       size_t effectiveK = calculateEffectiveK(vq->knn.k, shardWindowRatio, numShards);
-      modifyVsimKNN(xcmd, kArgIndex, effectiveK);
+      modifyVsimKNN(xcmd, kArgIndex, effectiveK, vq->knn.k);
     }
   }
 
