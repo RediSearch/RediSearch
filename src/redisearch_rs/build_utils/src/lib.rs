@@ -15,10 +15,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Return the root folder of the project containing the `.git` directory.
-pub fn git_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+/// Return the root folder of the repository.
+pub fn repository_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     let mut path = std::env::current_dir()?;
-    while !path.join(".git").exists() {
+    // Jujutsu (`jj`) doesn't colocate with `git` when using `jj workspace add`,
+    // so looking for `.git` won't be enough.
+    while !(path.join(".git").exists() || path.join(".jj").exists()) {
         path = path
             .parent()
             .ok_or("Could not find git root")?
@@ -71,7 +73,7 @@ pub fn run_cbindgen(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::er
     // emit `rerun-if-changed` for all the headers files referenced by the config as well
     if let Some(include) = &config.parse.include {
         for included_crate in include.iter() {
-            let path = git_root()?
+            let path = repository_root()?
                 .join("src")
                 .join("redisearch_rs")
                 .join(included_crate);
@@ -129,7 +131,8 @@ fn link_redisearch_all() {
         // If one is not provided (e.g. `cargo` has been invoked directly), we look
         // for a release build of the static library in the conventional location
         // for the bin directory.
-        let root = git_root().expect("Could not find git root for static library linking");
+        let root =
+            repository_root().expect("Could not find repository root for static library linking");
         let target_arch = match env::var("CARGO_CFG_TARGET_ARCH").ok().as_deref() {
             Some("x86_64") | None => "x64".to_owned(),
             Some(a) => a.to_owned(),
@@ -189,7 +192,8 @@ pub fn generate_c_bindings(
     headers: Vec<PathBuf>,
     allowlist_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let root = git_root().expect("Could not find git root for static library linking");
+    let root =
+        repository_root().expect("Could not find repository root for static library linking");
 
     let includes = vec![
         root.join("deps").join("RedisModulesSDK"),

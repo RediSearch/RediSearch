@@ -10,10 +10,11 @@
 use std::env;
 use std::path::PathBuf;
 
-use build_utils::{git_root, rerun_if_c_changes};
+use build_utils::{repository_root, rerun_if_c_changes};
 
 fn main() {
-    let root = git_root().expect("Could not find git root for static library linking");
+    let root =
+        repository_root().expect("Could not find repository root for static library linking");
 
     // Construct the correct folder path based on OS and architecture
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
