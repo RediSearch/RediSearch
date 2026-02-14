@@ -631,6 +631,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "query_term",
  "workspace_hack",
 ]
 
@@ -907,6 +908,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "query_term",
  "redis_reply",
  "serde",
  "smallvec",
@@ -924,6 +926,7 @@ dependencies = [
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
+ "query_term",
  "redis-module",
  "redis_mock",
  "workspace_hack",
@@ -1460,6 +1463,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "query_term"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_term_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "query_term",
+ "workspace_hack",
+]
+
+[[package]]
 name = "quote"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1621,6 +1642,7 @@ dependencies = [
  "iterators_ffi",
  "module_init_ffi",
  "query_error_ffi",
+ "query_term_ffi",
  "quote 1.0.44",
  "redis-module",
  "result_processor_ffi",
@@ -1772,6 +1794,8 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "query_error",
+ "query_term",
+ "query_term_ffi",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
@@ -1797,6 +1821,7 @@ dependencies = [
  "inverted_index_ffi",
  "iterators_ffi",
  "itertools 0.14.0",
+ "query_term",
  "rand",
  "redis_mock",
  "redisearch_rs",

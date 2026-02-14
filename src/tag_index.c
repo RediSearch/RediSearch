@@ -19,7 +19,6 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 #include "iterators/inverted_index_iterator.h"
-#include "index_result/query_term/query_term.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

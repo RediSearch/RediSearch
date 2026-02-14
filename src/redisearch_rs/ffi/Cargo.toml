@@ -31,4 +31,5 @@ workspace = true
 
 [dependencies]
 document.workspace = true
+query_term.workspace = true
 workspace_hack.workspace = true

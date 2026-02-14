@@ -11,6 +11,7 @@ use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
     RSAggregateResult, RSIndexResult, RSOffsetVector, RSResultKind, RSResultKindMask,
 };
+use query_term::RSQueryTerm;
 
 #[test]
 fn pushing_to_aggregate_result() {
@@ -175,21 +176,14 @@ fn to_owned_a_virtual_index_result() {
 
 #[test]
 fn to_owned_a_term_index_result() {
-    const TEST_STR: &str = "test_term";
-    let test_str_ptr = TEST_STR.as_ptr() as *mut _;
-    let mut term = ffi::RSQueryTerm {
-        str_: test_str_ptr,
-        len: TEST_STR.len(),
-        idf: 1.0,
-        id: 2,
-        flags: 3,
-        bm25_idf: 4.0,
-    };
+    let mut term = RSQueryTerm::new("test_term".as_bytes(), 2, 3);
+    term.bm25_idf = 4.0;
+    term.idf = 1.0;
 
     let mut offsets: [i8; 1] = [0];
     let offsets = RSOffsetVector::with_data(offsets.as_mut_ptr() as _, offsets.len() as _);
 
-    let ir = RSIndexResult::term_with_term_ptr(&mut term, offsets, 7, 1, 1);
+    let ir = RSIndexResult::with_term(Some(term), offsets, 7, 1, 1);
     let mut ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
