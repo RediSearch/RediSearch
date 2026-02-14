@@ -31,7 +31,7 @@ include = ["enumflags2", "inverted_index", "query_term", "thin_vec", "field"]
 
 [export]
 # Don't re-export types that are already defined in other generated headers
-exclude = ["Header_u16", "RSQueryTerm", "RSTokenFlags"]
+exclude = ["Header_u16", "RSQueryTerm", "RSTokenFlags", "RSOffsetVector"]
 include = ["BlockSummary", "Summary", "ReadFilter", "FieldMaskOrIndex", "FieldExpirationPredicate", "FieldFilterContext"]
 
 [export.rename]
@@ -42,3 +42,5 @@ include = ["BlockSummary", "Summary", "ReadFilter", "FieldMaskOrIndex", "FieldEx
 "BlockSummary" = "IIBlockSummary"
 "Summary" = "IISummary"
 "ReadFilter" = "IndexDecoderCtx"
+# Rename RSOffsetSlice → RSOffsetVector in the C header so the C-side struct name stays unchanged
+"RSOffsetSlice" = "RSOffsetVector"
