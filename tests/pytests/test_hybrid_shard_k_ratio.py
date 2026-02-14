@@ -190,7 +190,6 @@ def test_shard_k_ratio_duplicate():
     query_vec = create_np_array_typed([2.0] * 2)
 
     # Test duplicate SHARD_K_RATIO
-    # Note: The parser handles the second SHARD_K_RATIO as an unknown argument
     res = env.expect('FT.HYBRID', 'idx', '2', 'SEARCH', 'hello',
                      'VSIM', '@v', '$BLOB',
                         'KNN', '6', 'K', '5', 'SHARD_K_RATIO', '0.5',

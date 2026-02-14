@@ -100,7 +100,7 @@ rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(ConcurrentCmdCtx *cctx) {
   return cctx->coordStartTime;
 }
 
-size_t ConcurrentCmdCtx_GetNumShards(ConcurrentCmdCtx *cctx) {
+size_t ConcurrentCmdCtx_GetNumShards(const ConcurrentCmdCtx *cctx) {
   return cctx->numShards;
 }
 

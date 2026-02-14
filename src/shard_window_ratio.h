@@ -89,6 +89,18 @@ static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t 
  */
 void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK, VectorQuery *vq);
 
+/**
+ * Modify VSIM KNN K value in a built command.
+ *
+ * This function replaces the K value argument at the specified index with
+ * the calculated effective K value for shard distribution.
+ *
+ * @param cmd The MRCommand to modify
+ * @param kArgIndex Index of the K value argument in cmd (as returned by MRCommand_appendVsim)
+ * @param effectiveK The calculated effective K value for shards
+ */
+void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK);
+
 #ifdef __cplusplus
 }
 #endif

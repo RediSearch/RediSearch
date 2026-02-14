@@ -75,7 +75,7 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(struct ConcurrentCmdCtx *cctx);
 
 // Returns the number of shards captured from the main thread.
-size_t ConcurrentCmdCtx_GetNumShards(struct ConcurrentCmdCtx *cctx);
+size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,

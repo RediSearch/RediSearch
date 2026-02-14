@@ -498,13 +498,9 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
   // Check for optional YIELD_SCORE_AS detecting duplicate arguments
-  while (!AC_IsAtEnd(ac)) {
-    if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else {
-      break;  // Unknown argument, exit loop to continue with rest of parsing
+  while (!AC_IsAtEnd(ac) && AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+    if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
+      goto error;
     }
   }
 

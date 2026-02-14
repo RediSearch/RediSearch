@@ -51,3 +51,13 @@ void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK,
     // Replace just the K value substring at the exact position
     MRCommand_ReplaceArgSubstring(cmd, query_arg_index, k_pos, k_len, effectiveK_str, newK_len);
 }
+
+void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK) {
+    if (kArgIndex < 0) {
+        return;  // No KNN K argument to modify
+    }
+
+    char effectiveK_str[32];
+    size_t newK_len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
+    MRCommand_ReplaceArg(cmd, kArgIndex, effectiveK_str, newK_len);
+}
