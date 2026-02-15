@@ -765,8 +765,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
     return -1;
   }
 
-  // Suffix trie only supported in memory mode
-    if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+  if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
     tidx->suffix = NewTrieMap();
   }
 

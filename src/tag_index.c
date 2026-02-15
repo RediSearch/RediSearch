@@ -227,6 +227,10 @@ bool TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId,
       const char *tok = values[ii];
       if (tok) {
         TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
+
+        if (idx->suffix && (*tok != '\0')) {
+          addSuffixTrieMap(idx->suffix, tok, strlen(tok));
+        }
       }
     }
   } else {
