@@ -148,6 +148,21 @@ struct MockUpstream : public ResultProcessor {
   }
 };
 
+// Static dummy RedisSearchCtx for tests - reused across all tests
+// The context has skipTimeoutChecks set to true to avoid timeout checks in tests
+static RedisSearchCtx* GetDummySearchCtx() {
+  static RedisSearchCtx dummySctx = {
+    .redisCtx = NULL,
+    .key_ = NULL,
+    .spec = NULL,
+    .time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true},
+    .apiVersion = 0,
+    .expanded = 0,
+    .flags = RS_CTX_UNSET,
+  };
+  return &dummySctx;
+}
+
 // Helper function to create dummy RLookup context for tests
 HybridLookupContext* CreateDummyLookupContext(size_t numUpstreams) {
   HybridLookupContext *lookupCtx = (HybridLookupContext*)rm_calloc(1, sizeof(HybridLookupContext));
@@ -197,6 +212,7 @@ void CleanupDummyLookupContext(HybridLookupContext *lookupCtx) {
 }
 
 // Helper function to create hybrid merger with linear scoring
+// Note: Uses a static dummy RedisSearchCtx that is reused across tests
 ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights, HybridLookupContext *lookupCtx) {
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams, HYBRID_DEFAULT_WINDOW);
@@ -204,10 +220,14 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
 
-  return RPHybridMerger_New(NULL, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  RedisSearchCtx *sctx = GetDummySearchCtx();
+
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
 }
 
 // Helper function to create hybrid merger with RRF scoring
+// Note: Uses a static dummy RedisSearchCtx that is reused across tests
 ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double constant, size_t window, HybridLookupContext *lookupCtx) {
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewRRF(constant, window, false);
@@ -215,7 +235,10 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
 
-  return RPHybridMerger_New(NULL, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  RedisSearchCtx *sctx = GetDummySearchCtx();
+
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
 }
 
 
@@ -1438,7 +1461,10 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   // Create dummy lookup context
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
 
-  ResultProcessor *hybridMerger = RPHybridMerger_New(NULL, hybridScoringCtx, upstreams, 3, NULL, NULL, returnCodes, lookupCtx);
+  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  RedisSearchCtx *sctx = GetDummySearchCtx();
+
+  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, NULL, NULL, returnCodes, lookupCtx);
 
   // Process results - this should capture the return codes
   SearchResult r = SearchResult_New();

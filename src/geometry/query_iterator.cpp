@@ -35,7 +35,7 @@ IteratorStatus CPPQueryIterator::read_single() noexcept {
 }
 
 IteratorStatus CPPQueryIterator::read() noexcept {
-  uint32_t timeoutCounter = 0;
+  uint32_t timeoutCounter = initTimeoutCounter_;
   IteratorStatus rc = ITERATOR_OK;
   do {
     if (TimedOut_WithCounter(&sctx_->time.timeout, &timeoutCounter)) {

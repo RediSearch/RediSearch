@@ -705,8 +705,10 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  // Create a mock context for timeout configuration
+  MockQueryEvalCtx mockQctx(max_id, max_id);
   // Run simple top k query.
-  HybridIteratorParams hParams = {.sctx=NULL,
+  HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
                                   .index = index,
                                   .dim = d,
                                   .elementType = t,
@@ -743,7 +745,6 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Test in hybrid mode.
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  MockQueryEvalCtx mockQctx(max_id, max_id);
   QueryIterator *ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, nullptr, 1);
   hParams.childIt = ir;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
@@ -1519,8 +1520,10 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   // Mock the WILDCARD_ITERATOR consideration
   QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
 
+  // Create a mock context for timeout configuration
+  MockQueryEvalCtx mockQctx(max_id, max_id);
   HybridIteratorParams hParams = {
-    .sctx = NULL,
+    .sctx = &mockQctx.sctx,
     .index = NULL,
     .dim = d,
     .elementType = VecSimType_FLOAT32,
