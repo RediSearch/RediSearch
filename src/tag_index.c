@@ -259,26 +259,6 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
   return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
 }
 
-// Helper: Get iterator for a specific tag (exact match)
-// In disk mode: calls disk API directly
-// In memory mode: looks up InvertedIndex in TrieMap
-QueryIterator *TagIndex_GetIteratorForTag(TagIndex *idx, const RedisSearchCtx *sctx,
-                                          const char *tag, size_t len,
-                                          double weight, t_fieldIndex fieldIndex) {
-  if (idx->diskSpec) {
-    // DISK MODE: Direct disk API call
-    RSToken tok = {.str = (char *)tag, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, 0, fieldIndex, weight);
-  }
-
-  // MEMORY MODE: Look up in TrieMap
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)tag, len);
-  if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
-    return NULL;
-  }
-  return TagIndex_GetReader(idx, sctx, iv, tag, len, weight, fieldIndex);
-}
-
 // Helper: Get iterator from TrieMap iterator value
 // In disk mode: ptr is ignored, calls disk API with tag string
 // In memory mode: ptr is InvertedIndex*, uses it directly
@@ -307,8 +287,18 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
     return NULL;
   }
 
-  // Use the unified helper function
-  return TagIndex_GetIteratorForTag(idx, sctx, value, len, weight, fieldIndex);
+  if (idx->diskSpec) {
+    // DISK MODE: Direct disk API call
+    RSToken tok = {.str = (char *)value, .len = len};
+    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, 0, fieldIndex, weight);
+  }
+
+  // MEMORY MODE: Look up in TrieMap
+  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
+  if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
+    return NULL;
+  }
+  return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex);
 }
 
 /* Open the tag index */

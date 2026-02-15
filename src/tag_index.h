@@ -144,12 +144,6 @@ bool TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId,
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex);
 
-/* Get iterator for a specific tag (exact match)
- * Handles both disk and memory modes internally */
-QueryIterator *TagIndex_GetIteratorForTag(TagIndex *idx, const RedisSearchCtx *sctx,
-                                          const char *tag, size_t len,
-                                          double weight, t_fieldIndex fieldIndex);
-
 /* Get iterator from TrieMap iterator value
  * In disk mode: ptr is ignored, calls disk API with tag string
  * In memory mode: ptr is InvertedIndex*, uses it directly */
