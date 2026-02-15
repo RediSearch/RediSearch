@@ -80,9 +80,14 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 }
 
 // Index API wrappers
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
+bool SearchDisk_IndexText(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
     RS_ASSERT(disk && index);
-    return disk->index.indexDocument(index, term, termLen, docId, fieldMask, freq);
+    return disk->index.indexText(index, term, termLen, docId, fieldMask, freq);
+}
+
+bool SearchDisk_IndexTags(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index);
+    return disk->index.indexTags(index, values, numValues, docId, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
@@ -91,6 +96,19 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     term->idf = idf;
     term->bm25_idf = bm25_idf;
     QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight);
+    if (!it) {
+        Term_Free(term);
+    }
+    return it;
+}
+
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldIndex fieldIndex, double weight) {
+    RS_ASSERT(disk && index && tok);
+    RSQueryTerm *term = NewQueryTerm(tok, tokenId);
+    // Tags don't use IDF scoring, so we set them to 0
+    term->idf = 0.0;
+    term->bm25_idf = 0.0;
+    QueryIterator *it = disk->index.newTagIterator(index, term, fieldIndex, weight);
     if (!it) {
         Term_Free(term);
     }

@@ -341,10 +341,15 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
+  // Right now we only collect tags from non-disk indexes
+  if (sctx->spec->diskSpec) {
+    FGC_sendTerminator(gc);
+    return;
+  }
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX);
+      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX, sctx->spec->diskSpec);
       if (!tagIdx) {
         continue;
       }
@@ -773,7 +778,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
     RS_LOG_ASSERT_FMT(fs, "tag field '%.*s' not found in index during GC", (int)fieldNameLen, fieldName);
-    tagIdx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+    tagIdx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
 
     if (tagIdx->uniqueId != tagUniqueId) {
