@@ -341,16 +341,15 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
+  // right now we only collect tags from non-disk indexes
+  if (sctx->spec->diskSpec) {
+    return;
+  }
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX, NULL);
+      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX, sctx->spec->diskSpec);
       if (!tagIdx) {
-        continue;
-      }
-
-      // Skip disk-mode tag indexes - GC not applicable (TrieMap contains NULL sentinels)
-      if (tagIdx->diskSpec) {
         continue;
       }
 
