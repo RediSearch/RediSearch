@@ -36,7 +36,9 @@ static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply
     const char *errorMessage = MRReply_String(rep, NULL);
     QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);
     QueryError error = QueryError_Default();
-    QueryError_SetError(&error, errCode, errorMessage);
+    // Shard reply already contains the prefixed error string — set directly.
+    QueryError_SetCode(&error, errCode);
+    QueryError_SetDetail(&error, errorMessage);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 

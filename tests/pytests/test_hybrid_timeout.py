@@ -41,6 +41,16 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
+def test_hybrid_debug_with_no_index_error():
+    """Test error when index does not exist"""
+    env = Env(enableDebugCommand=True)
+    env.expect(
+        '_FT.DEBUG', 'FT.HYBRID', 'nonexistent_idx',
+        'SEARCH', '*',
+        'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error()\
+        .contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent_idx')
+
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -48,13 +58,13 @@ def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -62,7 +72,7 @@ def test_debug_timeout_fail_both():
     """Test FAIL policy with both components timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -70,7 +80,7 @@ def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
-    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
+    env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 #TODO: remove skip once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -78,7 +88,7 @@ def test_debug_timeout_return_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
-    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
+    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
                        'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (POST PROCESSING)'], get_warnings(response))
 
@@ -89,7 +99,7 @@ def test_debug_timeout_return_search():
     """Test RETURN policy with search timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
-    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
+    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (SEARCH)'], get_warnings(response))
 
@@ -99,7 +109,7 @@ def test_debug_timeout_return_vsim():
     """Test RETURN policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
-    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
+    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
                        'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (VSIM)'], get_warnings(response))
 
@@ -109,7 +119,7 @@ def test_debug_timeout_return_both():
     """Test RETURN policy with both components timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
-    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 
+    response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
                        'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
     warnings = get_warnings(response)
     env.assertTrue('Timeout limit was reached (SEARCH)' in get_warnings(response))
@@ -133,8 +143,6 @@ def test_debug_timeout_return_with_results():
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
 
 # Warning and error tests
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_search_only():
     """Test max prefix expansions warning when only SEARCH component is affected"""
     env = Env(enableDebugCommand=True)
@@ -148,8 +156,6 @@ def test_maxprefixexpansions_warning_search_only():
                        '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_vsim_only():
     """Test max prefix expansions warning when only VSIM component is affected"""
     env = Env(enableDebugCommand=True)
@@ -163,8 +169,6 @@ def test_maxprefixexpansions_warning_vsim_only():
                        '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_both_components():
     """Test max prefix expansions warning when both SEARCH and VSIM components are affected"""
     env = Env(enableDebugCommand=True)
@@ -180,8 +184,6 @@ def test_maxprefixexpansions_warning_both_components():
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_tail_property_not_loaded_error():
     """Test error when tail pipeline references property not loaded nor in pipeline"""
     env = Env()
@@ -189,5 +191,4 @@ def test_tail_property_not_loaded_error():
     response = env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
                           '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
                           query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
-                          'AS', 'doubled_score').error().contains('Property `__score` not loaded nor in pipeline')
-
+                          'AS', 'doubled_score').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline: `__score`')
