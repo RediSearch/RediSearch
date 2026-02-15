@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::CStr;
-use std::ffi::c_char;
+use std::ffi::{CStr, CString, c_char};
 
 use c_ffi_utils::opaque::IntoOpaque;
 use query_error::{QueryError, opaque::OpaqueQueryError};
@@ -141,6 +140,11 @@ pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -
 
 /// Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
 ///
+/// The public message is stored as-is (for obfuscated display).
+/// The private message is stored with the error code prefix prepended
+/// (e.g. `"SEARCH_TIMEOUT: "` + message), so that Redis error stats
+/// can track errors by their unique prefix.
+///
 /// This does not mutate `query_error` if it already has an error set.
 ///
 /// # Panics
@@ -162,14 +166,21 @@ pub unsafe extern "C" fn QueryError_SetError(
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
     let code = QueryErrorCode::from_repr(code).expect("invalid query error code");
 
-    let message = if message.is_null() {
-        None
+    if message.is_null() {
+        query_error.set_code_and_message(code, None);
     } else {
         // Safety: see safety requirement above.
-        Some(unsafe { CStr::from_ptr(message) }.to_owned())
-    };
+        let msg = unsafe { CStr::from_ptr(message) };
+        let public_message = msg.to_owned();
 
-    query_error.set_code_and_message(code, message);
+        // Prepend the error prefix to form the private message.
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let msg_str = msg.to_str().unwrap_or("");
+        let prefixed = format!("{prefix}{msg_str}");
+        let private_message = CString::new(prefixed).unwrap_or_else(|_| public_message.clone());
+
+        query_error.set_code_and_messages(code, Some(public_message), Some(private_message));
+    };
 }
 
 /// Sets the [`QueryErrorCode`] for a [`QueryError`].

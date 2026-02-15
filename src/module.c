@@ -507,7 +507,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 static inline void ReplyWithQueryErrorNoDetail(RedisModuleCtx *ctx, QueryErrorCode code,
   const char *message) {
 QueryError status = QueryError_Default();
-QueryError_SetWithUserDataFmt(&status, code, message, "");
+QueryError_SetError(&status, code, message);
 (void)QueryError_ReplyAndClear(ctx, &status);
 }
 
@@ -969,7 +969,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    QueryError_SetWithUserDataFmt(error, QUERY_ERROR_CODE_NO_INDEX, "Unknown index name (or name is an alias itself)", "");
+    QueryError_SetError(error, QUERY_ERROR_CODE_NO_INDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
   }
 

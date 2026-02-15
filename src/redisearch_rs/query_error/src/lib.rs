@@ -527,6 +527,25 @@ impl QueryError {
         self.private_message = message;
     }
 
+    /// Sets code, public message, and private message independently.
+    /// The public message is for obfuscated display; the private message
+    /// (typically prefix + detail) is what gets sent to the client and
+    /// tracked by Redis error stats.
+    pub fn set_code_and_messages(
+        &mut self,
+        code: QueryErrorCode,
+        public_message: Option<CString>,
+        private_message: Option<CString>,
+    ) {
+        if !self.is_ok() {
+            return;
+        }
+
+        self.code = code;
+        self.public_message = public_message;
+        self.private_message = private_message;
+    }
+
     pub const fn warnings(&self) -> &Warnings {
         &self.warnings
     }

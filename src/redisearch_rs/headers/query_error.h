@@ -230,6 +230,11 @@ QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
 /**
  * Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
  *
+ * The public message is stored as-is (for obfuscated display).
+ * The private message is stored with the error code prefix prepended
+ * (e.g. `"SEARCH_TIMEOUT: "` + message), so that Redis error stats
+ * can track errors by their unique prefix.
+ *
  * This does not mutate `query_error` if it already has an error set.
  *
  * # Panics
