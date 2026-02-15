@@ -34,6 +34,10 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
+      build_redis:
+        type: boolean
+        default: false
+        description: "Build Redis from source (unstable branch)"
 
 jobs:
   benchmark-steps:
@@ -55,6 +59,43 @@ jobs:
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh
+
+      - name: TEMP early setup for redisbench-admin
+        run: |
+          pip3 install --upgrade pip
+          python3 -m pip install -r tests/benchmarks/requirements.txt
+      - name: print version info
+        env:
+          # Secrets
+          AWS_ACCESS_KEY_ID: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.PERFORMANCE_EC2_REGION }}
+          EC2_PRIVATE_PEM: ${{ secrets.PERFORMANCE_EC2_PRIVATE_PEM }}
+          PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
+          PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+        run: redisbench-admin run-remote --spin-test
+              --triggering_env ${{ inputs.triggering_env }}
+              --allowed-envs ${{ inputs.allowed_envs }}
+              --allowed-setups ${{ inputs.allowed_setups }}
+              --github_actor ${{ github.triggering_actor }}
+              --github_repo ${{ github.event.repository.name }}
+              --github_org ${{ github.repository_owner }}
+              --github_sha ${{ github.sha }}
+              --github_branch ${{ github.head_ref || github.ref_name }}
+              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
+              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
+              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+      - name: Get Redis
+        if: ${{ inputs.build_redis }}
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: unstable
+          path: redis
+      - name: Build Redis
+        if: ${{ inputs.build_redis }}
+        working-directory: redis
+        run: sudo make install BUILD_TLS=yes
 
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
@@ -107,6 +148,7 @@ jobs:
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
               --collect_search_memory True
+              ${{ inputs.build_redis && '--redis-server-binary /usr/local/bin/redis-server' || '' }}
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
