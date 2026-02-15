@@ -48,6 +48,18 @@ fn numeric_tiny_int() {
                 255,
             ],
         ),
+        (
+            0,
+            0.0,
+            1,
+            vec![0b000_00_000], // TINY type, value: 0, no delta bytes
+        ),
+        (
+            0,
+            -0.0,
+            1,
+            vec![0b000_00_000], // TINY type, value: 0, no delta bytes
+        ),
     ];
 
     for (delta, value, expected_bytes_written, expected_buffer) in inputs {
