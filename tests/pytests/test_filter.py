@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from includes import *
 from common import *
 from RLTest import Env
@@ -387,6 +385,7 @@ def testFilterWithAliasedFieldsMixedTypes(env):
     # Create HASH document with stat=active
     env.expect('HSET', 'hash1', 'stat', 'active', 'data', 'hello').equal(2)
 
-    # Verify HASH document is in hash_idx
+    # Verify HASH document is in hash_idx, i.e., there was no interference from
+    # json_idx
     res = env.cmd('FT.SEARCH', 'hash_idx', '*', 'NOCONTENT')
     env.assertEqual(res, [1, 'hash1'])
