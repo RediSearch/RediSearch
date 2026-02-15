@@ -221,7 +221,7 @@ def test_geo_index_failures(env):
 
     expected_error_dict = {
                             indexing_failures_str: 1,
-                            last_indexing_error_str: 'Invalid geo string',
+                            last_indexing_error_str: 'SEARCH_PARSE_ARGS: Invalid geo string',
                             last_indexing_error_key_str: 'doc{1}',
                           }
 

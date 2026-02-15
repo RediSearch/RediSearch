@@ -385,7 +385,7 @@ def _test_expose_score(env, idx):
     expected = [1, ['count', '1']]
     env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'FILTER', '@__score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
 
-    env.expect('FT.SEARCH', idx, '~hello', 'ADDSCORES').error().equal('ADDSCORES is not supported on FT.SEARCH')
+    env.expect('FT.SEARCH', idx, '~hello', 'ADDSCORES').error().equal('SEARCH_PARSE_ARGS: ADDSCORES is not supported on FT.SEARCH')
 
 def testExposeScore(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
