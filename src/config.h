@@ -146,11 +146,6 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
     // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
   unsigned int indexerYieldEveryOpsWhileLoading;
-  // Sleep duration in microseconds during background indexing. We sleep periodically
-  // (every `numBGIndexingIterationsBeforeSleep` iterations) to allow the main thread
-  // to acquire the GIL and process commands.
-  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
-  uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
@@ -257,7 +252,6 @@ void UpgradeDeprecatedMTConfigs();
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
-#define DEFAULT_BG_INDEX_SLEEP_DURATION_US 1
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
 #define DEFAULT_SHARD_WINDOW_RATIO 1.0
@@ -317,7 +311,6 @@ void UpgradeDeprecatedMTConfigs();
     .hideUserDataFromLog = false,                                               \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,        \
-    .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
   }
