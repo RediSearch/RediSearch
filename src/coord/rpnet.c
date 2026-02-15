@@ -553,8 +553,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
           errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
           ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
           ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
-        // We need to pass the reply string as the error message, since the error code might be generic
-        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
+        // The shard reply already contains the prefixed error string — set it directly
+        // without re-prefixing via QueryError_SetError.
+        QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
+        QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err, MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
       } else {
         // Handle shards returning error unexpectedly

@@ -3304,7 +3304,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
       const char *errStr = MRReply_String(curr_rep, NULL);
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
       if (should_return_error(errCode)) {
-        QueryError_SetError(MRCtx_GetStatus(mc), errCode, errStr);
+        // Shard reply already contains the prefixed error string — set directly.
+        QueryError_SetCode(MRCtx_GetStatus(mc), errCode);
+        QueryError_SetDetail(MRCtx_GetStatus(mc), errStr);
         goto unblock_client;
       }
     }
