@@ -623,6 +623,12 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
+  // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (tagIndex->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
+    goto end;
+  }
+
   TrieMapIterator *iter = TrieMap_Iterate(tagIndex->values);
 
   char *tag;
@@ -1158,6 +1164,12 @@ DEBUG_COMMAND(InfoTagIndex) {
   // Field was not initialized yet
   if (!idx) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    goto end;
+  }
+
+  // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (idx->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
