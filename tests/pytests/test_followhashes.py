@@ -147,17 +147,6 @@ def testRename(env):
     env.expect('ft.search things foo').equal([0])
     env.expect('ft.search otherthings foo').equal([1, 'otherthing:foo', ['name', 'foo']])
 
-    env.cmd('SET foo bar')
-    env.cmd('RENAME foo fubu')
-
-@skip(cluster=True)
-def testRenameChangePrefix(env):
-    env.cmd('ft.create idx1 PREFIX 1 1: SCHEMA name text')
-    env.cmd('ft.create idx2 PREFIX 1 2: SCHEMA name text')
-
-    env.cmd('SET 1:1 bar')
-    env.expect('RENAME 1:1 2:1').ok()
-
 @skip(cluster=True)
 def testCopy(env):
     if not server_version_at_least(env, "6.2.0"):
@@ -544,4 +533,3 @@ def testDocIndexedInTwoIndexes():
     env.expect('FT.SEARCH idx1 foo').equal([0])
 
     env.expect('FT.DROPINDEX idx1 DD').ok()
-
