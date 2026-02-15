@@ -187,7 +187,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       break;
 
     case change_cmd:
@@ -201,7 +201,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (kType == DocumentType_Unsupported) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
       } else {
         // todo: here we will open the key again, we can optimize it by
         //       somehow passing the key pointer
