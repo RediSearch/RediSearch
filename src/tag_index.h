@@ -16,6 +16,7 @@
 #include "geo_index.h"
 #include "vector_index.h"
 #include "indexer.h"
+#include "search_disk_api.h"
 
 struct InvertedIndex;
 
@@ -106,10 +107,18 @@ typedef struct TagIndex {
   uint32_t uniqueId;
   TrieMap *values;
   TrieMap *suffix;
+
+  // Disk mode support: diskSpec != NULL means disk mode
+  // In disk mode, TrieMap values contains NULL sentinels instead of InvertedIndex pointers
+  RedisSearchDiskIndexSpec *diskSpec;  // NULL for memory mode, non-NULL for disk mode
+  t_fieldIndex fieldIndex;            // Field index (needed for disk API calls)
 } TagIndex;
 
-/* Create a new tag index*/
-TagIndex *NewTagIndex();
+/* Create a new tag index
+ * @param diskSpec NULL for memory mode, non-NULL for disk mode
+ * @param fieldIndex Field index for disk API calls
+ */
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex);
 
 void TagIndex_Free(TagIndex *index);
 
@@ -133,8 +142,44 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex);
 
-/* Open the tag index key in redis */
-TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing);
+/* Get iterator for a specific tag (exact match)
+ * Handles both disk and memory modes internally */
+QueryIterator *TagIndex_GetIteratorForTag(TagIndex *idx, const RedisSearchCtx *sctx,
+                                          const char *tag, size_t len,
+                                          double weight, t_fieldIndex fieldIndex);
+
+/* Get iterator from TrieMap iterator value
+ * In disk mode: ptr is ignored, calls disk API with tag string
+ * In memory mode: ptr is InvertedIndex*, uses it directly */
+QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
+                                                    const char *tag, size_t len, void *ptr,
+                                                    double weight, t_fieldIndex fieldIndex);
+
+/* Collect iterators from TrieMap iteration
+ * Used by prefix, wildcard (brute-force), and lexrange queries
+ * @param filter Optional filter function, returns true to include the tag
+ * @param filterCtx Context passed to filter function */
+size_t TagIndex_CollectIteratorsFromTrieMap(TagIndex *idx, const RedisSearchCtx *sctx,
+                                            TrieMapIterator *it,
+                                            QueryIterator ***its, size_t *itsCap,
+                                            double weight, t_fieldIndex fieldIndex,
+                                            bool (*filter)(const char *, size_t, void *),
+                                            void *filterCtx);
+
+/* Collect iterators from tag string array
+ * Used by suffix trie results */
+size_t TagIndex_CollectIteratorsFromTagArray(TagIndex *idx, const RedisSearchCtx *sctx,
+                                             const char **tags, size_t numTags,
+                                             QueryIterator ***its, size_t *itsCap,
+                                             double weight, t_fieldIndex fieldIndex,
+                                             size_t maxExpansions);
+
+/* Open the tag index
+ * @param spec Field spec for the tag field
+ * @param create_if_missing Whether to create the index if it doesn't exist
+ * @param diskSpec NULL for memory mode, non-NULL for disk mode
+ */
+TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing, RedisSearchDiskIndexSpec *diskSpec);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.

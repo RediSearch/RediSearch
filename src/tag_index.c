@@ -30,11 +30,13 @@ static uint32_t tagUniqueId = 0;
 // Tags are limited to 4096 each
 #define MAX_TAG_LEN 0x1000
 /* See tag_index.h for documentation  */
-TagIndex *NewTagIndex() {
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex) {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   idx->uniqueId = tagUniqueId++;
   idx->suffix = NULL;
+  idx->diskSpec = diskSpec;
+  idx->fieldIndex = fieldIndex;
   return idx;
 }
 
@@ -213,6 +215,22 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 /* Index a vector of pre-processed tags for a docId */
 size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId) {
   if (!values) return 0;
+
+  if (idx->diskSpec) {
+    // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel
+    SearchDisk_IndexTags(idx->diskSpec, values, n, docId, idx->fieldIndex);
+
+    // Also populate TrieMap with NULL sentinels for tag enumeration
+    for (size_t ii = 0; ii < n; ++ii) {
+      const char *tok = values[ii];
+      if (tok) {
+        TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
+      }
+    }
+    return 0;  // Size tracking not meaningful for disk
+  }
+
+  // MEMORY MODE: Current implementation
   size_t ret = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
@@ -235,37 +253,124 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
   return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
 }
 
+// Helper: Get iterator for a specific tag (exact match)
+// In disk mode: calls disk API directly
+// In memory mode: looks up InvertedIndex in TrieMap
+QueryIterator *TagIndex_GetIteratorForTag(TagIndex *idx, const RedisSearchCtx *sctx,
+                                          const char *tag, size_t len,
+                                          double weight, t_fieldIndex fieldIndex) {
+  if (idx->diskSpec) {
+    // DISK MODE: Direct disk API call
+    RSToken tok = {.str = (char *)tag, .len = len};
+    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, 0, fieldIndex, weight);
+  }
+
+  // MEMORY MODE: Look up in TrieMap
+  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)tag, len);
+  if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
+    return NULL;
+  }
+  return TagIndex_GetReader(idx, sctx, iv, tag, len, weight, fieldIndex);
+}
+
+// Helper: Get iterator from TrieMap iterator value
+// In disk mode: ptr is ignored, calls disk API with tag string
+// In memory mode: ptr is InvertedIndex*, uses it directly
+QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
+                                                    const char *tag, size_t len, void *ptr,
+                                                    double weight, t_fieldIndex fieldIndex) {
+  if (idx->diskSpec) {
+    // DISK MODE: Use tag string to query disk
+    RSToken tok = {.str = (char *)tag, .len = len};
+    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, 0, fieldIndex, weight);
+  }
+
+  // MEMORY MODE: Use InvertedIndex from TrieMap
+  InvertedIndex *iv = (InvertedIndex *)ptr;
+  if (!iv || InvertedIndex_NumDocs(iv) == 0) {
+    return NULL;
+  }
+  return TagIndex_GetReader(idx, sctx, iv, tag, len, weight, fieldIndex);
+}
+
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex) {
-
-  // Check if we're using disk storage
-  if (sctx && sctx->spec && sctx->spec->diskSpec) {
-    // Create token and call disk API
-    RSToken tok = {.str = (char *)value, .len = len};
-    // For tags, we use tokenId 0
-    return SearchDisk_NewTagIterator(sctx->spec->diskSpec, &tok, 0, fieldIndex, weight);
-  }
-
-  // In-memory mode - idx must not be NULL
   if (!idx) {
     return NULL;
   }
 
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
-    return NULL;
-  }
-  return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex);
+  // Use the unified helper function
+  return TagIndex_GetIteratorForTag(idx, sctx, value, len, weight, fieldIndex);
 }
 
+// Helper: Collect iterators from TrieMap iteration
+// Used by prefix, wildcard (brute-force), and lexrange queries
+size_t TagIndex_CollectIteratorsFromTrieMap(TagIndex *idx, const RedisSearchCtx *sctx,
+                                            TrieMapIterator *it,
+                                            QueryIterator ***its, size_t *itsCap,
+                                            double weight, t_fieldIndex fieldIndex,
+                                            bool (*filter)(const char *, size_t, void *),
+                                            void *filterCtx) {
+  size_t itsSz = 0;
+  char *s;
+  tm_len_t slen;
+  void *ptr;
+
+  while (TrieMapIterator_Next(it, &s, &slen, &ptr)) {
+    // Apply filter if provided
+    if (filter && !filter(s, slen, filterCtx)) {
+      continue;
+    }
+
+    // Use helper function to get iterator
+    QueryIterator *ret = TagIndex_GetIteratorFromTrieMapValue(idx, sctx, s, slen, ptr,
+                                                              weight, fieldIndex);
+    if (!ret) continue;
+
+    // Grow array if needed
+    if (itsSz >= *itsCap) {
+      *itsCap *= 2;
+      *its = rm_realloc(*its, (*itsCap) * sizeof(**its));
+    }
+    (*its)[itsSz++] = ret;
+  }
+
+  return itsSz;
+}
+
+// Helper: Collect iterators from tag string array
+// Used by suffix trie results
+size_t TagIndex_CollectIteratorsFromTagArray(TagIndex *idx, const RedisSearchCtx *sctx,
+                                             const char **tags, size_t numTags,
+                                             QueryIterator ***its, size_t *itsCap,
+                                             double weight, t_fieldIndex fieldIndex,
+                                             size_t maxExpansions) {
+  size_t itsSz = 0;
+
+  for (size_t i = 0; i < numTags && itsSz < maxExpansions; ++i) {
+    // Use helper function to get iterator
+    QueryIterator *ret = TagIndex_GetIteratorForTag(idx, sctx, tags[i],
+                                                    strlen(tags[i]), weight, fieldIndex);
+    if (!ret) continue;
+
+    // Grow array if needed
+    if (itsSz >= *itsCap) {
+      *itsCap *= 2;
+      *its = rm_realloc(*its, (*itsCap) * sizeof(**its));
+    }
+    (*its)[itsSz++] = ret;
+  }
+
+  return itsSz;
+}
 
 /* Open the tag index */
-TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing) {
+TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing, RedisSearchDiskIndexSpec *diskSpec) {
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
   if (!spec->tagOpts.tagIndex && create_if_missing) {
-    spec->tagOpts.tagIndex = NewTagIndex();
+    spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index);
   }
   return spec->tagOpts.tagIndex;
 }
@@ -297,7 +402,7 @@ void TagIndex_Free(TagIndex *idx) {
 
 size_t TagIndex_GetOverhead(FieldSpec *fs) {
   size_t overhead = 0;
-  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
     if (idx->suffix) {

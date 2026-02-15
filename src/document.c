@@ -759,29 +759,18 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  // Check if we're using disk storage
-  if (ctx->spec->diskSpec) {
-    // Index tags using disk API
-    if (!SearchDisk_IndexTags(ctx->spec->diskSpec, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, fs->index)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not index tags in disk storage");
-      return -1;
-    }
-    // TODO: Handle suffix trie for disk mode if needed
-    // For now, suffix trie is only supported in memory mode
-    ctx->spec->stats.numRecords++;
-    return 0;
-  }
-
-  // In-memory indexing
-  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX);
+  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX, ctx->spec->diskSpec);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;
   }
-  if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+
+  // Suffix trie only supported in memory mode
+  if (!ctx->spec->diskSpec && FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
     tidx->suffix = NewTrieMap();
   }
 
+  // TagIndex_Index handles both disk and memory modes internally
   ctx->spec->stats.invertedSize +=
       TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
   ctx->spec->stats.numRecords++;

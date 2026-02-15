@@ -624,6 +624,8 @@ typedef struct {
   QueryEvalCtx *q;
   QueryNodeOptions *opts;
   double weight;
+  // For tag queries: needed to support disk mode via helpers
+  TagIndex *tagIdx;
 } TrieCallbackCtx;
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm);
@@ -774,6 +776,18 @@ static void rangeItersAddIterator(TrieCallbackCtx *ctx, QueryIterator *it) {
 static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
+
+  // For tag queries with disk mode support, use the TagIndex helper
+  if (ctx->tagIdx) {
+    QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->tagIdx, q->sctx, r, n, invidx,
+                                                             ctx->weight, ctx->opts->fieldIndex);
+    if (ir) {
+      rangeItersAddIterator(ctx, ir);
+    }
+    return;
+  }
+
+  // Memory mode for regular term queries (not tag queries)
   RSToken tok = {0};
   tok.str = (char *)r;
   tok.len = n;
@@ -1167,12 +1181,12 @@ static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, bool caseSensitive) {
-  TrieMap *t = idx->values;
-  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
-
-  if (!t) {
+  if (!idx || !idx->values) {
     return NULL;
   }
+
+  TrieMap *t = idx->values;
+  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
 
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
@@ -1429,16 +1443,14 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_ASSERT(qn->type == QN_TAG);
   QueryTagNode *node = &qn->tag;
 
-  // For disk mode, we don't have an in-memory TagIndex, so pass NULL
-  // The disk check will be done in TagIndex_OpenReader
-  TagIndex *idx = NULL;
-  if (!q->sctx->spec->diskSpec) {
-    idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX);
-    if (!idx) {
-      // There are no documents to traverse.
-      return NULL;
-    }
+  // Open the TagIndex - in disk mode it contains sentinel values for tag enumeration
+  // In memory mode it contains InvertedIndex pointers
+  TagIndex *idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX, q->sctx->spec->diskSpec);
+  if (!idx) {
+    // There are no documents to traverse.
+    return NULL;
   }
+
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
     return query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, node->fs);
