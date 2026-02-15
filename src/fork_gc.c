@@ -341,8 +341,9 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
-  // right now we only collect tags from non-disk indexes
+  // Right now we only collect tags from non-disk indexes
   if (sctx->spec->diskSpec) {
+    FGC_sendTerminator(gc);
     return;
   }
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
