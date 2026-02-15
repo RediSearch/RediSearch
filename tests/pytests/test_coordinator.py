@@ -166,7 +166,11 @@ def test_index_missing_on_one_shard(env):
                 .error().contains(error_msg)
     # FT.TAGVALS: query the shard directly (not via coordinator) to ensure we hit
     # the shard where the index is missing, avoiding non-deterministic fanout behavior.
-    env.expect(first_conn, 'FT.TAGVALS', index_name, 'n').error().contains(error_msg)
+    try:
+        first_conn.execute_command('_FT.TAGVALS', index_name, 'n')
+        env.assertTrue(False, message="TAGVALS should have failed with index not found")
+    except Exception as e:
+        env.assertContains(error_msg, str(e))
     env.expect('FT.MGET', index_name, 'doc1').error().contains(error_msg)
     env.expect('FT.DROP', index_name).error().contains(error_msg)
 
