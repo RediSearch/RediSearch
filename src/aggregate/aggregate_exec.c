@@ -1157,7 +1157,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
     // We claimed it - reply with timeout error
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    atomic_store_explicit(&req->replying, false, memory_order_release);
+    // We shouldn't clear the replying flag in this case to avoid a race with the background thread
   } else {
     // Background thread is replying - wait for it to finish
     while (atomic_exchange_explicit(&req->replying, true, memory_order_acq_rel)) {
