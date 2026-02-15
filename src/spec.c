@@ -3903,7 +3903,6 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   TrieMapResultBuf_Free(prefixes);
 
   if (runFilters) {
-
     EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
       SpecOpCtx *specOp = res->specsOps + i;
@@ -3914,10 +3913,13 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 
       // load hash only if required
       if (!r) r = EvalCtx_Create();
+      // We load the data from the `keyToReadData` key, which is the key the old
+      // key was changed to, since the old key is already deleted.
+      key_p = RedisModule_StringPtrLen(keyToReadData, NULL);
       RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
-      if (EvalCtx_EvalExpr(r, spec->rule->filter_exp) == EXPR_EVAL_OK) {
-        if (!RSValue_BoolTest(r->res) && dictFind(specs, spec->specName)) {
+      if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
+        if (dictFind(specs, spec->specName)) {
           specOp->op = SpecOp_Del;
         }
       }

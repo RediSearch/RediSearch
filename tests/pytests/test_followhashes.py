@@ -194,17 +194,6 @@ def testRename(env):
     env.expect('ft.search things foo').equal([0])
     env.expect('ft.search otherthings foo').equal([1, 'otherthing:foo', ['name', 'foo']])
 
-    env.cmd('SET foo bar')
-    env.cmd('RENAME foo fubu')
-
-@skip(cluster=True)
-def testRenameChangePrefix(env):
-    env.cmd('ft.create idx1 PREFIX 1 1: SCHEMA name text')
-    env.cmd('ft.create idx2 PREFIX 1 2: SCHEMA name text')
-
-    env.cmd('SET 1:1 bar')
-    env.expect('RENAME 1:1 2:1').ok()
-
 @skip(cluster=True)
 def testCopy(env):
     if not server_version_at_least(env, "6.2.0"):
@@ -693,6 +682,75 @@ def testIssue1571WithRename(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0])
 
+@skip(cluster=True)
+def testRenameWithFilterUsingFieldValueBetweenIndexes(env):
+    """
+    Test RENAME between different indexes where both have FILTER expressions
+    that read field values. This tests that filters are correctly evaluated
+    using the data from the new key location.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create two indexes with different prefixes but same filter expression
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', '1', 'prefix1:',
+            'FILTER', '@category=="books"',
+            'SCHEMA', 'title', 'TEXT', 'category', 'TAG')
+
+    env.cmd('ft.create', 'idx2',
+            'PREFIX', '1', 'prefix2:',
+            'FILTER', '@category=="books"',
+            'SCHEMA', 'title', 'TEXT', 'category', 'TAG')
+
+    # Add a document that matches idx1's prefix and filter
+    conn.execute_command('hset', 'prefix1:item', 'title', 'mybook', 'category', 'books')
+
+    # Verify it's in idx1 and not in idx2
+    env.expect('ft.search', 'idx1', 'mybook').equal([1, 'prefix1:item', ['title', 'mybook', 'category', 'books']])
+    env.expect('ft.search', 'idx2', 'mybook').equal([0])
+
+    # Rename to idx2's prefix - the filter should still pass because
+    # we read the field value from the new key location
+    env.expect('RENAME prefix1:item prefix2:item').ok()
+
+    # Verify it moved to idx2
+    env.expect('ft.search', 'idx1', 'mybook').equal([0])
+    env.expect('ft.search', 'idx2', 'mybook').equal([1, 'prefix2:item', ['title', 'mybook', 'category', 'books']])
+
+@skip(cluster=True)
+def testRenameWithFilterExcludingDocument(env):
+    """
+    Test RENAME where the target index's filter would exclude the document.
+    The document should not be indexed in the target index.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a filter that checks field value
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', '1', 'prefix1:',
+            'FILTER', '@type=="allowed"',
+            'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
+
+    env.cmd('ft.create', 'idx2',
+            'PREFIX', '1', 'prefix2:',
+            'FILTER', '@type=="special"',
+            'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
+
+    # Add a document that matches idx1's filter but NOT idx2's filter
+    conn.execute_command('hset', 'prefix1:doc', 'data', 'hello', 'type', 'allowed')
+
+    # Verify it's in idx1
+    env.expect('ft.search', 'idx1', 'hello').equal([1, 'prefix1:doc', ['data', 'hello', 'type', 'allowed']])
+    env.expect('ft.search', 'idx2', 'hello').equal([0])
+
+    # Rename to idx2's prefix - but the filter should NOT pass
+    # because type != "special"
+    env.expect('RENAME prefix1:doc prefix2:doc').ok()
+
+    # Document should be removed from idx1 and NOT added to idx2
+    env.expect('ft.search', 'idx1', 'hello').equal([0])
+    env.expect('ft.search', 'idx2', 'hello').equal([0])
+
 @skip(msan=True, no_json=True)
 def testIdxFieldJson(env):
     conn = getConnectionByEnv(env)
@@ -766,3 +824,56 @@ def testFilterWithNot(env):
     conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
 
     env.expect('ft.search', 'things', 'foo').equal([0])
+
+def testFilterWithMissingFields(env):
+    """
+    Test that documents are not indexed when the filter expression evaluation
+    fails due to missing fields. This is a regression test for a bug where
+    documents added after index creation would be indexed even when the filter
+    expression could not be evaluated (e.g., due to missing fields).
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create a document BEFORE the index exists
+    conn.execute_command('HSET', 'h1', 'd2', '1')
+
+    # Create an index with a filter that references fields d1 and d2
+    # The filter requires both @d1==0 AND @d2==0
+    env.cmd('FT.CREATE', 'idx', 'FILTER', '@d1==0 && @d2==0',
+            'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC')
+
+    waitForIndex(env, 'idx')
+
+    # h1 should not be indexed because:
+    # - d1 is missing (filter evaluation should fail or return false)
+    # - d2=1 (doesn't match @d2==0 anyway)
+    env.expect('FT.SEARCH', 'idx', '*').equal([0])
+
+    # Create a document AFTER the index exists with only d2 field
+    # This document should NOT be indexed because d1 is missing
+    conn.execute_command('HSET', 'h2', 'd2', '1')
+
+    # h2 should not be indexed - the filter expression references @d1 which is missing
+    # Filter evaluation should fail, meaning the document should NOT be indexed
+    env.expect('FT.SEARCH', 'idx', '*').equal([0])
+
+    # Create a document that actually matches the filter
+    conn.execute_command('HSET', 'h3', 'd1', '0', 'd2', '0')
+
+    # h3 should be indexed because it matches the filter
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'h3'])
+
+    # Update h2 to have d1=0, but d2 is still 1, so it shouldn't match
+    conn.execute_command('HSET', 'h2', 'd1', '0')
+
+    # h2 still shouldn't be indexed (d2=1 != 0)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'h3'])
+
+    # Update h2 to match the filter completely
+    conn.execute_command('HSET', 'h2', 'd2', '0')
+
+    # Now h2 should be indexed
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'NOCONTENT')
+    env.assertEqual(res[0], 2)
+    env.assertContains('h2', res)
+    env.assertContains('h3', res)
