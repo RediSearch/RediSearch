@@ -128,16 +128,493 @@ TEST_F(HNSWDiskTest, AddVectorStoresVectorsCorrectly) {
     EXPECT_LT(dist, 3.0f); // Reasonable range for L2 distance
 }
 
-TEST_F(HNSWDiskTest, TopKQueryStub) {
+// =============================================================================
+// topKQuery Tests
+// =============================================================================
+
+TEST_F(HNSWDiskTest, TopKQueryEmptyIndex) {
     TestIndex<float, float> index(DIM);
 
     float query[DIM] = {1.0f, 1.0f, 1.0f, 1.0f};
     auto* reply = index->topKQuery(query, 10, nullptr);
 
     ASSERT_NE(reply, nullptr);
-    // Stub returns empty results
     EXPECT_EQ(reply->results.size(), 0);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
     delete reply;
+}
+
+TEST_F(HNSWDiskTest, TopKQueryKZero) {
+    TestIndex<float, float> index(DIM);
+
+    // Add a vector first
+    float vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    EXPECT_EQ(index->addVector(vec, 100), 1);
+
+    // Query with k=0 should return empty results
+    float query[DIM] = {1.0f, 1.0f, 1.0f, 1.0f};
+    auto* reply = index->topKQuery(query, 0, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->results.size(), 0);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    delete reply;
+}
+
+TEST_F(HNSWDiskTest, TopKQueryBasic) {
+    TestIndex<float, float> index(DIM);
+
+    // Add 5 vectors: each progressively closer to our query [4, 0, 0, 0]
+    // vec0 = [0, 0, 0, 0] -> L2 dist to query = 16
+    // vec1 = [1, 0, 0, 0] -> L2 dist to query = 9
+    // vec2 = [2, 0, 0, 0] -> L2 dist to query = 4
+    // vec3 = [3, 0, 0, 0] -> L2 dist to query = 1
+    // vec4 = [4, 0, 0, 0] -> L2 dist to query = 0
+    float vectors[5][DIM] = {{0.0f, 0.0f, 0.0f, 0.0f},
+                             {1.0f, 0.0f, 0.0f, 0.0f},
+                             {2.0f, 0.0f, 0.0f, 0.0f},
+                             {3.0f, 0.0f, 0.0f, 0.0f},
+                             {4.0f, 0.0f, 0.0f, 0.0f}};
+    labelType labels[5] = {100, 101, 102, 103, 104};
+
+    for (int i = 0; i < 5; i++) {
+        EXPECT_EQ(index->addVector(vectors[i], labels[i]), 1);
+    }
+    EXPECT_EQ(index->indexSize(), 5);
+
+    // Query for 3 nearest neighbors to [4, 0, 0, 0]
+    float query[DIM] = {4.0f, 0.0f, 0.0f, 0.0f};
+    auto* reply = index->topKQuery(query, 3, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), 3);
+
+    // Results should be sorted by score (ascending) - closest first
+    // Expected order: 104 (dist~0), 103 (dist~1), 102 (dist~4)
+    // Note: Due to SQ8 quantization, distances may not be exact
+    EXPECT_EQ(reply->results[0].id, 104); // Closest
+    EXPECT_EQ(reply->results[1].id, 103); // Second closest
+    EXPECT_EQ(reply->results[2].id, 102); // Third closest
+
+    // Verify scores are in ascending order
+    for (size_t i = 1; i < reply->results.size(); i++) {
+        EXPECT_LE(reply->results[i - 1].score, reply->results[i].score)
+            << "Results should be sorted by score in ascending order";
+    }
+
+    delete reply;
+}
+
+TEST_F(HNSWDiskTest, TopKQueryScoreOrdering) {
+    TestIndex<float, float> index(DIM);
+
+    // Add 10 vectors in a line
+    for (int i = 0; i < 10; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        EXPECT_EQ(index->addVector(vec, 1000 + i), 1);
+    }
+
+    // Query at position [5, 0, 0, 0]
+    float query[DIM] = {5.0f, 0.0f, 0.0f, 0.0f};
+    auto* reply = index->topKQuery(query, 10, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), 10);
+
+    // Verify all results have scores in ascending order
+    for (size_t i = 1; i < reply->results.size(); i++) {
+        EXPECT_LE(reply->results[i - 1].score, reply->results[i].score)
+            << "Result " << i - 1 << " (score=" << reply->results[i - 1].score << ") should be <= result " << i
+            << " (score=" << reply->results[i].score << ")";
+    }
+
+    delete reply;
+}
+
+TEST_F(HNSWDiskTest, TopKQueryTimeout) {
+    TestIndex<float, float> index(DIM);
+
+    // Add enough vectors to ensure we have upper layers (so greedySearchLevel is called)
+    // With M=16 (default), we typically need ~20+ vectors to get multiple levels
+    for (int i = 0; i < 50; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        EXPECT_EQ(index->addVector(vec, 100 + i), 1);
+    }
+
+    // Verify we have at least one upper layer (maxLevel > 0)
+    // This ensures greedySearchLevel will be called during query
+    auto entryPointState = index->testGetEntryPointState();
+    // Note: with 50 vectors we very likely have at least 1 upper layer,
+    // but if not, the timeout might not trigger in searchBottomLayerEP
+
+    // Set timeout callback to always timeout
+    VecSim_SetTimeoutCallbackFunction([](void* ctx) { return 1; }); // Always times out
+
+    float query[DIM] = {25.0f, 0.0f, 0.0f, 0.0f};
+    auto* reply = index->topKQuery(query, 10, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    // Timeout should occur during greedySearchLevel (upper layer traversal)
+    // If level == 0, timeout is only checked in searchLayer which currently
+    // doesn't have timeout checking (Phase 2 enhancement)
+    // entryPointState.level is the max level of the entry point
+    if (entryPointState.level > 0) {
+        EXPECT_EQ(reply->code, VecSim_QueryReply_TimedOut);
+        EXPECT_EQ(reply->results.size(), 0);
+    }
+    // Note: If level == 0, timeout won't be detected during query traversal
+    // This is a known limitation to be addressed in Phase 2
+
+    delete reply;
+
+    // Cleanup: reset timeout callback
+    VecSim_SetTimeoutCallbackFunction([](void* ctx) { return 0; });
+}
+
+// =============================================================================
+// Phase 2: Reranking Tests
+// =============================================================================
+
+TEST_F(HNSWDiskTest, TopKQueryRerankEnabled) {
+    // Create index with rerank=true
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10, /*rerank=*/true);
+
+    // Add some vectors
+    std::vector<float> vec1(DIM, 0.0f);
+    std::vector<float> vec2(DIM, 1.0f);
+    std::vector<float> vec3(DIM, 2.0f);
+
+    EXPECT_EQ(index->addVector(vec1.data(), 100), 1);
+    EXPECT_EQ(index->addVector(vec2.data(), 200), 1);
+    EXPECT_EQ(index->addVector(vec3.data(), 300), 1);
+    EXPECT_EQ(index->indexSize(), 3);
+
+    // Query with a vector close to vec1
+    std::vector<float> query(DIM, 0.1f);
+    auto* reply = index->topKQuery(query.data(), 3, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), 3);
+
+    // Results should be sorted by ascending score (closest first)
+    // With reranking, distances are recomputed using FP32 vectors from disk
+    EXPECT_EQ(reply->results[0].id, 100); // Closest to query
+    EXPECT_LT(reply->results[0].score, reply->results[1].score);
+    EXPECT_LT(reply->results[1].score, reply->results[2].score);
+
+    delete reply;
+}
+
+TEST_F(HNSWDiskTest, TopKQueryRerankDisabled) {
+    // Create index with rerank=false (default)
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10, /*rerank=*/false);
+
+    // Add some vectors
+    std::vector<float> vec1(DIM, 0.0f);
+    std::vector<float> vec2(DIM, 1.0f);
+    std::vector<float> vec3(DIM, 2.0f);
+
+    EXPECT_EQ(index->addVector(vec1.data(), 100), 1);
+    EXPECT_EQ(index->addVector(vec2.data(), 200), 1);
+    EXPECT_EQ(index->addVector(vec3.data(), 300), 1);
+
+    // Query with a vector close to vec1
+    std::vector<float> query(DIM, 0.1f);
+    auto* reply = index->topKQuery(query.data(), 3, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), 3);
+
+    // Results should still be sorted by ascending score
+    // Without reranking, distances use SQ8 quantized vectors
+    EXPECT_EQ(reply->results[0].id, 100); // Closest to query
+    EXPECT_LT(reply->results[0].score, reply->results[1].score);
+    EXPECT_LT(reply->results[1].score, reply->results[2].score);
+
+    delete reply;
+}
+
+TEST_F(HNSWDiskTest, TopKQueryRerankVsNoRerank) {
+    // This test verifies that reranking produces correct FP32 distances and ordering,
+    // and that the scores differ from non-reranked (SQ8) scores.
+    //
+    // To ensure quantization error, we use vectors with a large range and fractional values
+    // that don't quantize cleanly. With range [0, 1000], delta = 1000/255 ≈ 3.92,
+    // so values like 100.7 quantize to round((100.7-0)/3.92) = 26, which dequantizes to
+    // 26 * 3.92 = 101.92, introducing ~1.2 error per dimension.
+
+    TestIndex<float, float> indexNoRerank(DIM, VecSimMetric_L2, 16, 200, 10, /*rerank=*/false);
+    TestIndex<float, float> indexRerank(DIM, VecSimMetric_L2, 16, 200, 10, /*rerank=*/true);
+
+    // Vectors with fractional values and large range to maximize quantization error
+    std::vector<float> vecA = {0.0f, 100.7f, 200.3f, 1000.0f}; // range 0-1000, delta≈3.92
+    std::vector<float> vecB = {0.0f, 150.2f, 250.8f, 1000.0f}; // range 0-1000, delta≈3.92
+    std::vector<float> vecC = {0.0f, 500.5f, 600.1f, 1000.0f}; // range 0-1000, delta≈3.92
+
+    // Add to both indexes
+    indexNoRerank->addVector(vecA.data(), 100);
+    indexNoRerank->addVector(vecB.data(), 200);
+    indexNoRerank->addVector(vecC.data(), 300);
+
+    indexRerank->addVector(vecA.data(), 100);
+    indexRerank->addVector(vecB.data(), 200);
+    indexRerank->addVector(vecC.data(), 300);
+
+    // Query with fractional values
+    std::vector<float> query = {0.0f, 105.3f, 205.9f, 1000.0f};
+
+    // True L2 squared distances:
+    //   to vecA: (4.6)^2 + (5.6)^2 = 21.16 + 31.36 = 52.52
+    //   to vecB: (44.9)^2 + (44.9)^2 = 2016.01 + 2016.01 = 4032.02
+    //   to vecC: (395.2)^2 + (394.2)^2 = 156183.04 + 155393.64 = 311576.68
+
+    auto* replyNoRerank = indexNoRerank->topKQuery(query.data(), 3, nullptr);
+    auto* replyRerank = indexRerank->topKQuery(query.data(), 3, nullptr);
+
+    ASSERT_NE(replyNoRerank, nullptr);
+    ASSERT_NE(replyRerank, nullptr);
+    EXPECT_EQ(replyNoRerank->results.size(), 3);
+    EXPECT_EQ(replyRerank->results.size(), 3);
+
+    // Both should return results in correct order (closest first)
+    EXPECT_EQ(replyRerank->results[0].id, 100) << "Reranked: First should be vecA (label 100)";
+    EXPECT_EQ(replyRerank->results[1].id, 200) << "Reranked: Second should be vecB (label 200)";
+    EXPECT_EQ(replyRerank->results[2].id, 300) << "Reranked: Third should be vecC (label 300)";
+
+    // KEY TEST: Verify the reranked scores are EXACT FP32 L2 distances
+    EXPECT_NEAR(replyRerank->results[0].score, 52.52f, 0.01f);
+    EXPECT_NEAR(replyRerank->results[1].score, 4032.02f, 0.1f);
+    EXPECT_NEAR(replyRerank->results[2].score, 311576.68f, 1.0f);
+
+    // Verify that reranked and non-reranked scores are different
+    // The SQ8 quantization with delta≈3.92 should introduce noticeable error
+    bool scoresAreDifferent = false;
+    for (size_t i = 0; i < 3; i++) {
+        float diff = std::abs(replyRerank->results[i].score - replyNoRerank->results[i].score);
+        if (diff > 0.001f) {
+            scoresAreDifferent = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(scoresAreDifferent) << "Reranked and non-reranked scores should differ due to quantization";
+
+    // Verify both return same ordering (both should find correct neighbors)
+    EXPECT_EQ(replyNoRerank->results[0].id, replyRerank->results[0].id);
+    EXPECT_EQ(replyNoRerank->results[1].id, replyRerank->results[1].id);
+    EXPECT_EQ(replyNoRerank->results[2].id, replyRerank->results[2].id);
+
+    delete replyNoRerank;
+    delete replyRerank;
+}
+
+TEST_F(HNSWDiskTest, TopKQueryRuntimeParamsWithRerankIndex) {
+    // Test shouldRerank override when index default is rerank=true
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10, /*rerank=*/true);
+
+    std::vector<float> vecA = {0.0f, 100.7f, 200.3f, 1000.0f};
+    std::vector<float> vecB = {0.0f, 150.2f, 250.8f, 1000.0f};
+
+    index->addVector(vecA.data(), 100);
+    index->addVector(vecB.data(), 200);
+
+    std::vector<float> query = {0.0f, 105.3f, 205.9f, 1000.0f};
+
+    // Query without params uses index default (rerank=true)
+    auto* replyDefault = index->topKQuery(query.data(), 2, nullptr);
+    ASSERT_NE(replyDefault, nullptr);
+    float scoreReranked = replyDefault->results[0].score;
+    // Should be exact FP32 distance
+    EXPECT_NEAR(scoreReranked, 52.52f, 0.01f);
+    delete replyDefault;
+
+    // shouldRerank=FALSE overrides index default (rerank=true -> false)
+    VecSimQueryParams paramsRerankFalse = {0};
+    paramsRerankFalse.hnswDiskRuntimeParams.shouldRerank = VecSimBool_FALSE;
+    auto* replyNoRerank = index->topKQuery(query.data(), 2, &paramsRerankFalse);
+    ASSERT_NE(replyNoRerank, nullptr);
+    // Score should differ from reranked score due to quantization
+    // (we can't easily predict the exact SQ8 score, but it should be different)
+    bool scoresDiffer = std::abs(replyNoRerank->results[0].score - scoreReranked) > 0.001f;
+    EXPECT_TRUE(scoresDiffer) << "Disabling rerank should produce different scores";
+    delete replyNoRerank;
+
+    // shouldRerank=UNSET uses index default (rerank=true)
+    VecSimQueryParams paramsUnset = {0};
+    paramsUnset.hnswDiskRuntimeParams.shouldRerank = VecSimBool_UNSET;
+    auto* replyUnset = index->topKQuery(query.data(), 2, &paramsUnset);
+    ASSERT_NE(replyUnset, nullptr);
+    // Should match the reranked score
+    EXPECT_FLOAT_EQ(replyUnset->results[0].score, scoreReranked);
+    delete replyUnset;
+}
+
+// =============================================================================
+// Concurrency Tests for Reranking (Parameterized)
+// =============================================================================
+
+struct RerankQueryTestParams {
+    size_t numThreads;
+    size_t queriesPerThread;
+    size_t numVectors;
+    bool rerank;
+};
+
+class HNSWDiskRerankQueryTest : public HNSWDiskTest, public testing::WithParamInterface<RerankQueryTestParams> {};
+
+TEST_P(HNSWDiskRerankQueryTest, ConcurrentQueries) {
+    auto params = GetParam();
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10, params.rerank);
+
+    // Add vectors to the index
+    for (size_t i = 0; i < params.numVectors; i++) {
+        std::vector<float> vec(DIM, static_cast<float>(i));
+        index->addVector(vec.data(), i);
+    }
+    EXPECT_EQ(index->indexSize(), params.numVectors);
+
+    std::vector<std::thread> threads;
+    std::atomic<size_t> successCount{0};
+
+    for (size_t t = 0; t < params.numThreads; t++) {
+        threads.emplace_back([&, t]() {
+            for (size_t q = 0; q < params.queriesPerThread; q++) {
+                // Each thread queries with a different vector
+                std::vector<float> query(DIM, static_cast<float>(t * params.queriesPerThread + q) * 0.1f);
+                auto* reply = index->topKQuery(query.data(), 5, nullptr);
+
+                ASSERT_NE(reply, nullptr);
+                EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+                EXPECT_EQ(reply->results.size(), 5);
+
+                // Verify results are sorted by ascending score
+                for (size_t i = 1; i < reply->results.size(); i++) {
+                    EXPECT_LE(reply->results[i - 1].score, reply->results[i].score);
+                }
+
+                delete reply;
+                successCount++;
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_EQ(successCount.load(), params.numThreads * params.queriesPerThread);
+}
+
+INSTANTIATE_TEST_SUITE_P(ConcurrencyRerank, HNSWDiskRerankQueryTest,
+                         testing::Values(
+                             // Rerank enabled tests
+                             RerankQueryTestParams{1, 50, 50, true},   // Single-threaded baseline with rerank
+                             RerankQueryTestParams{4, 25, 50, true},   // Basic concurrent with rerank
+                             RerankQueryTestParams{8, 20, 50, true},   // Higher thread count with rerank
+                             RerankQueryTestParams{16, 10, 100, true}, // High thread count stress with rerank
+                             // Rerank disabled tests (for comparison)
+                             RerankQueryTestParams{1, 50, 50, false},  // Single-threaded baseline without rerank
+                             RerankQueryTestParams{8, 20, 50, false}), // Higher thread count without rerank
+                         [](const testing::TestParamInfo<RerankQueryTestParams>& info) {
+                             return std::to_string(info.param.numThreads) + "threads_" +
+                                    std::to_string(info.param.queriesPerThread) + "queries_" +
+                                    std::to_string(info.param.numVectors) + "vectors_" +
+                                    (info.param.rerank ? "rerank" : "norerank");
+                         });
+
+// =============================================================================
+// Visited Nodes Counting Tests (Test Only - enabled via BUILD_TESTS)
+// =============================================================================
+
+TEST_F(HNSWDiskTest, VisitedNodesCounters) {
+    // This test verifies:
+    // 1. Counters start at zero
+    // 2. Insertions don't increment counters (running_query=false)
+    // 3. Queries increment counters
+    // 4. Counters accumulate across queries
+    // 5. Reset works
+    // 6. Counters work correctly after reset
+
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10);
+
+    // 1. Fresh index should have zero counters
+    EXPECT_EQ(index->getNumVisitedNodesUpperLayers(), 0);
+    EXPECT_EQ(index->getNumVisitedNodesBottomLayer(), 0);
+
+    // 2. Add vectors - this should NOT increment counters
+    for (size_t i = 0; i < 50; i++) {
+        std::vector<float> vec(DIM, static_cast<float>(i));
+        index->addVector(vec.data(), i);
+    }
+    EXPECT_EQ(index->getNumVisitedNodesUpperLayers(), 0);
+    EXPECT_EQ(index->getNumVisitedNodesBottomLayer(), 0);
+
+    // 3. Run first query - counters should increment
+    std::vector<float> query1(DIM, 5.0f);
+    auto* reply1 = index->topKQuery(query1.data(), 5, nullptr);
+    ASSERT_NE(reply1, nullptr);
+    delete reply1;
+
+    size_t bottomLayerAfterFirst = index->getNumVisitedNodesBottomLayer();
+    EXPECT_GT(bottomLayerAfterFirst, 0);
+
+    // 4. Run second query - counters should accumulate
+    std::vector<float> query2(DIM, 25.0f);
+    auto* reply2 = index->topKQuery(query2.data(), 5, nullptr);
+    ASSERT_NE(reply2, nullptr);
+    delete reply2;
+
+    size_t bottomLayerAfterSecond = index->getNumVisitedNodesBottomLayer();
+    EXPECT_GT(bottomLayerAfterSecond, bottomLayerAfterFirst);
+
+    // 5. Reset counters
+    index->resetVisitedNodesCounters();
+    EXPECT_EQ(index->getNumVisitedNodesUpperLayers(), 0);
+    EXPECT_EQ(index->getNumVisitedNodesBottomLayer(), 0);
+
+    // 6. Run query after reset - counters should work again
+    std::vector<float> query3(DIM, 40.0f);
+    auto* reply3 = index->topKQuery(query3.data(), 5, nullptr);
+    ASSERT_NE(reply3, nullptr);
+    delete reply3;
+
+    EXPECT_GT(index->getNumVisitedNodesBottomLayer(), 0);
+}
+
+TEST_F(HNSWDiskTest, QueryTimeout) {
+    // This test verifies that queries properly return timeout status
+    // when the timeout callback indicates a timeout.
+
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10);
+
+    // Add enough vectors to ensure the search loop runs multiple iterations
+    for (size_t i = 0; i < 100; i++) {
+        std::vector<float> vec(DIM, static_cast<float>(i));
+        index->addVector(vec.data(), i);
+    }
+
+    // Set timeout callback to always return 1 (always times out)
+    VecSim_SetTimeoutCallbackFunction([](void* ctx) { return 1; });
+
+    // Run a query - should timeout
+    std::vector<float> query(DIM, 50.0f);
+    auto* reply = index->topKQuery(query.data(), 10, nullptr);
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_TimedOut);
+    delete reply;
+
+    // Reset timeout callback to not timeout
+    VecSim_SetTimeoutCallbackFunction([](void* ctx) { return 0; });
+
+    // Run another query - should succeed
+    auto* reply2 = index->topKQuery(query.data(), 10, nullptr);
+    ASSERT_NE(reply2, nullptr);
+    EXPECT_EQ(reply2->code, VecSim_QueryReply_OK);
+    EXPECT_GT(reply2->results.size(), 0);
+    delete reply2;
 }
 
 TEST_F(HNSWDiskTest, DeleteVectorStub) {

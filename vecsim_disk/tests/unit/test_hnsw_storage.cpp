@@ -147,6 +147,152 @@ TEST_F(HNSWStorageTest, OverwriteVector) {
 }
 
 // =============================================================================
+// MultiGet Vector Storage Tests
+// =============================================================================
+
+TEST_F(HNSWStorageTest, MultiGetVectors_Basic) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    // Store multiple vectors
+    float vec0[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    float vec1[DIM] = {5.0f, 6.0f, 7.0f, 8.0f};
+    float vec2[DIM] = {9.0f, 10.0f, 11.0f, 12.0f};
+
+    ASSERT_NO_THROW(storage->put_vector(0, vec0, VECTOR_SIZE));
+    ASSERT_NO_THROW(storage->put_vector(1, vec1, VECTOR_SIZE));
+    ASSERT_NO_THROW(storage->put_vector(2, vec2, VECTOR_SIZE));
+
+    // Retrieve all vectors using MultiGet
+    vecsim_stl::vector<idType> ids(allocator_);
+    ids.push_back(0);
+    ids.push_back(1);
+    ids.push_back(2);
+    std::vector<float> buf0(DIM), buf1(DIM), buf2(DIM);
+    vecsim_stl::vector<void*> buffers(allocator_);
+    buffers.push_back(buf0.data());
+    buffers.push_back(buf1.data());
+    buffers.push_back(buf2.data());
+
+    ASSERT_NO_THROW(storage->get_vectors_multi(ids, buffers, VECTOR_SIZE));
+
+    for (size_t i = 0; i < DIM; i++) {
+        EXPECT_FLOAT_EQ(buf0[i], vec0[i]);
+        EXPECT_FLOAT_EQ(buf1[i], vec1[i]);
+        EXPECT_FLOAT_EQ(buf2[i], vec2[i]);
+    }
+}
+
+TEST_F(HNSWStorageTest, MultiGetVectors_Empty) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    vecsim_stl::vector<idType> ids(allocator_);
+    vecsim_stl::vector<void*> buffers(allocator_);
+
+    // Empty input should not throw
+    ASSERT_NO_THROW(storage->get_vectors_multi(ids, buffers, VECTOR_SIZE));
+}
+
+TEST_F(HNSWStorageTest, MultiGetVectors_MixedExistence) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    // Store only some vectors
+    float vec0[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    float vec2[DIM] = {9.0f, 10.0f, 11.0f, 12.0f};
+
+    ASSERT_NO_THROW(storage->put_vector(0, vec0, VECTOR_SIZE));
+    // vec1 intentionally not stored
+    ASSERT_NO_THROW(storage->put_vector(2, vec2, VECTOR_SIZE));
+
+    // Try to get all three - one doesn't exist, should throw
+    vecsim_stl::vector<idType> ids(allocator_);
+    ids.push_back(0);
+    ids.push_back(1);
+    ids.push_back(2);
+    std::vector<float> buf0(DIM), buf1(DIM), buf2(DIM);
+    vecsim_stl::vector<void*> buffers(allocator_);
+    buffers.push_back(buf0.data());
+    buffers.push_back(buf1.data());
+    buffers.push_back(buf2.data());
+
+    EXPECT_THROW(storage->get_vectors_multi(ids, buffers, VECTOR_SIZE), std::runtime_error);
+}
+
+TEST_F(HNSWStorageTest, MultiGetVectors_AllNonExistent) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    vecsim_stl::vector<idType> ids(allocator_);
+    ids.push_back(100);
+    ids.push_back(200);
+    ids.push_back(300);
+    std::vector<float> buf0(DIM), buf1(DIM), buf2(DIM);
+    vecsim_stl::vector<void*> buffers(allocator_);
+    buffers.push_back(buf0.data());
+    buffers.push_back(buf1.data());
+    buffers.push_back(buf2.data());
+
+    // Should throw for non-existent vectors
+    EXPECT_THROW(storage->get_vectors_multi(ids, buffers, VECTOR_SIZE), std::runtime_error);
+}
+
+TEST_F(HNSWStorageTest, MultiGetVectors_SingleVector) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    ASSERT_NO_THROW(storage->put_vector(42, vec, VECTOR_SIZE));
+
+    vecsim_stl::vector<idType> ids(allocator_);
+    ids.push_back(42);
+    std::vector<float> buf(DIM);
+    vecsim_stl::vector<void*> buffers(allocator_);
+    buffers.push_back(buf.data());
+
+    ASSERT_NO_THROW(storage->get_vectors_multi(ids, buffers, VECTOR_SIZE));
+
+    for (size_t i = 0; i < DIM; i++) {
+        EXPECT_FLOAT_EQ(buf[i], vec[i]);
+    }
+}
+
+TEST_F(HNSWStorageTest, MultiGetVectors_LargerBatch) {
+    auto storage = CreateStorage();
+    ASSERT_NE(storage, nullptr);
+
+    // Store 10 vectors
+    constexpr size_t NUM_VECTORS = 10;
+    std::vector<std::vector<float>> vectors(NUM_VECTORS);
+    for (size_t i = 0; i < NUM_VECTORS; i++) {
+        vectors[i].resize(DIM);
+        for (size_t j = 0; j < DIM; j++) {
+            vectors[i][j] = static_cast<float>(i * DIM + j);
+        }
+        ASSERT_NO_THROW(storage->put_vector(static_cast<idType>(i), vectors[i].data(), VECTOR_SIZE));
+    }
+
+    // Retrieve all using MultiGet
+    vecsim_stl::vector<idType> ids(allocator_);
+    std::vector<std::vector<float>> retrieve_bufs(NUM_VECTORS);
+    vecsim_stl::vector<void*> buffers(allocator_);
+    for (size_t i = 0; i < NUM_VECTORS; i++) {
+        ids.push_back(static_cast<idType>(i));
+        retrieve_bufs[i].resize(DIM);
+        buffers.push_back(retrieve_bufs[i].data());
+    }
+
+    ASSERT_NO_THROW(storage->get_vectors_multi(ids, buffers, VECTOR_SIZE));
+
+    for (size_t i = 0; i < NUM_VECTORS; i++) {
+        for (size_t j = 0; j < DIM; j++) {
+            EXPECT_FLOAT_EQ(retrieve_bufs[i][j], vectors[i][j]);
+        }
+    }
+}
+
+// =============================================================================
 // Edge Storage Tests
 // =============================================================================
 

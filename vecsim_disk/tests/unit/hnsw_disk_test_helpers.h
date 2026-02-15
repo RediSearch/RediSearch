@@ -49,11 +49,13 @@
     void testGreedySearchLevel(const void* queryFP32, size_t level, idType& currObj, DistType& currDist,               \
                                void* timeoutCtx = nullptr, VecSimQueryReply_Code* rc = nullptr) const {                \
         if constexpr (running_query) {                                                                                 \
+            /* running_query=true: FP32 query (quantized_query=false), check timeout */                                \
             auto processedQuery = this->preprocessQuery(queryFP32, false);                                             \
-            greedySearchLevel<true>(processedQuery.get(), level, currObj, currDist, timeoutCtx, rc);                   \
+            greedySearchLevel<false, true>(processedQuery.get(), level, currObj, currDist, timeoutCtx, rc);            \
         } else {                                                                                                       \
+            /* running_query=false: SQ8 query (quantized_query=true), no timeout */                                    \
             auto processedQuery = this->preprocessForStorage(queryFP32);                                               \
-            greedySearchLevel<false>(processedQuery.get(), level, currObj, currDist, timeoutCtx, rc);                  \
+            greedySearchLevel<true, false>(processedQuery.get(), level, currObj, currDist, timeoutCtx, rc);            \
         }                                                                                                              \
     }                                                                                                                  \
                                                                                                                        \
@@ -100,11 +102,13 @@
     template <bool running_query = true>                                                                               \
     candidatesMaxHeap<DistType> testSearchLayer(idType ep_id, const void* queryFP32, size_t layer, size_t ef) const {  \
         if constexpr (running_query) {                                                                                 \
+            /* running_query=true: FP32 query (quantized_query=false), check timeout */                                \
             auto processedQuery = this->preprocessQuery(queryFP32, false);                                             \
-            return searchLayer<true>(ep_id, processedQuery.get(), layer, ef);                                          \
+            return searchLayer<false, true>(ep_id, processedQuery.get(), layer, ef);                                   \
         } else {                                                                                                       \
+            /* running_query=false: SQ8 query (quantized_query=true), no timeout */                                    \
             auto processedQuery = this->preprocessForStorage(queryFP32);                                               \
-            return searchLayer<false>(ep_id, processedQuery.get(), layer, ef);                                         \
+            return searchLayer<true, false>(ep_id, processedQuery.get(), layer, ef);                                   \
         }                                                                                                              \
     }                                                                                                                  \
                                                                                                                        \

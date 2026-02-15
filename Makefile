@@ -18,10 +18,10 @@ BUILD_SCRIPT := $(ROOT)/build.sh
 .DEFAULT_GOAL := build
 
 # Simple tasks to pass through to build script
-build pack test-vecsim bench-vecsim: $(BUILD_SCRIPT)
+build pack test-vecsim bench-vecsim lint-vecsim format-vecsim: $(BUILD_SCRIPT)
 	@$(BUILD_SCRIPT) $@
 
-.PHONY: build pack test-vecsim bench-vecsim
+.PHONY: build pack test-vecsim bench-vecsim lint-vecsim format-vecsim
 
 upload-artifacts:
 	@$(ROOT)/deps/RediSearch/sbin/upload-artifacts

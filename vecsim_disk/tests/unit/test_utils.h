@@ -40,7 +40,7 @@ struct DiskParamsHolder {
     VecSimParamsDisk params_disk;
 };
 
-std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw_params);
+std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw_params, bool rerank = true);
 
 /**
  * @brief RAII wrapper for temporary SpeedB database.
@@ -137,7 +137,7 @@ template <typename DataType = float, typename DistType = float>
 class TestIndex {
 public:
     TestIndex(size_t dim, VecSimMetric metric = VecSimMetric_L2, size_t M = 16, size_t efConstruction = 200,
-              size_t efRuntime = 10)
+              size_t efRuntime = 10, bool rerank = true)
         : allocator_(VecSimAllocator::newVecsimAllocator()), db_(std::make_unique<TempSpeeDB>()) {
 
         HNSWParams params = {
@@ -150,7 +150,7 @@ public:
             .efConstruction = efConstruction,
             .efRuntime = efRuntime,
         };
-        auto params_disk_holder = createDiskParams(params);
+        auto params_disk_holder = createDiskParams(params, rerank);
 
         // Create abstract init params for disk backend:
         // - storedDataSize = SQ8 quantized size
@@ -200,13 +200,14 @@ inline VecSimParams createParams(const HNSWParams& params) {
     return params_disk;
 }
 
-inline std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw_params) {
+inline std::unique_ptr<DiskParamsHolder> createDiskParams(const HNSWParams& hnsw_params, bool rerank) {
     auto holder = std::make_unique<DiskParamsHolder>();
     holder->index_params = createParams(hnsw_params);
     holder->diskContext = {
         .storage = nullptr,
         .indexName = "test",
         .indexNameLen = 4,
+        .rerank = rerank,
     };
     holder->params_disk = {
         .indexParams = &holder->index_params,

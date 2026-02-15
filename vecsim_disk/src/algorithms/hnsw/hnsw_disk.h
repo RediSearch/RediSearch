@@ -207,6 +207,19 @@ public:
 
     HNSWStorage<DataType>* getStorage() const { return storage_.get(); }
 
+    // --- Query Statistics (Test Only) ---
+#ifdef BUILD_TESTS
+    // Get cumulative count of visited nodes in upper layers (greedySearchLevel, levels > 0)
+    size_t getNumVisitedNodesUpperLayers() const { return numVisitedNodesUpperLayers_.load(std::memory_order_relaxed); }
+    // Get cumulative count of visited nodes in bottom layer (searchLayer, level 0)
+    size_t getNumVisitedNodesBottomLayer() const { return numVisitedNodesBottomLayer_.load(std::memory_order_relaxed); }
+    // Reset visited node counters (useful for testing)
+    void resetVisitedNodesCounters() {
+        numVisitedNodesUpperLayers_.store(0, std::memory_order_relaxed);
+        numVisitedNodesBottomLayer_.store(0, std::memory_order_relaxed);
+    }
+#endif
+
     const char* getQuantizedDataByInternalId(idType internal_id) const;
 
     // =========================================================================
@@ -340,6 +353,22 @@ private:
     // --- Storage ---
     std::unique_ptr<HNSWStorage<DataType>> storage_;
 
+    // --- Reranking ---
+    // Whether to rerank results using full-precision vectors from disk.
+    // When enabled, topKQuery will recompute distances using FP32 vectors
+    // after the initial search with quantized vectors.
+    bool rerankEnabled_;
+
+    // --- Query Statistics (Test Only) ---
+#ifdef BUILD_TESTS
+    // Cumulative counters for visited nodes during queries.
+    // These are mutable because they are updated during const query operations.
+    // Upper layers: nodes visited during greedySearchLevel (levels > 0)
+    mutable std::atomic<size_t> numVisitedNodesUpperLayers_{0};
+    // Bottom layer: nodes visited during searchLayer at level 0
+    mutable std::atomic<size_t> numVisitedNodesBottomLayer_{0};
+#endif
+
     // --- Level Generation ---
     double mult_; // = 1 / ln(M), for level generation
 
@@ -456,17 +485,18 @@ private:
     /**
      * @brief Compute distance between a query vector and a stored element
      *
-     * Template parameter `running_query` differentiates between:
-     * - false (insertion): quantized↔quantized distance (both from memory)
-     * - true (query traversal): quantized↔full distance (quantized from memory, full query)
+     * @tparam quantized_query true if query vector is quantized (SQ8), false if full-precision (FP32)
+     *
+     * When quantized_query=true: SQ8↔SQ8 distance (both vectors from memory)
+     * When quantized_query=false: FP32↔SQ8 distance (full query vs quantized stored)
      */
-    template <bool running_query = false>
+    template <bool quantized_query = true>
     inline DistType computeDistance(const void* query, idType elementId) const;
-    // Quantized stored vs full precision query (used during query traversal)
+    // Quantized stored vs full precision query
     DistType computeDistanceQuantized_Full(const void* fullQuery, idType elementId) const;
-    // Quantized stored vs quantized query (used during insertion graph traversal)
+    // Quantized stored vs quantized query
     DistType computeDistanceQuantized_Quantized(const void* quantizedQuery, idType elementId) const;
-    // Full precision stored vs full precision query (used for reranking from disk)
+    // Full precision stored vs full precision query (for reranking from disk)
     DistType computeDistanceFull_Full(const void* fullQuery, idType elementId) const;
 
     // --- Element State Queries ---
@@ -497,32 +527,62 @@ private:
     /**
      * @brief Greedy search at a single level to find the closest element.
      *
-     * Template parameter `running_query` differentiates between:
-     * - false (insertion): Must return non-deleted element, no timeout check
-     * - true (query): Can return deleted element, checks for timeout
+     * Used for upper level traversal (L > 0). Starts from entry point and
+     * greedily moves to closer neighbors until no improvement is possible.
      *
-     * Used for upper level traversal (L > 0) during insertion and queries.
-     * Starts from entry point and greedily moves to closer neighbors
-     * until no improvement is possible.
+     * @tparam quantized_query true if query vector is quantized (SQ8), false if full-precision (FP32)
+     * @tparam running_query true if running a query (checks timeout, allows deleted elements)
      *
-     * NOTE: querySQ8 should be the SQ8-quantized version of the vector.
-     * During insertion, this is the stored SQ8 data. During query, the
-     * caller must quantize the FP32 query to SQ8 before calling.
+     * When running_query=true: Checks for timeout, can return deleted element
+     * When running_query=false: No timeout check, must return non-deleted element
      *
-     * @tparam running_query true if called during query, false during insertion
-     * @param querySQ8 Pointer to SQ8 quantized query vector data
+     * @param query Pointer to query vector data (SQ8 if quantized_query=true, FP32 otherwise)
      * @param level The level to search at
      * @param[in,out] currObj Current best element ID (updated to closest found)
      * @param[in,out] currDist Distance to current best (updated accordingly)
      * @param timeoutCtx Timeout context (only used when running_query=true)
      * @param rc Result code output (only used when running_query=true)
      */
-    template <bool running_query>
-    void greedySearchLevel(const void* querySQ8, levelType level, idType& currObj, DistType& currDist,
+    template <bool quantized_query, bool running_query>
+    void greedySearchLevel(const void* query, levelType level, idType& currObj, DistType& currDist,
                            void* timeoutCtx = nullptr, VecSimQueryReply_Code* rc = nullptr) const;
 
-    template <bool running_query>
-    candidatesMaxHeap<DistType> searchLayer(idType ep_id, const void* data_point, levelType layer, size_t ef) const;
+    template <bool quantized_query, bool running_query>
+    candidatesMaxHeap<DistType> searchLayer(idType ep_id, const void* data_point, levelType layer, size_t ef,
+                                            void* timeoutCtx = nullptr, VecSimQueryReply_Code* rc = nullptr) const;
+
+    /**
+     * @brief Find the entry point for bottom layer search.
+     *
+     * Greedily traverses upper layers (from maxLevel down to level 1) to find the best
+     * entry point for the bottom layer beam search.
+     *
+     * @tparam quantized_query true if query vector is quantized (SQ8), false if full-precision (FP32)
+     *
+     * @param query_data Query vector (SQ8 if quantized_query=true, FP32 otherwise)
+     * @param timeoutCtx Timeout context for early termination
+     * @param rc Result code output (VecSim_QueryReply_OK or VecSim_QueryReply_TimedOut)
+     * @return Entry point ID for bottom layer search, or INVALID_ID on error/timeout
+     */
+    template <bool quantized_query>
+    idType searchBottomLayerEP(const void* query_data, void* timeoutCtx, VecSimQueryReply_Code* rc) const;
+
+    /**
+     * @brief Rerank candidates using full-precision vectors from disk.
+     *
+     * Recomputes distances for all candidates using FP32 vectors stored on disk
+     * instead of the quantized vectors used during search. Returns a new heap
+     * with reranked distances.
+     *
+     * @param queryBlob Full precision query vector (FP32)
+     * @param candidates Max-heap of candidates from search (internal IDs)
+     * @param timeoutCtx Timeout context for early termination
+     * @param rc Result code output (VecSim_QueryReply_OK or VecSim_QueryReply_TimedOut)
+     * @return Vector of all candidates with recomputed distances, as (distance, id) pairs
+     */
+    vecsim_stl::vector<std::pair<DistType, idType>> rerankCandidates(const void* queryBlob,
+                                                                     const candidatesMaxHeap<DistType>& candidates,
+                                                                     void* timeoutCtx, VecSimQueryReply_Code* rc) const;
 
     /**
      * @brief Process a candidate during beam search.
@@ -530,9 +590,9 @@ private:
      * Explores neighbors of a candidate node and updates the search heaps.
      * Used by searchLayer for level 0 search with ef parameter.
      *
-     * @tparam running_query true if called during query, false during insertion
+     * @tparam quantized_query true if query vector is quantized, false if full-precision
      * @param curNodeId Current node being processed
-     * @param data_point Query vector (SQ8 for insertion, FP32 for query)
+     * @param data_point Query vector (SQ8 if quantized_query=true, FP32 otherwise)
      * @param layer Current level being searched
      * @param ef Beam width
      * @param visited_set Set of already visited nodes
@@ -540,7 +600,7 @@ private:
      * @param candidate_set Min-heap of nodes to explore (closest at top, via negation)
      * @param lowerBound Current distance threshold for adding candidates
      */
-    template <bool running_query>
+    template <bool quantized_query>
     void processCandidate(idType curNodeId, const void* data_point, levelType layer, size_t ef,
                           vecsim_stl::unordered_set<idType>& visited_set, candidatesMaxHeap<DistType>& top_candidates,
                           candidatesMaxHeap<DistType>& candidate_set, DistType& lowerBound) const;
@@ -734,7 +794,7 @@ HNSWDiskIndex<DataType, DistType>::HNSWDiskIndex(const VecSimParamsDisk* params,
       indexName_(params->diskContext->indexName, params->diskContext->indexNameLen),
       idToMetaData(abstractInitParams.allocator), nodeLocks_(abstractInitParams.allocator),
       labelToIdLookup_(abstractInitParams.allocator), storage_(std::move(storage)),
-      holes_(abstractInitParams.allocator) {
+      rerankEnabled_(params->diskContext->rerank), holes_(abstractInitParams.allocator) {
     const HNSWParams& hnswParams = params->indexParams->algoParams.hnswParams;
     // Apply defaults for zero values (uses the public VectorSimilarity definitions)
     M_ = hnswParams.M ? hnswParams.M : HNSW_DEFAULT_M;
@@ -847,12 +907,12 @@ void HNSWDiskIndex<DataType, DistType>::replaceEntryPoint(idType newId, levelTyp
 }
 
 template <typename DataType, typename DistType>
-template <bool running_query>
+template <bool quantized_query>
 inline DistType HNSWDiskIndex<DataType, DistType>::computeDistance(const void* query, idType elementId) const {
-    if constexpr (running_query) {
-        return computeDistanceQuantized_Full(query, elementId);
-    } else {
+    if constexpr (quantized_query) {
         return computeDistanceQuantized_Quantized(query, elementId);
+    } else {
+        return computeDistanceQuantized_Full(query, elementId);
     }
 }
 
@@ -937,7 +997,7 @@ ElementLockGuard HNSWDiskIndex<DataType, DistType>::lockNode(idType id) const {
  * the search heaps. This is the core of the beam search algorithm.
  */
 template <typename DataType, typename DistType>
-template <bool running_query>
+template <bool quantized_query>
 void HNSWDiskIndex<DataType, DistType>::processCandidate(idType curNodeId, const void* data_point, levelType layer,
                                                          size_t ef, vecsim_stl::unordered_set<idType>& visited_set,
                                                          candidatesMaxHeap<DistType>& top_candidates,
@@ -960,7 +1020,7 @@ void HNSWDiskIndex<DataType, DistType>::processCandidate(idType curNodeId, const
         }
 
         // Compute distance using appropriate function based on context
-        DistType cur_dist = computeDistance<running_query>(data_point, candidate_id);
+        DistType cur_dist = computeDistance<quantized_query>(data_point, candidate_id);
 
         // Add to candidates if within bounds or we don't have enough results yet
         if (lowerBound > cur_dist || top_candidates.size() < ef) {
@@ -988,8 +1048,7 @@ void HNSWDiskIndex<DataType, DistType>::processCandidate(idType curNodeId, const
 /**
  * Beam search at a single level to find ef closest elements.
  *
- * This is the core search algorithm for HNSW at level 0 and for
- * finding neighbor candidates during insertion.
+ * This is the core search algorithm for HNSW at level 0.
  *
  * Algorithm:
  * 1. Initialize with entry point
@@ -998,14 +1057,14 @@ void HNSWDiskIndex<DataType, DistType>::processCandidate(idType curNodeId, const
  *    - candidate_set (min-heap via negation): Nodes to explore (closest first)
  * 3. Process candidates until the closest unexplored is farther than farthest result
  *
- * Template parameter running_query:
- * - false (insertion): SQ8↔SQ8 distance
- * - true (query): FP32↔SQ8 distance
+ * @tparam quantized_query true if query vector is quantized (SQ8), false if full-precision (FP32)
+ * @tparam running_query true if running a query (checks timeout, counts visited nodes)
  */
 template <typename DataType, typename DistType>
-template <bool running_query>
+template <bool quantized_query, bool running_query>
 candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idType ep_id, const void* data_point,
-                                                                           levelType layer, size_t ef) const {
+                                                                           levelType layer, size_t ef, void* timeoutCtx,
+                                                                           VecSimQueryReply_Code* rc) const {
     // TODO: Consider using tag-based visited set for better performance
     vecsim_stl::unordered_set<idType> visited_set(std::min(ef * 10, size_t(10000)), this->allocator);
 
@@ -1014,7 +1073,7 @@ candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idTyp
 
     DistType lowerBound;
     if (!isMarkedDeleted(ep_id)) {
-        lowerBound = computeDistance<running_query>(data_point, ep_id);
+        lowerBound = computeDistance<quantized_query>(data_point, ep_id);
         top_candidates.emplace(lowerBound, ep_id);
         candidate_set.emplace(-lowerBound, ep_id);
     } else {
@@ -1027,6 +1086,18 @@ candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idTyp
 
     // Main search loop
     while (!candidate_set.empty()) {
+        // Check for timeout only when running a query
+        if constexpr (running_query) {
+            if (VECSIM_TIMEOUT(timeoutCtx)) {
+                *rc = VecSim_QueryReply_TimedOut;
+#ifdef BUILD_TESTS
+                // Count visited nodes before returning
+                numVisitedNodesBottomLayer_.fetch_add(visited_set.size(), std::memory_order_relaxed);
+#endif
+                return top_candidates;
+            }
+        }
+
         std::pair<DistType, idType> curr_el_pair = candidate_set.top();
 
         // Early termination: closest unexplored is farther than farthest result
@@ -1036,9 +1107,16 @@ candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idTyp
         candidate_set.pop();
 
         // Process this candidate's neighbors
-        processCandidate<running_query>(curr_el_pair.second, data_point, layer, ef, visited_set, top_candidates,
-                                        candidate_set, lowerBound);
+        processCandidate<quantized_query>(curr_el_pair.second, data_point, layer, ef, visited_set, top_candidates,
+                                          candidate_set, lowerBound);
     }
+
+#ifdef BUILD_TESTS
+    // Count visited nodes for query statistics
+    if constexpr (running_query) {
+        numVisitedNodesBottomLayer_.fetch_add(visited_set.size(), std::memory_order_relaxed);
+    }
+#endif
 
     return top_candidates;
 }
@@ -1050,9 +1128,11 @@ candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idTyp
 /**
  * Greedy search at a single level to find the closest element to the query vector.
  *
- * Template parameter `running_query` differentiates between:
- * - false (insertion): Must return non-deleted element, no timeout check
- * - true (query): Can return deleted element, checks for timeout
+ * @tparam quantized_query true if query vector is quantized (SQ8), false if full-precision (FP32)
+ * @tparam running_query true if running a query (checks timeout, allows deleted elements, counts visited)
+ *
+ * When running_query=true: Checks for timeout, can return deleted element, counts visited nodes
+ * When running_query=false: No timeout check, must return non-deleted element
  *
  * Algorithm:
  * 1. Start from the current best element (currObj)
@@ -1061,20 +1141,19 @@ candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idTyp
  * 4. Repeat until no improvement is found
  *
  * Performance notes:
- * - Called frequently during insertion (once per level above element's max level)
  * - Disk reads for edges and vectors are the bottleneck
  * - Skips DISK_IN_PROCESS elements to avoid reading incomplete data
- * - Template allows compile-time optimization of query vs insertion paths
+ * - Template allows compile-time optimization based on query type
  */
 template <typename DataType, typename DistType>
-template <bool running_query>
+template <bool quantized_query, bool running_query>
 void HNSWDiskIndex<DataType, DistType>::greedySearchLevel(const void* query, levelType level, idType& currObj,
                                                           DistType& currDist, void* timeoutCtx,
                                                           VecSimQueryReply_Code* rc) const {
     bool changed;
 
-    // Track best non-deleted candidate for insertion (not query)
-    // During insertion, we need a non-deleted entry point for the next level.
+    // Track best non-deleted candidate when running_query=false.
+    // When running_query=false, we need a non-deleted entry point for the next level.
     // Initialize to INVALID_ID so we can detect if we found any non-deleted candidate.
     // If the initial currObj is not deleted, use it as the starting best candidate.
     idType bestNonDeletedCand = INVALID_ID;
@@ -1121,10 +1200,10 @@ void HNSWDiskIndex<DataType, DistType>::greedySearchLevel(const void* query, lev
                 continue;
             }
 
-            const DistType dist = computeDistance<running_query>(query, candidateId);
+            const DistType dist = computeDistance<quantized_query>(query, candidateId);
 
-            // Track best non-deleted candidate only during insertion
-            // During queries, deleted elements are OK as intermediate steps
+            // Track best non-deleted candidate only when running_query=false.
+            // When running_query=true, deleted elements are OK as intermediate steps.
             if constexpr (!running_query) {
                 if (!isMarkedDeleted(candidateId) && dist < bestNonDeletedDist) {
                     bestNonDeletedCand = candidateId;
@@ -1142,8 +1221,8 @@ void HNSWDiskIndex<DataType, DistType>::greedySearchLevel(const void* query, lev
         }
     } while (changed);
 
-    // For insertion, return non-deleted element as entry point for next level
-    // For queries, return whatever element we found (can be deleted)
+    // When running_query=false, return non-deleted element as entry point for next level.
+    // When running_query=true, return whatever element we found (can be deleted).
     if constexpr (!running_query) {
         // If we found a non-deleted candidate, use it. Otherwise, fall back to
         // the best traversal result (which may be deleted). This is a best-effort
@@ -1155,10 +1234,57 @@ void HNSWDiskIndex<DataType, DistType>::greedySearchLevel(const void* query, lev
         // If bestNonDeletedCand is INVALID_ID, we keep currObj/currDist as-is
         // (the best traversal result, even if deleted). The caller must handle this.
     }
-    // TODO: When implementing queries, add visited nodes counter for statistics:
-    // if constexpr (running_query) {
-    //     num_visited_nodes_higher_levels.fetch_add(visited.size(), std::memory_order_relaxed);
-    // }
+#ifdef BUILD_TESTS
+    // Count visited nodes for query statistics (upper layers only)
+    if constexpr (running_query) {
+        numVisitedNodesUpperLayers_.fetch_add(visited.size(), std::memory_order_relaxed);
+    }
+#endif
+}
+
+// =============================================================================
+// Search Bottom Layer Entry Point
+// =============================================================================
+
+/**
+ * Find the entry point for bottom layer search by traversing upper layers.
+ *
+ * This method starts from the global entry point and greedily searches through
+ * upper layers (from maxLevel down to level 1) to find the best entry point
+ * for the bottom layer (level 0) beam search.
+ *
+ * @tparam quantized_query true if query vector is quantized (SQ8), false if full-precision (FP32)
+ *
+ * @param query_data Full precision query vector (FP32)
+ * @param timeoutCtx Timeout context for early termination
+ * @param rc Result code output (VecSim_QueryReply_OK or VecSim_QueryReply_TimedOut)
+ * @return Entry point ID for bottom layer search, or INVALID_ID if index is empty or timeout
+ */
+template <typename DataType, typename DistType>
+template <bool quantized_query>
+idType HNSWDiskIndex<DataType, DistType>::searchBottomLayerEP(const void* query_data, void* timeoutCtx,
+                                                              VecSimQueryReply_Code* rc) const {
+    *rc = VecSim_QueryReply_OK;
+
+    // Get entry point and max level atomically (thread-safe)
+    auto [currObj, maxLevel] = safeGetEntryPointState();
+    if (currObj == INVALID_ID) {
+        return INVALID_ID;
+    }
+
+    // Compute initial distance to entry point (quantized query vs quantized stored)
+    DistType currDist = computeDistance<quantized_query>(query_data, currObj);
+
+    // Greedy search through upper layers (from maxLevel down to level 1)
+    // quantized_query=false (FP32 query), running_query=true (check timeout, allow deleted)
+    for (levelType level = maxLevel; level > 0; --level) {
+        greedySearchLevel<quantized_query, true>(query_data, level, currObj, currDist, timeoutCtx, rc);
+        if (*rc != VecSim_QueryReply_OK) {
+            return INVALID_ID;
+        }
+    }
+
+    return currObj;
 }
 
 template <typename DataType, typename DistType>
@@ -1394,9 +1520,10 @@ GraphNodeList HNSWDiskIndex<DataType, DistType>::insertElementToGraph(idType ele
         max_common_level = element_max_level;
 
         // Greedy search through upper levels to find best entry point for lower levels.
+        // quantized_query=true (SQ8 query), running_query=false (no timeout, need non-deleted)
         // We use int for the loop variable to safely decrement past zero.
         for (int level = static_cast<int>(global_max_level); level > static_cast<int>(element_max_level); --level) {
-            greedySearchLevel<false>(querySQ8, static_cast<levelType>(level), curr_element, cur_dist);
+            greedySearchLevel<true, false>(querySQ8, static_cast<levelType>(level), curr_element, cur_dist);
         }
     } else {
         max_common_level = global_max_level;
@@ -1406,8 +1533,9 @@ GraphNodeList HNSWDiskIndex<DataType, DistType>::insertElementToGraph(idType ele
     // We use int for the loop variable to safely decrement to -1 (loop termination).
     for (int level = static_cast<int>(max_common_level); level >= 0; --level) {
         // Search this level to find best neighbors
+        // quantized_query=true (SQ8 query), running_query=false (no timeout)
         auto top_candidates =
-            searchLayer<false>(curr_element, querySQ8, static_cast<levelType>(level), efConstruction_);
+            searchLayer<true, false>(curr_element, querySQ8, static_cast<levelType>(level), efConstruction_);
 
         // If the entry point was marked deleted between iterations, we may receive an empty
         // candidates set. In this case, we keep using the previous curr_element for the next level.
@@ -1534,10 +1662,79 @@ double HNSWDiskIndex<DataType, DistType>::getDistanceFrom_Unsafe(labelType label
 template <typename DataType, typename DistType>
 VecSimQueryReply* HNSWDiskIndex<DataType, DistType>::topKQuery(const void* queryBlob, size_t k,
                                                                VecSimQueryParams* queryParams) const {
-    (void)queryBlob;
-    (void)k;
-    (void)queryParams;
-    return new VecSimQueryReply(this->allocator); // Stub - MOD-13164
+    auto rep = new VecSimQueryReply(this->allocator);
+    this->lastMode = STANDARD_KNN;
+
+    // Early exit for empty index or zero k
+    if (curElementCount_.load(std::memory_order_relaxed) == 0 || k == 0) {
+        return rep;
+    }
+
+    // Get runtime parameters
+    void* timeoutCtx = queryParams ? queryParams->timeoutCtx : nullptr;
+    size_t query_ef = efRuntime_;
+    if (queryParams && queryParams->hnswDiskRuntimeParams.efRuntime != 0) {
+        query_ef = queryParams->hnswDiskRuntimeParams.efRuntime;
+    }
+    bool should_rerank = rerankEnabled_;
+    if (queryParams && queryParams->hnswDiskRuntimeParams.shouldRerank != VecSimBool_UNSET) {
+        should_rerank = queryParams->hnswDiskRuntimeParams.shouldRerank == VecSimBool_TRUE;
+    }
+    // Preprocess query - get both quantized (for graph traversal) and full-precision (for reranking)
+    auto processed = this->preprocess(queryBlob);
+    const void* quantized_query = processed.getStorageBlob(); // SQ8 for graph traversal
+
+    // Find entry point for bottom layer search by traversing upper layers
+    // quantized_query=true (SQ8 query), running_query=true (check timeout)
+    idType bottom_layer_ep = searchBottomLayerEP<true>(quantized_query, timeoutCtx, &rep->code);
+    if (rep->code != VecSim_QueryReply_OK || bottom_layer_ep == INVALID_ID) {
+        return rep;
+    }
+
+    // Search bottom layer with ef parameter
+    // quantized_query=true (SQ8 query), running_query=true (check timeout)
+    auto top_candidates =
+        searchLayer<true, true>(bottom_layer_ep, quantized_query, 0, std::max(query_ef, k), timeoutCtx, &rep->code);
+    if (rep->code != VecSim_QueryReply_OK) {
+        return rep;
+    }
+
+    // Get top k results as sorted vector (ascending distance order)
+    vecsim_stl::vector<std::pair<DistType, idType>> top_k(this->allocator);
+    size_t result_count = std::min(k, top_candidates.size());
+
+    if (should_rerank) {
+        // Rerank: recompute distances using full-precision vectors from disk, then partial sort
+        top_k = rerankCandidates(queryBlob, top_candidates, timeoutCtx, &rep->code);
+        if (rep->code != VecSim_QueryReply_OK) {
+            return rep;
+        }
+        std::partial_sort(top_k.begin(), top_k.begin() + result_count, top_k.end(),
+                          [](const auto& a, const auto& b) { return a.first < b.first; });
+    } else {
+        // No reranking: extract top k from heap (already sorted by heap property)
+        top_k.resize(result_count);
+        while (top_candidates.size() > result_count) {
+            top_candidates.pop();
+        }
+        // Fill in reverse (heap pops worst first, we want best first)
+        for (size_t i = result_count; i > 0; --i) {
+            top_k[i - 1] = top_candidates.top();
+            top_candidates.pop();
+        }
+    }
+
+    // Fill results from sorted vector
+    rep->results.resize(result_count);
+    {
+        std::shared_lock<std::shared_mutex> lock(metadataMutex_);
+        for (size_t i = 0; i < result_count; ++i) {
+            rep->results[i].score = top_k[i].first;
+            rep->results[i].id = idToMetaData[top_k[i].second].label;
+        }
+    }
+
+    return rep;
 }
 
 template <typename DataType, typename DistType>
@@ -1547,6 +1744,52 @@ VecSimQueryReply* HNSWDiskIndex<DataType, DistType>::rangeQuery(const void* quer
     (void)radius;
     (void)queryParams;
     return new VecSimQueryReply(this->allocator);
+}
+
+template <typename DataType, typename DistType>
+vecsim_stl::vector<std::pair<DistType, idType>>
+HNSWDiskIndex<DataType, DistType>::rerankCandidates(const void* queryBlob,
+                                                    const candidatesMaxHeap<DistType>& candidates, void* timeoutCtx,
+                                                    VecSimQueryReply_Code* rc) const {
+    const size_t num_candidates = candidates.size();
+    if (num_candidates == 0) {
+        return vecsim_stl::vector<std::pair<DistType, idType>>(this->allocator);
+    }
+
+    // Collect all candidate IDs by iterating (not popping) the heap
+    vecsim_stl::vector<idType> ids(this->allocator);
+    ids.reserve(num_candidates);
+    for (const auto& [dist, id] : candidates) {
+        ids.push_back(id);
+    }
+
+    // Allocate a single contiguous buffer for all vectors
+    const size_t vectorSize = this->getInputBlobSize();
+    vecsim_stl::vector<char> buffer(num_candidates * vectorSize, this->allocator);
+
+    // Build pointer array pointing into the contiguous buffer
+    vecsim_stl::vector<void*> buffer_ptrs(this->allocator);
+    buffer_ptrs.reserve(num_candidates);
+    for (size_t i = 0; i < num_candidates; ++i) {
+        buffer_ptrs.push_back(buffer.data() + i * vectorSize);
+    }
+
+    // Fetch all vectors from disk in one batch
+    storage_->get_vectors_multi(ids, buffer_ptrs, vectorSize);
+
+    // Compute distances into a vector of (distance, id) pairs
+    vecsim_stl::vector<std::pair<DistType, idType>> reranked(this->allocator);
+    reranked.reserve(num_candidates);
+    for (size_t i = 0; i < num_candidates; ++i) {
+        if (VECSIM_TIMEOUT(timeoutCtx)) {
+            *rc = VecSim_QueryReply_TimedOut;
+            return reranked;
+        }
+        DistType dist = calcFullDistance(buffer_ptrs[i], queryBlob);
+        reranked.emplace_back(dist, ids[i]);
+    }
+
+    return reranked;
 }
 
 // =============================================================================

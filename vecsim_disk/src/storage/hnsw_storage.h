@@ -156,6 +156,40 @@ public:
         deserializeVector(value, static_cast<DataType*>(data));
     }
 
+    void get_vectors_multi(const vecsim_stl::vector<idType>& ids, vecsim_stl::vector<void*>& data_buffers,
+                           size_t vector_size) const {
+        if (ids.empty()) {
+            return;
+        }
+
+        const size_t num_keys = ids.size();
+        assert(data_buffers.size() == num_keys && "data_buffers size must match ids size");
+        assert(vector_size % sizeof(DataType) == 0 && "Invalid vector size");
+
+        std::vector<char> key_storage(num_keys * kVectorKeySize);
+        std::vector<rocksdb::Slice> keys(num_keys);
+        for (size_t i = 0; i < num_keys; ++i) {
+            char* key_buf = &key_storage[i * kVectorKeySize];
+            vectorKey(ids[i], key_buf);
+            keys[i] = rocksdb::Slice(key_buf, kVectorKeySize);
+        }
+
+        std::vector<rocksdb::PinnableSlice> values(num_keys);
+        std::vector<rocksdb::Status> statuses(num_keys);
+
+        db_->MultiGet(readOpts_, cf_, num_keys, keys.data(), values.data(), statuses.data(), /*sorted_input=*/false);
+
+        for (size_t i = 0; i < num_keys; ++i) {
+            if (!statuses[i].ok()) {
+                throw std::runtime_error(statuses[i].ToString());
+            }
+            if (values[i].size() != vector_size) {
+                throw std::runtime_error("Vector size mismatch");
+            }
+            deserializeVector(values[i], static_cast<DataType*>(data_buffers[i]));
+        }
+    }
+
     void get_outgoing_edges(idType id, levelType level, vecsim_stl::vector<idType>& edges) const {
         char key_buf[kEdgeKeySize];
         outgoingEdgesKey(id, level, key_buf);

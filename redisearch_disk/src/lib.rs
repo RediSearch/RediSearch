@@ -84,8 +84,6 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
         basic: BasicDiskAPI {
             open: Some(open),
             close: Some(close),
-            startGCThreadPool: Some(start_gc_thread_pool),
-            stopGCThreadPool: Some(stop_gc_thread_pool),
             openIndexSpec: Some(index_spec_open),
             closeIndexSpec: Some(index_spec_close),
             indexSpecRdbSave: Some(index_spec_rdb_save),
@@ -201,14 +199,6 @@ extern "C" fn is_async_io_supported(disk: *mut RedisSearchDisk) -> bool {
     };
     disk_ctx.is_async_io_supported()
 }
-
-/// Starts the GC thread pool.
-/// Currently a no-op placeholder for future implementation.
-extern "C" fn start_gc_thread_pool() {}
-
-/// Stops the GC thread pool.
-/// Currently a no-op placeholder for future implementation.
-extern "C" fn stop_gc_thread_pool() {}
 
 /// Opens an index.
 ///
