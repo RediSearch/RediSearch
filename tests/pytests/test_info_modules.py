@@ -69,18 +69,15 @@ def testInfoModulesInfoOnZeroIndexesConfig(env):
   # +---------------------------------+----------------------+----------------------+
   #
   # minimal = only version/indexes/runtime_configurations sections (metrics suppressed)
-  # full    = metrics sections are present (see _FULL_METRICS_SECTIONS), even if values are 0
-  
-  # Sections emitted by INFO MODULES when metrics are not in "minimal" suppression mode.
-  _FULL_METRICS_SECTIONS = [
+  # full    = metrics sections are present (representative subset), even if values are 0
+
+  # Representative sections emitted by INFO MODULES when metrics are not in "minimal" suppression mode.
+  # (We keep this list intentionally small since other tests validate the full INFO MODULES content.)
+  _REPRESENTATIVE_METRICS_SECTIONS = [
     'search_fields_statistics',
     'search_memory',
-    'search_vector_index',
-    'search_cursors',
-    'search_garbage_collector',
     'search_queries',
     'search_warnings_and_errors',
-    'search_coordinator_warnings_and_errors',
     'search_multi_threading',
     'search_dialect_statistics',
   ]
@@ -91,7 +88,7 @@ def testInfoModulesInfoOnZeroIndexesConfig(env):
     env.assertEqual(info['search_indexes']['search_number_of_indexes'], '0')
     env.assertTrue('search_runtime_configurations' in info, message="runtime_configurations section should always exist")
     env.assertEqual(info['search_runtime_configurations']['search_info_on_zero_indexes'], 'OFF')
-    for section in _FULL_METRICS_SECTIONS:
+    for section in _REPRESENTATIVE_METRICS_SECTIONS:
       env.assertFalse(section in info, message=f"{section} should be suppressed when there are zero indexes and config is OFF")
 
   def _assert_full_info(info, expected_info_on_zero_indexes):
@@ -100,7 +97,7 @@ def testInfoModulesInfoOnZeroIndexesConfig(env):
     env.assertTrue('search_runtime_configurations' in info, message="runtime_configurations section should always exist")
     env.assertEqual(info['search_runtime_configurations']['search_info_on_zero_indexes'], expected_info_on_zero_indexes)
     # Prove we are not in the "minimal" suppression mode.
-    for section in _FULL_METRICS_SECTIONS:
+    for section in _REPRESENTATIVE_METRICS_SECTIONS:
       env.assertTrue(section in info, message=f"{section} should be emitted when full info is expected")
 
   # When `search-_info-on-zero-indexes` is disabled (default), and there are no indexes, RediSearch
