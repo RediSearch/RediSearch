@@ -3924,8 +3924,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         }
       }
       QueryError_ClearError(r->ee.err);
-      // TODO: Need to also clear the RLookup/RLookupRow? Quite sure YES.
-      // RLookupRow_Reset
+      RLookup_Cleanup(&r->lk);
     }
 
     if (r) {
