@@ -143,8 +143,6 @@ def test_debug_timeout_return_with_results():
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
 
 # Warning and error tests
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_search_only():
     """Test max prefix expansions warning when only SEARCH component is affected"""
     env = Env(enableDebugCommand=True)
@@ -158,8 +156,6 @@ def test_maxprefixexpansions_warning_search_only():
                        '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_vsim_only():
     """Test max prefix expansions warning when only VSIM component is affected"""
     env = Env(enableDebugCommand=True)
@@ -173,8 +169,6 @@ def test_maxprefixexpansions_warning_vsim_only():
                        '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_maxprefixexpansions_warning_both_components():
     """Test max prefix expansions warning when both SEARCH and VSIM components are affected"""
     env = Env(enableDebugCommand=True)
@@ -190,8 +184,6 @@ def test_maxprefixexpansions_warning_both_components():
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_tail_property_not_loaded_error():
     """Test error when tail pipeline references property not loaded nor in pipeline"""
     env = Env()

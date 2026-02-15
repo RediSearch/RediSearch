@@ -2605,7 +2605,7 @@ def testAlias(env):
 
     # check that aliasing one alias to another returns an error. This will
     # end up being confusing
-    env.expect('ft.aliasAdd', 'alias3', 'myIndex').error()
+    env.expect('ft.aliasAdd', 'alias3', 'myIndex').error().contains('SEARCH_INDEX_NOT_FOUND: Unknown index name (or name is an alias itself)')
 
     # check that deleting the alias works as expected
     env.expect('ft.aliasDel', 'myIndex').noError()

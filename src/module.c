@@ -969,7 +969,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    QueryError_SetCode(error, QUERY_ERROR_CODE_NO_INDEX);
+    QueryError_SetWithUserDataFmt(error, QUERY_ERROR_CODE_NO_INDEX, "Unknown index name (or name is an alias itself)", "");
     return REDISMODULE_ERR;
   }
 

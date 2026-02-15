@@ -113,6 +113,9 @@ pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
 /// [`QueryErrorCode::OutOfMemory`]. If another message is provided,
 /// [`QueryErrorCode::Generic`] is returned.
 ///
+/// NOTE: This function matches against **error** strings (with prefix), not warning
+/// strings. Warning strings should be handled separately by the caller.
+///
 /// # Safety
 ///
 /// - `message` must be a valid C string or a NULL pointer.

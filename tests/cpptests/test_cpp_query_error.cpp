@@ -238,6 +238,21 @@ TEST_F(QueryErrorTest, testQueryErrorAllErrorCodes) {
   }
 }
 
+TEST_F(QueryErrorTest, testGetCodeFromMessageRecognizesErrorFormOnly) {
+  // The error-form timeout string should be recognized
+  const char *error_form = QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT);
+  ASSERT_EQ(QueryError_GetCodeFromMessage(error_form), QUERY_ERROR_CODE_TIMED_OUT);
+
+  // The warning-form timeout string (no prefix) should NOT be recognized as an error.
+  // Warning strings must be handled separately by callers, not routed through
+  // QueryError_GetCodeFromMessage (which is for error classification only).
+  const char *warning_form = QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
+  ASSERT_EQ(QueryError_GetCodeFromMessage(warning_form), QUERY_ERROR_CODE_GENERIC);
+
+  // An unrelated message should fall back to GENERIC
+  ASSERT_EQ(QueryError_GetCodeFromMessage("some random error that does not exist blabla"), QUERY_ERROR_CODE_GENERIC);
+}
+
 TEST_F(QueryErrorTest, testQueryErrorEdgeCases) {
   QueryError err = QueryError_Default();
 
