@@ -304,8 +304,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue 
 }
 
 int func_exists(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  RSValueType t = RSValue_Type(argv[0]);
-  if (t != RSValueType_Null && t != RSValueType_Undef) {
+  if (RSValue_Type(argv[0]) != RSValueType_Null) {
     RSValue_SetNumber(result, 1);
   } else {
     QueryError_ClearError(ctx->err);

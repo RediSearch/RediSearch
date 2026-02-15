@@ -63,7 +63,11 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
 
     int internalRes = evalInternal(eval, f->args->args[ii], args[ii]);
 
-    if (internalRes == EXPR_EVAL_ERR && f->Call != func_exists) {
+    // Handle NULL values:
+    // 1. For func_exists, always allow NULL values
+    // 2. For all other functions, NULL values are errors
+    if (internalRes == EXPR_EVAL_ERR ||
+       (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       goto cleanup;
     }
   }
@@ -235,7 +239,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", RLookupKey_GetName(e->lookupObj));
     }
     RSValue_SetNull(res);
-    return EXPR_EVAL_ERR;
+    return EXPR_EVAL_NULL;;
   }
 
   setReferenceValue(res, value);

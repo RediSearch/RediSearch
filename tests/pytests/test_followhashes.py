@@ -773,9 +773,6 @@ def testFilterWithMissingFields(env):
     fails due to missing fields. This is a regression test for a bug where
     documents added after index creation would be indexed even when the filter
     expression could not be evaluated (e.g., due to missing fields).
-
-    The bug was caused by a discrepancy between SchemaRule_ShouldIndex and
-    Indexes_FindMatchingSchemaRules in how they handle filter evaluation failures.
     """
     conn = getConnectionByEnv(env)
 
