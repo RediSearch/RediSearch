@@ -1362,6 +1362,7 @@ booleanConfigs = [
     ('search-_free-resource-on-thread', '_FREE_RESOURCE_ON_THREAD', 'yes', False, False),
     ('search-_numeric-compress', '_NUMERIC_COMPRESS', 'no', False, False),
     ('search-_print-profile-clock', '_PRINT_PROFILE_CLOCK', 'yes', False, False),
+    ('search-_simulate-in-flex', '_SIMULATE_IN_FLEX', 'no', False, False),
     ('search-no-gc', 'NOGC', 'no', True, True),
     ('search-no-mem-pools', 'NO_MEM_POOLS', 'no', True, True),
     ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
@@ -1374,7 +1375,6 @@ booleanConfigs = [
 # These should be validated via CONFIG GET/SET only.
 configOnlyBooleanConfigs = [
     # configName, defaultValue
-    ('search-_simulate-in-flex', 'no'),
     ('search-_info-on-zero-indexes', 'no'),
 ]
 
