@@ -12,47 +12,6 @@ use inverted_index::{
     RSAggregateResult, RSIndexResult, RSOffsetVector, RSResultKind, RSResultKindMask,
 };
 
-// We can't use the defaults in `c_mocks` for these functions since the tests in this file will call
-// some of them. Therefore we are redefining the following function here:
-// - Term_Free
-#[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
-    if result.is_null() {
-        panic!("did not expect `RSIndexResult` to be null");
-    }
-
-    let metrics = unsafe { (*result).metrics };
-    if metrics.is_null() {
-        return;
-    }
-
-    panic!(
-        "did not expect any test to set metrics, but got: {:?}",
-        unsafe { *metrics }
-    );
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn RSYieldableMetric_Concat(
-    _parent: *mut *mut ffi::RSYieldableMetric,
-    _child: *const ffi::RSYieldableMetric,
-) {
-    // Do nothing since the code will call this
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
-    // Making an owned copy of a term test will call this function
-}
-
-#[allow(non_snake_case)]
-#[unsafe(no_mangle)]
-unsafe fn RSYieldableMetrics_Clone(
-    _src: *mut ffi::RSYieldableMetric,
-) -> *mut ffi::RSYieldableMetric {
-    panic!("none of the tests should set any metrics");
-}
-
 #[test]
 fn pushing_to_aggregate_result() {
     let num_first = RSIndexResult::numeric(10.0).doc_id(2);

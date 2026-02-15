@@ -11,8 +11,6 @@ use std::io::Cursor;
 
 use inverted_index::{Decoder, Encoder, RSIndexResult, doc_ids_only::DocIdsOnly};
 
-mod c_mocks;
-
 #[test]
 fn test_encode_doc_ids_only() {
     // Test cases for the doc ids only encoder and decoder.

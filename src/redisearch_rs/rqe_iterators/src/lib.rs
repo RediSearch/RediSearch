@@ -22,6 +22,7 @@ pub mod metric;
 pub mod not;
 pub mod optional;
 pub mod profile;
+pub mod utils;
 pub mod wildcard;
 
 pub mod util;

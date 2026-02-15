@@ -48,8 +48,6 @@ typedef struct AsyncReadResult {
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
   void (*close)(RedisSearchDisk *disk);
-  void (*startGCThreadPool)(void);
-  void (*stopGCThreadPool)(void);
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
   void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
@@ -115,6 +113,16 @@ typedef struct IndexDiskAPI {
    * @return Number of documents in the index
    */
   QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index, double weight);
+
+  /**
+   * @brief Run a GC compaction cycle on the disk index.
+   *
+   * Synchronously runs a full compaction on the inverted index column family,
+   * removing entries for deleted documents.
+   *
+   * @param index Pointer to the index
+   */
+  void (*runGC)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

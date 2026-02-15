@@ -9,29 +9,12 @@
 
 use std::io::Cursor;
 
-use ffi::{RSQueryTerm, t_fieldMask};
+use ffi::t_fieldMask;
 use inverted_index::{
     Decoder, Encoder, RSIndexResult,
     full::{Full, FullWide},
     test_utils::{TermRecordCompare, TestTermRecord},
 };
-
-#[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
-    if metrics.is_null() {
-        return;
-    }
-
-    panic!(
-        "did not expect any test to set metrics, but got: {:?}",
-        unsafe { *metrics }
-    );
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut RSQueryTerm) {
-    // The RSQueryTerm used in those tests is stack allocated so we don't need to free it.
-}
 
 #[test]
 fn test_encode_full() {

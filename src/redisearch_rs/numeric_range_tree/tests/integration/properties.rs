@@ -11,6 +11,7 @@
 
 #[cfg(not(miri))]
 mod proptests {
+    use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
 
     proptest::proptest! {
@@ -35,6 +36,37 @@ mod proptests {
         }
 
         #[test]
+        fn prop_find_returns_overlapping_ranges(
+            // Build tree from random entries, then query with random filter
+            values in proptest::collection::vec(-1000.0f64..1000.0, 1..100),
+            filter_min in -1500.0f64..1500.0,
+            filter_width in 0.0f64..3000.0,
+        ) {
+            let mut tree = NumericRangeTree::new(false);
+            for (i, value) in values.iter().enumerate() {
+                tree.add((i + 1) as u64, *value, false, 0);
+            }
+
+            let filter_max = filter_min + filter_width;
+            let filter = NumericFilter {
+                min: filter_min,
+                max: filter_max,
+                ..Default::default()
+            };
+            let ranges = tree.find(&filter);
+
+            for range in &ranges {
+                assert!(
+                    range.overlaps(filter_min, filter_max),
+                    "range [{}, {}] does not overlap filter [{filter_min}, {filter_max}]",
+                    range.min_val(),
+                    range.max_val(),
+                );
+            }
+
+        }
+
+        #[test]
         fn prop_tree_invariants_after_operations(
             values in proptest::collection::vec(-5000.0f64..5000.0, 1..300)
         ) {
@@ -45,6 +77,54 @@ mod proptests {
             for (i, value) in values.iter().enumerate() {
                 tree.add((i + 1) as u64, *value, false, 0);
             }
+        }
+
+        #[test]
+        fn prop_find_ascending_descending_same_ranges(
+            values in proptest::collection::vec(-1000.0f64..1000.0, 1..100),
+            filter_min in -1500.0f64..1500.0,
+            filter_width in 0.0f64..3000.0,
+        ) {
+            let mut tree = NumericRangeTree::new(false);
+            for (i, value) in values.iter().enumerate() {
+                tree.add((i + 1) as u64, *value, false, 0);
+            }
+
+            let filter_max = filter_min + filter_width;
+            let filter_asc = NumericFilter {
+                min: filter_min,
+                max: filter_max,
+                ascending: true,
+                ..Default::default()
+            };
+            let filter_desc = NumericFilter {
+                min: filter_min,
+                max: filter_max,
+                ascending: false,
+                ..Default::default()
+            };
+
+            let ranges_asc = tree.find(&filter_asc);
+            let ranges_desc = tree.find(&filter_desc);
+
+            assert_eq!(
+                ranges_asc.len(),
+                ranges_desc.len(),
+                "asc and desc should return the same number of ranges"
+            );
+
+            // Compare as sets by sorting on bit representation of bounds.
+            let mut asc_ids: Vec<(u64, u64)> = ranges_asc
+                .iter()
+                .map(|r| (r.min_val().to_bits(), r.max_val().to_bits()))
+                .collect();
+            let mut desc_ids: Vec<(u64, u64)> = ranges_desc
+                .iter()
+                .map(|r| (r.min_val().to_bits(), r.max_val().to_bits()))
+                .collect();
+            asc_ids.sort();
+            desc_ids.sort();
+            assert_eq!(asc_ids, desc_ids);
         }
 
         #[test]

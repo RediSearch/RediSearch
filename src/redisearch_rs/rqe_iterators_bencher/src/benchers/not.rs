@@ -12,7 +12,7 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, empty::Empty, id_list::SortedIdList, not::Not};
+use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::Not};
 
 use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
 
@@ -101,9 +101,9 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 1% of docs (every 100th doc)
-                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
@@ -147,9 +147,9 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Child has 99% of docs (all except every 100th doc)
-                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
@@ -237,9 +237,9 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,
@@ -283,9 +283,9 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
+                    let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
                     Not::new(
-                        SortedIdList::new(data),
+                        IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
                         Self::NOT_ITERATOR_LARGE_TIMEOUT,

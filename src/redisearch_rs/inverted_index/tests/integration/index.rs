@@ -12,8 +12,6 @@ use inverted_index::{
     IndexBlock, IndexReader, InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly,
 };
 
-mod c_mocks;
-
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_inverted_index_usage() {

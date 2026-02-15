@@ -1,4 +1,4 @@
-redisbench_admin==0.12.6
+redisbench_admin==0.12.9
 numpy>=2.0.0
 pandas
 requests

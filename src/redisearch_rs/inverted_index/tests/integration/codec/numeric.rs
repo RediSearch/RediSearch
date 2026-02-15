@@ -14,8 +14,6 @@ use inverted_index::{
 use pretty_assertions::assert_eq;
 use std::io::Cursor;
 
-mod c_mocks;
-
 /// Tests for integer values between 0 and 7 which should use the [TINY header](super#tiny-type) format.
 #[test]
 fn numeric_tiny_int() {

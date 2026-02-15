@@ -14,7 +14,9 @@
 //!
 //! The implementation is split into sub-modules by concern:
 //! - [`insert`]: Write path (add, split, balance)
+//! - [`find`]: Read path (range queries)
 
+mod find;
 mod insert;
 #[cfg(all(feature = "unittest", not(miri)))]
 mod invariants;
@@ -254,8 +256,8 @@ impl NumericRangeTree {
     }
 
     /// Returns an iterator over all nodes in the tree (depth-first traversal).
-    pub fn iter(&self) -> crate::PreOrderDfsIterator<'_> {
-        crate::PreOrderDfsIterator::new(self)
+    pub fn iter(&self) -> crate::ReversePreOrderDfsIterator<'_> {
+        crate::ReversePreOrderDfsIterator::new(self)
     }
 
     /// Calculate the total memory usage of the tree, in bytes.

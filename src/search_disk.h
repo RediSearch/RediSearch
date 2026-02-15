@@ -107,6 +107,16 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
 void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
 
 /**
+ * @brief Run a GC compaction cycle on the disk index
+ *
+ * Synchronously runs a full compaction on the inverted index column family,
+ * removing entries for deleted documents.
+ *
+ * @param index Pointer to the index
+ */
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
+
+/**
  * @brief Create an IndexIterator for a term in the inverted index
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
