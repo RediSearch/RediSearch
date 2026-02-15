@@ -303,6 +303,9 @@ def test_dialect_aggregate(env):
     env.assertEqual(res[0], 2)
 
 def check_info_module_results(env, module_expect):
+  # This helper may be called after a flush (zero indexes), where INFO MODULES can be in minimal
+  # suppression mode by default. Ensure dialect statistics are emitted.
+  allShards_set_info_on_zero_indexes(env, True)
   info = env.cmd('INFO', 'MODULES')
   env.assertEqual(int(info['search_dialect_1']), module_expect[0])
   env.assertEqual(int(info['search_dialect_2']), module_expect[1])
