@@ -265,15 +265,15 @@ TEST_F(ExprTest, testFunction) {
 
   ctx.assign("banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 }
 
 struct EvalResult {
