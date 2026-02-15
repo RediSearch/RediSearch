@@ -682,6 +682,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
