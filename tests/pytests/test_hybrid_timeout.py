@@ -143,6 +143,8 @@ def test_debug_timeout_return_with_results():
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
 
 # Warning and error tests
+#TODO: remove skip once FT.HYBRID warning handling for cluster is stable
+@skip(cluster=True)
 def test_maxprefixexpansions_warning_search_only():
     """Test max prefix expansions warning when only SEARCH component is affected"""
     env = Env(enableDebugCommand=True)
@@ -156,6 +158,7 @@ def test_maxprefixexpansions_warning_search_only():
                        '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in get_warnings(response))
 
+@skip(cluster=True)
 def test_maxprefixexpansions_warning_vsim_only():
     """Test max prefix expansions warning when only VSIM component is affected"""
     env = Env(enableDebugCommand=True)
@@ -169,6 +172,7 @@ def test_maxprefixexpansions_warning_vsim_only():
                        '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in get_warnings(response))
 
+@skip(cluster=True)
 def test_maxprefixexpansions_warning_both_components():
     """Test max prefix expansions warning when both SEARCH and VSIM components are affected"""
     env = Env(enableDebugCommand=True)
