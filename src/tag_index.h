@@ -134,8 +134,10 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
   array_free(s);
 }
 
-/* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId);
+/* Index a vector of pre-processed tags for a docId.
+ * Updates stats->invertedSize (memory mode) and stats->numRecords on success.
+ * Returns true on success, false on failure (disk mode only). */
+bool TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
@@ -154,25 +156,6 @@ QueryIterator *TagIndex_GetIteratorForTag(TagIndex *idx, const RedisSearchCtx *s
 QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
                                                     const char *tag, size_t len, void *ptr,
                                                     double weight, t_fieldIndex fieldIndex);
-
-/* Collect iterators from TrieMap iteration
- * Used by prefix, wildcard (brute-force), and lexrange queries
- * @param filter Optional filter function, returns true to include the tag
- * @param filterCtx Context passed to filter function */
-size_t TagIndex_CollectIteratorsFromTrieMap(TagIndex *idx, const RedisSearchCtx *sctx,
-                                            TrieMapIterator *it,
-                                            QueryIterator ***its, size_t *itsCap,
-                                            double weight, t_fieldIndex fieldIndex,
-                                            bool (*filter)(const char *, size_t, void *),
-                                            void *filterCtx);
-
-/* Collect iterators from tag string array
- * Used by suffix trie results */
-size_t TagIndex_CollectIteratorsFromTagArray(TagIndex *idx, const RedisSearchCtx *sctx,
-                                             const char **tags, size_t numTags,
-                                             QueryIterator ***its, size_t *itsCap,
-                                             double weight, t_fieldIndex fieldIndex,
-                                             size_t maxExpansions);
 
 /* Open the tag index
  * @param spec Field spec for the tag field

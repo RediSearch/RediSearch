@@ -771,9 +771,10 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
 
   // TagIndex_Index handles both disk and memory modes internally
-  ctx->spec->stats.invertedSize +=
-      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
-  ctx->spec->stats.numRecords++;
+  if (!TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
+    return -1;
+  }
   return 0;
 }
 
