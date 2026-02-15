@@ -349,6 +349,11 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
         continue;
       }
 
+      // Skip disk-mode tag indexes - GC not applicable (TrieMap contains NULL sentinels)
+      if (tagIdx->diskSpec) {
+        continue;
+      }
+
       tagNumHeader header = {.type = RSFLDTYPE_TAG,
                              .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
                              .uniqueId = tagIdx->uniqueId};
