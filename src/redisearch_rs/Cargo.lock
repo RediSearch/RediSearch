@@ -139,28 +139,6 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bindgen"
-version = "0.66.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
-dependencies = [
- "bitflags 2.10.0",
- "cexpr",
- "clang-sys",
- "lazy_static",
- "lazycell",
- "log",
- "peeking_take_while",
- "prettyplease",
- "proc-macro2",
- "quote 1.0.44",
- "regex",
- "rustc-hash 1.1.0",
- "shlex",
- "syn 2.0.114",
-]
-
-[[package]]
-name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
@@ -169,10 +147,12 @@ dependencies = [
  "cexpr",
  "clang-sys",
  "itertools 0.13.0",
+ "log",
+ "prettyplease",
  "proc-macro2",
  "quote 1.0.44",
  "regex",
- "rustc-hash 2.1.1",
+ "rustc-hash",
  "shlex",
  "syn 2.0.114",
 ]
@@ -201,7 +181,7 @@ dependencies = [
 name = "build_utils"
 version = "0.0.1"
 dependencies = [
- "bindgen 0.72.1",
+ "bindgen",
  "cbindgen",
  "cc",
  "workspace_hack",
@@ -229,6 +209,15 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 name = "c_ffi_utils"
 version = "0.0.1"
 dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "c_trie"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "strum",
  "workspace_hack",
 ]
 
@@ -384,6 +373,14 @@ name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
+
+[[package]]
+name = "common"
+version = "0.1.0"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=06d55e5c03eeb2c96a60e0d519b9362429312d98#06d55e5c03eeb2c96a60e0d519b9362429312d98"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "console"
@@ -629,7 +626,7 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 name = "ffi"
 version = "0.0.1"
 dependencies = [
- "bindgen 0.72.1",
+ "bindgen",
  "build_utils",
  "cc",
  "document",
@@ -783,7 +780,7 @@ dependencies = [
  "hash32",
  "insta",
  "proptest",
- "rustc-hash 2.1.1",
+ "rustc-hash",
  "thiserror",
  "workspace_hack",
  "wyhash",
@@ -895,6 +892,7 @@ checksum = "248b42847813a1550dafd15296fd9748c651d0c32194559dbc05d804d54b21e8"
 dependencies = [
  "console",
  "once_cell",
+ "regex",
  "similar",
  "tempfile",
 ]
@@ -909,6 +907,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "redis_reply",
  "serde",
  "smallvec",
  "thin_vec",
@@ -1003,12 +1002,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-
-[[package]]
-name = "lazycell"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lending-iterator"
@@ -1231,6 +1224,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "numeric_range_tree"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "hyperloglog",
+ "insta",
+ "inverted_index",
+ "numeric_range_tree",
+ "pretty_assertions",
+ "proptest",
+ "redis_mock",
+ "redis_reply",
+ "redisearch_rs",
+ "rstest",
+ "slab",
+ "tracing",
+ "workspace_hack",
+]
+
+[[package]]
 name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1272,12 +1286,6 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
-name = "peeking_take_while"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
 name = "percent-encoding"
@@ -1539,13 +1547,14 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=06d55e5c03eeb2c96a60e0d519b9362429312d98#06d55e5c03eeb2c96a60e0d519b9362429312d98"
 dependencies = [
  "backtrace",
- "bindgen 0.66.1",
+ "bindgen",
  "bitflags 2.10.0",
  "cc",
  "cfg-if",
+ "common",
  "enum-primitive-derive",
  "libc",
  "linkme",
@@ -1561,7 +1570,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=1ab84014c096dbfd431de0e34d174d15f16c0e42#1ab84014c096dbfd431de0e34d174d15f16c0e42"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=06d55e5c03eeb2c96a60e0d519b9362429312d98#06d55e5c03eeb2c96a60e0d519b9362429312d98"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1655,6 +1664,12 @@ name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
+
+[[package]]
+name = "relative-path"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "result_processor"
@@ -1773,7 +1788,7 @@ dependencies = [
 name = "rqe_iterators_bencher"
 version = "0.0.1"
 dependencies = [
- "bindgen 0.72.1",
+ "bindgen",
  "build_utils",
  "criterion",
  "ffi",
@@ -1816,6 +1831,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "rstest"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
+dependencies = [
+ "rstest_macros",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c845311f0ff7951c5506121a9ad75aec44d083c31583b2ea5a30bcb0b0abba0"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro2",
+ "quote 1.0.44",
+ "regex",
+ "relative-path",
+ "rustc_version",
+ "syn 2.0.114",
+ "unicode-ident",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1823,15 +1864,18 @@ checksum = "b50b8869d9fc858ce7266cce0194bd74df58b9d0e3f6df3a9fc8eb470d95c09d"
 
 [[package]]
 name = "rustc-hash"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
-
-[[package]]
-name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
+
+[[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver",
+]
 
 [[package]]
 name = "rustix"
@@ -2024,6 +2068,12 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
+name = "slab"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slots_tracker"
@@ -2825,13 +2875,14 @@ checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 name = "workspace_hack"
 version = "0.1.0"
 dependencies = [
- "bindgen 0.72.1",
+ "bindgen",
  "bitflags 2.10.0",
  "clang-sys",
  "clap",
  "clap_builder",
  "either",
  "getrandom 0.3.4",
+ "insta",
  "itertools 0.13.0",
  "libc",
  "memchr",
@@ -2846,6 +2897,7 @@ dependencies = [
  "regex",
  "regex-automata",
  "regex-syntax",
+ "semver",
  "serde",
  "serde_core",
  "serde_json",

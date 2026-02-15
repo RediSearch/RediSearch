@@ -14,6 +14,8 @@
 pub mod iter;
 mod node;
 mod trie;
+mod trie_count;
 mod utils;
 
 pub use trie::TrieMap;
+pub use trie_count::TrieCount;

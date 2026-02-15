@@ -184,6 +184,11 @@ typedef struct {
   bool prioritizeIntersectUnionChildren;
     // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
   unsigned int indexerYieldEveryOpsWhileLoading;
+  // Sleep duration in microseconds during background indexing. We sleep periodically
+  // (every `numBGIndexingIterationsBeforeSleep` iterations) to allow the main thread
+  // to acquire the GIL and process commands.
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+  uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
@@ -327,6 +332,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_BG_INDEX_SLEEP_DURATION_US 1
 #define DEFAULT_SHARD_WINDOW_RATIO 1.0
 #define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
 #define MAX_SHARD_WINDOW_RATIO 1.0
@@ -382,6 +388,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
     .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
     .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                    \
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
