@@ -1342,7 +1342,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_TAG_STR, fs, status)) goto error;
     if (!parseTagField(fs, ac, status)) goto error;
     if (!FieldSpec_IndexesEmpty(fs)) {
       sp->flags |= Index_HasNonEmpty;
