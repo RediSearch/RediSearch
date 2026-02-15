@@ -136,6 +136,6 @@ def test_query_while_flush():
                    message="Should have no successes after FLUSHALL for old index")
 
     # Verify old index1 is gone
-    env.expect('FT.SEARCH', 'index1', 'hello').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found')
+    env.expect('FT.SEARCH', 'index1', 'hello').error().contains('SEARCH_INDEX_NOT_FOUND Index not found')
     env.debugPrint(f"  Before FLUSHALL - Errors: {stats['before_flush_errors']}, Successes: {stats['before_flush_successes']}")
     env.debugPrint(f"  After FLUSHALL - Errors: {stats['after_flush_errors']}, Successes: {stats['after_flush_successes']}")

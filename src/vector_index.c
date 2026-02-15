@@ -644,10 +644,8 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
       RSErrorCode = QUERY_ERROR_CODE_GENERIC;
     }
   }
-  const char *full_error_msg = QueryError_Strerror(RSErrorCode);
-  const char *colon_pos = strchr(full_error_msg, ':');
-  const char *user_msg = colon_pos ? colon_pos + 2 : full_error_msg;
-  QueryError_SetWithUserDataFmt(status, RSErrorCode, user_msg,
+  const char *default_msg = QueryError_StrerrorDefaultMessage(RSErrorCode);
+  QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg,
                                 " (Error parsing vector similarity parameters)");
   return vecSimCode;
 }

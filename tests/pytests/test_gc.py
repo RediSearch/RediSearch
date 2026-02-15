@@ -475,7 +475,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
                     results['info_calls'] += 1
                     results['errors'] += 1
                     # Expected errors when index is being deleted:
-                    # - "SEARCH_INDEX_NOT_FOUND: Index not found"
+                    # - "SEARCH_INDEX_NOT_FOUND Index not found"
                     error_msg = str(e).lower()
                     if 'index not found' in error_msg:
                         # These are expected errors during index deletion

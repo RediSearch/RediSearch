@@ -14,7 +14,7 @@ def testSyntax1(env):
 
     env.expect('ft.create', 'idx2',
                'LANGUAGE', 'eng'
-               'SCHEMA', 'foo', 'text').equal('SEARCH_ADD_ARGS: Invalid language')
+               'SCHEMA', 'foo', 'text').equal('SEARCH_ADD_ARGS Invalid language')
 
     env.expect('ft.create', 'idx2',
                'SCORE', '1.0'
@@ -26,7 +26,7 @@ def testSyntax1(env):
 
     env.expect('ft.create', 'idx2',
                'FILTER', 'a'
-               'SCHEMA', 'foo', 'text').equal("SEARCH_EXPR: Unknown symbol 'aSCHEMA'")
+               'SCHEMA', 'foo', 'text').equal("SEARCH_EXPR Unknown symbol 'aSCHEMA'")
 
 def testFilter1(env):
     conn = getConnectionByEnv(env)

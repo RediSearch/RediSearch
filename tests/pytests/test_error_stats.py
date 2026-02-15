@@ -5,21 +5,23 @@ def test_search_error_stats_tracking(env):
     Test SEARCH_ error format and Redis errorstats tracking.
     Validates both error message format and Redis error statistics.
     """
-    # Test 1: SEARCH_INDEX_NOT_FOUND error format
+    # Test 1: SEARCH_INDEX_NOT_FOUND error format (space delimiter, no colon)
     env.expect('FT.SEARCH', 'nonexistent_index', '*') \
-        .error().apply(lambda e: str(e).startswith('SEARCH_INDEX_NOT_FOUND:')).true()
+        .error().apply(lambda e: str(e).startswith('SEARCH_INDEX_NOT_FOUND ')).true()
 
     # Test 2: SEARCH_ARG_UNRECOGNIZED error format
     env.expect('FT.CREATE', 'test_idx', 'SCHEMA', 'title', 'TEXT').ok()
     env.expect('FT.DROPINDEX', 'test_idx', 'INVALID_ARG') \
-        .error().apply(lambda e: str(e).startswith('SEARCH_ARG_UNRECOGNIZED:')).true()
+        .error().apply(lambda e: str(e).startswith('SEARCH_ARG_UNRECOGNIZED ')).true()
 
     # Test 3: Validate Redis errorstats tracking with correct counts
+    # Redis extracts the error type as everything before the first space,
+    # so the errorstat key is e.g. errorstat_SEARCH_INDEX_NOT_FOUND
     final_stats = env.cmd('INFO', 'errorstats')
     # Check SEARCH_INDEX_NOT_FOUND appears with count=1
     index_error_key = None
     for key in final_stats.keys():
-        if key.startswith('errorstat_SEARCH_INDEX_NOT_FOUND_'):
+        if key.startswith('errorstat_SEARCH_INDEX_NOT_FOUND'):
             index_error_key = key
             break
 
@@ -31,7 +33,7 @@ def test_search_error_stats_tracking(env):
     # Check SEARCH_ARG_UNRECOGNIZED appears with count=1
     arg_error_key = None
     for key in final_stats.keys():
-        if key.startswith('errorstat_SEARCH_ARG_UNRECOGNIZED_'):
+        if key.startswith('errorstat_SEARCH_ARG_UNRECOGNIZED'):
             arg_error_key = key
             break
 

@@ -626,7 +626,7 @@ def testDebugScannerStatus(env: Env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerStatusError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND: Index not found')
+    checkDebugScannerStatusError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND Index not found')
 
     # Test error handling
     # Giving invalid argument to debug scanner control command
@@ -1099,7 +1099,7 @@ def test_update_debug_scanner_config(env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerUpdateError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND: Index not found')
+    checkDebugScannerUpdateError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND Index not found')
 
 @skip(cluster=True)
 def test_yield_counter(env):

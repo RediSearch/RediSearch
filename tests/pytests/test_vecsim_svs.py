@@ -478,10 +478,10 @@ def test_drop_index_memory():
     env.assertGreaterEqual(proc_memory - memory_after_drop, vectors_mem_mb, message=f"proc_memory: {proc_memory}, memory_after_drop: {memory_after_drop}, vectors_mem_mb: {vectors_mem_mb}")
 
     # No operations on a dropped index are allowed
-    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND: Index not found")
+    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
     query = create_random_np_array_typed(dim, 'FLOAT32')
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1 @{DEFAULT_FIELD_NAME} $vec_param]', 'PARAMS', 2, 'vec_param',
-               query.tobytes(), 'NOCONTENT').error().contains(f"SEARCH_INDEX_NOT_FOUND: Index not found")
+               query.tobytes(), 'NOCONTENT').error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
 
 @skip(cluster=True)
 def test_drop_index_during_query():
@@ -516,15 +516,15 @@ def test_drop_index_during_query():
     # drop the index while query is running
     env.expect('FT.DROPINDEX', DEFAULT_INDEX_NAME).ok()
 
-    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND: Index not found")
-    env.expect(*query_cmd).error().contains(f"SEARCH_INDEX_NOT_FOUND: Index not found")
+    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
+    env.expect(*query_cmd).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
     # Resume the query
     setPauseRPResume(env)
     t_query.join()
     env.assertEqual(query_result[0][0], k)
 
-    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND: Index not found")
-    env.expect(*query_cmd).error().contains(f"SEARCH_INDEX_NOT_FOUND: Index not found")
+    env.expect('FT.INFO', DEFAULT_INDEX_NAME).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
+    env.expect(*query_cmd).error().contains(f"SEARCH_INDEX_NOT_FOUND Index not found")
 
 def gc_test_common(env, num_workers):
     dim = 28

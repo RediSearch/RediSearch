@@ -37,7 +37,7 @@ def testDeleteIndex(env):
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     r.expect('ft.drop', 'idx').ok()
 
-    r.expect('ft.info', 'idx').contains('SEARCH_INDEX_NOT_FOUND: Index not found')
+    r.expect('ft.info', 'idx').contains('SEARCH_INDEX_NOT_FOUND Index not found')
     # time.sleep(1)
 
 
@@ -89,7 +89,7 @@ def test_eval_node_errors_async():
                   f' index\'s expected size ({dim*4}).')
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10000000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_docs,
                'PARAMS', 2, 'vec_param', create_np_array_typed([0]*dim).tobytes(),
-               'TIMEOUT', 1).error().equal('SEARCH_TIMEOUT: Timeout limit was reached')
+               'TIMEOUT', 1).error().equal('SEARCH_TIMEOUT Timeout limit was reached')
 
     # This error is caught during building the implicit pipeline (also should occur in BG thread)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v}', 'timeout', 0, 'PARAMS', '2', 'b',

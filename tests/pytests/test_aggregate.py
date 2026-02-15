@@ -345,7 +345,7 @@ class TestAggregate():
             ], res[1:])
         else:
             # On standalone, filter can only refer to fields that available in the pipeline
-            self.env.expect(*cmd).error().contains('SEARCH_PROP_NOT_FOUND: Property not loaded nor in pipeline: `price`')
+            self.env.expect(*cmd).error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline: `price`')
 
         cmd = ['ft.aggregate', 'games', '*',
                'FILTER', 'lower(@brand) == "sony"',
@@ -1147,13 +1147,13 @@ def aggregate_test(protocol=2):
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@numeric1', '@__key', 'APPLY',
         '@numeric1 ^ @numeric1', 'AS', 't1exp', 'groupby', '2', '@numeric1', '@t1exp', 'REDUCE',
         'tolist', '1', '@__key', 'AS', 'keys', 'TIMEOUT', '1'
-    ).error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
     # Tests MOD-5948 - An `FT.AGGREGATE` command with no depleting result-processors
     # should return a timeout (rather than results)
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@numeric1', 'TIMEOUT', '1'
-    ).error().contains('SEARCH_TIMEOUT: Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 def test_aggregate_timeout_resp2():
     aggregate_test(protocol=2)

@@ -17,7 +17,7 @@ def testProfileSearch(env):
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
 
-  env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('SEARCH_INDEX_NOT_FOUND: Index not found')
+  env.expect('ft.profile', 'profile', 'idx', '*', 'nocontent').error().contains('SEARCH_INDEX_NOT_FOUND Index not found')
   env.expect('FT.PROFILE', 'idx', 'Puffin', '*', 'nocontent').error().contains('No `SEARCH`, `AGGREGATE`, or `HYBRID` provided')
 
   # test WILDCARD

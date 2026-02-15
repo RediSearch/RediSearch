@@ -593,8 +593,8 @@ def test_tagvals():
     env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f1')), {'3'})
     env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f2')), {'2', '3'})
     env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f5')), set())
-    env.expect('FT.TAGVALS', 'idx1', 'f4').error().contains('SEARCH_ATTR_BAD: Not a tag field')
-    env.expect('FT.TAGVALS', 'idx1', 'unexistent_field').error().contains('SEARCH_ATTR_BAD: No such field')
+    env.expect('FT.TAGVALS', 'idx1', 'f4').error().contains('SEARCH_ATTR_BAD Not a tag field')
+    env.expect('FT.TAGVALS', 'idx1', 'unexistent_field').error().contains('SEARCH_ATTR_BAD No such field')
 
 @skip(cluster=False)
 def test_clusterinfo():

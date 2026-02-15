@@ -565,7 +565,7 @@ def _test_barrier_shard_timeout_with_fail_policy(protocol):
         env.assertTrue(False, message="Expected timeout error, got valid result")
     except Exception as e:
         # Timeout error is expected with FAIL policy
-        env.assertContains(str(e), 'SEARCH_TIMEOUT: Timeout limit was reached')
+        env.assertContains(str(e), 'SEARCH_TIMEOUT Timeout limit was reached')
 
 
 @skip(cluster=False)

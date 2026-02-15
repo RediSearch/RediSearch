@@ -39,7 +39,7 @@ def testExpireIndex(env):
                 time.sleep(0.1)
         except Exception as e:
             # `assertContains` expects (expected_substring, actual_string)
-            env.assertContains('SEARCH_INDEX_NOT_FOUND: Index not found', str(e))
+            env.assertContains('SEARCH_INDEX_NOT_FOUND Index not found', str(e))
 
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]

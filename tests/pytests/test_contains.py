@@ -130,9 +130,9 @@ def testSanity(env: Env):
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
     env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('SEARCH_TIMEOUT: Timeout limit was reached')
+      .contains('SEARCH_TIMEOUT Timeout limit was reached')
     env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('SEARCH_TIMEOUT: Timeout limit was reached')
+      .contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 @skip(cluster=True)
 def testSanityTags(env):
@@ -195,9 +195,9 @@ def testSanityTags(env):
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
     env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('SEARCH_TIMEOUT: Timeout limit was reached')
+      .contains('SEARCH_TIMEOUT Timeout limit was reached')
     env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('SEARCH_TIMEOUT: Timeout limit was reached')
+      .contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 def testEscape(env):
   # this test check that `\*` is escaped correctly on contains queries

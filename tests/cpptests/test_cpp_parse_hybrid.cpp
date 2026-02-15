@@ -804,7 +804,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
 
-  // Many errors now include a stable prefix (e.g. "SEARCH_FOO: ...") for uniqueness.
+  // Many errors now include a stable prefix (e.g. "SEARCH_FOO ...") for uniqueness.
   // To keep tests stable, allow either exact match or "contains" match when the
   // test asserts only the detail portion.
   const char *user_error = QueryError_GetUserError(&status);
