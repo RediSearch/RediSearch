@@ -511,7 +511,7 @@ void RLookup_Cleanup(RLookup *lk) {
   IndexSpecCache_Decref(lk->_spcache);
 
   lk->_head = lk->_tail = NULL;
-  memset(lk, 0, sizeof(*lk));
+  memset(lk, 0xff, sizeof(*lk));
 }
 
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
