@@ -39,7 +39,7 @@ QueryIterator *NewEmptyIterator(void);
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
-QueryIterator *NewSortedIdListIterator(const t_docId *ids, uint64_t num, double weight);
+QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
  * Creates a new iterator over a list of unsorted document IDs.
@@ -51,7 +51,7 @@ QueryIterator *NewSortedIdListIterator(const t_docId *ids, uint64_t num, double 
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
-QueryIterator *NewUnsortedIdListIterator(const t_docId *ids, uint64_t num, double weight);
+QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
  * Creates a new numeric inverted index iterator for querying numeric fields.
@@ -175,8 +175,8 @@ void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
  */
-QueryIterator *NewMetricIteratorSortedById(const t_docId *ids,
-                                           const double *metric_list,
+QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
+                                           double *metric_list,
                                            uintptr_t num,
                                            enum MetricType type_);
 
@@ -191,8 +191,8 @@ QueryIterator *NewMetricIteratorSortedById(const t_docId *ids,
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
  */
-QueryIterator *NewMetricIteratorSortedByScore(const t_docId *ids,
-                                              const double *metric_list,
+QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids,
+                                              double *metric_list,
                                               uintptr_t num,
                                               enum MetricType type_);
 

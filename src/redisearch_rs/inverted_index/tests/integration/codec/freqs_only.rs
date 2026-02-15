@@ -11,8 +11,6 @@ use std::io::Cursor;
 
 use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 
-mod c_mocks;
-
 #[test]
 fn test_encode_freqs_only() {
     // Test cases for the frequencies only encoder and decoder.

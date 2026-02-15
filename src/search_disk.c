@@ -42,6 +42,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
   disk_db = disk->basic.open(ctx);
+
   return disk_db != NULL;
 }
 

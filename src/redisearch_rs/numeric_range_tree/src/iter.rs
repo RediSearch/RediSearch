@@ -23,11 +23,9 @@ use crate::{NumericRangeNode, NumericRangeTree};
 ///
 /// # Traversal Order
 ///
-/// Nodes are visited in pre-order (parent before children), with left children
-/// visited before right children. This matches the natural reading order of
-/// the tree from left to right.
+/// Nodes are visited in reverse pre-order (parent -> right child -> left child).
 #[derive(Debug)]
-pub struct PreOrderDfsIterator<'a> {
+pub struct ReversePreOrderDfsIterator<'a> {
     /// Reference to the tree (used to resolve node indices).
     tree: &'a NumericRangeTree,
     /// Stack of node indices to visit. Nodes are pushed right-first so left is
@@ -35,7 +33,7 @@ pub struct PreOrderDfsIterator<'a> {
     stack: Vec<NodeIndex>,
 }
 
-impl<'a> PreOrderDfsIterator<'a> {
+impl<'a> ReversePreOrderDfsIterator<'a> {
     /// Create a new iterator starting from the root of the given tree.
     pub fn new(tree: &'a NumericRangeTree) -> Self {
         Self::from_node(tree, tree.root_index())
@@ -49,7 +47,7 @@ impl<'a> PreOrderDfsIterator<'a> {
     }
 }
 
-impl<'a> Iterator for PreOrderDfsIterator<'a> {
+impl<'a> Iterator for ReversePreOrderDfsIterator<'a> {
     type Item = &'a NumericRangeNode;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -57,9 +55,9 @@ impl<'a> Iterator for PreOrderDfsIterator<'a> {
         let node = self.tree.node(node_idx);
 
         if let NumericRangeNode::Internal(internal) = node {
-            // Push children onto stack (right first so left is processed first)
-            self.stack.push(internal.right_index());
+            // Push children onto stack (left first so right is processed first)
             self.stack.push(internal.left_index());
+            self.stack.push(internal.right_index());
         }
 
         Some(node)
@@ -68,9 +66,9 @@ impl<'a> Iterator for PreOrderDfsIterator<'a> {
 
 impl<'a> IntoIterator for &'a NumericRangeTree {
     type Item = &'a NumericRangeNode;
-    type IntoIter = PreOrderDfsIterator<'a>;
+    type IntoIter = ReversePreOrderDfsIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        PreOrderDfsIterator::new(self)
+        ReversePreOrderDfsIterator::new(self)
     }
 }
