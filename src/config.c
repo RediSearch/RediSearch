@@ -682,7 +682,6 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
@@ -690,28 +689,6 @@ CONFIG_SETTER(setIndexerYieldEveryOps) {
 CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
-}
-
-// BG_INDEX_SLEEP_DURATION_US
-// Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
-#define BG_INDEX_SLEEP_DURATION_US_MAX 999999
-CONFIG_SETTER(setBGIndexSleepDurationUS) {
-  unsigned int sleepDurationUS;
-  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT,
-      "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
-      BG_INDEX_SLEEP_DURATION_US_MAX);
-    return REDISMODULE_ERR;
-  }
-  config->bgIndexingSleepDurationMicroseconds = sleepDurationUS;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getBGIndexSleepDurationUS) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->bgIndexingSleepDurationMicroseconds);
 }
 
 // SET MEMORY LIMIT PERCENTAGE
@@ -1045,10 +1022,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
-        {.name = "BG_INDEX_SLEEP_DURATION_US",
-         .helpText = "Sleep duration in microseconds during background indexing periodic sleep (max 999999, usleep POSIX limit)",
-         .setValue = setBGIndexSleepDurationUS,
-         .getValue = getBGIndexSleepDurationUS},
         {.name = "_BG_INDEX_MEM_PCT_THR",
         .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. The default is 100 percent.",
         .setValue = setIndexingMemoryLimit,

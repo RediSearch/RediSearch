@@ -159,11 +159,6 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
     // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
   unsigned int indexerYieldEveryOpsWhileLoading;
-  // Sleep duration in microseconds during background indexing. We sleep periodically
-  // (every `numBGIndexingIterationsBeforeSleep` iterations) to allow the main thread
-  // to acquire the GIL and process commands.
-  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
-  uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
@@ -252,7 +247,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define NR_MAX_DEPTH_BALANCE 2
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
-#define DEFAULT_BG_INDEX_SLEEP_DURATION_US 1
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
@@ -311,7 +305,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                                                             \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,                                              \
-    .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
   }
