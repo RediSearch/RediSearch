@@ -372,12 +372,15 @@ def allShards_set_info_on_zero_indexes(env, enabled: bool):
     Enable/disable INFO MODULES full output when there are zero indexes.
 
     In cluster mode, applies to all OSS shards. In standalone mode, applies to the single node.
-    Returns a list of replies (for consistency with run_command_on_all_shards).
+    Asserts success (all replies are OK).
     """
     val = 'yes' if enabled else 'no'
     if env.isCluster():
-        return run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
-    return [env.cmd('CONFIG', 'SET', 'search-_info-on-zero-indexes', val)]
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+        return
+    res = env.cmd('CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+    env.assertEqual(res, 'OK')
+    return
 
 def shard_set_info_on_zero_indexes(env, enabled: bool):
     """

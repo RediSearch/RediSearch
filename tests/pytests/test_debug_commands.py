@@ -956,8 +956,7 @@ def testPauseOnOOM(env: Env):
     # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
     env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
     # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
-    env.assertEqual(allShards_set_info_on_zero_indexes(env, True), ['OK'],
-                    message="Failed to set search-_info-on-zero-indexes=yes")
+    shard_set_info_on_zero_indexes(env, True)
 
     num_docs = 1000
     for i in range(num_docs):
