@@ -773,33 +773,16 @@ static void rangeItersAddIterator(TrieCallbackCtx *ctx, QueryIterator *it) {
   }
 }
 
-static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
+// Callback for tag lex range queries - handles both disk and memory modes
+static void tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
 
-  // For tag queries with disk mode support, use the TagIndex helper
-  if (ctx->tagIdx) {
-    QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->tagIdx, q->sctx, r, n, invidx,
-                                                             ctx->weight, ctx->opts->fieldIndex);
-    if (ir) {
-      rangeItersAddIterator(ctx, ir);
-    }
-    return;
+  QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->tagIdx, q->sctx, r, n, invidx,
+                                                           ctx->weight, ctx->opts->fieldIndex);
+  if (ir) {
+    rangeItersAddIterator(ctx, ir);
   }
-
-  // Memory mode for regular term queries (not tag queries)
-  RSToken tok = {0};
-  tok.str = (char *)r;
-  tok.len = n;
-  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = ctx->opts->fieldIndex};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(invidx, q->sctx, fieldMaskOrIndex, term, ctx->weight);
-  if (!ir) {
-    Term_Free(term);
-    return;
-  }
-
-  rangeItersAddIterator(ctx, ir);
 }
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm) {
@@ -1181,12 +1164,12 @@ static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, bool caseSensitive) {
-  if (!idx || !idx->values) {
-    return NULL;
-  }
-
   TrieMap *t = idx->values;
   TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
+
+  if (!t) {
+    return NULL;
+  }
 
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
@@ -1205,7 +1188,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
   TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       rangeIterCbStrs, &ctx);
+                       tagRangeIterCb, &ctx);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
 }

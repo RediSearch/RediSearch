@@ -766,7 +766,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
 
   // Suffix trie only supported in memory mode
-  if (!ctx->spec->diskSpec && FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+    if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
     tidx->suffix = NewTrieMap();
   }
 
