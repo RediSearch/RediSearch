@@ -223,6 +223,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     hybridReq->profileClocks.initClock = now;
+    hybridReq->kArgIndex = -1;
     return hybridReq;
 }
 
