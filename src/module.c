@@ -3478,8 +3478,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  ConcurrentSearchHandlerCtx handlerCtx = {
+    .spec_ref = StrongRef_Demote(spec_ref)
+  };
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               StrongRef_Demote(spec_ref));
+                                               &handlerCtx);
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -3527,8 +3531,13 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  ConcurrentSearchHandlerCtx handlerCtx = {
+    .spec_ref = StrongRef_Demote(spec_ref),
+    .numShards = NumShards  // Capture NumShards from main thread for thread-safe access
+  };
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               StrongRef_Demote(spec_ref));
+                                               &handlerCtx);
 }
 
 static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
@@ -3551,8 +3560,11 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  ConcurrentSearchHandlerCtx handlerCtx = {0};
+  handlerCtx.spec_ref = (WeakRef){0};
+
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, CursorCommandInternal, ctx, argv, argc,
-                                               (WeakRef){0});
+                                               &handlerCtx);
 }
 
 
