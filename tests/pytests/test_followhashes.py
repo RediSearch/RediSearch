@@ -751,6 +751,32 @@ def testRenameWithFilterExcludingDocument(env):
     env.expect('ft.search', 'idx1', 'hello').equal([0])
     env.expect('ft.search', 'idx2', 'hello').equal([0])
 
+@skip(cluster=True)
+def testRenameToSameName(env):
+    """
+    Test RENAME to the same name (e.g., RENAME prefix1:doc prefix1:doc).
+    This should be a no-op and the document should remain in the index.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a filter
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', '1', 'prefix1:',
+            'FILTER', '@type=="allowed"',
+            'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
+
+    # Add a document
+    conn.execute_command('hset', 'prefix1:doc', 'data', 'hello', 'type', 'allowed')
+
+    # Verify it's in idx1
+    env.expect('ft.search', 'idx1', 'hello').equal([1, 'prefix1:doc', ['data', 'hello', 'type', 'allowed']])
+
+    # Rename to same name - should be a no-op
+    env.expect('RENAME prefix1:doc prefix1:doc').ok()
+
+    # Document should still be in idx1
+    env.expect('ft.search', 'idx1', 'hello').equal([1, 'prefix1:doc', ['data', 'hello', 'type', 'allowed']])
+
 @skip(msan=True, no_json=True)
 def testIdxFieldJson(env):
     conn = getConnectionByEnv(env)
