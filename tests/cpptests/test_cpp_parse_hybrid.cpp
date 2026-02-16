@@ -1475,6 +1475,34 @@ TEST_F(ParseHybridTest, testShardKRatioValidMaxValue) {
   ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
 }
 
+// Passing SHARD_K_RATIO as a parameter is not yet supported.
+// This test should be updated once it is supported. MOD-12915
+TEST_F(ParseHybridTest, testShardKRatioValidFromParams) {
+  // Test valid maximum SHARD_K_RATIO value (1.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "$RATIO",
+    "PARAMS", "4", "BLOB", TEST_BLOB_DATA, "$RATIO", "0.75");
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value '$RATIO'");
+}
+
+// Passing SHARD_K_RATIO as a parameter is not yet supported.
+// This test should be updated once it is supported. MOD-12915
+TEST_F(ParseHybridTest, testShardKRatioInvalidFromParams) {
+  // Test valid maximum SHARD_K_RATIO value (1.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "$RATIO",
+    "PARAMS", "4", "BLOB", TEST_BLOB_DATA, "RATIO", "8.1");
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value '$RATIO'");
+}
+
 TEST_F(ParseHybridTest, testShardKRatioInvalidBelowMin) {
   // Test invalid SHARD_K_RATIO value at exclusive minimum (must be > 0.0)
   RMCK::ArgvList args(

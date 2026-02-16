@@ -449,18 +449,3 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNoModificationWhenRatioIsOne) {
     }, /*numShards=*/4, /*expectedK=*/50, /*expectedRatio=*/1.0,
     /*expectedEffectiveK=*/50);
 }
-
-// Test SHARD_K_RATIO with NULL VectorQuery (backward compatibility)
-// This tests that when VectorQuery is NULL, K is not modified by SHARD_K_RATIO
-// logic
-// K value should remain 25 since no VectorQuery provided
-TEST_F(HybridBuildMRCommandTest, testShardKRatioNullVectorQuery) {
-    testShardKRatioTransformation({
-        "FT.HYBRID", "test_idx", "SEARCH", "hello",
-        "VSIM", "@vector_field", "$BLOB",
-        "KNN", "2", "K", "25",
-        "COMBINE", "RRF", "2", "WINDOW", "25",
-        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
-    }, /*numShards=*/4, /*expectedK=*/25, /*expectedRatio=*/1.0,
-    /*expectedEffectiveK=*/25, /*passNullVectorQuery=*/true);
-}

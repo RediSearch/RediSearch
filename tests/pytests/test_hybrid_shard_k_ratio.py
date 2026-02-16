@@ -104,6 +104,7 @@ def setup_sharded_documents(env, docs_per_shard, dim, uniform_vectors=True):
           uniform distribution across shards
         - Verifies each shard has the expected number of documents
     """
+    env.assertEqual(3, env.shardsCount, message="This test requires exactly 3 shards")
     # Hash tags that distribute to different shards in a 3-shard cluster
     shard_hash_tags = ['{shard:0}', '{shard:1}', '{shard:3}']
     conn = getConnectionByEnv(env)
