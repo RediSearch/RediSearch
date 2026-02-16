@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub(crate) mod ffi;
 pub(crate) mod utils;
+
+// Mock implementations of C symbol that aren't provided
+// by the static C libraries we are linking against in build.rs.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+extern crate redisearch_rs;
 
 mod empty;
 mod id_list;
