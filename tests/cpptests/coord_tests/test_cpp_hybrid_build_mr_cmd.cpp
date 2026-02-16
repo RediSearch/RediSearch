@@ -152,7 +152,8 @@ protected:
     // If found, kValue will contain the K value as long long
     int findKValue(const MRCommand *cmd, long long *kValue) {
         for (int i = 0; i < cmd->num; i++) {
-            if (strcasecmp(cmd->strs[i], "K") == 0 && i + 1 < cmd->num) {
+            bool kFound = (cmd->lens[i] == 1 && strncasecmp(cmd->strs[i], "K", 1) == 0);
+            if (kFound && i + 1 < cmd->num) {
                 if (kValue) {
                     *kValue = atoll(cmd->strs[i + 1]);
                 }

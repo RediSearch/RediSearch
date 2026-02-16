@@ -2098,7 +2098,8 @@
                     "name": "shard_k_ratio",
                     "type": "double",
                     "token": "SHARD_K_RATIO",
-                    "optional": true
+                    "optional": true,
+                    "since": "8.6.1"
                   },
                   {
                     "name": "yield_score_as",
