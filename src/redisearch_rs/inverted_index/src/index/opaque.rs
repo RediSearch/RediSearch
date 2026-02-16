@@ -49,8 +49,8 @@ pub enum InvertedIndex {
     FieldsOffsetsWide(FieldMaskTrackingIndex<FieldsOffsetsWide>),
     OffsetsOnly(InvertedIndexInner<OffsetsOnly>),
     FreqsOffsets(InvertedIndexInner<FreqsOffsets>),
-    DocumentIdOnly(InvertedIndexInner<DocIdsOnly>),
-    RawDocumentIdOnly(InvertedIndexInner<RawDocIdsOnly>),
+    DocIdsOnly(InvertedIndexInner<DocIdsOnly>),
+    RawDocIdsOnly(InvertedIndexInner<RawDocIdsOnly>),
     // Needs to track the entries count because it has the `StoreNumeric` flag set
     Numeric(EntriesTrackingIndex<Numeric>),
     NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
@@ -114,8 +114,8 @@ impl Debug for InvertedIndex {
             Self::FieldsOffsetsWide(ii) => f.debug_tuple("FieldsOffsetsWide").field(ii).finish(),
             Self::OffsetsOnly(ii) => f.debug_tuple("OffsetsOnly").field(ii).finish(),
             Self::FreqsOffsets(ii) => f.debug_tuple("FreqsOffsets").field(ii).finish(),
-            Self::DocumentIdOnly(ii) => f.debug_tuple("DocumentIdOnly").field(ii).finish(),
-            Self::RawDocumentIdOnly(ii) => f.debug_tuple("RawDocumentIdOnly").field(ii).finish(),
+            Self::DocIdsOnly(ii) => f.debug_tuple("DocIdsOnly").field(ii).finish(),
+            Self::RawDocIdsOnly(ii) => f.debug_tuple("RawDocIdsOnly").field(ii).finish(),
             Self::Numeric(ii) => f.debug_tuple("Numeric").field(ii).finish(),
             Self::NumericFloatCompression(ii) => {
                 f.debug_tuple("NumericFloatCompression").field(ii).finish()
