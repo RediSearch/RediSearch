@@ -911,7 +911,7 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
-  AREQ_Free(req);
+  AREQ_DecrRef(req);
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
@@ -935,10 +935,12 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
   RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
-  // Free the request after unblocking the client so that timeout callback can't free it as well
-  if (BCRctx->req) {
-    AREQ_Free(BCRctx->req);
-  }
+
+  // Release our reference to the request.
+  // The request is shared with the timeout callback via BlockedQueryNode->privdata.
+  // Whichever releases last will free the AREQ.
+  AREQ_DecrRef(BCRctx->req);
+
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
 }
@@ -1112,7 +1114,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 done:
   if (rc != REDISMODULE_OK && *r) {
-    AREQ_Free(*r);
+    AREQ_DecrRef(*r);
     *r = NULL;
     if (thctx) {
       RedisModule_FreeThreadSafeContext(thctx);
@@ -1277,7 +1279,7 @@ error:
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
 
   if (r) {
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
   }
 
   return QueryError_ReplyAndClear(ctx, &status);
@@ -1294,12 +1296,12 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return NULL;
   }
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, AREQ_SearchCtx(r)->spec);
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
   CurrentThread_ClearIndexSpec();
   return ret;
 }
@@ -1613,7 +1615,7 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 error:
   if (r) {
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
   }
   return QueryError_ReplyAndClear(ctx, &status);
 }

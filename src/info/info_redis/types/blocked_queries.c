@@ -53,12 +53,14 @@ void BlockedQueries_Free(BlockedQueries *blockedQueries) {
   rm_free(blockedQueries);
 }
 
-BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast, void *privdata) {
+BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, StrongRef spec, QueryAST* ast,
+                                          void *privdata, BlockedQueryNode_FreePrivData freePrivData) {
   BlockedQueryNode* blockedQueryNode = rm_calloc(1, sizeof(BlockedQueryNode));
   blockedQueryNode->spec = StrongRef_Clone(spec);
   blockedQueryNode->start = time(NULL);
   blockedQueryNode->query = QAST_DumpExplain(ast, StrongRef_Get(spec));
   blockedQueryNode->privdata = privdata;
+  blockedQueryNode->freePrivData = freePrivData;
   dllist_prepend(&blockedQueries->queries, &blockedQueryNode->llnode);
   return blockedQueryNode;
 }

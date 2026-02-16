@@ -302,6 +302,9 @@ typedef struct AREQ {
   RS_Atomic(int) replyState;
   // Flag to indicate whether to check for timeout using clock checks
   bool skipTimeoutChecks;
+  // Reference count for shared ownership between QueryNode (timeout callback) and background thread.
+  // Initialized to 1. Free when reaches 0.
+  uint32_t refcount;
 } AREQ;
 
 /**
@@ -465,7 +468,20 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
-void AREQ_Free(AREQ *req);
+
+/**
+ * Increment the reference count of the AREQ.
+ * @param req the request to increment
+ * @return the request (for chaining)
+ */
+AREQ *AREQ_IncrRef(AREQ *req);
+
+/**
+ * Decrement the reference count of the AREQ.
+ * If the reference count reaches 0, the request is freed.
+ * @param req the request to decrement
+ */
+void AREQ_DecrRef(AREQ *req);
 
 /**
  * Start the cursor on the current request

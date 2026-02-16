@@ -1038,6 +1038,7 @@ AREQ *AREQ_New(void) {
   req->querySlots = NULL;
   atomic_store_explicit(&req->timedOut, false, memory_order_relaxed);
   atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_relaxed);
+  req->refcount = 1;  // Initial reference
   return req;
 }
 
@@ -1455,7 +1456,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 }
 
 
-void AREQ_Free(AREQ *req) {
+static void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
@@ -1536,7 +1537,16 @@ void AREQ_Free(AREQ *req) {
   rm_free(req);
 }
 
+AREQ *AREQ_IncrRef(AREQ *req) {
+  __atomic_fetch_add(&req->refcount, 1, __ATOMIC_RELAXED);
+  return req;
+}
 
+void AREQ_DecrRef(AREQ *req) {
+  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_RELAXED)) {
+    AREQ_Free(req);
+  }
+}
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
