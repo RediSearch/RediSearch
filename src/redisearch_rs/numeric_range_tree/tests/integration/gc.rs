@@ -82,10 +82,10 @@ fn apply_gc_to_single_leaf(#[values(false, true)] compress_floats: bool) {
     let delta = delta.expect("should have GC work");
     let result = tree.apply_gc_to_node(tree.root_index(), delta);
 
-    assert_eq!(result.entries_removed, 5);
+    assert_eq!(result.index_gc_info.entries_removed, 5);
     assert_eq!(tree.num_entries(), entries_before - 5);
     assert!(
-        result.bytes_freed > 0,
+        result.index_gc_info.bytes_freed > 0,
         "GC that removes entries should free bytes"
     );
     assert!(
@@ -130,8 +130,11 @@ fn apply_gc_to_node_with_blocks_since_fork(#[values(false, true)] compress_float
 
     let result = tree.apply_gc_to_node(tree.root_index(), delta);
 
-    assert!(result.entries_removed > 0, "GC should have removed entries");
-    assert!(result.entries_removed <= ENTRIES_PER_BLOCK as usize);
+    assert!(
+        result.index_gc_info.entries_removed > 0,
+        "GC should have removed entries"
+    );
+    assert!(result.index_gc_info.entries_removed <= ENTRIES_PER_BLOCK as usize);
 
     // New blocks added after fork should be rescanned for cardinality.
     // With a single value (42.0), cardinality should be exactly 1 after rescan.
@@ -291,7 +294,7 @@ fn gc_intensive_alternating_deletes(#[values(false, true)] compress_floats: bool
     let mut total_removed = 0;
     for (node_idx, delta) in deltas {
         let result = tree.apply_gc_to_node(node_idx, delta);
-        total_removed += result.entries_removed;
+        total_removed += result.index_gc_info.entries_removed;
     }
 
     assert_eq!(total_removed, (n / 2) as usize);
@@ -394,7 +397,7 @@ fn gc_on_node_without_range() {
         },
     );
     assert_eq!(
-        result.entries_removed, 0,
+        result.index_gc_info.entries_removed, 0,
         "applying GC to a node without a range should be a no-op"
     );
 
@@ -403,7 +406,7 @@ fn gc_on_node_without_range() {
     let d = leaf_delta.expect("leaf should still have GC work");
     let leaf_result = tree.apply_gc_to_node(leaf_node_idx, d);
     assert!(
-        leaf_result.entries_removed > 0,
+        leaf_result.index_gc_info.entries_removed > 0,
         "applying GC to a leaf with deleted docs should remove entries"
     );
 }
@@ -593,11 +596,11 @@ fn apply_gc_tracks_ignored_last_block(#[values(false, true)] compress_floats: bo
     let result = tree.apply_gc_to_node(tree.root_index(), delta);
 
     assert!(
-        result.ignored_last_block,
+        result.index_gc_info.ignored_last_block,
         "last block should be ignored when its num_entries changed after scan"
     );
     // Block 0's deltas should still be applied.
-    assert!(result.entries_removed > 0);
+    assert!(result.index_gc_info.entries_removed > 0);
 }
 
 #[test]

@@ -42,14 +42,9 @@ pub struct NodeGcDelta {
 /// Returned by [`NumericRangeTree::apply_gc_to_node`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SingleNodeGcResult {
-    /// Number of entries removed from this node.
-    pub entries_removed: usize,
-    /// Bytes freed from this node.
-    pub bytes_freed: usize,
-    /// Bytes allocated (for new compacted blocks) in this node.
-    pub bytes_allocated: usize,
-    /// Whether the last block in this node index was ignored.
-    pub ignored_last_block: bool,
+    /// Information about the outcome of garbage collection on
+    /// the inverted index stored within this node.
+    pub index_gc_info: GcApplyInfo,
     /// Whether this node became empty after GC.
     pub became_empty: bool,
 }
@@ -92,9 +87,13 @@ impl NumericRangeTree {
         let was_empty = range.entries().num_docs() == 0;
 
         // Compute blocks added since fork.
-        let blocks_before = range.entries().num_blocks();
-        let last_block_idx = delta.delta.last_block_idx();
-        let blocks_since_fork = blocks_before.saturating_sub(last_block_idx + 1);
+        let n_current_blocks = range.entries().num_blocks();
+        let last_block_idx_when_forked = delta.delta.last_block_idx();
+        debug_assert!(
+            n_current_blocks > last_block_idx_when_forked,
+            "GC is the only routine that can remove blocks. The number of blocks should never decrease between two GC runs."
+        );
+        let n_new_blocks_since_fork = n_current_blocks - last_block_idx_when_forked - 1;
 
         // Apply GC delta to the index.
         let info: GcApplyInfo = range.entries_mut().apply_gc(delta.delta);
@@ -102,7 +101,7 @@ impl NumericRangeTree {
         // Reset cardinality with proper HLL recalculation.
         range.reset_cardinality_after_gc(
             info.ignored_last_block,
-            blocks_since_fork,
+            n_new_blocks_since_fork,
             &delta.registers_with_last_block,
             &delta.registers_without_last_block,
         );
@@ -111,7 +110,7 @@ impl NumericRangeTree {
         let is_now_empty = range.entries().num_docs() == 0;
         let became_empty = !was_empty && is_now_empty;
         if is_leaf && became_empty {
-            self.stats.empty_leaves = self.stats.empty_leaves.saturating_add(1);
+            self.stats.empty_leaves = self.stats.empty_leaves.checked_add(1).expect("Overflow!");
         }
 
         // Update tree-level stats.
@@ -119,28 +118,31 @@ impl NumericRangeTree {
         // when max_depth_range > 0, internal nodes retain ranges with duplicate
         // entries, so decrementing for every node would over-subtract.
         if is_leaf {
-            self.stats.num_entries = self.stats.num_entries.saturating_sub(info.entries_removed);
+            self.stats.num_entries = self
+                .stats
+                .num_entries
+                .checked_sub(info.entries_removed)
+                .expect("Underflow!");
         }
         if info.bytes_freed > info.bytes_allocated {
             self.stats.inverted_indexes_size = self
                 .stats
                 .inverted_indexes_size
-                .saturating_sub(info.bytes_freed - info.bytes_allocated);
+                .checked_sub(info.bytes_freed - info.bytes_allocated)
+                .expect("Underflow!");
         } else {
             self.stats.inverted_indexes_size = self
                 .stats
                 .inverted_indexes_size
-                .saturating_add(info.bytes_allocated - info.bytes_freed);
+                .checked_add(info.bytes_allocated - info.bytes_freed)
+                .expect("Overflow!");
         }
 
         #[cfg(all(feature = "unittest", not(miri)))]
         self.check_tree_invariants();
 
         SingleNodeGcResult {
-            entries_removed: info.entries_removed,
-            bytes_freed: info.bytes_freed,
-            bytes_allocated: info.bytes_allocated,
-            ignored_last_block: info.ignored_last_block,
+            index_gc_info: info,
             became_empty,
         }
     }
@@ -149,7 +151,7 @@ impl NumericRangeTree {
     ///
     /// The threshold is: at least half the leaves are empty.
     pub const fn is_sparse(&self) -> bool {
-        self.stats.empty_leaves > 0 && self.stats.empty_leaves >= self.stats.num_leaves / 2
+        self.stats.empty_leaves * 2 >= self.stats.num_leaves
     }
 
     /// Conditionally trim empty leaves and compact the node slab.
@@ -203,7 +205,9 @@ impl NumericRangeTree {
             }
         }
 
-        mem_usage_before.saturating_sub(self.nodes.mem_usage())
+        mem_usage_before
+            .checked_sub(self.nodes.mem_usage())
+            .expect("Underflow!")
     }
 
     /// Trim empty leaves from the tree (garbage collection).
@@ -264,7 +268,7 @@ impl NumericRangeTree {
         rv: &mut AddResult,
     ) -> bool {
         let Some((left_idx, right_idx)) = nodes[node_idx].child_indices() else {
-            // Leaf node — empty iff no docs.
+            // Leaf node — empty if there are no docs.
             return nodes[node_idx].range().is_some_and(|r| r.num_docs() == 0);
         };
 

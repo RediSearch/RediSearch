@@ -223,9 +223,11 @@ impl NumericRange {
 
         // Get the starting point for HLL update - iterate entries added since fork
         let num_blocks = self.entries.num_blocks();
-        if blocks_to_rescan > num_blocks {
-            return; // Safety check
-        }
+        debug_assert!(
+            blocks_to_rescan <= num_blocks,
+            "The number of blocks should never decrease in between two GC runs, \
+            therefore the number of blocks to rescan can never be greater than the current number of blocks"
+        );
         let start_idx = num_blocks - blocks_to_rescan;
         let Some(start_id) = self.entries.block_first_id(start_idx) else {
             return;

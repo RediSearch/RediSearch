@@ -276,11 +276,11 @@ impl Default for NumericRangeTree {
     }
 }
 
-/// Apply a signed delta to an unsigned value, saturating at bounds instead of wrapping.
+/// Apply a signed delta to an unsigned value, panicking at bounds instead of wrapping.
 const fn apply_signed_delta(value: usize, delta: i64) -> usize {
     if delta < 0 {
-        value.saturating_sub((-delta) as usize)
+        value.checked_sub((-delta) as usize).expect("Underflow!")
     } else {
-        value.saturating_add(delta as usize)
+        value.checked_add(delta as usize).expect("Overflow!")
     }
 }

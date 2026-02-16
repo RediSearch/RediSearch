@@ -70,7 +70,7 @@ pub(crate) struct BlockGcScanResult {
 }
 
 /// Information about the result of applying a garbage collection scan to the index
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 #[repr(C)]
 pub struct GcApplyInfo {
     /// The number of bytes that were freed

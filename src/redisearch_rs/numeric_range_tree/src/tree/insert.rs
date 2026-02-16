@@ -216,7 +216,7 @@ impl NumericRangeTree {
                 // If this leaf was emptied (e.g. by the GC) and is about to be re-populated,
                 // update the empty_leaves counter.
                 if leaf.range.num_docs() == 0 {
-                    *empty_leaves = empty_leaves.saturating_sub(1);
+                    *empty_leaves = empty_leaves.checked_sub(1).expect("Underflow!");
                 }
 
                 let size = leaf.range.add(doc_id, value);
