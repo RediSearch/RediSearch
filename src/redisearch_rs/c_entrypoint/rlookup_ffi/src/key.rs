@@ -13,8 +13,6 @@ use std::{ffi::c_char, ptr};
 
 /// Get the flags (indicating the type and other attributes) for a `RLookupKey`.
 ///
-/// The flag `RLookupKeyFlag::SvSrc` means the target array is a sorting vector.
-///
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
