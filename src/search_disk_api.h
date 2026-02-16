@@ -65,8 +65,6 @@ typedef struct SearchDisk_ScoringStatsDelta {
  */
 typedef struct SearchDisk_CompactionCallbacks {
   // === Synchronization Callbacks ===
-  void (*acquire_fork_blocker)(void* ctx);  // Acquire fork blocker semaphore (placeholder)
-  void (*release_fork_blocker)(void* ctx);  // Release fork blocker semaphore (placeholder)
   void (*acquire_write_lock)(void* ctx);    // Acquire IndexSpec write lock
   void (*release_write_lock)(void* ctx);    // Release IndexSpec write lock
 

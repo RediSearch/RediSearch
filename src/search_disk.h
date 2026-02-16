@@ -368,7 +368,6 @@ typedef struct IndexSpec IndexSpec;
  * @brief Create a populated CompactionCallbacks struct for an IndexSpec
  *
  * Creates a callbacks struct with function pointers for:
- * - Fork blocker synchronization (placeholder until Phase 7)
  * - Write lock acquire/release
  * - Trie term document count updates
  * - Scoring stats updates
