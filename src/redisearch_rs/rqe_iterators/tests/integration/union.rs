@@ -8,13 +8,22 @@
 */
 
 //! Integration tests for the Union iterator.
+//!
+//! Tests use `UnionFullFlat` by default, which is the "full mode" variant
+//! that aggregates results from all matching children.
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList, union::Union,
+    RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionFullHeap, UnionQuickFlat,
+    UnionQuickHeap, id_list::IdListSorted,
 };
 
 use crate::utils::{Mock, MockRevalidateResult};
+
+/// Type alias for the union variant used in these tests.
+/// Using `UnionFullFlat` which aggregates all matching children (not quick exit)
+/// and uses flat array iteration (not heap).
+type Union<I> = UnionFullFlat<'static, I>;
 
 /// Helper function to create child iterators for union tests.
 ///
@@ -23,7 +32,7 @@ use crate::utils::{Mock, MockRevalidateResult};
 fn create_union_children(
     num_children: usize,
     base_result_set: &[t_docId],
-) -> (Vec<SortedIdList<'static>>, Vec<t_docId>) {
+) -> (Vec<IdListSorted<'static>>, Vec<t_docId>) {
     let mut children = Vec::with_capacity(num_children);
     let mut all_ids = Vec::new();
     let mut next_unique_id: t_docId = 10000;
@@ -49,7 +58,7 @@ fn create_union_children(
         child_ids.sort();
         child_ids.dedup();
         all_ids.extend(child_ids.iter().copied());
-        children.push(SortedIdList::new(child_ids));
+        children.push(IdListSorted::new(child_ids));
     }
 
     all_ids.sort();
@@ -225,7 +234,7 @@ fn rewind_test_case(num_children: usize, base_result_set: &[t_docId]) {
 
 #[test]
 fn no_children() {
-    let children: Vec<SortedIdList<'static>> = vec![];
+    let children: Vec<IdListSorted<'static>> = vec![];
     let mut union_iter = Union::new(children);
 
     assert!(matches!(union_iter.read(), Ok(None)));
@@ -238,7 +247,7 @@ fn no_children() {
 #[test]
 fn single_child() {
     let doc_ids = vec![10, 20, 30, 40, 50];
-    let child = SortedIdList::new(doc_ids.clone());
+    let child = IdListSorted::new(doc_ids.clone());
     let mut union_iter = Union::new(vec![child]);
 
     for &expected_id in &doc_ids {
@@ -254,9 +263,9 @@ fn single_child() {
 #[test]
 fn disjoint_children() {
     // Children have no overlap - union should return all docs
-    let child1 = SortedIdList::new(vec![1, 2, 3]);
-    let child2 = SortedIdList::new(vec![10, 20, 30]);
-    let child3 = SortedIdList::new(vec![100, 200, 300]);
+    let child1 = IdListSorted::new(vec![1, 2, 3]);
+    let child2 = IdListSorted::new(vec![10, 20, 30]);
+    let child3 = IdListSorted::new(vec![100, 200, 300]);
 
     let mut union_iter = Union::new(vec![child1, child2, child3]);
     let expected = vec![1, 2, 3, 10, 20, 30, 100, 200, 300];
@@ -274,9 +283,9 @@ fn disjoint_children() {
 #[test]
 fn overlapping_children() {
     // Children have significant overlap
-    let child1 = SortedIdList::new(vec![1, 2, 5, 10, 15, 20]);
-    let child2 = SortedIdList::new(vec![2, 5, 8, 10, 18, 20]);
-    let child3 = SortedIdList::new(vec![3, 5, 10, 12, 20, 25]);
+    let child1 = IdListSorted::new(vec![1, 2, 5, 10, 15, 20]);
+    let child2 = IdListSorted::new(vec![2, 5, 8, 10, 18, 20]);
+    let child3 = IdListSorted::new(vec![3, 5, 10, 12, 20, 25]);
 
     let mut union_iter = Union::new(vec![child1, child2, child3]);
     // Union: 1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25
@@ -294,8 +303,8 @@ fn overlapping_children() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn skip_to_exact_match() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-    let child2 = SortedIdList::new(vec![15, 25, 35, 45, 55]);
+    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
+    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
 
     let mut union_iter = Union::new(vec![child1, child2]);
 
@@ -312,8 +321,8 @@ fn skip_to_exact_match() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn skip_to_not_found() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-    let child2 = SortedIdList::new(vec![15, 25, 35, 45, 55]);
+    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
+    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
 
     let mut union_iter = Union::new(vec![child1, child2]);
 
@@ -331,8 +340,8 @@ fn skip_to_not_found() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn skip_to_past_eof() {
-    let child1 = SortedIdList::new(vec![10, 20, 30]);
-    let child2 = SortedIdList::new(vec![15, 25]);
+    let child1 = IdListSorted::new(vec![10, 20, 30]);
+    let child2 = IdListSorted::new(vec![15, 25]);
 
     let mut union_iter = Union::new(vec![child1, child2]);
 
@@ -350,8 +359,8 @@ fn skip_to_past_eof() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn interleaved_read_and_skip_to() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50, 60, 70, 80]);
-    let child2 = SortedIdList::new(vec![15, 25, 35, 45, 55, 65, 75, 85]);
+    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50, 60, 70, 80]);
+    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55, 65, 75, 85]);
 
     let mut union_iter = Union::new(vec![child1, child2]);
 
@@ -376,9 +385,9 @@ fn interleaved_read_and_skip_to() {
 
 #[test]
 fn num_estimated_is_sum() {
-    let child1 = SortedIdList::new(vec![1, 2, 3, 4, 5]); // 5 elements
-    let child2 = SortedIdList::new(vec![10, 20, 30]); // 3 elements
-    let child3 = SortedIdList::new(vec![100, 200, 300, 400]); // 4 elements
+    let child1 = IdListSorted::new(vec![1, 2, 3, 4, 5]); // 5 elements
+    let child2 = IdListSorted::new(vec![10, 20, 30]); // 3 elements
+    let child3 = IdListSorted::new(vec![100, 200, 300, 400]); // 4 elements
 
     let union_iter = Union::new(vec![child1, child2, child3]);
 
@@ -491,8 +500,8 @@ fn revalidate_after_eof() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn current_after_operations() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-    let child2 = SortedIdList::new(vec![15, 25, 35, 45, 55]);
+    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
+    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
 
     let mut union_iter = Union::new(vec![child1, child2]);
 
@@ -521,5 +530,159 @@ fn current_after_operations() {
     while union_iter.read().expect("read failed").is_some() {}
     assert!(union_iter.at_eof());
     assert!(union_iter.current().is_none());
+}
+
+// ============================================================================
+// Tests for other union variants
+// ============================================================================
+
+/// Test that UnionFullHeap produces the same results as UnionFullFlat.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn heap_variant_produces_same_results() {
+    let ids1 = vec![10, 20, 30, 40, 50];
+    let ids2 = vec![15, 25, 35, 45, 55];
+
+    // Test with flat variant
+    let mut flat_iter = UnionFullFlat::new(vec![
+        IdListSorted::new(ids1.clone()),
+        IdListSorted::new(ids2.clone()),
+    ]);
+    let mut flat_results = Vec::new();
+    while let Some(result) = flat_iter.read().expect("read failed") {
+        flat_results.push(result.doc_id);
+    }
+
+    // Test with heap variant
+    let mut heap_iter = UnionFullHeap::new(vec![
+        IdListSorted::new(ids1),
+        IdListSorted::new(ids2),
+    ]);
+    let mut heap_results = Vec::new();
+    while let Some(result) = heap_iter.read().expect("read failed") {
+        heap_results.push(result.doc_id);
+    }
+
+    assert_eq!(flat_results, heap_results);
+}
+
+/// Test that UnionQuickFlat produces the same doc_ids as UnionFullFlat.
+/// (Quick mode just doesn't aggregate results, but yields same documents)
+#[test]
+#[cfg_attr(miri, ignore)]
+fn quick_variant_produces_same_doc_ids() {
+    let ids1 = vec![10, 20, 30, 40, 50];
+    let ids2 = vec![15, 25, 35, 45, 55];
+
+    // Test with full variant
+    let mut full_iter = UnionFullFlat::new(vec![
+        IdListSorted::new(ids1.clone()),
+        IdListSorted::new(ids2.clone()),
+    ]);
+    let mut full_results = Vec::new();
+    while let Some(result) = full_iter.read().expect("read failed") {
+        full_results.push(result.doc_id);
+    }
+
+    // Test with quick variant
+    let mut quick_iter = UnionQuickFlat::new(vec![
+        IdListSorted::new(ids1),
+        IdListSorted::new(ids2),
+    ]);
+    let mut quick_results = Vec::new();
+    while let Some(result) = quick_iter.read().expect("read failed") {
+        quick_results.push(result.doc_id);
+    }
+
+    assert_eq!(full_results, quick_results);
+}
+
+/// Test that UnionQuickHeap produces the same doc_ids as other variants.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn quick_heap_variant_produces_same_doc_ids() {
+    let ids1 = vec![10, 20, 30, 40, 50];
+    let ids2 = vec![15, 25, 35, 45, 55];
+
+    // Test with full flat variant
+    let mut full_iter = UnionFullFlat::new(vec![
+        IdListSorted::new(ids1.clone()),
+        IdListSorted::new(ids2.clone()),
+    ]);
+    let mut full_results = Vec::new();
+    while let Some(result) = full_iter.read().expect("read failed") {
+        full_results.push(result.doc_id);
+    }
+
+    // Test with quick heap variant
+    let mut quick_heap_iter = UnionQuickHeap::new(vec![
+        IdListSorted::new(ids1),
+        IdListSorted::new(ids2),
+    ]);
+    let mut quick_heap_results = Vec::new();
+    while let Some(result) = quick_heap_iter.read().expect("read failed") {
+        quick_heap_results.push(result.doc_id);
+    }
+
+    assert_eq!(full_results, quick_heap_results);
+}
+
+/// Test skip_to with heap variant.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn heap_variant_skip_to() {
+    let ids1 = vec![10, 20, 30, 40, 50];
+    let ids2 = vec![15, 25, 35, 45, 55];
+
+    let mut heap_iter = UnionFullHeap::new(vec![
+        IdListSorted::new(ids1),
+        IdListSorted::new(ids2),
+    ]);
+
+    // Skip to 25 (exists in child2)
+    let result = heap_iter.skip_to(25).expect("skip_to failed");
+    assert!(matches!(result, Some(SkipToOutcome::Found(_))));
+    assert_eq!(heap_iter.last_doc_id(), 25);
+
+    // Skip to 33 (between 30 and 35, should land on 35)
+    let result = heap_iter.skip_to(33).expect("skip_to failed");
+    assert!(matches!(result, Some(SkipToOutcome::NotFound(_))));
+    assert_eq!(heap_iter.last_doc_id(), 35);
+
+    // Read remaining
+    let mut remaining = Vec::new();
+    while let Some(result) = heap_iter.read().expect("read failed") {
+        remaining.push(result.doc_id);
+    }
+    assert_eq!(remaining, vec![40, 45, 50, 55]);
+}
+
+/// Test rewind with heap variant.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn heap_variant_rewind() {
+    let ids1 = vec![10, 20, 30];
+    let ids2 = vec![15, 25, 35];
+
+    let mut heap_iter = UnionFullHeap::new(vec![
+        IdListSorted::new(ids1),
+        IdListSorted::new(ids2),
+    ]);
+
+    // Read all
+    let mut results1 = Vec::new();
+    while let Some(result) = heap_iter.read().expect("read failed") {
+        results1.push(result.doc_id);
+    }
+
+    // Rewind and read again
+    heap_iter.rewind();
+    let mut results2 = Vec::new();
+    while let Some(result) = heap_iter.read().expect("read failed") {
+        results2.push(result.doc_id);
+    }
+
+    assert_eq!(results1, results2);
+    assert_eq!(results1, vec![10, 15, 20, 25, 30, 35]);
 }
 
