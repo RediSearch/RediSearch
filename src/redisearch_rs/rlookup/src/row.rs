@@ -16,30 +16,6 @@ use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueTrait;
 
-// This is a modified version of an inline of the existing `opaque!` macro, that unfortunately really doesn't work with lifetimes.
-// TODO: refactor to use one common macro, jira ticket MOD-13960
-pub mod opaque {
-    use super::RLookupRow;
-    use c_ffi_utils::opaque::Size;
-    use value::RSValueFFI;
-
-    /// An lookup row which can be passed by value to C.
-    ///
-    /// The size and alignment of this struct must match the Rust `RLookupRow`
-    /// structure exactly.
-    #[repr(C, align(8))]
-    pub struct OpaqueRLookupRow(OpaqueRLookupRowSize);
-
-    #[cfg(debug_assertions)]
-    type OpaqueRLookupRowSize = Size<48>;
-    #[cfg(not(debug_assertions))]
-    type OpaqueRLookupRowSize = Size<40>;
-
-    c_ffi_utils::opaque!(RLookupRow<'_, RSValueFFI>, OpaqueRLookupRow);
-}
-
-//
-
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
 /// or from dynamic values stored in the row during processing.
 ///
@@ -385,6 +361,26 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
             );
         }
     }
+}
+
+pub mod opaque {
+    use super::RLookupRow;
+    use c_ffi_utils::opaque::Size;
+    use value::RSValueFFI;
+
+    /// An lookup row which can be passed by value to C.
+    ///
+    /// The size and alignment of this struct must match the Rust `RLookupRow`
+    /// structure exactly.
+    #[repr(C, align(8))]
+    pub struct OpaqueRLookupRow(OpaqueRLookupRowSize);
+
+    #[cfg(debug_assertions)]
+    type OpaqueRLookupRowSize = Size<48>;
+    #[cfg(not(debug_assertions))]
+    type OpaqueRLookupRowSize = Size<40>;
+
+    c_ffi_utils::opaque!(RLookupRow<'_, RSValueFFI>, OpaqueRLookupRow);
 }
 
 #[cfg(test)]
