@@ -1377,6 +1377,13 @@ booleanConfigs = [
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
 ]
 
+# CONFIG-only boolean parameters (no corresponding FT.CONFIG parameter / module argument)
+# These should be validated via CONFIG GET/SET only.
+configOnlyBooleanConfigs = [
+    # configName, defaultValue
+    ('search-_info-on-zero-indexes', 'no'),
+]
+
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeBooleanParams():
     env = Env(noDefaultModuleArgs=True)
@@ -1422,6 +1429,29 @@ def testConfigAPIRunTimeBooleanParams():
             _testImmutableBooleanConfig(env, configName, ftConfigName, defaultValue)
         else:
             _testBooleanConfig(env, configName, ftConfigName, defaultValue)
+
+@skip(redis_less_than='7.9.227')
+def testConfigAPIConfigOnlyBooleanParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    if env.isCluster():
+        conn = env.getOSSMasterNodesConnectionList()[0]
+        cmd = conn.execute_command
+    else:
+        cmd = env.cmd
+
+    for configName, defaultValue in configOnlyBooleanConfigs:
+        # Default value
+        env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, defaultValue])
+
+        # Toggle ON/OFF
+        for val in ['yes', 'no']:
+            env.assertEqual(cmd('CONFIG', 'SET', configName, val), 'OK')
+            env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, val])
+
+        # Invalid values should fail
+        env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
+            .contains('CONFIG SET failed')
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexBooleanParams():

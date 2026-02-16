@@ -7,10 +7,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "thin_vec.h"
+#include "query_term.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
-typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
@@ -327,10 +327,13 @@ typedef uint8_t RSTermRecord_Tag;
 typedef struct RSTermRecord_Borrowed_Body {
   RSTermRecord_Tag tag;
   /**
-   * The term that brought up this record
+   * The term that brought up this record.
    *
-   * This term was created using `NewQueryTerm`, and in the borrowed case, it is actually
-   * the owner of the memory. So it should be freed when this record is dropped.
+   * The term is owned by the record. The name of the variant, `Borrowed`,
+   * refers to the `offsets` field.
+   *
+   * The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
+   * variants have the same memory layout.
    */
   RSQueryTerm *term;
   /**
@@ -344,10 +347,10 @@ typedef struct RSTermRecord_Borrowed_Body {
 typedef struct RSTermRecord_Owned_Body {
   RSTermRecord_Tag tag;
   /**
-   * The term that brought up this record
+   * The term that brought up this record.
    *
-   * The owned version points to the original borrowed term, and should therefore never clean
-   * up this memory.
+   * It borrows the term from another record.
+   * The name of the variant, `Owned`, refers to the `offsets` field.
    */
   RSQueryTerm *term;
   /**
@@ -633,6 +636,11 @@ struct RSIndexResult *NewHybridResult(void);
 /**
  * Allocate a new token record with a given term and weight. This result should be freed using
  * [`IndexResult_Free`].
+ *
+ * # Safety
+ *
+ * `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
+ * caller transfers ownership — it must not be freed separately.
  */
 struct RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 

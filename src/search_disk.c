@@ -9,7 +9,7 @@
 
 #include "search_disk.h"
 #include "config.h"
-#include "index_result/query_term/query_term.h"
+#include "query_term.h"
 #include "spec.h"
 #include "trie/trie_type.h"
 

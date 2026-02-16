@@ -12,7 +12,6 @@
 #include "src/query.h"
 #include "src/stopwords.h"
 #include "src/ext/default.h"
-#include "src/index_result/query_term/query_term.h"
 
 #include "gtest/gtest.h"
 
