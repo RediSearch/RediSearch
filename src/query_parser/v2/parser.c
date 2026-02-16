@@ -1391,8 +1391,8 @@ static void yyStackOverflow(yyParser *yypParser){
    ** stack every overflows */
 /******** Begin %stack_overflow code ******************************************/
 
-  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ERROR_CODE_SYNTAX,
-    "Parser stack overflow", ". Try moving nested parentheses more to the left");
+  QueryError_SetError(ctx->status, QUERY_ERROR_CODE_SYNTAX,
+    "Parser stack overflow. Try moving nested parentheses more to the left");
 /******** End %stack_overflow code ********************************************/
    RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument var */
    RSQueryParser_v2_CTX_STORE
