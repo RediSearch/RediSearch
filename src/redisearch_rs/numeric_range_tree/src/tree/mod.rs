@@ -38,6 +38,7 @@ use crate::unique_id::TreeUniqueId;
 /// signed types to support both growth (positive) and shrinkage (negative)
 /// during operations like trimming empty leaves.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(C)]
 pub struct AddResult {
     /// The change in the tree's inverted index memory usage, in bytes.
     /// Positive values indicate growth, negative values indicate shrinkage.
@@ -65,6 +66,7 @@ pub struct AddResult {
 /// only removes empty nodes and does not change the number of entries
 /// (entries are removed by GC before trimming).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(C)]
 pub struct TrimEmptyLeavesResult {
     /// The change in the tree's inverted index memory usage, in bytes.
     /// Positive values indicate growth, negative values indicate shrinkage.

@@ -143,33 +143,43 @@ typedef struct NumericRangeTree NumericRangeTree;
 typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
 
 /**
- * Result of adding a value to a [`NumericRangeTree`].
+ * Result of adding a value to the tree.
  *
- * This struct is C-compatible and mirrors the information returned by
- * [`numeric_range_tree::AddResult`].
+ * This captures the changes that occurred during the add operation,
+ * including memory growth and structural changes. The delta fields use
+ * signed types to support both growth (positive) and shrinkage (negative)
+ * during operations like trimming empty leaves.
  */
-typedef struct NRN_AddRv {
+typedef struct AddResult {
   /**
-   * The number of bytes the tree's memory usage changed by.
+   * The change in the tree's inverted index memory usage, in bytes.
+   * Positive values indicate growth, negative values indicate shrinkage.
+   * This tracks only inverted index memory, not node/range struct overhead.
    */
-  int sz;
+  int64_t size_delta;
   /**
-   * The number of records added.
+   * The net change in the number of records (document, value entries).
+   * When splitting, this counts re-added entries to child ranges.
+   * When trimming, this is negative for removed entries.
    */
-  int numRecords;
+  int32_t num_records_delta;
   /**
-   * Whether the tree structure changed (1 if splits occurred, 0 otherwise).
+   * Whether the tree structure changed (splits or rotations occurred).
+   * When true, the tree's `revision_id` should be incremented to
+   * invalidate any concurrent iterators.
    */
-  int changed;
+  bool changed;
   /**
-   * The change in the number of ranges.
+   * The net change in the number of ranges (nodes with inverted indexes).
+   * Splitting a leaf adds one or two new ranges. Trimming removes ranges.
    */
-  int numRanges;
+  int32_t num_ranges_delta;
   /**
-   * The change in the number of leaves.
+   * The net change in the number of leaf nodes.
+   * Splitting a leaf adds one new leaf. Trimming decreases this.
    */
-  int numLeaves;
-} NRN_AddRv;
+  int32_t num_leaves_delta;
+} AddResult;
 
 /**
  * Result of [`NumericRangeTree_Find`] - an array of range pointers.
@@ -219,8 +229,7 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * If `isMulti` is non-zero, duplicate document IDs are allowed.
  * `maxDepthRange` specifies the maximum depth at which to retain ranges on inner nodes.
  *
- * Returns an [`NRN_AddRv`] struct containing information about what changed
- * during the add operation.
+ * Returns information about what changed during the add operation.
  *
  * # Safety
  *
@@ -228,7 +237,7 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * - `t` must point to a valid [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
  */
-struct NRN_AddRv NumericRangeTree_Add(struct NumericRangeTree *t,
+struct AddResult NumericRangeTree_Add(struct NumericRangeTree *t,
                                       t_docId doc_id,
                                       double value,
                                       int isMulti,

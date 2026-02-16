@@ -32,6 +32,7 @@ pub mod tree;
 pub use debug::*;
 pub use iterator::*;
 pub use node::*;
+use numeric_range_tree::AddResult;
 pub use range::*;
 pub use tree::*;
 
@@ -57,25 +58,6 @@ pub use numeric_range_tree::NumericRangeTree;
 /// The iterator holds references to nodes in the tree. The tree must not be
 /// freed or mutated while this iterator exists.
 pub type NumericRangeTreeIterator<'a> = numeric_range_tree::ReversePreOrderDfsIterator<'a>;
-
-/// Result of adding a value to a [`NumericRangeTree`].
-///
-/// This struct is C-compatible and mirrors the information returned by
-/// [`numeric_range_tree::AddResult`].
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NRN_AddRv {
-    /// The number of bytes the tree's memory usage changed by.
-    pub sz: c_int,
-    /// The number of records added.
-    pub numRecords: c_int,
-    /// Whether the tree structure changed (1 if splits occurred, 0 otherwise).
-    pub changed: c_int,
-    /// The change in the number of ranges.
-    pub numRanges: c_int,
-    /// The change in the number of leaves.
-    pub numLeaves: c_int,
-}
 
 /// Result of [`NumericRangeTree_Find`] - an array of range pointers.
 ///
@@ -112,8 +94,7 @@ pub extern "C" fn NewNumericRangeTree(compress_floats: bool) -> *mut NumericRang
 /// If `isMulti` is non-zero, duplicate document IDs are allowed.
 /// `maxDepthRange` specifies the maximum depth at which to retain ranges on inner nodes.
 ///
-/// Returns an [`NRN_AddRv`] struct containing information about what changed
-/// during the add operation.
+/// Returns information about what changed during the add operation.
 ///
 /// # Safety
 ///
@@ -127,22 +108,14 @@ pub unsafe extern "C" fn NumericRangeTree_Add(
     value: f64,
     isMulti: c_int,
     maxDepthRange: usize,
-) -> NRN_AddRv {
+) -> AddResult {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
     // SAFETY: Caller is to ensure that `t` is a valid, non-null pointer
     // to a NumericRangeTree obtained from NewNumericRangeTree.
     let tree = unsafe { &mut *t };
 
-    let result = tree.add(doc_id, value, isMulti != 0, maxDepthRange);
-
-    NRN_AddRv {
-        sz: result.size_delta as c_int,
-        numRecords: result.num_records_delta,
-        changed: if result.changed { 1 } else { 0 },
-        numRanges: result.num_ranges_delta,
-        numLeaves: result.num_leaves_delta,
-    }
+    tree.add(doc_id, value, isMulti != 0, maxDepthRange)
 }
 
 /// Free a [`NumericRangeTree`] and all its contents.
