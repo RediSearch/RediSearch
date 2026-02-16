@@ -76,6 +76,7 @@ typedef enum {
   // Debug only result processors
   RP_TIMEOUT,
   RP_CRASH,
+  RP_CRASH_IN_RUST,
   RP_PAUSE,
   RP_MAX_DEBUG
 } ResultProcessorType;
@@ -179,7 +180,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -355,8 +356,12 @@ void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx
  *
  * crash the at the start of the query
  *******************************************************************************************************************/
-ResultProcessor *RPCrash_New();
-void PipelineAddCrash(struct AREQ *r);
+enum CrashLocation {
+    CRASH_IN_C,
+    CRASH_IN_RUST,
+};
+ResultProcessor *RPCrash_New(enum CrashLocation location);
+void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
 
 /*******************************************************************************************************************
  *  Pause Processor - DEBUG ONLY

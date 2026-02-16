@@ -375,9 +375,14 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  // Accumulate profile time for intermediate cursor reads (final read is added in Profile_Print)
+  if (IsProfile(req) && !cursor_done && (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR)) {
+    req->profileTotalTime += duration;
+  }
+
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   if (QueryError_IsOk(qctx->err) || hasTimeoutError(qctx->err)) {
-    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
 
@@ -486,6 +491,10 @@ done_2:
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
     }
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
+    }
 
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
@@ -548,6 +557,11 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
     RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  }
+  if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+    ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
+    RedisModule_Reply_SimpleString(reply, QUERY_WASM_INACCURATE_RESULTS);
   }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 }
@@ -755,6 +769,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       RedisModule_Reply_SimpleString(reply, warning);
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
     }
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
+      RedisModule_Reply_SimpleString(reply, QUERY_WASM_INACCURATE_RESULTS);
+    }
     RedisModule_Reply_ArrayEnd(reply);
 
     // Add BG_SCAN_OOM warning to profile context if applicable
@@ -802,6 +821,11 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     if (sctx && sctx->spec && sctx->spec->scan_failed_OOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
+    }
+
+    if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, 1, !IsInternal(req));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
@@ -857,6 +881,11 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+
+  if (IsProfile(req)) {
+    req->profileQueueTime = rs_wall_clock_elapsed_ns(&req->initClock);
+  }
+
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = QueryError_Default();
 
@@ -951,7 +980,8 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   if (is_profile) {
     rs_wall_clock_init(&parseClock);
     // Calculate the time elapsed for profileParseTime by using the initialized parseClock
-    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
+    // Subtract queue time since initClock includes time spent waiting in the queue
+    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock) - req->profileQueueTime;
   }
 
   rc = AREQ_BuildPipeline(req, status);
@@ -1008,7 +1038,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  rc = AREQ_ApplyContext(*r, sctx, status, Slots_GetLocalSlots());
+  rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {

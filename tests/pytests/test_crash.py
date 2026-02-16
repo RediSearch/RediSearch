@@ -1,4 +1,5 @@
 import RLTest
+
 from common import *
 
 
@@ -13,25 +14,76 @@ class CrashingEnv(RLTest.Env):
     def passStopProcess(self, *args, **kwargs):
         pass
 
-def expect_query_crash_output(env, lines):
-    logDir = env.cmd('config', 'get', 'dir')[1]
-    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+
+def expect_query_crash_output(env, expected_fragments, crash_in_rust=False):
+    logDir = env.cmd("config", "get", "dir")[1]
+    logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
     logFilePath = os.path.join(logDir, logFileName)
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT')
-    runDebugQueryCommandAndCrash(env, ['FT.SEARCH', 'idx', '*'])
+    env.cmd("FT.CREATE", "idx", "SCHEMA", "text", "TEXT")
+    runDebugQueryCommandAndCrash(
+        env, ["FT.SEARCH", "idx", "*"], crash_in_rust=crash_in_rust
+    )
     pos = 0
     with open(logFilePath) as logFile:
         for line in logFile:
-            if pos == len(lines):
+            if pos == len(expected_fragments):
                 break
-            if line.find(lines[pos]) != -1:
+            if line.find(expected_fragments[pos]) != -1:
                 pos += 1
-            elif pos != 0 and pos < len(lines):
-                return False
-    return pos == len(lines)
+    if pos < len(expected_fragments):
+        print(f"Expected fragment {expected_fragments[pos]} not found")
+        return False
+    else:
+        return True
+
 
 # we expect to see out index information about the crash in the log file
 @skip(cluster=True)
 def test_query_thread_crash():
     env = CrashingEnv(testName="test_query_thread_crash", freshEnv=True)
-    env.assertTrue(expect_query_crash_output(env, ['search_current_thread', 'search_index:idx']))
+    env.assertTrue(
+        expect_query_crash_output(
+            env,
+            [
+                "search_current_thread",
+                "search_run_time_ns:",
+                # Index name is now a section header, not a field
+                "search_idx",
+                # Fields are now in nested dictionaries
+                "search_number_of_docs:",
+                "search_index_properties:",
+                "search_index_properties_in_mb:",
+                "search_total_inverted_index_blocks:",
+                "search_index_failures:",
+            ],
+        )
+    )
+
+
+# we expect to see the Rust panic information in the crash report,
+# alongside the index information
+@skip(cluster=True)
+def test_query_thread_crash_with_rust_panic():
+    env = CrashingEnv(testName="test_query_thread_crash_with_rust_panic", freshEnv=True)
+    env.assertTrue(
+        expect_query_crash_output(
+            env,
+            [
+                # The panic message
+                'A panic occurred in the Rust code panic.payload="Crash in Rust code"',
+                "search_current_thread",
+                "search_run_time_ns:",
+                # Index name is now a section header, not a field
+                "search_idx",
+                # Fields are now in nested dictionaries
+                "search_number_of_docs:",
+                "search_index_properties:",
+                "search_index_properties_in_mb:",
+                "search_total_inverted_index_blocks:",
+                "search_index_failures:",
+                # The backtrace
+                "# search_rust_backtrace",
+            ],
+            crash_in_rust=True,
+        )
+    )

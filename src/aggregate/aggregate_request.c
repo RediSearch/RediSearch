@@ -24,6 +24,8 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "slots_tracker.h"
+#include "asm_state_machine.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -402,9 +404,17 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to deserialize "SLOTS_STR" data");
       return ARG_ERROR;
     }
-    // TODO ASM: check if the requested slots are available
+    OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+    if (!version.is_some) {
+      rm_free((void *)slot_array);
+      QueryError_SetError(status, QUERY_EUNAVAILABLE_SLOTS, "Query requires unavailable slots");
+      return ARG_ERROR;
+    }
+    *papCtx->keySpaceVersion = version.version;
+    if (*papCtx->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
+    }
     *papCtx->querySlots = slot_array;
-    *papCtx->slotsVersion = 0;
   } else {
     return ARG_UNKNOWN;
   }
@@ -653,7 +663,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxSearchResults = &req->maxSearchResults,
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
-        .slotsVersion = &req->slotsVersion,
+        .keySpaceVersion = &req->keySpaceVersion,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1014,6 +1024,9 @@ AREQ *AREQ_New(void) {
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
+  req->stateflags = 0;
+  req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+  req->querySlots = NULL;
   return req;
 }
 
@@ -1108,7 +1121,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxSearchResults = &req->maxSearchResults,
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
-    .slotsVersion = &req->slotsVersion,
+    .keySpaceVersion = &req->keySpaceVersion,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
@@ -1272,21 +1285,26 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
-  // Set vector node as ast->root and use setFilterNode for proper filter integration
-  // setFilterNode handles both KNN (child relationship) and RANGE (intersection) properly
+  // Set vector node as ast->root and use SetFilterNode for proper filter integration.
+  // SetFilterNode handles both KNN (child relationship) and RANGE (intersection) properly.
+  // For RANGE queries without explicit FILTER, we skip filter integration to keep
+  // the vector node as root directly, preserving BY_SCORE ordering from the iterator.
+  RS_LOG_ASSERT(!(pvd->skipFilterIntegration && ast->root != NULL),
+                "ast->root should be NULL when skipFilterIntegration is true");
   QueryNode *oldRoot = ast->root;
   ast->root = vecNode;
-  SetFilterNode(ast, oldRoot);
+  if (!pvd->skipFilterIntegration) {
+    SetFilterNode(ast, oldRoot);
+  }
 
   return REDISMODULE_OK;
 }
 
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const SharedSlotRangeArray *localSlots) {
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
-  req->slotRanges = localSlots;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
@@ -1350,9 +1368,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const
 
   unsigned long dialectVersion = req->reqConfig.dialectVersion;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
-  if (rv != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+  // For RANGE queries without explicit FILTER (skipFilterIntegration=true), we
+  // can skip parsing the wildcard query "*" since we'll immediately replace
+  // ast->root with the vector node anyway. This avoids allocating and freeing a
+  // wildcard node unnecessarily.
+  bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
+
+  if (!skipParse) {
+    int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
+    if (rv != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if (req->parsedVectorData) {
@@ -1396,12 +1422,12 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const
   return REDISMODULE_OK;
 }
 
+
 void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
   bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
-
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
@@ -1423,7 +1449,9 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
-  Slots_FreeLocalSlots(req->slotRanges);
+  if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
+  }
   rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
@@ -1490,12 +1518,13 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
-      .slotRanges = req->slotRanges,
+      .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
+      .keySpaceVersion = req->keySpaceVersion,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
-    req->slotRanges = NULL; // Ownership of the slot ranges is now with the params.
+    req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

@@ -29,6 +29,7 @@
 #include "util/workers.h"
 #include "util/references.h"
 #include "util/mempool.h"
+#include "concurrent_ctx.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -73,6 +74,8 @@
 #include "hybrid/hybrid_exec.h"
 #include "util/redis_mem_info.h"
 #include "aggregate/reply_empty.h"
+#include "asm_state_machine.h"
+#include "module_init.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -94,6 +97,15 @@
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
+
+// This map is used to track the number of queries that are using a specific version of the key space. This is needed to
+// determine when it's safe to trim slots after a migration is complete.
+khash_t(query_key_space_version_tracker) *query_key_space_version_map = NULL;
+uint32_t key_space_version = INVALID_KEYSPACE_VERSION;
+pthread_mutex_t query_version_tracker_mutex;
+#if ASM_SANITIZER_ENABLED
+arrayof(int*) asm_sanitizer_allocs;
+#endif
 
 redisearch_thpool_t *depleterPool = NULL;
 
@@ -566,6 +578,10 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
+  // Log successful index creation
+  RedisModule_Log(ctx, "notice", "Successfully created index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   /*
    * We replicate CreateIfNotExists command for replica of support.
    * On replica of the destination will get the ft.create command from
@@ -637,6 +653,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(global_ref);
 
+  // Save the index name for logging (before the index is freed)
+  char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+
   if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
@@ -655,6 +674,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // If we don't delete the docs, we just remove the index from the global dict
     IndexSpec_RemoveFromGlobals(global_ref, true);
   }
+
+  // Log index deletion
+  RedisModule_Log(ctx, "notice", "Successfully dropped index %s", indexName);
+  rm_free(indexName);
 
   RedisModule_Replicate(ctx, RS_DROP_INDEX_IF_X_CMD, "sc", argv[1], "_FORCEKEEPDOCS");
 
@@ -789,11 +812,11 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  CurrentThread_SetIndexSpec(ref);
-
   if (!sp->smap) {
     return RedisModule_ReplyWithMap(ctx, 0);
   }
+  
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecRead(&sctx);
@@ -892,6 +915,10 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
   RedisSearchCtx_UnlockSpec(&sctx);
   CurrentThread_ClearIndexSpec();
+
+  // Log successful index alteration
+  RedisModule_Log(ctx, "notice", "Successfully altered index %s",
+                  IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -1157,8 +1184,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 3,
-    .patchVersion = 200,
+    .minorVersion = 4,
+    .patchVersion = 1,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
@@ -1239,6 +1266,9 @@ bool IsEnterpriseBuild() {
 }
 
 int CheckSupportedVestion() {
+  if (IsEnterprise()) {
+    supportedVersion.patchVersion = 0;  // ASM support was backported to 8.4.0 in RE
+  }
   if (CompareVersions(redisVersion, supportedVersion) < 0) {
     return REDISMODULE_ERR;
   }
@@ -1616,7 +1646,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    RSCursorCommand,          "readonly"                , SetFtCursorInfo,           SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
   };
@@ -1684,6 +1714,7 @@ void RediSearch_CleanupModule(void) {
   IndexAlias_DestroyGlobal(&AliasTable_g);
   freeGlobalAddStrings();
   SchemaPrefixes_Free(SchemaPrefixes_g);
+  ASM_StateMachine_End();
   // GeometryApi_Free();
 
   Dictionary_Free();
@@ -2973,12 +3004,14 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
 struct PrintCoordProfile_ctx {
   rs_wall_clock *totalTime;
   rs_wall_clock_ns_t postProcessTime;
+  rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
   RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
   RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
+  RedisModule_ReplyKV_Double(reply, "Coordinator queue time", rs_wall_clock_convert_ns_to_ms_d(pCtx->coordQueueTime));
   RedisModule_Reply_MapEnd(reply);
 }
 
@@ -3002,6 +3035,7 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
     struct PrintCoordProfile_ctx coordCtx = {
         .totalTime = totalTime,
         .postProcessTime = postProcessTime,
+        .coordQueueTime = rCtx->searchCtx->coordQueueTime,
     };
     Profile_PrintInFormat(reply, PrintShardProfile, &shardsCtx, profileSearchReplyCoordinator, &coordCtx);
 
@@ -3712,7 +3746,7 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
 }
 
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
 
   searchRequestCtx *req = createReq(argv, argc, bc, &status);
@@ -3721,11 +3755,15 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
     return REDISMODULE_OK;
   }
 
+  // Copy coordinator queue time for profile output
+  req->coordQueueTime = handlerCtx->coordQueueTime;
+
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
+
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
 
@@ -3739,12 +3777,15 @@ typedef struct SearchCmdCtx {
   int argc;
   RedisModuleBlockedClient* bc;
   int protocol;
-  WeakRef spec_ref;
+  ConcurrentSearchHandlerCtx handlerCtx;
 } SearchCmdCtx;
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
-  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
+  if (sCmdCtx->handlerCtx.isProfile) {
+    sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
+  }
+  FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }
@@ -3775,6 +3816,8 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug) {
+  rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
+
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
@@ -3830,8 +3873,10 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
-  sCmdCtx->spec_ref = StrongRef_Demote(spec_ref);
-
+  sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
+  sCmdCtx->handlerCtx.coordQueueTime = 0;
+  sCmdCtx->handlerCtx.isProfile = isProfile;
   RedisModuleBlockedClient* bc = RedisModule_BlockClient(ctx, DistSearchUnblockClient, NULL, NULL, 0);
   sCmdCtx->argv = rm_malloc(sizeof(RedisModuleString*) * argc);
   for (size_t i = 0 ; i < argc ; ++i) {
@@ -3917,15 +3962,23 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
 
-  // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
-  RS_ASSERT(my_shard_idx < topo->numShards);
-  const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
+  if (my_shard_idx != UINT32_MAX) {
+    // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
+    RS_ASSERT(my_shard_idx < topo->numShards);
+    const RedisModuleSlotRangeArray *my_slots = topo->shards[my_shard_idx].slotRanges;
 
-  // Store the local shard id
-  MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
+    // Store the local shard id
+    MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
 
-  // send the topology to the cluster
-  MR_UpdateTopology(topo, my_slots);
+    // send the topology to the cluster
+    MR_UpdateTopology(topo, my_slots);
+
+  } else {
+    // Valid topology but this node is not part of it.
+    // We cannot pass NULL as local slots, so we pass an empty slot array.
+    static const RedisModuleSlotRangeArray empty_slots = {0, {{0, 0}}};
+    MR_UpdateTopology(topo, &empty_slots);
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -3943,6 +3996,13 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // We are not in cluster mode. No need to init the topology updater cron loop.
       // Set the number of shards to 1 to indicate the topology is "set"
       NumShards = 1;
+      // Setting all slots for the case where we send/test internal commands directly from client (potentially with _SLOTS_INFO)
+      RedisModuleSlotRangeArray *all_slots = rm_malloc(SlotRangeArray_SizeOf(1));
+      all_slots->num_ranges = 1;
+      all_slots->ranges[0].start = 0;
+      all_slots->ranges[0].end = 16383;
+      ASM_StateMachine_SetLocalSlots(all_slots);
+      rm_free(all_slots);
     }
   }
 
@@ -4008,17 +4068,15 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
+static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int isClusterEnabled) {
   // register the module configuration with redis, use loaded values from command line as defaults
-  if (registerConfiguration) {
-    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Error registering module configuration");
-      return REDISMODULE_ERR;
-    }
-    if (isClusterEnabled) {
-      // Register module configuration parameters for cluster
-      RM_TRY_F(RegisterClusterModuleConfig, ctx);
-    }
+  if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Error registering module configuration");
+    return REDISMODULE_ERR;
+  }
+  if (isClusterEnabled || clusterConfig.type == ClusterType_RedisLabs) {
+    // Register module configuration parameters for cluster
+    RM_TRY_F(RegisterClusterModuleConfig, ctx);
   }
 
   // Load default values
@@ -4044,6 +4102,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
+  TracingRedisModule_Init(ctx);
+  RustPanicHook_Init();
+
   setHiredisAllocators();
   uv_replace_allocator(rm_malloc, rm_realloc, rm_calloc, rm_free);
 
@@ -4061,12 +4122,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
-  const Version unstableRedis = {7, 9, 227};
-  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 
   legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, NULL);
 
-  if (RediSearch_InitModuleConfig(ctx, argv, argc, unprefixedConfigSupported, isClusterEnabled) == REDISMODULE_ERR) {
+  if (RediSearch_InitModuleConfig(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
 
@@ -4193,7 +4252,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 /* ======================= DEBUG ONLY ======================= */
 
 static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  RedisModuleString **argv, int argc, ConcurrentSearchHandlerCtx *handlerCtx) {
   QueryError status = QueryError_Default();
   AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
@@ -4210,8 +4269,11 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
     return REDISMODULE_OK;
   }
 
+  // Copy coordinator queue time for profile output
+  req->coordQueueTime = handlerCtx->coordQueueTime;
+
   MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, handlerCtx->spec_ref, &status);
   if (!(rc == REDISMODULE_OK)) {
     return REDISMODULE_OK;
   }
@@ -4233,8 +4295,11 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
 
 static void DEBUG_DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
+  if (sCmdCtx->handlerCtx.isProfile) {
+    sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
+  }
   // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
   }

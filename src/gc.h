@@ -45,9 +45,7 @@ void GCContext_Start(GCContext* gc);
 void GCContext_StartNow(GCContext* gc);
 void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
-#ifdef FTINFO_FOR_INFO_MODULES
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
-#endif
 void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);

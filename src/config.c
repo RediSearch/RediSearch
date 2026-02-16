@@ -90,7 +90,11 @@ configPair_t __configPairs[] = {
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
+  {"BG_INDEX_SLEEP_DURATION_US",      "search-bg-index-sleep-duration-us"},
   {"ON_OOM",                          "search-on-oom"},
+  {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
+  {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
+  {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -140,6 +144,42 @@ int set_uint_numeric_config(const char *name, long long val,
 long long get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(unsigned int *)privdata);
+}
+
+// Custom setter for _MIN_TRIM_DELAY with validation
+int set_min_trim_delay_numeric_config(const char *name, long long val,
+                                     void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+
+  if (val >= (long long)RSGlobalConfig.maxTrimDelayMS) {
+    if (err) {
+      *err = RedisModule_CreateStringPrintf(NULL,
+        "search-_min-trim-delay-ms (%lld) must be less than search-_max-trim-delay-ms (%u)",
+        val, RSGlobalConfig.maxTrimDelayMS);
+    }
+    return REDISMODULE_ERR;
+  }
+
+  *(uint32_t *)privdata = (uint32_t)val;
+  return REDISMODULE_OK;
+}
+
+// Custom setter for _MAX_TRIM_DELAY with validation
+int set_max_trim_delay_numeric_config(const char *name, long long val,
+                                     void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+
+  if (val <= (long long)RSGlobalConfig.minTrimDelayMS) {
+    if (err) {
+      *err = RedisModule_CreateStringPrintf(NULL,
+        "search-_max-trim-delay-ms (%lld) must be greater than search-_min-trim-delay-ms (%u)",
+        val, RSGlobalConfig.minTrimDelayMS);
+    }
+    return REDISMODULE_ERR;
+  }
+
+  *(uint32_t *)privdata = (uint32_t)val;
+  return REDISMODULE_OK;
 }
 
 int set_uint8_numeric_config(const char *name, long long val,
@@ -1059,6 +1099,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
@@ -1066,6 +1107,86 @@ CONFIG_SETTER(setIndexerYieldEveryOps) {
 CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
+// BG_INDEX_SLEEP_DURATION_US
+// Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+#define BG_INDEX_SLEEP_DURATION_US_MAX 999999
+CONFIG_SETTER(setBGIndexSleepDurationUS) {
+  unsigned int sleepDurationUS;
+  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+      "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
+      BG_INDEX_SLEEP_DURATION_US_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->bgIndexingSleepDurationMicroseconds = sleepDurationUS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBGIndexSleepDurationUS) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingSleepDurationMicroseconds);
+}
+
+// MIN_TRIM_DELAY
+CONFIG_SETTER(setMinTrimDelay) {
+  uint32_t minTrimDelayMS;
+  int acrc = AC_GetUnsigned(ac, &minTrimDelayMS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+
+  // Validate that minTrimDelay is less than maxTrimDelayMS
+  if (minTrimDelayMS >= config->maxTrimDelayMS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY__TRIM_DELAY_CONFIG_INVALID, "_MIN_TRIM_DELAY_MS (%u) must be less than _MAX_TRIM_DELAY_MS (%u)",
+      minTrimDelayMS, config->maxTrimDelayMS);
+    return REDISMODULE_ERR;
+  }
+
+  config->minTrimDelayMS = minTrimDelayMS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMinTrimDelay) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->minTrimDelayMS);
+}
+
+// MAX_TRIM_DELAY
+CONFIG_SETTER(setMaxTrimDelay) {
+  uint32_t maxTrimDelayMS;
+  int acrc = AC_GetUnsigned(ac, &maxTrimDelayMS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+
+  // Validate that maxTrimDelay is greater than minTrimDelay
+  if (maxTrimDelayMS <= config->minTrimDelayMS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY__TRIM_DELAY_CONFIG_INVALID, "_MAX_TRIM_DELAY_MS (%u) must be greater than _MIN_TRIM_DELAY_MS (%u)",
+                                     maxTrimDelayMS, config->minTrimDelayMS);
+    return REDISMODULE_ERR;
+  }
+
+  config->maxTrimDelayMS = maxTrimDelayMS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxTrimDelay) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->maxTrimDelayMS);
+}
+
+// TRIMMING_STATE_CHECK_DELAY
+CONFIG_SETTER(setTrimmingStateCheckDelay) {
+  uint32_t trimmingStateCheckDelayMS;
+  int acrc = AC_GetUnsigned(ac, &trimmingStateCheckDelayMS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->trimmingStateCheckDelayMS = trimmingStateCheckDelayMS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getTrimmingStateCheckDelay) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->trimmingStateCheckDelayMS);
 }
 
 // ON_OOM
@@ -1432,10 +1553,26 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
+        {.name = "BG_INDEX_SLEEP_DURATION_US",
+         .helpText = "Sleep duration in microseconds during background indexing periodic sleep (max 999999, usleep POSIX limit)",
+         .setValue = setBGIndexSleepDurationUS,
+         .getValue = getBGIndexSleepDurationUS},
         {.name = "ON_OOM",
          .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
          .getValue = getOnOom},
+        {.name = "_MIN_TRIM_DELAY_MS",
+         .helpText = "Minimum delay before checking trimming state after slot migration (in milliseconds)",
+         .setValue = setMinTrimDelay,
+         .getValue = getMinTrimDelay},
+        {.name = "_MAX_TRIM_DELAY_MS",
+         .helpText = "Maximum delay before enabling trimming after slot migration (in milliseconds)",
+         .setValue = setMaxTrimDelay,
+         .getValue = getMaxTrimDelay},
+        {.name = "_TRIMMING_STATE_CHECK_DELAY_MS",
+         .helpText = "Delay between trimming state checks (in milliseconds)",
+         .setValue = setTrimmingStateCheckDelay,
+         .getValue = getTrimmingStateCheckDelay},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1944,6 +2081,43 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.indexerYieldEveryOpsWhileLoading)
+    )
+  )
+
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bg-index-sleep-duration-us", DEFAULT_BG_INDEX_SLEEP_DURATION_US,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      BG_INDEX_SLEEP_DURATION_US_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.bgIndexingSleepDurationMicroseconds)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_min-trim-delay-ms", DEFAULT_MIN_TRIM_DELAY,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_min_trim_delay_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.minTrimDelayMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_max-trim-delay-ms", DEFAULT_MAX_TRIM_DELAY,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_max_trim_delay_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.maxTrimDelayMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_trimming-state-check-delay-ms", DEFAULT_TRIMMING_STATE_CHECK_DELAY,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.trimmingStateCheckDelayMS)
     )
   )
 

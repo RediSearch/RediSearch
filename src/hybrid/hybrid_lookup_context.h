@@ -30,6 +30,7 @@ typedef struct AREQ AREQ;
 typedef struct {
   arrayof(const RLookup*) sourceLookups;  // Source lookups from each request
   RLookup *tailLookup;                    // Unified destination lookup
+  bool createMissingKeys;                 // If true, create keys that don't exist in destination (LOAD * behavior)
 } HybridLookupContext;
 
 /**
@@ -37,9 +38,10 @@ typedef struct {
  *
  * @param requests Array of AREQ pointers containing source lookups (non-null)
  * @param tailLookup The destination lookup to populate with unified schema (non-null)
+ * @param createMissingKeys If true, create keys in destination that don't exist (LOAD * behavior)
  * @return HybridLookupContext* to an initialized HybridLookupContext
  */
-HybridLookupContext* HybridLookupContext_New(arrayof(AREQ*) requests, RLookup *tailLookup);
+HybridLookupContext* HybridLookupContext_New(arrayof(AREQ*) requests, RLookup *tailLookup, bool createMissingKeys);
 
 void HybridLookupContext_Free(HybridLookupContext *lookupCtx);
 

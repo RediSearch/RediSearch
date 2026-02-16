@@ -13,7 +13,6 @@
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
-#include "slot_ranges.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -48,8 +47,6 @@ typedef struct ConcurrentCmdCtx {
   int argc;
   int options;
   WeakRef spec_ref;
-  // need to be captured in the main thread since Slots_GetLocalSlots is not thread safe
-  const struct SharedSlotRangeArray *slotRanges;
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -85,7 +82,6 @@ static void threadHandleCommand(void *p) {
   RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
 
   RedisModule_UnblockClient(ctx->bc, NULL);
-  Slots_FreeLocalSlots(ctx->slotRanges);
   rm_free(ctx->argv);
   rm_free(p);
 }
@@ -96,10 +92,6 @@ void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
 
 WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
-}
-
-const SharedSlotRangeArray *ConcurrentCmdCtx_GetSlotsMutable(ConcurrentCmdCtx *cctx) {
-  return cctx->slotRanges;
 }
 
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
@@ -115,7 +107,6 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
   cmdCtx->options = 0;
-  cmdCtx->slotRanges = Slots_GetLocalSlots();
   // Copy command arguments so they can be released by the calling thread
   cmdCtx->argv = rm_calloc(argc, sizeof(RedisModuleString *));
   for (int i = 0; i < argc; i++) {

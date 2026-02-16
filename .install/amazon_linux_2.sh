@@ -17,6 +17,7 @@ $MODE sed -i 's/#baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' /etc/yum.repo
 
 $MODE yum install -y wget tar gzip git devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync unzip clang-devel clang llvm-devel spdlog-devel fmt-devel jq
 
+
 source /opt/rh/devtoolset-11/enable
 
 cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh

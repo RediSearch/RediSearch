@@ -25,6 +25,7 @@
 #include "VecSim/query_results.h"
 #include "info/global_stats.h"
 #include "src/ext/default.h"
+#include "asm_state_machine.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -37,9 +38,23 @@ class ParseHybridTest : public ::testing::Test {
   HybridRequest *hybridRequest;
   HybridPipelineParams hybridParams;
   ParseHybridCommandCtx result;
+  RedisModuleSlotRangeArray* local_slots;
+
+  // Helper function to create a RedisModuleSlotRangeArray for testing
+  RedisModuleSlotRangeArray* createSlotRangeArray(uint16_t start, uint16_t end) {
+    size_t array_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange);
+    RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(array_size);
+    array->num_ranges = 1;
+    array->ranges[0].start = start;
+    array->ranges[0].end = end;
+    return array;
+  }
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
+    ASM_StateMachine_Init();
+    local_slots = createSlotRangeArray(0, 16383);
+    ASM_StateMachine_SetLocalSlots(local_slots);
     RMCK::flushdb(ctx);
 
     // Initialize pointers to NULL
@@ -70,7 +85,6 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
-    result.localSlots = Slots_GetLocalSlots();
   }
 
   void TearDown() override {
@@ -80,12 +94,13 @@ class ParseHybridTest : public ::testing::Test {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
-    if (result.localSlots) {
-      Slots_FreeLocalSlots(result.localSlots);
-    }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
+    }
+    ASM_StateMachine_End();
+    if (local_slots) {
+      rm_free(local_slots);
     }
   }
 
@@ -320,7 +335,6 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
   // Verify hasExplicitWindow flag is false (WINDOW was not specified)
   ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
-
 
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   // Example of a complex command in a single line
@@ -558,7 +572,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeBasic) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
@@ -566,12 +580,12 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for basic RANGE query with filter
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
@@ -592,6 +606,8 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.5);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
@@ -603,19 +619,19 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.8", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for RANGE query with EPSILON
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
@@ -629,6 +645,8 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
@@ -649,6 +667,73 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
     }
   }
   ASSERT_TRUE(foundEpsilon);
+}
+
+TEST_F(ParseHybridTest, testVsimRangeWithFilter) {
+  // Parse hybrid request with RANGE and FILTER clause
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5",
+    "FILTER", "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  AREQ* vecReq = result.vector;
+
+  // Verify AST structure for RANGE query with FILTER
+  // Unlike KNN (where vector is root), RANGE with FILTER creates a PHRASE node
+  // as root with the filter and vector node as children
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE);
+
+  // Use findVectorNodeChild to locate the vector node within the PHRASE
+  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
+  ASSERT_TRUE(vn != NULL);
+  ASSERT_EQ(vn->type, QN_VECTOR);
+
+  // Verify QueryNode structure
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode);
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_SCORE_AS specified
+
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
+  ASSERT_EQ(vq->range.radius, 0.5);
+  // RANGE queries with explicit FILTER use BY_ID ordering because the filter
+  // creates a PHRASE node which uses an intersection iterator with SkipTo.
+  // SkipTo requires child iterators to be sorted by document ID.
+  ASSERT_EQ(vq->range.order, BY_ID);
+
+  // Verify BLOB parameter was correctly resolved
+  const char* expectedBlob = TEST_BLOB_DATA;
+  size_t expectedBlobLen = strlen(expectedBlob);
+  ASSERT_TRUE(vq->range.vector != NULL);
+  ASSERT_EQ(vq->range.vecLen, expectedBlobLen);
+  ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
+
+  // Verify the filter is also present in the PHRASE node
+  // The PHRASE should have at least 2 children: filter node and vector node
+  ASSERT_GE(QueryNode_NumChildren(vecReq->ast.root), 2);
+
+  // Find and verify the filter node (should be a UNION containing TOKEN nodes
+  // for "hello")
+  bool foundFilter = false;
+  for (size_t i = 0; i < QueryNode_NumChildren(vecReq->ast.root); ++i) {
+    QueryNode* child = vecReq->ast.root->children[i];
+    if (child && child->type == QN_UNION) {
+      // This is the filter node - verify it contains the expected tokens
+      ASSERT_GE(QueryNode_NumChildren(child), 1);
+      ASSERT_EQ(child->children[0]->type, QN_TOKEN);
+      ASSERT_STREQ(child->children[0]->tn.str, "hello");
+      foundFilter = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(foundFilter);
 }
 
 TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
@@ -1315,5 +1400,3 @@ TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidKeyword) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "2", "INVALID_KEYWORD", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
   testErrorCode(args,  QUERY_ESYNTAX, "SEARCH keyword is required");
 }
-
-

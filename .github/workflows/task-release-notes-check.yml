@@ -1,0 +1,50 @@
+name: Release Notes Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  check-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check release notes checkbox
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 << 'EOF'
+          import os
+          import re
+          import sys
+
+          pr_body = os.environ.get('PR_BODY', '')
+
+          # Check for both checkboxes
+          requires_checked = bool(re.search(r'- \[x\] This PR requires release notes', pr_body, re.IGNORECASE))
+          requires_unchecked = bool(re.search(r'- \[ \] This PR requires release notes', pr_body, re.IGNORECASE))
+          not_requires_checked = bool(re.search(r'- \[x\] This PR does not require release notes', pr_body, re.IGNORECASE))
+          not_requires_unchecked = bool(re.search(r'- \[ \] This PR does not require release notes', pr_body, re.IGNORECASE))
+
+          # Check if checkboxes exist
+          has_requires = requires_checked or requires_unchecked
+          has_not_requires = not_requires_checked or not_requires_unchecked
+
+          if not has_requires or not has_not_requires:
+              print('::error::Release notes checkboxes not found in PR description. Please use the PR template.')
+              sys.exit(1)
+
+          # Check that exactly one is checked
+          if requires_checked and not_requires_checked:
+              print('::error::Both release notes checkboxes are checked. Please check only one.')
+              sys.exit(1)
+
+          if not requires_checked and not not_requires_checked:
+              print('::error::Please check one of the release notes checkboxes to indicate whether this PR requires release notes.')
+              sys.exit(1)
+
+          if requires_checked:
+              print('✅ Release notes required - checkbox is checked.')
+          else:
+              print('✅ Release notes not required - checkbox is checked.')
+          EOF
+

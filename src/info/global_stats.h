@@ -44,7 +44,7 @@ typedef struct {
   size_t numVectorFieldsHNSW;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
-  // Total number of documents indexed by each field type
+  // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   size_t textTotalDocsIndexed;
   size_t tagTotalDocsIndexed;
   size_t numericTotalDocsIndexed;
@@ -58,12 +58,14 @@ typedef struct {
   size_t arguments; // Number of parse arguments errors
   size_t timeout; // Number of timeout errors
   size_t oom; // Number of OOM errors
+  size_t unavailableSlots; // Number of unavailable slots errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
   size_t timeout;
   size_t oom;
   size_t maxPrefixExpansion;
+  size_t asm_inaccuracy;
 } QueryWarningGlobalStats;
 
 typedef struct {
@@ -171,7 +173,7 @@ void GlobalStats_UpdateUvRunningTopoUpdate(int toAdd);
 MultiThreadingStats GlobalStats_GetMultiThreadingStats();
 
 // Increase the number of documents indexed by the given field type by `toAdd`.
-void FieldsGlobalStats_UpdateFieldDocsIndexed(const FieldSpec *fs, int toAdd);
+void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd);
 
 #ifdef __cplusplus
 }

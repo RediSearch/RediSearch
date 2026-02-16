@@ -31,7 +31,7 @@ include_directories(
 	${root}/src/coord
 	${root}/deps/libuv/include
 	${root}/deps
-	${root}/deps/RedisModulesSDK
+	${root}/deps/RedisModulesSDK/8.4
 	${root}/src
 	${root}
 	${root}/deps/VectorSimilarity/src)

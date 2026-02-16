@@ -21,6 +21,7 @@
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
+#include "info/global_stats.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -96,6 +97,9 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
 
+  // Save the number of terms before indexing the current document for metrics
+  size_t prevNumTerms = spec->stats.numTerms;
+
   while (entry != NULL) {
     bool isNew;
     if (spec->diskSpec) {
@@ -124,6 +128,9 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
     entry = ForwardIndexIterator_Next(&it);
   }
+
+  // Update the number of terms added for metrics
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.numTerms - prevNumTerms);
 }
 
 /** Assigns a document ID to a single document. */

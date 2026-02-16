@@ -73,12 +73,15 @@ extern "C" {
   X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")              \
   X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                 \
   X(QUERY_EOOM, "Not enough memory available to execute the query")              \
+  X(QUERY_EUNAVAILABLE_SLOTS, "Query requires unavailable slots")               \
+  X(QUERY__TRIM_DELAY_CONFIG_INVALID, "_MIN_TRIM_DELAY_MS must be less than _MAX_TRIM_DELAY_MS") \
 
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 #define QUERY_WOOM_SHARD "One or more shards failed to execute the query due to insufficient memory"
 #define QUERY_WOOM_COORD "Coordinator failed to execute the query due to insufficient memory"
+#define QUERY_WASM_INACCURATE_RESULTS "Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
 
 typedef enum {
   QUERY_OK = 0,
@@ -231,6 +234,7 @@ void QueryError_SetQueryOOMWarning(QueryError *status);
   X(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, QUERY_WMAXPREFIXEXPANSIONS)     \
   X(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, QUERY_WOOM_SHARD)                         \
   X(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, QUERY_WOOM_COORD)                         \
+  X(QUERY_WARNING_CODE_ASM_INACCURATE_RESULTS, QUERY_WASM_INACCURATE_RESULTS)         \
 
 typedef enum {
   QUERY_WARNING_CODE_OK = 0,

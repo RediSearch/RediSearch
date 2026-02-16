@@ -155,7 +155,7 @@ typedef struct {
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
-  uint32_t *slotsVersion;                       // Version given by the slots tracker
+  uint32_t *keySpaceVersion;                       // Version given by the slots tracker
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -192,6 +192,8 @@ typedef enum {
   QEXEC_S_HAS_LOAD = 0x01,
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
+  /* ASM trimming delay timeout */
+  QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT = 0x04,
 } QEStateFlags;
 
 
@@ -223,9 +225,8 @@ typedef struct AREQ {
   RedisSearchCtx *sctx;
 
   /** Local slots info for this request */
-  const SharedSlotRangeArray *slotRanges;
   const RedisModuleSlotRangeArray *querySlots;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion;
 
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;
@@ -260,6 +261,7 @@ typedef struct AREQ {
   /** Profile variables */
   rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
   rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileQueueTime;          // Time spent waiting in workers thread pool queue
   rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
   rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
 
@@ -343,7 +345,7 @@ void initializeAREQ(AREQ *req);
  *
  * Note that this function consumes a refcount even if it fails!
  */
-int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status, const SharedSlotRangeArray *localSlots);
+int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 /**
  * Constructs the pipeline objects needed to actually start processing

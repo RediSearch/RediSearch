@@ -248,6 +248,10 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
         RS_ASSERT(nc->areq);
         AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
       }
+      if (!strcmp(warning_str, QUERY_WASM_INACCURATE_RESULTS)) {
+        RS_ASSERT(nc->areq);
+        nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+      }
     }
   }
 
@@ -546,6 +550,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_EGENERIC ||
+          errCode == QUERY_EUNAVAILABLE_SLOTS ||
           ((errCode == QUERY_ETIMEDOUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
           ((errCode == QUERY_EOOM) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
         // We need to pass the reply string as the error message, since the error code might be generic

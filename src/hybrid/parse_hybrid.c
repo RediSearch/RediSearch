@@ -31,6 +31,7 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/parse/hybrid_optional_args.h"
+#include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
 #include "slot_ranges.h"
@@ -418,6 +419,10 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       goto error;
     }
     vq->type = VECSIM_QT_RANGE;
+    // Default to BY_SCORE - the iterator returns results sorted by distance.
+    // This will be changed to BY_ID below if an explicit FILTER clause is
+    // provided, because filtering requires an intersection iterator that uses
+    // SkipTo.
     vq->range.order = BY_SCORE;
   }
 
@@ -438,6 +443,13 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
       goto error;
     }
+
+    // RANGE queries with explicit FILTER need BY_ID ordering because the filter
+    // creates a PHRASE node which uses an intersection iterator with SkipTo.
+    // SkipTo requires child iterators to be sorted by document ID.
+    if (vq->type == VECSIM_QT_RANGE) {
+      vq->range.order = BY_ID;
+    }
   }
 
   // Check for optional YIELD_SCORE_AS clause
@@ -453,8 +465,17 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  if (!vreq->query) {  // meaning there is no filter clause
+  // Set implicit "*" filter if no explicit filter was provided.
+  // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
+  // so the vector node becomes the root directly (no PHRASE/intersection needed).
+  // This preserves BY_SCORE ordering from the iterator.
+  if (!vreq->query) {
     vreq->query = "*";
+    // For RANGE without explicit filter, skip the filter integration
+    // so the vector node is the root and returns results sorted by score.
+    if (vq->type == VECSIM_QT_RANGE) {
+      pvd->skipFilterIntegration = true;
+    }
   }
 
   // Set vector data in VectorQuery based on type (KNN vs RANGE)
@@ -686,7 +707,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
   if (!parseSubqueriesCount(ac, status)) {
     goto error;
@@ -713,7 +734,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
-      .slotsVersion = &slotsVersion,
+      .keySpaceVersion = &keySpaceVersion,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
@@ -722,10 +743,17 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Set slots info in both subqueries
   if (internal) {
+    RS_ASSERT(requestSlotRanges != NULL);
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->slotsVersion = slotsVersion;
+    vectorRequest->keySpaceVersion = keySpaceVersion;
+    if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     searchRequest->querySlots = requestSlotRanges;
-    searchRequest->slotsVersion = slotsVersion;
+    searchRequest->keySpaceVersion = keySpaceVersion;
+    if (searchRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     requestSlotRanges = NULL; // ownership transferred
   }
 
@@ -819,11 +847,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   prefixes = NULL;
 
   // Apply context to each request
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(searchRequest, status);
     goto error;
   }
-  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status, Slots_Clone(parsedCmdCtx->localSlots)) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);
     goto error;
   }

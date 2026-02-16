@@ -13,6 +13,7 @@
 #include "redismodule.h"
 #include "thpool/thpool.h"
 #include "util/references.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,14 @@ struct ConcurrentCmdCtx;
 typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int,
                                      struct ConcurrentCmdCtx *);
 
+// Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
+typedef struct ConcurrentSearchHandlerCtx {
+  rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
+  rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
+  WeakRef spec_ref;                   // Weak reference to the index spec
+  bool isProfile;                     // Whether this is an FT.PROFILE command
+} ConcurrentSearchHandlerCtx;
+
 #define CMDCTX_KEEP_RCTX 0x01
 
 /**
@@ -59,10 +68,6 @@ void ConcurrentCmdCtx_KeepRedisCtx(struct ConcurrentCmdCtx *ctx);
 
 // Returns the WeakRef held in the context.
 WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
-
-// Returns the local slots held in the context, ownership will remain in the context
-// Caller should clone the result if lifetime needs to extend beyond the context lifetime
-const struct SharedSlotRangeArray *ConcurrentCmdCtx_GetSlotsMutable(struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,

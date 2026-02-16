@@ -12,6 +12,7 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
+#include "result_processor_rs.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -30,6 +31,7 @@
 #include "debug_commands.h"
 #include "search_result.h"
 #include "redisearch.h"
+#include "asm_state_machine.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -47,9 +49,8 @@ typedef struct {
   QueryIterator *iterator;
   RedisSearchCtx *sctx;
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
-  uint32_t slotsVersion;                        // version of the slot ranges used for filtering
+  uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
-  const SharedSlotRangeArray *slotRanges;       // Owned slot ranges info, may be used for filtering. TODO ASM: remove
 } RPQueryIterator;
 
 
@@ -89,10 +90,6 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   }
   return true;
 }
-
-// TODO ASM: use this to decide if we need to filter by slots
-extern atomic_uint key_space_version;
-atomic_uint key_space_version = 0;
 
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
@@ -151,10 +148,11 @@ validate_current:
         continue;
       }
     }
-    if (should_filter_slots) {
-      RS_ASSERT(self->slotRanges != NULL);
+    // querySlots presence would indicate that is internal command, if querySlots is NULL, we don't need to filter as we would be in standalone.
+    if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
+      RS_ASSERT(self->querySlots != NULL);
       int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
-      if (!Slots_CanAccessKeysInSlot(self->slotRanges, slot)) {
+      if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
         DMD_Return(dmd);
         continue;
       }
@@ -178,17 +176,15 @@ static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
   rm_free((void *)self->querySlots);
-  Slots_FreeLocalSlots(self->slotRanges);
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const SharedSlotRangeArray *slotRanges, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
-  ret->slotRanges = slotRanges;
   ret->querySlots = querySlots;
-  ret->slotsVersion = slotsVersion;
+  ret->keySpaceVersion = keySpaceVersion;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
@@ -1803,7 +1799,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = {0};
-  RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
+  RLookupRow_WriteFieldsFrom(&r->rowdata,
+              self->lookupCtx->sourceLookups[upstreamIndex], &translated,
+              self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
   RLookupRow_Reset(&r->rowdata);
   r->rowdata = translated;
 
@@ -2224,16 +2222,34 @@ static int RPCrash_Next(ResultProcessor *base, SearchResult *r) {
   return base->upstream->Next(base->upstream, r);
 }
 
-ResultProcessor *RPCrash_New() {
-  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
-  ret->base.type = RP_CRASH;
-  ret->base.Next = RPCrash_Next;
-  ret->base.Free = RPCrash_Free;
-  return &ret->base;
+static int RPCrash_NextInRust(ResultProcessor *base, SearchResult *r) {
+  RPCrash *self = (RPCrash *)base;
+  CrashInRust();
+  return base->upstream->Next(base->upstream, r);
 }
 
-void PipelineAddCrash(struct AREQ *r) {
-  ResultProcessor *crash = RPCrash_New();
+ResultProcessor *RPCrash_New(enum CrashLocation location) {
+  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
+  switch (location) {
+    case CRASH_IN_C:
+      ret->base.type = RP_CRASH;
+      ret->base.Next = RPCrash_Next;
+      ret->base.Free = RPCrash_Free;
+      return &ret->base;
+    case CRASH_IN_RUST:
+      ret->base.type = RP_CRASH_IN_RUST;
+      ret->base.Next = RPCrash_NextInRust;
+      ret->base.Free = RPCrash_Free;
+      return &ret->base;
+    default:
+        rm_free(ret);
+        RedisModule_Log(RSDummyContext, "warning", "Invalid CrashLocation enum value");
+        abort();
+  }
+}
+
+void PipelineAddCrash(struct AREQ *r, enum CrashLocation location) {
+  ResultProcessor *crash = RPCrash_New(location);
   addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
 }
 

@@ -337,7 +337,7 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
   RSValue *original_ptr2 = values[1];
 
   // Write fields from source to destination
-  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, false);
 
   // Verify written values are correct and accessible by field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2"}, {100.0, 200.0});
@@ -380,7 +380,7 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookupRow srcRow = {0}, destRow = {0};
 
   // Write from empty source
-  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, false);
 
   // Verify destination remains empty
   verify_fields_empty(&dest, &destRow, {"field1", "field2"});
@@ -423,7 +423,7 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   write_values_to_row(srcKeys, &srcRow, values);
 
   // Write fields
-  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, false);
 
   // Verify data is readable by field names despite potentially different indices
   verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"}, {111.0, 222.0, 333.0});
@@ -468,8 +468,8 @@ TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
   write_values_to_row(src2Keys, &src2Row, src2Values);
 
   // Write data from both sources to single destination row
-  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
-  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest, false);
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest, false);
 
   // Verify all 4 fields are readable from destination using field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3", "field4"}, {10.0, 20.0, 30.0, 40.0});
@@ -538,13 +538,13 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
   }
 
   // Write src1 first, then src2
-  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest, false);
 
   // After first write, s1_val2 should have refcount 3 (original + src1Row + destRow)
   ASSERT_EQ(3, RSValue_Refcount(s1_val2));  // Shared between source and destination
   ASSERT_EQ(2, RSValue_Refcount(s2_val2));  // s2_val2 unchanged yet
 
-  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest, false);
 
   // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
   ASSERT_EQ(2, RSValue_Refcount(s1_val2));  // Back to original + src1Row (removed from destRow)
@@ -617,7 +617,7 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   }
 
   // Write src1 first
-  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest, false);
 
   // After first write, src1 values should have refcount 3 (shared: original + src1Row + destRow)
   for (int i = 0; i < 3; i++) {
@@ -626,7 +626,7 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   }
 
   // Write src2 - this will overwrite all src1 values
-  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest, false);
 
   // After second write, all src1 values should be decremented (overwritten in destRow)
   // and all src2 values should have refcount 3 (shared: original + src2Row + destRow)
@@ -689,8 +689,8 @@ TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
   // src2Row intentionally left empty
 
   // Write from both sources
-  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
-  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);  // Empty source
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest, false);
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest, false);  // Empty source
 
   // Verify src1 data is present and accessible by field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2"}, {50.0, 60.0});
@@ -705,6 +705,87 @@ TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
   RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&src1);
   RLookup_Cleanup(&src2);
+  RLookup_Cleanup(&dest);
+}
+
+// Tests createMissingKeys=true: keys are created in destination on demand
+TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
+  RLookup source = {0}, dest = {0};
+  RLookup_Init(&source, NULL);
+  RLookup_Init(&dest, NULL);
+
+  // Create keys in source but NOT in destination
+  TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
+
+  // Destination is empty - no keys added
+  ASSERT_EQ(0, dest.rowlen);
+
+  // Create test data and write to source row
+  RLookupRow srcRow = {0}, destRow = {0};
+  std::vector<RSValue*> values = create_test_values({100, 200, 300});
+  write_values_to_row(srcKeys, &srcRow, values);
+
+  // Write fields with createMissingKeys=true - should create keys on demand
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, true);
+
+  // Verify keys were created in destination
+  ASSERT_EQ(3, dest.rowlen);
+
+  // Verify values are accessible by field names
+  verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"},
+                        {100.0, 200.0, 300.0});
+
+  // Verify shared ownership (same pointers)
+  RLookupKey *dest_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
+  RLookupKey *dest_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
+  RLookupKey *dest_key3 = RLookup_GetKey_Read(&dest, "field3", RLOOKUP_F_NOFLAGS);
+  ASSERT_TRUE(dest_key1 && dest_key2 && dest_key3);
+  ASSERT_EQ(values[0], RLookup_GetItem(dest_key1, &destRow));
+  ASSERT_EQ(values[1], RLookup_GetItem(dest_key2, &destRow));
+  ASSERT_EQ(values[2], RLookup_GetItem(dest_key3, &destRow));
+
+  // Cleanup
+  cleanup_values(values);
+  RLookupRow_Reset(&srcRow);
+  RLookupRow_Reset(&destRow);
+  RLookup_Cleanup(&source);
+  RLookup_Cleanup(&dest);
+}
+
+// Tests createMissingKeys=true with partial overlap: some keys exist, some created
+TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
+  RLookup source = {0}, dest = {0};
+  RLookup_Init(&source, NULL);
+  RLookup_Init(&dest, NULL);
+
+  // Create keys in source
+  TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
+
+  // Create only field2 in destination (field1 and field3 are missing)
+  RLookupKey *existing_key = RLookup_GetKey_Write(&dest, "field2", RLOOKUP_F_NOFLAGS);
+  ASSERT_TRUE(existing_key);
+  ASSERT_EQ(1, dest.rowlen);
+
+  // Create test data and write to source row
+  RLookupRow srcRow = {0}, destRow = {0};
+  std::vector<RSValue*> values = create_test_values({100, 200, 300});
+  write_values_to_row(srcKeys, &srcRow, values);
+
+  // Write fields with createMissingKeys=true
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, true);
+
+  // Verify all 3 keys now exist (field1 and field3 were created)
+  ASSERT_EQ(3, dest.rowlen);
+
+  // Verify all values are correct
+  verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"},
+                        {100.0, 200.0, 300.0});
+
+  // Cleanup
+  cleanup_values(values);
+  RLookupRow_Reset(&srcRow);
+  RLookupRow_Reset(&destRow);
+  RLookup_Cleanup(&source);
   RLookup_Cleanup(&dest);
 }
 

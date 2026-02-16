@@ -437,10 +437,20 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
  * Write field data from source row to destination row with different schemas.
  * Iterate through source lookup keys, find corresponding keys in destination by name,
  * and write it to destination row using RLookup_WriteOwnKey().
- * Assumes all source keys exist in destination (enforce with ASSERT).
+ *
+ * @param srcRow        Source row containing the data
+ * @param srcLookup     Source lookup containing the schema of the source row
+ * @param destRow       Destination row to write data to
+ * @param destLookup    Destination lookup containing the schema of the
+ *                      destination row
+ * @param createMissingKeys
+ *                      If true, creates keys in destination that don't exist
+ *                      (LOAD * behavior).
+ *                      If false, skips keys that don't exist in destination.
  */
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup);
+                               RLookupRow *destRow, RLookup *destLookup,
+                               bool createMissingKeys);
 
 
 #ifdef __cplusplus

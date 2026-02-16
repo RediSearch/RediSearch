@@ -13,6 +13,7 @@
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
+#include "module_init.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
@@ -88,6 +89,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (for_crash_report) {
     AddToInfo_CurrentThread(ctx);
     AddToInfo_BlockedQueries(ctx);
+    AddToInfo_RustBacktrace(ctx);
   }
 }
 
@@ -189,7 +191,7 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
-  // Total number of documents indexed by each field type
+  // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
                                   RSGlobalStats.fieldsStats.textTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_tag_fields",
@@ -274,8 +276,10 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout", stats.shard_errors.timeout);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout", stats.shard_warnings.timeout);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_oom", stats.shard_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_unavailable_slots", stats.shard_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_oom", stats.shard_warnings.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_max_prefix_expansions", stats.shard_warnings.maxPrefixExpansion);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_asm_inaccurate_results", stats.shard_warnings.asm_inaccuracy);
 
   // Coordinator errors and warnings
   RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors");
@@ -284,8 +288,10 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_unavailable_slots", stats.coord_errors.unavailableSlots);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_max_prefix_expansions", stats.coord_warnings.maxPrefixExpansion);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_asm_inaccurate_results", stats.coord_warnings.asm_inaccuracy);
 }
 
 void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -351,7 +357,7 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
 }
 
-// IF the crashing thread worked on a spec, output the spec name
+// IF the crashing thread worked on a spec, output the spec name and info
 void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
   RedisModule_InfoAddSection(ctx, "current_thread");
@@ -361,13 +367,21 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   if (specInfo) {
     StrongRef strong = WeakRef_Promote(specInfo->specRef);
     IndexSpec *spec = StrongRef_Get(strong);
+
+    // Gives us a sense of how long this thread was active on this index before we crashed.
+    // Note: This duration includes the entire lifetime from when the thread started working
+    // on the index until the crash report is generated, including signal handling time.
+    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&specInfo->runningTime);
+    RedisModule_InfoAddFieldULongLong(ctx, "run_time_ns", duration);
+
     // spec can be null if the spec was deleted,
     // e.g in gc thread: it manages to take a strong ref but the invalidation flag was later turned on and no more strong refs can be taken
     if (!spec) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-      // output FT.INFO
+      // Output FT.INFO in a crash-safe manner (no allocations, no locks)
+      // This includes the index name, so no need to output it separately
+      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true);
     }
   }
 }

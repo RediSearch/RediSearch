@@ -206,7 +206,6 @@ typedef struct Version {
 extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
-extern bool should_filter_slots;
 extern bool isTrimming; // TODO: remove this when redis deprecates sharding trimming events
 extern bool isFlex;
 
@@ -552,12 +551,14 @@ void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
-#ifdef FTINFO_FOR_INFO_MODULES
 /**
  * Exposing all the fields of the index to INFO command.
+ * @param ctx - the redis module info context
+ * @param sp - the index spec
+ * @param obfuscate - if true, obfuscate the index name and field names
+ * @param skip_unsafe_ops - if true, skips operations unsafe in signal handler context (allocations, locks)
  */
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
-#endif
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops);
 
 /**
  * Gets the next text id from the index. This does not currently
