@@ -463,10 +463,7 @@ where
             let actual_doc_id = doc_id * delta;
             let record = RSIndexResult::term_with_term_ptr(
                 self.term,
-                inverted_index::RSOffsetVector::with_data(
-                    self.offsets.as_ptr() as _,
-                    self.offsets.len() as _,
-                ),
+                inverted_index::RSOffsetSlice::from_bytes(&self.offsets),
                 actual_doc_id,
                 1,
                 1,
