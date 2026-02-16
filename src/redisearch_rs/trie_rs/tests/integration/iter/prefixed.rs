@@ -46,25 +46,25 @@ fn prefix_constraint_is_honored() {
     // `ap` isn't stored in the trie as a key, but there is node
     // with `ap` as a label since `ap` is the shared prefix between
     // `apricot` and `apple`.
-    assert_prefixed_iterators!(trie, b"ap", vec![("apple".as_bytes(), 1), (b"apricot", 4)]);
+    assert_prefixed_iterators!(trie, b"ap", [("apple".as_bytes(), 1), (b"apricot", 4)]);
 
     // Prefix search works even when there isn't a node matching the prefix.
-    assert_prefixed_iterators!(trie, b"a", vec![("apple".as_bytes(), 1), (b"apricot", 4)]);
+    assert_prefixed_iterators!(trie, b"a", [("apple".as_bytes(), 1), (b"apricot", 4)]);
 
     // If the prefix matches an entry, it should be included in the results.
-    assert_prefixed_iterators!(trie, b"ban", vec![("ban".as_bytes(), 2), (b"banana", 3)]);
+    assert_prefixed_iterators!(trie, b"ban", [("ban".as_bytes(), 2), (b"banana", 3)]);
 
     // If the prefix is empty, all entries should be included in the results,
     // ordered lexicographically by key.
     assert_prefixed_iterators!(
         trie,
         b"",
-        vec![
+        [
             ("".as_bytes(), 0),
             (b"apple", 1),
             (b"apricot", 4),
             (b"ban", 2),
-            (b"banana", 3),
+            (b"banana", 3)
         ]
     );
 

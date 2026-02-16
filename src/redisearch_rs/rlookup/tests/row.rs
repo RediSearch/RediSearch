@@ -8,6 +8,7 @@
 */
 
 #![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
+#![allow(clippy::missing_const_for_fn, clippy::undocumented_unsafe_blocks)]
 
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use sorting_vector::RSSortingVector;

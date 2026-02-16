@@ -13,6 +13,8 @@
 //! crate. Since all tests share a single binary, each mock symbol must be
 //! defined exactly once.
 
+#![allow(clippy::undocumented_unsafe_blocks, clippy::missing_const_for_fn)]
+
 use ffi::{RSQueryTerm, RSYieldableMetric};
 
 #[unsafe(no_mangle)]

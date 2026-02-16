@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::missing_const_for_fn)]
+
 use qint::{qint_decode, qint_encode};
 use std::io::{Cursor, Read, Seek};
 
@@ -90,10 +92,11 @@ fn test_multiple_qints_in_a_buffer() -> Result<(), std::io::Error> {
 
     let mut buf = [0u8; 1024];
     let mut cursor = Cursor::new(buf.as_mut());
-    let mut bytes_written = vec![];
-    bytes_written.push(qint_encode(&mut cursor, v2)?);
-    bytes_written.push(qint_encode(&mut cursor, v3)?);
-    bytes_written.push(qint_encode(&mut cursor, v4)?);
+    let bytes_written = vec![
+        qint_encode(&mut cursor, v2)?,
+        qint_encode(&mut cursor, v3)?,
+        qint_encode(&mut cursor, v4)?,
+    ];
 
     // test we wrote the right number of bytes
     assert_eq!(bytes_written[0], 4); // 1+(2+1) = 4 bytes
@@ -238,7 +241,7 @@ mod property_based {
     //! do in the tests [test_encoding_with_too_small_buffer] and [test_decoding_with_too_small_buffer].
 
     use ::qint::{qint_decode, qint_encode};
-    use proptest::prop_assert_eq;
+    use proptest::{prop_assert, prop_assert_eq};
     use std::io::{Cursor, Seek as _};
 
     use proptest::{
@@ -399,7 +402,7 @@ mod property_based {
                 $(
                     PropEncoding::$variant((v, _)) => {
                         let res = qint_encode(&mut $cursor, v);
-                        prop_assert_eq!(res.is_err(), true);
+                        prop_assert!(res.is_err());
                         let kind = res.unwrap_err().kind();
                         prop_assert_eq!(kind, std::io::ErrorKind::WriteZero);
                     }
@@ -427,7 +430,7 @@ mod property_based {
                 $(
                     PropEncoding::$variant(_) => {
                         let res = qint_decode::<$number, _>(&mut $cursor);
-                        prop_assert_eq!(res.is_err(), true);
+                        prop_assert!(res.is_err());
                         let kind = res.unwrap_err().kind();
                         prop_assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
                     }
@@ -448,6 +451,7 @@ mod property_based {
             // so we can test what happens if the decoding buffer is smaller than the expected size
             let leading_byte = prop_encoding.leading_byte();
             buf[0] = leading_byte;
+            #[allow(clippy::needless_range_loop)]
             for i in 1..buffer_size {
                 buf[i] = (rand::random::<u8>()) as u8;
             }

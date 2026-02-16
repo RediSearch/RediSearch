@@ -7,6 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(
+    clippy::missing_safety_doc,
+    clippy::undocumented_unsafe_blocks,
+    clippy::missing_const_for_fn
+)]
+
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
     RSAggregateResult, RSIndexResult, RSOffsetVector, RSResultKind, RSResultKindMask,

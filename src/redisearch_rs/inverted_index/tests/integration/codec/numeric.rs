@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(clippy::unusual_byte_groupings)]
+
 use inverted_index::{
     Decoder, Encoder, IdDelta, RSIndexResult,
     numeric::{Numeric, NumericDelta, NumericFloatCompression},
@@ -457,7 +459,7 @@ fn test_empty_buffer() {
     let mut buffer = Cursor::new(buffer.as_ref());
     let res = Numeric::decode_new(&mut buffer, 0);
 
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }

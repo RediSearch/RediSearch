@@ -14,13 +14,13 @@ use rqe_iterators::{
 
 #[test]
 fn current() {
-    let mut it = Empty::default();
+    let mut it = Empty;
     assert!(it.current().is_none());
 }
 
 #[test]
 fn read() {
-    let mut it = Empty::default();
+    let mut it = Empty;
 
     assert_eq!(it.num_estimated(), 0);
     assert!(it.at_eof());
@@ -33,7 +33,7 @@ fn read() {
 
 #[test]
 fn skip_to() {
-    let mut it = Empty::default();
+    let mut it = Empty;
 
     assert!(matches!(it.skip_to(1), Ok(None)));
     assert!(it.at_eof());
@@ -44,7 +44,7 @@ fn skip_to() {
 
 #[test]
 fn rewind() {
-    let mut it = Empty::default();
+    let mut it = Empty;
 
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
@@ -58,7 +58,7 @@ fn rewind() {
 
 #[test]
 fn revalidate() {
-    let mut it = Empty::default();
+    let mut it = Empty;
     assert_eq!(
         it.revalidate().expect("revalidate failed"),
         RQEValidateStatus::Ok

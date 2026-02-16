@@ -399,6 +399,8 @@ fn numeric_no_range_tree_revalidate() {
 
 #[cfg(not(miri))]
 mod not_miri {
+    #![allow(clippy::undocumented_unsafe_blocks)]
+
     use super::*;
     use crate::inverted_index::utils::{
         ExpirationTest, MockExpirationChecker, RevalidateIndexType, RevalidateTest,

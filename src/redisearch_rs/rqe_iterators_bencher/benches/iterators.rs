@@ -24,37 +24,37 @@ use inverted_index::{
 use rqe_iterators_bencher::benchers;
 
 fn benchmark_empty(c: &mut Criterion) {
-    let bencher = benchers::empty::Bencher::default();
+    let bencher = benchers::empty::Bencher;
     bencher.bench(c);
 }
 
 fn benchmark_id_list(c: &mut Criterion) {
-    let bencher = benchers::id_list::Bencher::default();
+    let bencher = benchers::id_list::Bencher;
     bencher.bench(c);
 }
 
 fn benchmark_metric(c: &mut Criterion) {
-    let bencher = benchers::metric::Bencher::default();
+    let bencher = benchers::metric::Bencher;
     bencher.bench(c);
 }
 
 fn benchmark_wildcard(c: &mut Criterion) {
-    let bencher = benchers::wildcard::Bencher::default();
+    let bencher = benchers::wildcard::Bencher;
     bencher.bench(c);
 }
 
 fn benchmark_intersection(c: &mut Criterion) {
-    let bencher = benchers::intersection::Bencher::default();
+    let bencher = benchers::intersection::Bencher;
     bencher.bench(c);
 }
 
 fn benchmark_optional(c: &mut Criterion) {
-    let bencher = benchers::optional::Bencher::default();
+    let bencher = benchers::optional::Bencher;
     bencher.bench(c);
 }
 
 fn benchmark_not_iterator(c: &mut Criterion) {
-    let bencher = benchers::not::Bencher::default();
+    let bencher = benchers::not::Bencher;
     bencher.bench(c);
 }
 

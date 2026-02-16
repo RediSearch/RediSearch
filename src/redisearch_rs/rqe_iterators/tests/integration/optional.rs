@@ -467,7 +467,7 @@ mod optional_iterator_with_empty_child_test {
     // as found in tests/cpptests/test_cpp_iterator_optional.cpp
     fn setup_optional_iterator_with_empty_child<'index>() -> Optional<'index, Empty> {
         // Create empty child iterator
-        let child = Empty::default();
+        let child = Empty;
 
         Optional::new(MAX_DOC_ID, WEIGHT, child)
     }

@@ -67,7 +67,7 @@ mod property_based {
         if needle.len() > haystack.len() {
             return false;
         }
-        if needle.len() == 0 {
+        if needle.is_empty() {
             return true;
         }
         haystack

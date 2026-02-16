@@ -11,6 +11,8 @@
 //! [RLookup] for testing purposes. It mocks the ref counting of the cache and
 //! the `HiddenString` type used in the C code.
 
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use std::{
     alloc::{Layout, alloc, dealloc},
     cmp,

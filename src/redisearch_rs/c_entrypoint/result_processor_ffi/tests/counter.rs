@@ -9,6 +9,12 @@
 
 //! This file contains tests to ensure the FFI functions behave as expected.
 
+#![allow(
+    clippy::undocumented_unsafe_blocks,
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::missing_const_for_fn
+)]
+
 use result_processor_ffi::counter::*;
 
 #[test]

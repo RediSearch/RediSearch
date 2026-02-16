@@ -159,6 +159,11 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
 #[cfg(not(miri))]
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::undocumented_unsafe_blocks,
+        clippy::multiple_unsafe_ops_per_block
+    )]
+
     use super::*;
 
     /// We have to turn off miri for this test. As stacked borrows generate a false positive on the underlying code.

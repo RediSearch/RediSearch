@@ -520,6 +520,11 @@ fn load_specific_keys<'a>(
 #[cfg(test)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
+    #![allow(
+        clippy::undocumented_unsafe_blocks,
+        clippy::multiple_unsafe_ops_per_block
+    )]
+
     use super::*;
 
     use crate::mock::{array_free, array_new};
