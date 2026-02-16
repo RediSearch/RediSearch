@@ -349,7 +349,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX, sctx->spec->diskSpec);
+      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX, NULL);
       if (!tagIdx) {
         continue;
       }
