@@ -13,7 +13,7 @@ use ffi::{
     t_docId, t_fieldMask,
 };
 use field::FieldMaskOrIndex;
-use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
+use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice, full::Full};
 use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, inverted_index::Term};
 
@@ -27,7 +27,7 @@ fn expected_record(
 ) -> RSIndexResult<'static> {
     RSIndexResult::with_term(
         term,
-        RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+        RSOffsetSlice::from_slice(offsets),
         doc_id,
         field_mask,
         (doc_id / 2) as u32 + 1,
