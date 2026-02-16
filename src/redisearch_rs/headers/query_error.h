@@ -214,12 +214,10 @@ uint8_t QueryError_CodeMaxValue(void);
 /**
  * Returns a [`QueryErrorCode`] given an error message.
  *
- * This only supports the query error codes [`QueryErrorCode::TimedOut`] and
- * [`QueryErrorCode::OutOfMemory`]. If another message is provided,
- * [`QueryErrorCode::Generic`] is returned.
+ * This only supports the query error codes [`QueryErrorCode::TimedOut`],
+ * [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
+ * If another message is provided, [`QueryErrorCode::Generic`] is returned.
  *
- * NOTE: This function matches against **error** strings (with prefix), not warning
- * strings. Warning strings should be handled separately by the caller.
  *
  * # Safety
  *

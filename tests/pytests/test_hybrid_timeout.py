@@ -200,7 +200,15 @@ def test_tail_property_not_loaded_error():
                           query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
                           'AS', 'doubled_score')
         # Command succeeded (coordinator mode) — check warnings
-        warnings = response.get('warnings', []) if isinstance(response, dict) else []
+        if isinstance(response, dict):
+            # RESP3 dict
+            warnings = response.get('warnings', [])
+        elif isinstance(response, list) and 'warnings' in response:
+            # RESP2 list: find 'warnings' key and get the next element
+            idx = response.index('warnings')
+            warnings = response[idx + 1] if idx + 1 < len(response) else []
+        else:
+            warnings = []
         env.assertTrue(any('__score' in w for w in warnings),
                        message=f"Expected warning about __score, got warnings: {warnings}, response: {response}")
     except Exception as e:
