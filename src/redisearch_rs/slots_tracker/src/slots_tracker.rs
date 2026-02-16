@@ -94,10 +94,13 @@ pub struct SlotsTracker {
 }
 
 impl SlotsTracker {
-    /// Creates a new SlotsTracker with empty slot sets and version 1.
-    pub const fn new() -> Self {
+    /// Creates a new SlotsTracker with full local slot set, empty fully and partially available sets, and version 1.
+    pub fn new() -> Self {
         Self {
-            local: SlotSet::new(),
+            local: SlotSet::from_ranges(&[SlotRange {
+                start: 0,
+                end: 16383,
+            }]),
             fully_available: SlotSet::new(),
             partially_available: SlotSet::new(),
             version: Version::new(),
@@ -547,11 +550,15 @@ mod tests {
     #[test]
     fn test_remove_deleted_slots_only_affects_partially_available() {
         let mut tracker = SlotsTracker::new();
+        // Simulate a shard configured with no local slots (import scenario)
+        tracker.set_local_slots(&[]);
+        let v_after_set = tracker.get_version();
         tracker.mark_partially_available_slots(&[SlotRange {
             start: 200,
             end: 210,
         }]);
         let v1 = tracker.get_version();
+        assert_eq!(v1, v_after_set.increment());
         assert_eq!(tracker, ([], [], [(200, 210)], Some(v1)));
         tracker.remove_deleted_slots(&[SlotRange {
             start: 205,
@@ -572,7 +579,15 @@ mod tests {
         let mut tracker = SlotsTracker::new();
         let initial_version = tracker.get_version();
         assert_eq!(tracker.get_version(), Version::new());
-        assert!(tracker.local.is_empty());
+        // New tracker starts with full slot range (no topology yet)
+        assert_eq!(
+            tracker.local,
+            [SlotRange {
+                start: 0,
+                end: 16383
+            }]
+            .as_slice()
+        );
         assert!(tracker.fully_available.is_empty());
         assert!(tracker.partially_available.is_empty());
 
@@ -690,6 +705,8 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_does_not_increment_version() {
         let mut tracker = SlotsTracker::new();
+        // Simulate a shard configured with no local slots (import scenario)
+        tracker.set_local_slots(&[]);
         tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
@@ -765,6 +782,8 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_empty_ranges() {
         let mut tracker = SlotsTracker::new();
+        // Simulate a shard configured with no local slots (import scenario)
+        tracker.set_local_slots(&[]);
         tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
@@ -779,6 +798,8 @@ mod tests {
     #[test]
     fn test_promote_to_local_slots_multiple_ranges() {
         let mut tracker = SlotsTracker::new();
+        // Simulate a shard configured with no local slots (import scenario)
+        tracker.set_local_slots(&[]);
         tracker.mark_partially_available_slots(&[SlotRange {
             start: 100,
             end: 200,
