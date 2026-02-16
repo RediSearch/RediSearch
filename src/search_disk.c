@@ -269,19 +269,12 @@ static void SearchDisk_ReleaseWriteLock(void* ctx) {
 static void SearchDisk_UpdateTrieTerm(void* ctx, const char* term, size_t term_len,
                                        size_t doc_count_decrement) {
   IndexSpec* sp = (IndexSpec*)ctx;
-  RedisModule_Log(RSDummyContext, "notice", "[DEBUG] SearchDisk_UpdateTrieTerm called: term=%.*s, term_len=%zu, decrement=%zu, sp->terms=%p",
-                  (int)term_len, term, term_len, doc_count_decrement, (void*)sp->terms);
   if (!sp->terms || doc_count_decrement == 0) {
-    RedisModule_Log(RSDummyContext, "notice", "[DEBUG] SearchDisk_UpdateTrieTerm early return: terms=%p, decrement=%zu",
-                    (void*)sp->terms, doc_count_decrement);
     return;
   }
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
-  RedisModule_Log(RSDummyContext, "notice", "[DEBUG] Calling Trie_DecrementNumDocs");
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
-  RedisModule_Log(RSDummyContext, "notice", "[DEBUG] Trie_DecrementNumDocs completed with result=%d (0=NOT_FOUND, 1=UPDATED, 2=DELETED)",
-                  result);
 }
 
 // Update IndexScoringStats based on compaction delta
