@@ -140,6 +140,16 @@ typedef struct IndexDiskAPI {
    * @return Number of documents in the index
    */
   QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index, double weight);
+
+  /**
+   * @brief Run a GC compaction cycle on the disk index.
+   *
+   * Synchronously runs a full compaction on the inverted index column family,
+   * removing entries for deleted documents.
+   *
+   * @param index Pointer to the index
+   */
+  void (*runGC)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

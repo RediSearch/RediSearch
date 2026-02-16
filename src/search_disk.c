@@ -9,7 +9,6 @@
 
 #include "search_disk.h"
 #include "config.h"
-#include "index_result/query_term/query_term.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -110,6 +109,11 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
     RS_ASSERT(disk && index);
     return disk->index.newWildcardIterator(index, weight);
+}
+
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk && index);
+    disk->index.runGC(index);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {

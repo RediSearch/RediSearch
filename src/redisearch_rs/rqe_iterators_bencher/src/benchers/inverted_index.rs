@@ -270,7 +270,10 @@ impl NumericBencher {
 
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
         group.bench_function("Rust", |b| {
-            let ii = context.numeric_inverted_index().as_numeric();
+            let ii = {
+                use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+                Numeric::from_mut_opaque(context.numeric_inverted_index()).inner_mut()
+            };
             let fs = context.field_spec();
 
             b.iter(|| {
@@ -326,7 +329,10 @@ impl NumericBencher {
         context: &TestContext,
     ) {
         group.bench_function("Rust", |b| {
-            let ii = context.numeric_inverted_index().as_numeric();
+            let ii = {
+                use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+                Numeric::from_mut_opaque(context.numeric_inverted_index()).inner_mut()
+            };
             let fs = context.field_spec();
 
             b.iter(|| {

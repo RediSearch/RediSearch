@@ -10,10 +10,11 @@
 use std::env;
 use std::path::PathBuf;
 
-use build_utils::{git_root, rerun_if_c_changes};
+use build_utils::{repository_root, rerun_if_c_changes};
 
 fn main() {
-    let root = git_root().expect("Could not find git root for static library linking");
+    let root =
+        repository_root().expect("Could not find repository root for static library linking");
 
     // Construct the correct folder path based on OS and architecture
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
@@ -65,9 +66,6 @@ fn main() {
         src.join("doc_table.h"),
         src.join("forward_index.h"),
         src.join("index_result").join("index_result.h"),
-        src.join("index_result")
-            .join("query_term")
-            .join("query_term.h"),
         src.join("iterators").join("intersection_iterator.h"),
         src.join("iterators").join("inverted_index_iterator.h"),
         src.join("iterators").join("not_iterator.h"),
