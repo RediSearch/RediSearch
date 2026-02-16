@@ -118,6 +118,7 @@ jobs:
             --github_org ${{ github.repository_owner }} \
             --github_branch ${{ github.head_ref || github.ref_name }} \
             --github_actor ${{ github.triggering_actor }} \
+            --architecture ${{ inputs.architecture }} \
             --results-format google.benchmark \
             --benchmark-result-file {}_results.json
 

@@ -1,0 +1,332 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Performance benchmarks for VecSim Disk-based HNSW indexes (RediSearchDisk)",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false },
+        "content": "# VecSim Disk Benchmarks\nDisk-based HNSW vector index performance metrics from RediSearchDisk CI benchmarks. Select metrics from the dropdown to dynamically generate panels.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "redis-datasource", "uid": "${datasource}" },
+      "description": "Dynamic panel that repeats for each selected metric. Add new metrics to the 'metric_name' variable to see them here.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 2 },
+      "id": 2,
+      "maxPerRow": 2,
+      "options": {
+        "legend": { "calcs": ["mean", "min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "repeat": "metric_name",
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "aggregation": "",
+          "command": "ts.mrange",
+          "filter": "deployment_type=\"oss-standalone\" branch=(${branch:raw}) test_name=$test_name triggering_env=ci branch!= metric=(\"${metric_name}\") github_repo=$github_repo github_org=$github_org",
+          "key": "",
+          "legend": "",
+          "query": "",
+          "refId": "A",
+          "streaming": false,
+          "type": "timeSeries",
+          "value": "branch"
+        }
+      ],
+      "title": "${metric_name}",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "redis-datasource", "uid": "${datasource}" },
+      "description": "Latest value for each selected metric with percentage change indicator",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 10 },
+      "id": 3,
+      "maxPerRow": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": true,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "repeat": "metric_name",
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "aggregation": "",
+          "command": "ts.mrange",
+          "filter": "deployment_type=\"oss-standalone\" branch=(${branch:raw}) test_name=$test_name triggering_env=ci branch!= metric=(\"${metric_name}\") github_repo=$github_repo github_org=$github_org",
+          "key": "",
+          "legend": "",
+          "query": "",
+          "refId": "A",
+          "streaming": false,
+          "type": "timeSeries",
+          "value": "branch"
+        }
+      ],
+      "title": "Latest: ${metric_name}",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 14 },
+      "id": 4,
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false },
+        "content": "## Branch Comparison\nCompare performance across all branches for selected metrics and architecture.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "redis-datasource", "uid": "${datasource}" },
+      "description": "Compare all branches - panel repeats for each selected metric",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "id": 5,
+      "maxPerRow": 1,
+      "options": {
+        "legend": { "calcs": ["mean", "min", "max", "last"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "repeat": "metric_name",
+      "repeatDirection": "v",
+      "targets": [
+        {
+          "aggregation": "",
+          "command": "ts.mrange",
+          "filter": "deployment_type=\"oss-standalone\" test_name=$test_name triggering_env=ci metric=(\"${metric_name}\") github_repo=$github_repo github_org=$github_org",
+          "key": "",
+          "legend": "",
+          "query": "",
+          "refId": "A",
+          "streaming": false,
+          "type": "timeSeries",
+          "value": "branch"
+        }
+      ],
+      "title": "All Branches - ${metric_name}",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["vecsim", "disk", "hnsw", "benchmark", "redisearch"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "redistimeseries.benchmarks", "value": "redistimeseries.benchmarks" },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data Source",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "redis-datasource",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "hide": 2,
+        "name": "triggering_env",
+        "query": "ci",
+        "skipUrlSync": true,
+        "type": "constant"
+      },
+      {
+        "hide": 2,
+        "name": "github_repo",
+        "query": "RediSearchEnterprise",
+        "skipUrlSync": true,
+        "type": "constant"
+      },
+      {
+        "hide": 2,
+        "name": "github_org",
+        "query": "redislabsdev",
+        "skipUrlSync": true,
+        "type": "constant"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["real_time", "cpu_time", "memory", "disk"], "value": ["real_time", "cpu_time", "memory", "disk"] },
+        "description": "Select metrics to display. Add new metric names here when new counters are added to benchmarks.",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Metrics",
+        "multi": true,
+        "name": "metric_name",
+        "options": [
+          { "selected": true, "text": "real_time", "value": "real_time" },
+          { "selected": true, "text": "cpu_time", "value": "cpu_time" },
+          { "selected": true, "text": "memory", "value": "memory" },
+          { "selected": true, "text": "disk", "value": "disk" },
+          { "selected": false, "text": "iterations", "value": "iterations" }
+        ],
+        "query": "real_time,cpu_time,memory,disk,iterations",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "redis-datasource", "uid": "${datasource}" },
+        "definition": "zrangebyscore ci.benchmarks.redislabs/$triggering_env/$github_org/$github_repo:branches:zset ${__from} ${__to}",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Branch",
+        "multi": true,
+        "name": "branch",
+        "options": [],
+        "query": "zrangebyscore ci.benchmarks.redislabs/$triggering_env/$github_org/$github_repo:branches:zset ${__from} ${__to}",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": "x86_64", "value": "x86_64" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Architecture",
+        "multi": false,
+        "name": "arch",
+        "options": [
+          { "selected": true, "text": "x86_64", "value": "x86_64" },
+          { "selected": false, "text": "aarch64", "value": "aarch64" }
+        ],
+        "query": "x86_64,aarch64",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "datasource": { "type": "redis-datasource", "uid": "${datasource}" },
+        "definition": "zrangebyscore ci.benchmarks.redislabs/$triggering_env/$github_org/$github_repo:testcases:zset ${__from} ${__to}",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Test Name",
+        "multi": true,
+        "name": "test_name",
+        "options": [],
+        "query": "zrangebyscore ci.benchmarks.redislabs/$triggering_env/$github_org/$github_repo:testcases:zset ${__from} ${__to}",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "VecSim Disk Benchmarks",
+  "uid": null,
+  "version": 1,
+  "weekStart": ""
+}
+
