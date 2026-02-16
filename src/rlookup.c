@@ -484,7 +484,9 @@ void RLookupRow_Reset(RLookupRow *r) {
   RLookupRow_Wipe(r);
   if (r->dyn) {
     array_free(r->dyn);
+    r->dyn = NULL;
   }
+  RS_LOG_ASSERT(r->ndyn == 0, "ndyn should be 0 after reset");
 }
 
 void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
@@ -511,7 +513,7 @@ void RLookup_Cleanup(RLookup *lk) {
   IndexSpecCache_Decref(lk->_spcache);
 
   lk->_head = lk->_tail = NULL;
-  memset(lk, 0xff, sizeof(*lk));
+  memset(lk, 0, sizeof(*lk));
 }
 
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {

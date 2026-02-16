@@ -10,43 +10,34 @@
 //! Utilities used only in tests and benchmarks.
 
 use ffi::t_fieldMask;
+use query_term::RSQueryTerm;
 
 use crate::{RSIndexResult, RSOffsetVector, RSResultData};
 
-/// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
-/// pointers used internally stay valid for the duration of the test or bench.
+/// Wrapper around `inverted_index::RSIndexResult` ensuring the offsets
+/// pointer used internally stays valid for the duration of the test or bench.
 #[derive(Debug)]
 pub struct TestTermRecord<'index> {
     pub record: RSIndexResult<'index>,
-    // both term and offsets need to stay alive during the test
-    _term: Box<ffi::RSQueryTerm>,
+    // offsets need to stay alive during the test
     _offsets: Vec<i8>,
 }
 
 impl TestTermRecord<'_> {
     /// Create a new `TestTermRecord` with the given parameters.
     pub fn new(doc_id: u64, field_mask: t_fieldMask, freq: u32, offsets: Vec<i8>) -> Self {
-        const TEST_STR: &str = "test";
-        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
-        let mut term = Box::new(ffi::RSQueryTerm {
-            str_: test_str_ptr,
-            len: TEST_STR.len(),
-            idf: 5.0,
-            id: 1,
-            flags: 0,
-            bm25_idf: 10.0,
-        });
+        let mut term = RSQueryTerm::new(b"test", 1, 0);
+        term.idf = 5.0;
+        term.bm25_idf = 10.0;
 
         let offsets_ptr = offsets.as_ptr() as *mut _;
         let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
         let record =
-            RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets, doc_id, field_mask, freq)
-                .weight(1.0);
+            RSIndexResult::with_term(Some(term), rs_offsets, doc_id, field_mask, freq).weight(1.0);
 
         Self {
             record,
-            _term: term,
             _offsets: offsets,
         }
     }

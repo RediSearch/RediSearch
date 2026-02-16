@@ -20,7 +20,6 @@ extern "C" {
 #include "src/numeric_index.h"
 #include "redisearch_rs/headers/triemap.h"
 #include "redisearch_rs/headers/iterators_rs.h"
-#include "src/index_result/query_term/query_term.h"
 
 extern "C" {
 #include "src/redis_index.h"
