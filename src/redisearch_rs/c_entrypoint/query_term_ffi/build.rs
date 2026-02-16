@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Mock implementations of C symbol that aren't provided
-//! by the static C libraries we are linking against in build.rs.
+use build_utils::run_cbindgen;
 
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
-extern crate redisearch_rs;
+fn main() {
+    run_cbindgen("../../headers/query_term.h").unwrap();
+}

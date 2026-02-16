@@ -14,25 +14,18 @@ use ffi::{
 };
 use field::FieldMaskOrIndex;
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
+use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, inverted_index::Term};
 
-use crate::{
-    ffi::query_term::QueryTermBuilder,
-    inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest},
-};
+use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
-// # Safety
-// The returned RSIndexResult contains raw pointers to `term` and `offsets`.
-// These pointers are valid for 'static because the data is moved into the closure
-// in test constructors and lives for the entire duration of the test. The raw pointers
-// are only used within the test's lifetime, making this safe despite the 'static claim.
 fn expected_record(
     doc_id: t_docId,
     field_mask: t_fieldMask,
-    term: *mut ffi::RSQueryTerm,
-    offsets: &[u8],
+    term: Option<Box<query_term::RSQueryTerm>>,
+    offsets: &'static [u8],
 ) -> RSIndexResult<'static> {
-    RSIndexResult::term_with_term_ptr(
+    RSIndexResult::with_term(
         term,
         RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
         doc_id,
@@ -52,24 +45,17 @@ impl TermBaseTest {
             | IndexFlags_Index_StoreFieldFlags
             | IndexFlags_Index_StoreByteOffsets;
 
-        const TEST_STR: &str = "term";
-
-        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        const OFFSETS: &'static [u8] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
         Self {
             test: BaseTest::new(
                 flags,
                 Box::new(move |doc_id| {
-                    let term = QueryTermBuilder {
-                        token: TEST_STR,
-                        idf: 5.0,
-                        id: 1,
-                        flags: 0,
-                        bm25_idf: 10.0,
-                    }
-                    .allocate();
+                    let mut term = RSQueryTerm::new(b"term", 1, 0);
+                    term.idf = 5.0;
+                    term.bm25_idf = 10.0;
                     // Use doc_id as field_mask so we can test FilterMaskReader
-                    expected_record(doc_id, doc_id as t_fieldMask, term, &offsets)
+                    expected_record(doc_id, doc_id as t_fieldMask, Some(term), OFFSETS)
                 }),
                 n_docs,
             ),
@@ -125,28 +111,21 @@ mod not_miri {
 
     impl TermExpirationTest {
         fn with_flags(flags: ffi::IndexFlags, n_docs: u64, multi: bool) -> Self {
-            const TEST_STR: &str = "term";
-
             // Offsets are delta-varint-encoded when written via ForwardIndexEntry.
             // Writing values 0, 1, 2, 3... results in stored deltas 0, 1, 1, 1...
-            let offsets = vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+            const OFFSETS: &'static [u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
             Self {
                 test: ExpirationTest::term(
                     flags,
                     Box::new(move |doc_id| {
-                        let term = QueryTermBuilder {
-                            token: TEST_STR,
-                            idf: 5.0,
-                            id: 1,
-                            flags: 0,
-                            bm25_idf: 10.0,
-                        }
-                        .allocate();
+                        let mut term = RSQueryTerm::new(b"term", 1, 0);
+                        term.idf = 5.0;
+                        term.bm25_idf = 10.0;
                         // Use a field mask with all bits set so all docs match the filter
                         // and expiration is actually tested (not just field mask filtering).
                         // Use u32::MAX for non-wide tests to avoid overflow in the encoder.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, term, &offsets)
+                        expected_record(doc_id, u32::MAX as t_fieldMask, Some(term), OFFSETS)
                     }),
                     n_docs,
                     multi,
@@ -260,26 +239,19 @@ mod not_miri {
 
     impl TermRevalidateTest {
         fn new(n_docs: u64) -> Self {
-            const TEST_STR: &str = "term";
-
             // Offsets are delta-varint-encoded when written via ForwardIndexEntry.
             // Writing values 0, 1, 2, 3... results in stored deltas 0, 1, 1, 1...
-            let offsets = vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+            const OFFSETS: &'static [u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
             Self {
                 test: RevalidateTest::new(
                     RevalidateIndexType::Term,
                     Box::new(move |doc_id| {
-                        let term = QueryTermBuilder {
-                            token: TEST_STR,
-                            idf: 5.0,
-                            id: 1,
-                            flags: 0,
-                            bm25_idf: 10.0,
-                        }
-                        .allocate();
+                        let mut term = RSQueryTerm::new(b"term", 1, 0);
+                        term.idf = 5.0;
+                        term.bm25_idf = 10.0;
                         // Use a field mask with all bits set so all docs match the filter.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, term, &offsets)
+                        expected_record(doc_id, u32::MAX as t_fieldMask, Some(term), OFFSETS)
                     }),
                     n_docs,
                 ),

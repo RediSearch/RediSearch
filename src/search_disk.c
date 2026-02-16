@@ -9,7 +9,6 @@
 
 #include "search_disk.h"
 #include "config.h"
-#include "index_result/query_term/query_term.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
