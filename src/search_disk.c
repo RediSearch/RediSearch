@@ -102,7 +102,7 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     return it;
 }
 
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, t_fieldIndex fieldIndex, double weight) {
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
     RS_ASSERT(disk && index && tok);
     return disk->index.newTagIterator(index, tok, fieldIndex, weight);
 }

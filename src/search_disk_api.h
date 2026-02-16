@@ -131,7 +131,7 @@ typedef struct IndexDiskAPI {
    * @param weight Weight for the iterator (used in scoring)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, RSToken* tok, t_fieldIndex fieldIndex, double weight);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight);
 
   /**
    * @brief Returns the number of documents in the index
