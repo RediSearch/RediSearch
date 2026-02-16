@@ -83,7 +83,7 @@ typedef struct IndexDiskAPI {
    * @param freq Frequency of the term in the document
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexText)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
 
   /**
    * @brief Indexes multiple tag values for a document
