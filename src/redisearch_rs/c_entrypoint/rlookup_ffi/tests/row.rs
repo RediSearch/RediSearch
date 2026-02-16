@@ -17,11 +17,11 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::{cmp, ffi::CString};
 
-use rlookup::RLookup;
-use rlookup::RLookupKeyFlags;
-use rlookup::RLookupRow;
+use c_ffi_utils::opaque::IntoOpaque;
+use rlookup::{RLookup, RLookupKeyFlags, RLookupRow};
 use rlookup_ffi::row::{
     RLookupRow_MoveFieldsFrom, RLookupRow_WriteByName, RLookupRow_WriteByNameOwned,
+    RLookupRow_WriteFieldsFrom,
 };
 use std::ffi::c_char;
 use std::ffi::c_int;
@@ -29,11 +29,99 @@ use value::RSValueFFI;
 use value::RSValueTrait;
 
 #[test]
+#[should_panic(expected = "`src` and `dst` must not be the same")]
+fn rlookuprow_movefieldsfrom_same_row() {
+    let lookup = RLookup::new();
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+
+    unsafe {
+        RLookupRow_MoveFieldsFrom(
+            ptr::from_ref(&lookup),
+            Some(row.as_opaque_non_null()),
+            Some(row.as_opaque_non_null()),
+        );
+    }
+}
+
+#[test]
+fn rlookuprow_movefieldsfrom_different_rows() {
+    let lookup = RLookup::new();
+    let mut src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+
+    unsafe {
+        RLookupRow_MoveFieldsFrom(
+            ptr::from_ref(&lookup),
+            Some(src_row.as_opaque_non_null()),
+            Some(dst_row.as_opaque_non_null()),
+        );
+    }
+
+    // No panic was triggered.
+}
+
+#[test]
+#[should_panic(expected = "`src_row` and `dst_row` must not be the same")]
+fn rlookuprow_writefieldsfrom_same_row() {
+    let src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&src_lookup);
+
+    unsafe {
+        RLookupRow_WriteFieldsFrom(
+            row.as_opaque_ptr(),
+            ptr::from_ref(&src_lookup),
+            Some(row.as_opaque_non_null()),
+            Some(NonNull::from(&mut dst_lookup)),
+            false,
+        )
+    };
+}
+
+#[test]
+#[should_panic(expected = "`src_lookup` and `dst_lookup` must not be the same")]
+fn rlookuprow_writefieldsfrom_same_lookup() {
+    let mut lookup = RLookup::new();
+    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+
+    unsafe {
+        RLookupRow_WriteFieldsFrom(
+            src_row.as_opaque_ptr(),
+            ptr::from_ref(&lookup),
+            Some(dst_row.as_opaque_non_null()),
+            Some(NonNull::from(&mut lookup)),
+            false,
+        )
+    };
+}
+
+#[test]
+fn rlookuprow_writefieldsfrom_different_lookups_and_rows() {
+    let src_lookup = RLookup::new();
+    let mut dst_lookup = RLookup::new();
+    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&src_lookup);
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&dst_lookup);
+
+    unsafe {
+        RLookupRow_WriteFieldsFrom(
+            src_row.as_opaque_ptr(),
+            ptr::from_ref(&src_lookup),
+            Some(dst_row.as_opaque_non_null()),
+            Some(NonNull::from(&mut dst_lookup)),
+            false,
+        );
+    }
+
+    // No panic was triggered.
+}
+
+#[test]
 fn rlookuprow_move() {
     let mut lookup = RLookup::new();
 
-    let mut src = RLookupRow::new(&lookup);
-    let mut dst = RLookupRow::new(&lookup);
+    let mut src: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut dst: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
 
     let key = lookup
         .get_key_write(c"foo", RLookupKeyFlags::empty())
@@ -49,8 +137,8 @@ fn rlookuprow_move() {
     unsafe {
         RLookupRow_MoveFieldsFrom(
             ptr::from_ref(&lookup),
-            Some(NonNull::from(&mut src)),
-            Some(NonNull::from(&mut dst)),
+            Some(src.as_opaque_non_null()),
+            Some(dst.as_opaque_non_null()),
         )
     }
 
@@ -66,7 +154,7 @@ fn rlookuprow_writebyname() {
     let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
-    let mut row = RLookupRow::new(&lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
     assert_eq!(value.refcount(), 1);
@@ -76,7 +164,7 @@ fn rlookuprow_writebyname() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row)),
+            Some(row.as_opaque_non_null()),
             NonNull::new(value.as_ptr()),
         );
     }
@@ -89,7 +177,7 @@ fn rlookuprow_writebynameowned() {
     let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
-    let mut row = RLookupRow::new(&lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
     assert_eq!(value.refcount(), 1);
@@ -99,7 +187,7 @@ fn rlookuprow_writebynameowned() {
             Some(NonNull::from(&mut lookup)),
             name.as_ptr(),
             len,
-            Some(NonNull::from(&mut row)),
+            Some(row.as_opaque_non_null()),
             NonNull::new(value.as_ptr()),
         );
     }
