@@ -28,9 +28,10 @@
 
 #ifdef __cplusplus
 #include <atomic>
-#define _Atomic(T) std::atomic<T>
+#define RS_Atomic(T) std::atomic<T>
 extern "C" {
 #else
+#define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
 #endif
 
@@ -203,6 +204,14 @@ typedef enum {
 
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
+
+// Reply state for coordinating replies between main thread (timeout callback) and background thread
+// Transitions: NOT_REPLIED -> REPLYING -> REPLIED
+typedef enum {
+  ReplyState_NotReplied = 0,  // No reply has been started yet
+  ReplyState_Replying = 1,    // A reply is currently in progress
+  ReplyState_Replied = 2,     // A reply has been completed
+} ReplyState;
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -287,9 +296,10 @@ typedef struct AREQ {
   ProfilePrinterCtx profileCtx;
 
   // Timeout signaling flag for Run in Threads mode (set by timeout callback on main thread)
-  _Atomic(bool) timedOut;
-  // Reply ownership flag for Run in Threads mode (coordinates reply between main and background thread)
-  _Atomic(bool) replying;
+  RS_Atomic(bool) timedOut;
+  // Reply ownership state for Run in Threads mode (coordinates reply between main and background thread)
+  // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
+  RS_Atomic(int) replyState;
   // Flag to indicate whether to check for timeout using clock checks
   bool skipTimeoutChecks;
 } AREQ;

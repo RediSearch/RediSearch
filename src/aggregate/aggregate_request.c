@@ -1037,7 +1037,7 @@ AREQ *AREQ_New(void) {
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   atomic_store_explicit(&req->timedOut, false, memory_order_relaxed);
-  atomic_store_explicit(&req->replying, false, memory_order_relaxed);
+  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_relaxed);
   return req;
 }
 
@@ -1101,6 +1101,15 @@ static bool IsNeededDepleter(AREQ *req) {
   return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
 }
 
+static bool shouldCheckInPipelineTimeout(AREQ *req) {
+  // We should check for timeout in pipeline only if timeout is > 0
+  // and when the policy is RETURN or the policy is FAIL, without workers.
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
+          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+
+}
+
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
@@ -1159,6 +1168,9 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
+
+  // Check if we should check for timeout in pipeline
+  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(req));
 
   return REDISMODULE_OK;
 
