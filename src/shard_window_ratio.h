@@ -34,7 +34,7 @@ extern "C" {
  * @param status QueryError to populate on failure
  * @return true on success, false on failure (with status populated)
  */
-bool ValidateShardKRatio(const char *value, double *ratio, QueryError *status);
+bool validateShardKRatio(const char *value, double *ratio, QueryError *status);
 
 /**
  * Calculate effective K value for shard window ratio optimization.

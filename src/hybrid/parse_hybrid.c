@@ -136,7 +136,7 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   size_t ratioStrLen;
   ratioStr = AC_GetStringNC(ac, &ratioStrLen);
   double shardKRatio;
-  if (!ValidateShardKRatio(ratioStr, &shardKRatio, status)) {
+  if (!validateShardKRatio(ratioStr, &shardKRatio, status)) {
     return REDISMODULE_ERR;
   }
 

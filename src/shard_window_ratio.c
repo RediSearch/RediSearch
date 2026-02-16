@@ -16,7 +16,7 @@
 #include <strings.h>
 #include "vector_index.h"
 
-bool ValidateShardKRatio(const char *value, double *ratio, QueryError *status) {
+bool validateShardKRatio(const char *value, double *ratio, QueryError *status) {
   if (!ParseDouble(value, ratio, 1)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
       "Invalid shard k ratio value", " '%s'", value);

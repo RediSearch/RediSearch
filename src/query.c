@@ -2140,7 +2140,7 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
 static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr, QueryError *status) {
   if (STR_EQCASE(attr->name, attr->namelen, SHARD_K_RATIO_ATTR)) {
     double ratio;
-    if (!ValidateShardKRatio(attr->value, &ratio, status)) {
+    if (!validateShardKRatio(attr->value, &ratio, status)) {
       return 0;
     }
     vq->knn.shardWindowRatio = ratio;
