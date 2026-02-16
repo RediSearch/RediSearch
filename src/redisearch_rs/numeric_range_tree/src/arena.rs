@@ -32,6 +32,15 @@ impl NodeIndex {
     pub const fn key(self) -> Key {
         self.0
     }
+
+    /// Reconstruct a `NodeIndex` from the raw position and generation of
+    /// the underlying [`Key`].
+    ///
+    /// Intended for FFI round-trips where the index was previously
+    /// decomposed via [`Key::position`] and [`Key::generation`].
+    pub const fn from_raw_parts(position: u32, generation: u32) -> Self {
+        Self(Key::from_raw_parts(position, generation))
+    }
 }
 
 impl From<Key> for NodeIndex {

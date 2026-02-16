@@ -9,7 +9,7 @@
 
 //! Shared test helpers for the numeric range tree integration tests.
 
-use inverted_index::{Encoder, numeric::Numeric};
+use inverted_index::{Encoder, IndexBlock, RSIndexResult, numeric::Numeric};
 use numeric_range_tree::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
 
 /// Scan a single node and produce its GC delta, if any.
@@ -30,10 +30,13 @@ pub fn scan_node_delta_with_hll(
 ) -> Option<NodeGcDelta> {
     let node = tree.node(node_idx);
     node.range()
-        .and_then(|range| {
+        .and_then(|range| -> Option<inverted_index::GcScanDelta> {
             range
                 .entries()
-                .scan_gc(doc_exist)
+                .scan_gc(
+                    doc_exist,
+                    None::<for<'index> fn(&RSIndexResult<'index>, &IndexBlock)>,
+                )
                 .expect("scan_gc should not fail")
         })
         .map(|delta| {
