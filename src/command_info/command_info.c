@@ -2151,7 +2151,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
 int SetFtProfileInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
-    .summary = "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
+    .summary = "Performs a `FT.SEARCH`, `FT.AGGREGATE`, or `FT.HYBRID` command and collects performance information",
     .complexity = "O(N)",
     .args = (RedisModuleCommandArg[]){
       {
@@ -2171,6 +2171,11 @@ int SetFtProfileInfo(RedisModuleCommand *cmd) {
           {
             .name = "aggregate",
             .token = "AGGREGATE",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "hybrid",
+            .token = "HYBRID",
             .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
           },
           {0}

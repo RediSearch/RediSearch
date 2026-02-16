@@ -22,7 +22,7 @@
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
-#include "profile.h"
+#include "profile/profile.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -197,7 +197,7 @@ typedef enum {
 } QEStateFlags;
 
 
-typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -259,11 +259,7 @@ typedef struct AREQ {
   CursorConfig cursorConfig;
 
   /** Profile variables */
-  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
-  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
-  rs_wall_clock_ns_t profileQueueTime;          // Time spent waiting in workers thread pool queue
-  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
-  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+  ProfileClocks profileClocks;
 
   const char** requiredFields;
 
@@ -445,7 +441,6 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 void AREQ_Free(AREQ *req);
@@ -483,12 +478,10 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
-int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
 
 // From dist_aggregate.c
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
-void parseProfileExecOptions(AREQ *r, int execOptions);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
