@@ -193,18 +193,16 @@ def test_tail_property_not_loaded_error():
     env = Env()
     setup_basic_index(env)
     # In standalone, this is an error; in coordinator mode it may be a warning (POST PROCESSING)
-    # Accept either PROP_NOT_FOUND or VALUE_NOT_FOUND for __score
-    response = env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
+    # The error code also differs: PROP_NOT_FOUND (standalone) vs VALUE_NOT_FOUND (coordinator)
+    try:
+        response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
                           '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
                           query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
                           'AS', 'doubled_score')
-    # In standalone: returns error
-    # In coordinator: may return results with warning
-    if isinstance(response, dict) and 'warnings' in response:
-        # Coordinator mode: check for warning containing __score
-        warnings = response.get('warnings', [])
+        # Command succeeded (coordinator mode) — check warnings
+        warnings = response.get('warnings', []) if isinstance(response, dict) else []
         env.assertTrue(any('__score' in w for w in warnings),
-                       message=f"Expected warning about __score, got: {warnings}")
-    else:
-        # Standalone mode: check for error
-        response.error().contains('__score')
+                       message=f"Expected warning about __score, got warnings: {warnings}, response: {response}")
+    except Exception as e:
+        # Command errored (standalone mode) — check error message
+        env.assertContains('__score', str(e))
