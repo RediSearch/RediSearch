@@ -1,0 +1,23 @@
+---
+source: numeric_range_tree/tests/integration/debug.rs
+expression: reply
+---
+[
+  [
+    [
+      "numDocs",
+      10,
+      "numEntries",
+      10,
+      "lastId",
+      10,
+      "flags",
+      32,
+      "numberOfBlocks",
+      1,
+      "blocks_efficiency (numEntries/numberOfBlocks)",
+      10
+    ],
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  ]
+]
