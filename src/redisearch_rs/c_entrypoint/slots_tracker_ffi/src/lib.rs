@@ -72,7 +72,7 @@ static OWNER_THREAD: OnceLock<ThreadId> = OnceLock::new();
 //
 // Only accessible from the thread that first calls any FFI function.
 thread_local! {
-    static TRACKER: RefCell<SlotsTracker> = const { RefCell::new(SlotsTracker::new()) };
+    static TRACKER: RefCell<SlotsTracker> = RefCell::new(SlotsTracker::new());
 }
 
 // ============================================================================
