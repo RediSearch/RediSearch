@@ -44,6 +44,14 @@ impl<'archive> block_traits::ArchivedDocument for ArchivedTagDocument<'archive> 
     }
 }
 
+impl<'archive> From<ArchivedTagDocument<'archive>> for TagDocument {
+    fn from(archived: ArchivedTagDocument<'archive>) -> Self {
+        TagDocument {
+            doc_id: archived.doc_id(),
+        }
+    }
+}
+
 /// An archived representation of a block of tag documents in a postings list. This type holds
 /// the underlying byte array and provides methods to access the documents.
 pub struct ArchivedTagBlock {
@@ -68,14 +76,6 @@ impl ArchivedTagBlock {
     #[allow(unused)]
     pub fn version(&self) -> u8 {
         self.version
-    }
-
-    /// Create an iterator over all documents in the block
-    pub fn iter(&self) -> ArchivedTagBlockIterator<'_> {
-        ArchivedTagBlockIterator {
-            block: self,
-            index: 0,
-        }
     }
 }
 
@@ -145,6 +145,13 @@ impl block_traits::ArchivedBlock for ArchivedTagBlock {
         }
 
         self.get(self.num_docs - 1)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = Self::Document<'_>> {
+        ArchivedTagBlockIterator {
+            block: self,
+            index: 0,
+        }
     }
 
     fn binary_search_by_key<B, F>(

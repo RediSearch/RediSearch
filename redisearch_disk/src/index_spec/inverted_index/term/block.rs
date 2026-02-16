@@ -28,16 +28,6 @@ impl PostingsListBlock {
     const DOC_ID_SIZE: usize = size_of::<t_docId>();
     /// Amount of bytes needed to store a document in the block
     const DOCUMENT_SIZE: usize = Self::DOC_ID_SIZE + Metadata::SIZE;
-
-    /// Check if this block is empty
-    pub fn is_empty(&self) -> bool {
-        debug_assert!(
-            self.doc_ids.len() / Self::DOC_ID_SIZE == self.metadata.len() / Metadata::SIZE,
-            "Document IDs and metadata buffers must have the same number of entries"
-        );
-
-        self.doc_ids.is_empty()
-    }
 }
 
 impl From<Document> for PostingsListBlock {
@@ -94,6 +84,15 @@ impl block_traits::SerializableBlock for PostingsListBlock {
             .extend_from_slice(&doc.metadata.field_mask.to_le_bytes());
         self.metadata
             .extend_from_slice(&doc.metadata.frequency.to_le_bytes());
+    }
+
+    fn is_empty(&self) -> bool {
+        debug_assert!(
+            self.doc_ids.len() / Self::DOC_ID_SIZE == self.metadata.len() / Metadata::SIZE,
+            "Document IDs and metadata buffers must have the same number of entries"
+        );
+
+        self.doc_ids.is_empty()
     }
 
     /// Serialize a postings list block into bytes for storage.

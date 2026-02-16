@@ -2,7 +2,7 @@ use ffi::t_docId;
 use std::mem::size_of;
 
 use super::{Document, Metadata};
-use crate::index_spec::inverted_index::block_traits::{self, ArchivedBlock as _};
+use crate::index_spec::inverted_index::block_traits::{self};
 
 /// An archived representation of a Document in a postings list. This type holds direct references
 /// to byte arrays representing the fields.
@@ -129,11 +129,6 @@ impl ArchivedBlock {
     pub fn version(&self) -> u8 {
         self.version
     }
-
-    /// Get an iterator over the documents in this block
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = ArchivedDocument<'_>> {
-        (0..self.num_docs).map(|i| self.get_unchecked(i))
-    }
 }
 
 // Implement the generic block traits for term blocks
@@ -217,6 +212,10 @@ impl block_traits::ArchivedBlock for ArchivedBlock {
         }
 
         self.get(self.num_docs - 1)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = Self::Document<'_>> {
+        (0..self.num_docs).map(|i| self.get_unchecked(i))
     }
 
     fn binary_search_by_key<B, F>(

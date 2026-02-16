@@ -8,11 +8,10 @@ use std::mem::size_of;
 
 use super::{
     DeletedIdsStore, InvertedIndexKey, PostingsListReader, block_traits, generic_index,
-    generic_reader,
+    generic_merge_operator::GenericMergeOperator, generic_reader,
 };
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
-use crate::merge_op::DeletedIdsMergeOperator;
 
 pub mod archive;
 pub mod block;
@@ -77,7 +76,7 @@ impl block_traits::IndexConfig for TermIndexConfig {
             deleted_ids.expect("Term index requires DeletedIdsStore for merge operator");
         cf_options.set_merge_operator_associative(
             Self::MERGE_OPERATOR_NAME,
-            DeletedIdsMergeOperator::full_merge_fn(deleted_ids.clone()),
+            GenericMergeOperator::<Self>::full_merge_fn(deleted_ids.clone()),
         );
 
         cf_options.set_prefix_extractor(prefix_extractor);

@@ -166,8 +166,8 @@ fn iter_returns_all_docs_in_order() {
 #[test]
 fn iter_has_correct_length() {
     let block = create_test_block(&[10, 20, 30]);
-    assert_eq!(block.iter().len(), 3);
+    assert_eq!(block.iter().count(), 3);
 
     let empty_block = create_test_block(&[]);
-    assert_eq!(empty_block.iter().len(), 0);
+    assert_eq!(empty_block.iter().count(), 0);
 }

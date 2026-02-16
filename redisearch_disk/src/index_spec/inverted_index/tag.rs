@@ -6,7 +6,10 @@ use speedb::{
 };
 use std::mem::size_of;
 
-use super::{InvertedIndexKey, TagPostingsListReader, block_traits, generic_index, generic_reader};
+use super::{
+    DeletedIdsStore, InvertedIndexKey, TagPostingsListReader, block_traits, generic_index,
+    generic_merge_operator::GenericMergeOperator, generic_reader,
+};
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
 
@@ -37,11 +40,13 @@ impl TagDocument {
 /// Configuration for tag-based inverted indexes.
 ///
 /// Tag indexes store only document IDs for exact-match queries, making them more compact
-/// than term indexes. They use the "tags" column family and do not require a merge operator.
+/// than term indexes. They use the "tags" column family and use a merge operator for
+/// handling deleted IDs during compaction.
 pub struct TagIndexConfig;
 
 impl TagIndexConfig {
     const PREFIX_EXTRACTOR_NAME: &'static str = "tags_prefix_extractor";
+    const MERGE_OPERATOR_NAME: &'static str = "tags_merge_operator";
 }
 
 impl block_traits::IndexConfig for TagIndexConfig {
@@ -50,7 +55,7 @@ impl block_traits::IndexConfig for TagIndexConfig {
 
     const COLUMN_FAMILY_NAME: &'static str = "tags";
 
-    fn cf_descriptor(_deleted_ids: Option<super::DeletedIdsStore>) -> ColumnFamilyDescriptor {
+    fn cf_descriptor(deleted_ids: Option<DeletedIdsStore>) -> ColumnFamilyDescriptor {
         let prefix_extractor = SliceTransform::create(
             Self::PREFIX_EXTRACTOR_NAME,
             generic_index::GenericInvertedIndex::<Self>::strip_doc_id_suffix,
@@ -59,7 +64,17 @@ impl block_traits::IndexConfig for TagIndexConfig {
 
         let mut cf_options = SpeedbDbOptions::default();
 
-        // TODO: Implement a merge operator for tag indexes (separate Jira task - MOD-13362)
+        cf_options.set_disable_auto_compactions(true);
+        cf_options.set_merge_values(true);
+
+        // Tag indexes use a merge operator for handling deleted IDs
+        let deleted_ids =
+            deleted_ids.expect("Tag index requires DeletedIdsStore for merge operator");
+        cf_options.set_merge_operator_associative(
+            Self::MERGE_OPERATOR_NAME,
+            GenericMergeOperator::<Self>::full_merge_fn(deleted_ids.clone()),
+        );
+
         cf_options.set_prefix_extractor(prefix_extractor);
         cf_options.set_block_based_table_factory(&BlockBasedOptions::default());
 
@@ -84,8 +99,8 @@ impl TagInvertedIndex {
     }
 
     /// Creates a column family descriptor for the tag inverted index.
-    pub fn cf_descriptor() -> ColumnFamilyDescriptor {
-        generic_index::GenericInvertedIndex::<TagIndexConfig>::cf_descriptor(None)
+    pub fn cf_descriptor(deleted_ids: DeletedIdsStore) -> ColumnFamilyDescriptor {
+        generic_index::GenericInvertedIndex::<TagIndexConfig>::cf_descriptor(Some(deleted_ids))
     }
 
     /// Inserts a document ID into the postings list for the given tag.

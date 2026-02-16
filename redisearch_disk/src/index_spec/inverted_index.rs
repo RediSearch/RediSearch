@@ -1,5 +1,6 @@
 pub mod block_traits;
 pub mod generic_index;
+pub mod generic_merge_operator;
 pub mod generic_reader;
 pub mod tag;
 pub mod term;

@@ -44,6 +44,9 @@ pub trait ArchivedBlock: Sized {
     /// Get the last document in the block, if it exists
     fn last(&self) -> Option<Self::Document<'_>>;
 
+    /// Get an iterator over all documents in the block
+    fn iter(&self) -> impl Iterator<Item = Self::Document<'_>>;
+
     /// Binary search for a document by a key extracted from each document.
     /// Returns Ok(index) if found, Err(insert_pos) if not found.
     fn binary_search_by_key<B, F>(
@@ -83,6 +86,9 @@ pub trait SerializableBlock {
 
     /// Add a document to the block
     fn push(&mut self, doc: Self::Document);
+
+    /// Check if this block is empty (contains no documents)
+    fn is_empty(&self) -> bool;
 
     /// Serialize the block into bytes for storage
     fn serialize(&self) -> Vec<u8>;

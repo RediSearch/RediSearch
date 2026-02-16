@@ -4,7 +4,7 @@ use redisearch_disk::{
         deleted_ids::DeletedIdsStore,
         inverted_index::{
             InvertedIndexKey, TermIndexConfig,
-            block_traits::{IndexConfig, SerializableBlock},
+            block_traits::{ArchivedBlock, IndexConfig, SerializableBlock},
             term::{Document, Metadata, PostingsListBlock},
         },
     },

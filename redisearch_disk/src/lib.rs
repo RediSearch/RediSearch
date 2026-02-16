@@ -4,7 +4,6 @@ pub mod document_id_key;
 pub mod index_spec;
 pub mod info_sink;
 pub mod key_traits;
-pub mod merge_op;
 pub mod metrics;
 pub mod utils;
 pub mod value_traits;
