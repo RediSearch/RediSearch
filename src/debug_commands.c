@@ -825,8 +825,8 @@ DEBUG_COMMAND(GCForceInvoke) {
   }
 
   if (sp->diskSpec) {
-    // TODO: Pass actual callbacks when Phase 3b is implemented
-    SearchDisk_RunGC(sp->diskSpec, NULL);
+    SearchDisk_CompactionCallbacks callbacks = SearchDisk_CreateCompactionCallbacks(sp);
+    SearchDisk_RunGC(sp->diskSpec, &callbacks);
     RedisModule_ReplyWithSimpleString(ctx, "DONE");
     return REDISMODULE_OK;
   } else if (sp->gc) {

@@ -10,6 +10,8 @@
 #include "search_disk.h"
 #include "config.h"
 #include "index_result/query_term/query_term.h"
+#include "spec.h"
+#include "trie/trie_type.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -234,4 +236,82 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);
+}
+
+// =============================================================================
+// Compaction Callbacks Implementation (Phase 3c)
+// =============================================================================
+
+// Placeholder: acquire fork blocker semaphore (actual implementation in Phase 7)
+static void SearchDisk_AcquireForkBlocker(void* ctx) {
+  (void)ctx;  // No-op placeholder until Phase 7 (ForkGCSyncMechanism)
+}
+
+// Placeholder: release fork blocker semaphore (actual implementation in Phase 7)
+static void SearchDisk_ReleaseForkBlocker(void* ctx) {
+  (void)ctx;  // No-op placeholder until Phase 7 (ForkGCSyncMechanism)
+}
+
+// Acquire IndexSpec write lock
+static void SearchDisk_AcquireWriteLock(void* ctx) {
+  IndexSpec* sp = (IndexSpec*)ctx;
+  pthread_rwlock_wrlock(&sp->rwlock);
+}
+
+// Release IndexSpec write lock
+static void SearchDisk_ReleaseWriteLock(void* ctx) {
+  IndexSpec* sp = (IndexSpec*)ctx;
+  pthread_rwlock_unlock(&sp->rwlock);
+}
+
+// Update a term's document count in the Serving Trie
+// Note: term is NOT null-terminated; term_len specifies the length
+static void SearchDisk_UpdateTrieTerm(void* ctx, const char* term, size_t term_len,
+                                       size_t doc_count_decrement) {
+  IndexSpec* sp = (IndexSpec*)ctx;
+  RedisModule_Log(RSDummyContext, "notice", "[DEBUG] SearchDisk_UpdateTrieTerm called: term=%.*s, term_len=%zu, decrement=%zu, sp->terms=%p",
+                  (int)term_len, term, term_len, doc_count_decrement, (void*)sp->terms);
+  if (!sp->terms || doc_count_decrement == 0) {
+    RedisModule_Log(RSDummyContext, "notice", "[DEBUG] SearchDisk_UpdateTrieTerm early return: terms=%p, decrement=%zu",
+                    (void*)sp->terms, doc_count_decrement);
+    return;
+  }
+  // Decrement the numDocs count for this term in the trie
+  // If numDocs reaches 0, the node will be deleted
+  RedisModule_Log(RSDummyContext, "notice", "[DEBUG] Calling Trie_DecrementNumDocs");
+  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  RedisModule_Log(RSDummyContext, "notice", "[DEBUG] Trie_DecrementNumDocs completed with result=%d (0=NOT_FOUND, 1=UPDATED, 2=DELETED)",
+                  result);
+}
+
+// Update IndexScoringStats based on compaction delta
+// Note: num_docs and totalDocsLen are updated at delete time, NOT by GC.
+// GC only updates numTerms (when terms become completely empty).
+static void SearchDisk_UpdateScoringStats(void* ctx,
+                                           const SearchDisk_ScoringStatsDelta* delta) {
+  IndexSpec* sp = (IndexSpec*)ctx;
+  if (!delta || delta->num_terms_removed == 0) {
+    return;
+  }
+
+  // Decrement numTerms (clamp to 0 to avoid underflow)
+  if (delta->num_terms_removed >= sp->stats.scoring.numTerms) {
+    sp->stats.scoring.numTerms = 0;
+  } else {
+    sp->stats.scoring.numTerms -= delta->num_terms_removed;
+  }
+}
+
+// Factory function to create a populated CompactionCallbacks struct
+SearchDisk_CompactionCallbacks SearchDisk_CreateCompactionCallbacks(IndexSpec* sp) {
+  SearchDisk_CompactionCallbacks callbacks = {
+    .acquire_fork_blocker = SearchDisk_AcquireForkBlocker,
+    .release_fork_blocker = SearchDisk_ReleaseForkBlocker,
+    .acquire_write_lock = SearchDisk_AcquireWriteLock,
+    .release_write_lock = SearchDisk_ReleaseWriteLock,
+    .update_trie_term = SearchDisk_UpdateTrieTerm,
+    .update_scoring_stats = SearchDisk_UpdateScoringStats,
+    .ctx = sp,
+  };
+  return callbacks;
 }

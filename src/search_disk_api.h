@@ -46,12 +46,13 @@ typedef struct AsyncPollResult {
 /**
  * @brief Scoring stats delta - passed to update_scoring_stats callback.
  *
- * All values represent decrements (documents/terms removed during compaction).
  * Must match the Rust ScoringStatsDelta struct layout exactly.
+ *
+ * Note: num_docs and totalDocsLen are updated at delete time, NOT by GC.
+ * GC only updates numTerms (when terms become completely empty).
  */
 typedef struct SearchDisk_ScoringStatsDelta {
-  uint64_t num_docs_removed;        // Number of documents removed during compaction
-  uint64_t total_docs_len_removed;  // Total document length removed (for avgDocLen)
+  uint64_t num_terms_removed;  // Number of terms that became empty during compaction
 } SearchDisk_ScoringStatsDelta;
 
 /**
