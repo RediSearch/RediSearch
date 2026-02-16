@@ -561,6 +561,7 @@ fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     Ok((first, second))
 }
 
+#[derive(Debug, PartialEq)]
 enum Value {
     TinyInteger(u8),
     IntegerPositive(u64),
@@ -579,10 +580,12 @@ impl Value {
         let u64_val = abs_val as u64;
 
         if u64_val as f64 == abs_val {
-            if value.is_sign_negative() {
-                Value::IntegerNegative(u64_val)
-            } else if u64_val <= 0b111 {
+            let tiny_int = u64_val & 0b111;
+
+            if tiny_int as f64 == value {
                 Value::TinyInteger(u64_val as u8)
+            } else if value.is_sign_negative() {
+                Value::IntegerNegative(u64_val)
             } else {
                 Value::IntegerPositive(u64_val)
             }
@@ -731,4 +734,18 @@ fn write_all_vectored<const N: usize, W: Write>(
     }
 
     Ok(total_len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Make sure negative zero is encoded as a tiny integer 0
+    #[test]
+    fn from_negative_zero() {
+        let neg_zero = -0.0f64;
+        let value = Value::from(neg_zero, false);
+
+        assert_eq!(value, Value::TinyInteger(0));
+    }
 }
