@@ -69,9 +69,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO | INDEXFLD_T_GEOMETRY)) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                                   "Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
-                                   "");
+      QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                         "Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field");
     }
     break;
   }
@@ -81,9 +80,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType == INDEXFLD_T_NUMERIC) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                                   "Invalid JSON type: Numeric type can represent only NUMERIC field",
-                                   "");
+      QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                         "Invalid JSON type: Numeric type can represent only NUMERIC field");
     }
     break;
   // Boolean values can be represented only as TAG
@@ -91,9 +89,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                                   "Invalid JSON type: Boolean type can be represent only TAG field",
-                                   "");
+      QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                         "Invalid JSON type: Boolean type can be represent only TAG field");
     }
     break;
   case JSONType_Null:
@@ -103,9 +100,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
     if (!(fieldType & INDEXFLD_T_GEOMETRY)) { // TODO: GEOMETRY Handle multi-value geometry
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                                   "Invalid JSON type: Array type cannot represent GEOMETRY field",
-                                   "");
+      QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                         "Invalid JSON type: Array type cannot represent GEOMETRY field");
     }
     break;
   case JSONType_Object:
@@ -113,16 +109,14 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
       // A GEOSHAPE field can be represented as GEOJSON "geoshape" object
       rv = REDISMODULE_OK;
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                                   "Invalid JSON type: Object type can represent only GEOMETRY fields",
-                                   "");
+      QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                         "Invalid JSON type: Object type can represent only GEOMETRY fields");
     }
     break;
   // null type is not supported
   case JSONType__EOF: {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
-                                   "Invalid JSON type: Null type is not supported",
-                                   "");
+      QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                         "Invalid JSON type: Null type is not supported");
       break;
     }
   }
