@@ -194,6 +194,10 @@ def testRename(env):
     env.expect('ft.search things foo').equal([0])
     env.expect('ft.search otherthings foo').equal([1, 'otherthing:foo', ['name', 'foo']])
 
+    # Test that renaming a String key (unrelated type) does not crash
+    env.cmd('SET foo bar')
+    env.cmd('RENAME foo fubu')
+
 @skip(cluster=True)
 def testCopy(env):
     if not server_version_at_least(env, "6.2.0"):
