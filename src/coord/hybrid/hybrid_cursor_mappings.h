@@ -12,6 +12,7 @@
 #include "rmr/rmr.h"
 #include "util/references.h"
 #include "../../config.h"
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,6 +75,7 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
  * @param knnCtx KNN context for SHARD_K_RATIO optimization (NULL if not applicable)
  * @param status QueryError pointer to store warning/error information
  * @param oomPolicy OOM policy to determine error handling behavior
+ * @param timeout Absolute timeout in CLOCK_MONOTONIC_RAW (NULL for no timeout)
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
 bool ProcessHybridCursorMappings(const MRCommand *cmd,
@@ -81,7 +83,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
                                  StrongRef vsimMappings,
                                  HybridKnnContext *knnCtx,
                                  QueryError *status,
-                                 RSOomPolicy oomPolicy);
+                                 RSOomPolicy oomPolicy,
+                                 const struct timespec *timeout);
 
 /**
  * Release resources associated with a cursor mapping

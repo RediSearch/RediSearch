@@ -17,6 +17,7 @@
 #include <stdatomic.h>
 #include "info/global_stats.h"
 #include "coord/shard_barrier.h"
+#include "util/timeout.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6
@@ -31,6 +32,7 @@ typedef struct {
     pthread_mutex_t *mutex;           // Mutex for array access and completion tracking
     pthread_cond_t *completionCond;   // Condition variable for completion signaling
     HybridKnnContext *knnCtx;         // KNN context for SHARD_K_RATIO optimization (may be NULL)
+    const struct timespec *timeout;   // Absolute timeout in CLOCK_MONOTONIC_RAW (may be NULL)
 } processCursorMappingCallbackContext;
 
 void CursorMapping_Release(CursorMapping *mapping) {
@@ -194,7 +196,11 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     MRReply_Free(rep);
 }
 
-static inline void cleanupCtx(processCursorMappingCallbackContext *ctx) {
+// Cleanup callback context - used as privateDataDestructor for MRIterator
+// Takes void* to match MRIterator's destructor signature
+static void cleanupCtx(void *ptr) {
+    processCursorMappingCallbackContext *ctx = (processCursorMappingCallbackContext *)ptr;
+    if (!ctx) return;
     pthread_mutex_destroy(ctx->mutex);
     pthread_cond_destroy(ctx->completionCond);
     rm_free(ctx->mutex);
@@ -236,7 +242,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
                                  StrongRef vsimMappingsRef,
                                  HybridKnnContext *knnCtx,
                                  QueryError *status,
-                                 const RSOomPolicy oomPolicy) {
+                                 const RSOomPolicy oomPolicy,
+                                 const struct timespec *timeout) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -263,6 +270,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
         .mutex = ctx->mutex,
         .completionCond = ctx->completionCond,
         .knnCtx = knnCtx,  // Store KNN context for command modifier callback
+        .timeout = timeout,
     };
     // We must use atomic_init here (not rely on struct initialization)
     // because the coord thread may call atomic_load on numShards before
@@ -275,9 +283,14 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
     MRCommandModifier cmdModifier = knnCtx ? &HybridKnnCommandModifier : NULL;
 
     // Start iteration with shardCountBarrier_Init callback to set numShards
-    // from IO thread
-    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback, ctx, NULL,
-                                               shardCountBarrier_Init, cmdModifier, iterStartCb, NULL);
+    // from IO thread.
+    // IMPORTANT: Pass cleanupCtx as the destructor so the context is freed only
+    // after all callbacks have completed. This prevents use-after-free when
+    // timeout occurs while IO thread callbacks are still running.
+    MRIterator *it = MR_IterateWithPrivateData(cmd, processCursorMappingCallback,
+                                               ctx, cleanupCtx,
+                                               shardCountBarrier_Init, cmdModifier,
+                                               iterStartCb, NULL);
     if (!it) {
         // Cleanup on error
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to communicate with shards");
@@ -291,11 +304,24 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
     // Once a reply arrives, iterStartCb has finished and numShards will be set.
     pthread_mutex_lock(ctx->mutex);
     size_t numShards;
+    bool timedOut = false;
     while ((numShards = atomic_load(&ctx->shardBarrier.numShards)) == 0 ||
            ctx->responseCount < numShards) {
-        pthread_cond_wait(ctx->completionCond, ctx->mutex);
+        if (condTimedWait(ctx->completionCond, ctx->mutex, timeout)) {
+            timedOut = true;
+            break;
+        }
     }
-    pthread_mutex_unlock(ctx->mutex); // NOSONAR: standard pthread cond_wait pattern, only one mutex is used
+    pthread_mutex_unlock(ctx->mutex);
+
+    if (timedOut) {
+        QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+        // Release iterator - cleanupCtx will be called via privateDataDestructor
+        // when all callbacks complete
+        MRIterator_Release(it);
+        return false;
+    }
+
     bool success = true;
     if (array_len(ctx->errors)) {
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
@@ -309,9 +335,9 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd,
             }
         }
     }
-    // Cleanup
+    // Release iterator - cleanupCtx will be called via privateDataDestructor
+    // when all callbacks complete (refcount reaches 0)
     MRIterator_Release(it);
-    cleanupCtx(ctx);
 
     return success;
 }

@@ -714,8 +714,9 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     }
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
+    const struct timespec *timeout = &hreq->sctx->time.timeout;
     if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef,
-                            knnCtx, hreq->tailPipeline->qctx.err, oomPolicy)) {
+                            knnCtx, hreq->tailPipeline->qctx.err, oomPolicy, timeout)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
