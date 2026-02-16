@@ -18,6 +18,8 @@ use std::{ffi::c_char, ptr};
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupKey_GetFlags(key: *const RLookupKey) -> u32 {
     // Safety: ensured by caller (1.)
@@ -31,6 +33,8 @@ pub unsafe extern "C" fn RLookupKey_GetFlags(key: *const RLookupKey) -> u32 {
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupKey_GetDstIdx(key: *const RLookupKey) -> u16 {
     // Safety: ensured by caller (1.)
@@ -47,6 +51,8 @@ pub unsafe extern "C" fn RLookupKey_GetDstIdx(key: *const RLookupKey) -> u16 {
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupKey_GetSvIdx(key: *const RLookupKey) -> u16 {
     // Safety: ensured by caller (1.)
@@ -60,6 +66,8 @@ pub unsafe extern "C" fn RLookupKey_GetSvIdx(key: *const RLookupKey) -> u16 {
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_char {
     // Safety: ensured by caller (1.)
@@ -73,6 +81,8 @@ pub unsafe extern "C" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t {
     // Safety: ensured by caller (1.)
@@ -86,6 +96,8 @@ pub unsafe extern "C" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t
 /// # Safety
 ///
 /// 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_char {
     // Safety: ensured by caller (1.)

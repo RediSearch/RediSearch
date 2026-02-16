@@ -224,6 +224,8 @@ extern "C" {
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t RLookupKey_GetFlags(const struct RLookupKey *key);
 
@@ -233,6 +235,8 @@ uint32_t RLookupKey_GetFlags(const struct RLookupKey *key);
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint16_t RLookupKey_GetDstIdx(const struct RLookupKey *key);
 
@@ -245,6 +249,8 @@ uint16_t RLookupKey_GetDstIdx(const struct RLookupKey *key);
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint16_t RLookupKey_GetSvIdx(const struct RLookupKey *key);
 
@@ -254,6 +260,8 @@ uint16_t RLookupKey_GetSvIdx(const struct RLookupKey *key);
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const char *RLookupKey_GetName(const struct RLookupKey *key);
 
@@ -263,6 +271,8 @@ const char *RLookupKey_GetName(const struct RLookupKey *key);
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t RLookupKey_GetNameLen(const struct RLookupKey *key);
 
@@ -272,6 +282,8 @@ size_t RLookupKey_GetNameLen(const struct RLookupKey *key);
  * # Safety
  *
  * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const char *RLookupKey_GetPath(const struct RLookupKey *key);
 
