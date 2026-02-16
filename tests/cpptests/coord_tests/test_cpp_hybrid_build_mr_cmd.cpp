@@ -11,8 +11,11 @@
 #include "vector_index.h"
 #include "shard_window_ratio.h"
 #include "redisearch_rs/headers/query_error.h"
+#include "util/references.h"
 
 #include <vector>
+#include <atomic>
+#include <pthread.h>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
@@ -20,9 +23,17 @@ extern "C" {
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   ProfileOptions profileOptions,
                                   MRCommand *xcmd, arrayof(char *) serialized,
-                                  IndexSpec *sp,
-                                  const VectorQuery *vq,
-                                  size_t numShards);
+                                  IndexSpec *sp, int *outKArgIndex);
+
+// Context for SHARD_K_RATIO optimization - passed to command modifier callback
+typedef struct {
+  size_t originalK;         // Original K value from query
+  double shardWindowRatio;  // Ratio for shard window optimization
+  int kArgIndex;            // Index of the K value argument in the MRCommand
+} HybridKnnContext;
+
+// Command modifier callback for hybrid KNN queries - modifies K value based on numShards
+void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData);
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -70,19 +81,15 @@ protected:
 
     // Helper function to test SHARD_K_RATIO command transformation
     // Uses stack-allocated variables following the pattern in hybrid_debug.c
+    // Tests the new architecture where:
+    // 1. HybridRequest_buildMRCommand builds the command with original K value
+    // 2. HybridKnnCommandModifier is called on IO thread to calculate effectiveK
     void testShardKRatioTransformation(const std::vector<const char*>& inputArgs,
                                        size_t numShards,
                                        size_t expectedK,
                                        double expectedRatio,
                                        long long expectedEffectiveK,
-                                       bool passNullVectorQuery = false) {
-        // Access the global NumShards variable for testing
-        extern size_t NumShards;
-
-        // Save and set NumShards
-        size_t originalNumShards = NumShards;
-        NumShards = numShards;
-
+                                       bool passNullKnnContext = false) {
         // Set up args
         std::vector<const char*> argsWithNull = inputArgs;
         argsWithNull.push_back(nullptr);
@@ -115,7 +122,6 @@ protected:
                 HybridScoringContext_Free(hybridParams.scoringCtx);
             }
             HybridRequest_Free(hreq);
-            NumShards = originalNumShards;
             FAIL() << "Failed to parse hybrid command";
         }
 
@@ -123,20 +129,68 @@ protected:
         const VectorQuery *vq = validateVectorQuery(cmd.vector, expectedK, expectedRatio);
         ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
-        // Build MR command
+        // Build MR command - now returns kArgIndex instead of calculating effectiveK
         MRCommand xcmd;
+        int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     nullptr, testIndexSpec,
-                                     passNullVectorQuery ? nullptr : vq, numShards);
+                                     nullptr, testIndexSpec, &kArgIndex);
 
         // Verify the command was built correctly
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
 
-        // Verify K value in output command
+        // Verify K value in output command is the ORIGINAL K value (before modifier)
         long long kValue;
         int kIndex = findKValue(&xcmd, &kValue);
         EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
-        EXPECT_EQ(kValue, expectedEffectiveK) << "K value mismatch";
+        EXPECT_EQ(kValue, (long long)expectedK) << "Initial K value should be original K";
+
+        // Verify kArgIndex points to the correct position (kIndex + 1 is the value)
+        EXPECT_EQ(kArgIndex, kIndex + 1) << "kArgIndex should point to K value position";
+
+        // Now simulate the IO thread calling HybridKnnCommandModifier
+        // Create a mock context structure that mimics processCursorMappingCallbackContext
+        // The actual struct layout is (after refactoring to use ShardCountBarrier):
+        //   ShardCountBarrier shardBarrier;  <-- FIRST field (contains numShards and numResponded)
+        //   StrongRef searchMappings;
+        //   StrongRef vsimMappings;
+        //   arrayof(QueryError) errors;
+        //   size_t responseCount;
+        //   pthread_mutex_t *mutex;
+        //   pthread_cond_t *completionCond;
+        //   HybridKnnContext *knnCtx;  <-- knnCtx is the LAST field
+        // We must match this layout exactly for the cast in HybridKnnCommandModifier to work
+        HybridKnnContext knnCtxValue;
+        struct MockShardCountBarrier {
+            std::atomic<size_t> numShards;
+            std::atomic<size_t> numResponded;
+        };
+        struct MockCallbackContext {
+            MockShardCountBarrier shardBarrier;  // Must be FIRST field, matching ShardCountBarrier
+            StrongRef searchMappings;
+            StrongRef vsimMappings;
+            void *errors;           // arrayof(QueryError)
+            size_t responseCount;
+            pthread_mutex_t *mutex;
+            pthread_cond_t *completionCond;
+            HybridKnnContext *knnCtx;  // Must be the last field, matching the real struct
+        } mockCtx = {};
+
+        if (!passNullKnnContext) {
+            knnCtxValue.originalK = vq->knn.k;
+            knnCtxValue.shardWindowRatio = vq->knn.shardWindowRatio;
+            knnCtxValue.kArgIndex = kArgIndex;
+            mockCtx.knnCtx = &knnCtxValue;
+
+            // Call the command modifier (simulates IO thread callback)
+            // Pass &mockCtx since the callback casts privateData to processCursorMappingCallbackContext*
+            // and accesses ctx->knnCtx (a pointer)
+            HybridKnnCommandModifier(&xcmd, numShards, &mockCtx);
+
+            // Verify K value is now updated to effectiveK
+            kIndex = findKValue(&xcmd, &kValue);
+            EXPECT_NE(kIndex, -1) << "K keyword should still be present after modification";
+            EXPECT_EQ(kValue, expectedEffectiveK) << "K value should be effectiveK after modifier";
+        }
 
         // Cleanup (following hybrid_debug.c pattern)
         MRCommand_Free(&xcmd);
@@ -144,7 +198,6 @@ protected:
             HybridScoringContext_Free(hybridParams.scoringCtx);
         }
         HybridRequest_Free(hreq);
-        NumShards = originalNumShards;
     }
 
     // Helper function to find K value in MRCommand
@@ -165,9 +218,6 @@ protected:
 
     // Helper function to test command transformation
     void testCommandTransformationWithoutIndexSpec(const std::vector<const char*>& inputArgs) {
-        // Access the global NumShards variable
-        extern size_t NumShards;
-
         // Convert vector to array for ArgvList constructor
         std::vector<const char*> argsWithNull = inputArgs;
         argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
@@ -175,11 +225,11 @@ protected:
         // Create ArgvList from input
         RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
 
-        // Build MR command (pass NULL for VectorQuery - not testing
-        // SHARD_K_RATIO here)
+        // Build MR command
         MRCommand xcmd;
+        int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                     nullptr, nullptr, nullptr, NumShards);
+                                     nullptr, nullptr, &kArgIndex);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -202,9 +252,6 @@ protected:
 
     // Helper function to test command transformation
     void testCommandTransformationWithIndexSpec(const std::vector<const char*>& inputArgs) {
-      // Access the global NumShards variable
-      extern size_t NumShards;
-
       // Convert vector to array for ArgvList constructor
       std::vector<const char*> argsWithNull = inputArgs;
       argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
@@ -220,11 +267,11 @@ protected:
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
       ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
-      // Build MR command (pass NULL for VectorQuery - not testing
-      // SHARD_K_RATIO here)
+      // Build MR command
       MRCommand xcmd;
+      int kArgIndex = -1;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
-                                   nullptr, sp, nullptr, NumShards);
+                                   nullptr, sp, &kArgIndex);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
@@ -451,10 +498,9 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNoModificationWhenRatioIsOne) {
 }
 
 // Test SHARD_K_RATIO with NULL VectorQuery (backward compatibility)
-// This tests that when VectorQuery is NULL, K is not modified by SHARD_K_RATIO
-// logic
-// K value should remain 25 since no VectorQuery provided
-TEST_F(HybridBuildMRCommandTest, testShardKRatioNullVectorQuery) {
+// This tests that when HybridKnnContext is not provided (NULL), K is not modified
+// K value should remain 25 since the command modifier is not called
+TEST_F(HybridBuildMRCommandTest, testShardKRatioNullKnnContext) {
     testShardKRatioTransformation({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", "$BLOB",
@@ -462,5 +508,5 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNullVectorQuery) {
         "COMBINE", "RRF", "2", "WINDOW", "25",
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     }, /*numShards=*/4, /*expectedK=*/25, /*expectedRatio=*/1.0,
-    /*expectedEffectiveK=*/25, /*passNullVectorQuery=*/true);
+    /*expectedEffectiveK=*/25, /*passNullKnnContext=*/true);
 }
