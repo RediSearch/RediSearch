@@ -150,6 +150,101 @@ def testIssue1571WithRename(env):
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', 'foo*')), toSortedFlatList([1, 'idx1:{doc}1', ['t', 'foo1', 'index', 'yes']]))
     env.expect('ft.search', 'idx2', 'foo*').equal([0])
 
+@skip(cluster=True)
+def testRenameWithFilterUsingFieldValueBetweenIndexes(env):
+    """
+    Test RENAME between different indexes where both have FILTER expressions
+    that read field values. This tests that filters are correctly evaluated
+    using the data from the new key location.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create two indexes with different prefixes but same filter expression
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', '1', 'prefix1:',
+            'FILTER', '@category=="books"',
+            'SCHEMA', 'title', 'TEXT', 'category', 'TAG')
+
+    env.cmd('ft.create', 'idx2',
+            'PREFIX', '1', 'prefix2:',
+            'FILTER', '@category=="books"',
+            'SCHEMA', 'title', 'TEXT', 'category', 'TAG')
+
+    # Add a document that matches idx1's prefix and filter
+    conn.execute_command('hset', 'prefix1:item', 'title', 'mybook', 'category', 'books')
+
+    # Verify it's in idx1 and not in idx2
+    env.expect('ft.search', 'idx1', 'mybook').equal([1, 'prefix1:item', ['title', 'mybook', 'category', 'books']])
+    env.expect('ft.search', 'idx2', 'mybook').equal([0])
+
+    # Rename to idx2's prefix - the filter should still pass because
+    # we read the field value from the new key location
+    env.expect('RENAME prefix1:item prefix2:item').ok()
+
+    # Verify it moved to idx2
+    env.expect('ft.search', 'idx1', 'mybook').equal([0])
+    env.expect('ft.search', 'idx2', 'mybook').equal([1, 'prefix2:item', ['title', 'mybook', 'category', 'books']])
+
+@skip(cluster=True)
+def testRenameWithFilterExcludingDocument(env):
+    """
+    Test RENAME where the target index's filter would exclude the document.
+    The document should not be indexed in the target index.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a filter that checks field value
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', '1', 'prefix1:',
+            'FILTER', '@type=="allowed"',
+            'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
+
+    env.cmd('ft.create', 'idx2',
+            'PREFIX', '1', 'prefix2:',
+            'FILTER', '@type=="special"',
+            'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
+
+    # Add a document that matches idx1's filter but NOT idx2's filter
+    conn.execute_command('hset', 'prefix1:doc', 'data', 'hello', 'type', 'allowed')
+
+    # Verify it's in idx1
+    env.expect('ft.search', 'idx1', 'hello').equal([1, 'prefix1:doc', ['data', 'hello', 'type', 'allowed']])
+    env.expect('ft.search', 'idx2', 'hello').equal([0])
+
+    # Rename to idx2's prefix - but the filter should NOT pass
+    # because type != "special"
+    env.expect('RENAME prefix1:doc prefix2:doc').ok()
+
+    # Document should be removed from idx1 and NOT added to idx2
+    env.expect('ft.search', 'idx1', 'hello').equal([0])
+    env.expect('ft.search', 'idx2', 'hello').equal([0])
+
+@skip(cluster=True)
+def testRenameToSameName(env):
+    """
+    Test RENAME to the same name (e.g., RENAME prefix1:doc prefix1:doc).
+    This should be a no-op and the document should remain in the index.
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create an index with a filter
+    env.cmd('ft.create', 'idx1',
+            'PREFIX', '1', 'prefix1:',
+            'FILTER', '@type=="allowed"',
+            'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
+
+    # Add a document
+    conn.execute_command('hset', 'prefix1:doc', 'data', 'hello', 'type', 'allowed')
+
+    # Verify it's in idx1
+    env.expect('ft.search', 'idx1', 'hello').equal([1, 'prefix1:doc', ['data', 'hello', 'type', 'allowed']])
+
+    # Rename to same name - should be a no-op
+    env.expect('RENAME prefix1:doc prefix1:doc').ok()
+
+    # Document should still be in idx1
+    env.expect('ft.search', 'idx1', 'hello').equal([1, 'prefix1:doc', ['data', 'hello', 'type', 'allowed']])
+
 @skip(no_json=True)
 def testIdxFieldJson(env):
     conn = getConnectionByEnv(env)
