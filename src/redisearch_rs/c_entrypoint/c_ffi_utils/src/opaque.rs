@@ -11,84 +11,19 @@
 #[repr(transparent)]
 pub struct Size<const N: usize>(std::mem::MaybeUninit<[u8; N]>);
 
-/// Marker trait that signals a type can be safely transmuted from
-/// `T`, and that it's safe to cast pointers of the type to `T`
-/// and dereference them.
-///
-/// # Safety
-/// - It must be safe to [transmute](std::mem::transmute) from `T`
-///   to the implementer of this trait.
-/// - It must be safe to cast pointers of the implementer
-///   to `T` and dereference them.
-pub unsafe trait Transmute<T> {}
-
-/// A trait for using a sized type in an FFI context as an opaque sized type,
-/// allowing it to be allocated on the stack on the other side of the
-/// FFI-boundary, without the implementer needing to be FFI-safe.
-pub trait IntoOpaque: Sized {
-    type Opaque: Sized;
-
-    /// Converts `Self` into an [`Self::Opaque`].
-    fn into_opaque(self) -> Self::Opaque;
-
-    /// Converts [`Self`] reference into an `*const Self::Opaque`.
-    fn as_opaque_ptr(&self) -> *const Self::Opaque;
-
-    /// Converts [`Self`] mutable reference into an
-    /// `*mut Self::Opaque`.
-    fn as_opaque_mut_ptr(&mut self) -> *mut Self::Opaque;
-
-    /// Converts an [`Self::Opaque`] back to [`Self`].
-    ///
-    /// # Safety
-    ///
-    /// This value must have been created via [`IntoOpaque::into_opaque`].
-    unsafe fn from_opaque(opaque: Self::Opaque) -> Self;
-
-    /// Converts a const pointer to a [`Self::Opaque`] to a reference to a
-    /// [`Self`].
-    ///
-    /// # Safety
-    ///
-    /// The pointer itself must have been created via
-    /// [`IntoOpaque::as_opaque_ptr`], as the alignment of the value
-    /// pointed to by `opaque` must also be an alignment-compatible address for
-    /// a [`Self`].
-    unsafe fn from_opaque_ptr<'a>(opaque: *const Self::Opaque) -> Option<&'a Self>;
-
-    /// Converts a mutable pointer to a [`Self::Opaque`] to a mutable
-    /// reference to a [`Self`].
-    ///
-    /// # Safety
-    ///
-    /// The pointer itself must have been created via
-    /// [`IntoOpaque::as_opaque_mut_ptr`], as the alignment of the value
-    /// pointed to by `opaque` must also be an alignment-compatible address for
-    /// a [`Self`].
-    unsafe fn from_opaque_mut_ptr<'a>(opaque: *mut Self::Opaque) -> Option<&'a mut Self>;
-}
-
-/// Implements [`IntoOpaque`] for the passed type,
-/// setting the passed opaque type as [`IntoOpaque::Opaque`].
+/// Implements conversions from the passed in type to the given opaque type.
 ///
 /// This implementation requires that the opaque and original
 /// type have the same size and alignment, and that it's
 /// safe to transmute from the original type to the opaque type
 /// and back.
 ///
-/// These constraints are checked with compile-time assertions,
-/// and by validating that the [`Transmute`] trait has been implemented.
-///
-/// The reason that `IntoOpaque::Opaque` is not bound to types
-/// implementing `Transmute<Self>` at the trait level instead, is that
-/// this is not a requirement of the trait, but one of the way
-/// this macro implements that trait, i.e. by using
-/// [`std::mem::transmute`] and pointer casts.
+/// These constraints are checked with compile-time assertions.
 ///
 /// # Example
 /// ```
 /// mod opaque {
-///     use c_ffi_utils::opaque::{Size, Transmute};
+///     use c_ffi_utils::opaque::Size;
 ///     use std::sync::Arc;
 ///
 ///     // A type that is 8-aligned and is 24 bytes in size.
@@ -102,46 +37,52 @@ pub trait IntoOpaque: Sized {
 ///     #[repr(C, align(8))]
 ///     pub struct OpaqueThing(Size<24>);
 ///
-///     // Safety: `OpaqueThing` is defined as a `MaybeUninit` slice of
-///     // bytes with the same size and alignment as `Thing`, so any valid
-///     // `Thing` has a bit pattern which is a valid `OpaqueThing`.
-///     unsafe impl Transmute<Thing> for OpaqueThing {}
-///
 ///     c_ffi_utils::opaque!(Thing, OpaqueThing);
 /// }
 /// ```
 #[macro_export]
 macro_rules! opaque {
-    ($ty:ident$(<$($gen:tt),+>)?, $opaque_ty:ident) => {
-        impl$(<$($gen),+>)? $crate::opaque::IntoOpaque for $ty $(<$($gen),+>)? {
-            type Opaque = $opaque_ty;
-
-            fn into_opaque(self) -> Self::Opaque {
+    ($ty:ty, $opaque_ty:ident) => {
+        impl $ty {
+            pub fn into_opaque(self) -> $opaque_ty {
                 // Safety:
                 // Self::Opaque is validated to implement
                 // `Transmute<Self>` in _ASSERT_IMPL_TRANSMUTE
                 unsafe { std::mem::transmute(self) }
             }
 
-            fn as_opaque_ptr(&self) -> *const Self::Opaque {
+            pub fn as_opaque_ptr(&self) -> *const $opaque_ty {
                 std::ptr::from_ref(self).cast()
             }
 
-            fn as_opaque_mut_ptr(&mut self) -> *mut Self::Opaque {
+            pub fn as_opaque_mut_ptr(&mut self) -> *mut $opaque_ty {
                 std::ptr::from_mut(self).cast()
             }
 
-            unsafe fn from_opaque(opaque: Self::Opaque) -> Self {
+            pub fn as_opaque_non_null(&mut self) -> ::std::ptr::NonNull<$opaque_ty> {
+                ::std::ptr::NonNull::from(self).cast()
+            }
+
+            pub unsafe fn from_opaque(opaque: $opaque_ty) -> Self {
                 // Safety: see trait's safety requirement.
                 unsafe { std::mem::transmute(opaque) }
             }
 
-            unsafe fn from_opaque_ptr<'__lt>(opaque: *const Self::Opaque) -> Option<&'__lt Self> {
+            pub unsafe fn from_opaque_ptr<'__lt>(opaque: *const $opaque_ty) -> Option<&'__lt Self> {
                 // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_ref() }
             }
 
-            unsafe fn from_opaque_mut_ptr<'__lt>(opaque: *mut Self::Opaque) -> Option<&'__lt mut Self> {
+            pub unsafe fn from_opaque_mut_ptr<'__lt>(
+                opaque: *mut $opaque_ty,
+            ) -> Option<&'__lt mut Self> {
+                // Safety: see trait's safety requirement.
+                unsafe { opaque.cast::<Self>().as_mut() }
+            }
+
+            pub unsafe fn from_opaque_non_null<'__lt>(
+                opaque: ::std::ptr::NonNull<$opaque_ty>,
+            ) -> &'__lt mut Self {
                 // Safety: see trait's safety requirement.
                 unsafe { opaque.cast::<Self>().as_mut() }
             }
@@ -171,14 +112,7 @@ macro_rules! opaque {
                 unsafe { std::mem::transmute::<$opaque_ty, $ty>(break) };
             }
 
-            assert!(std::mem::align_of::<$opaque_ty>() == std::mem::align_of::<$ty >());
-        };
-
-        // Compile-time check that `$opaque_ty` implements
-        // `Transmute<$ty>`.
-        const _ASSERT_IMPL_TRANSMUTE: () = {
-            const fn assert_impl_transmute_size<$($($gen,)+)? T: $crate::opaque::Transmute<$ty$(<$($gen),+>)?>>() {}
-            assert_impl_transmute_size::<$opaque_ty>();
+            assert!(std::mem::align_of::<$opaque_ty>() == std::mem::align_of::<$ty>());
         };
     };
 }
