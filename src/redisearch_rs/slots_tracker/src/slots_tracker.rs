@@ -77,7 +77,7 @@ impl Version {
 ///
 /// This structure encapsulates all slot tracking state and provides safe methods
 /// for manipulating the three slot sets and version counter.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlotsTracker {
     /// Local responsibility slots - owned by this Redis instance in the cluster topology.
     local: SlotSet,
@@ -91,6 +91,12 @@ pub struct SlotsTracker {
     /// This is always a Stable variant internally; Unstable is only returned by check_availability
     /// when the configuration state is unstable.
     version: Version,
+}
+
+impl Default for SlotsTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SlotsTracker {
