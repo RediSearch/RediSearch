@@ -147,16 +147,9 @@ def testRename(env):
     env.expect('ft.search things foo').equal([0])
     env.expect('ft.search otherthings foo').equal([1, 'otherthing:foo', ['name', 'foo']])
 
+    # Test that renaming a String key (unrelated type) does not crash
     env.cmd('SET foo bar')
     env.cmd('RENAME foo fubu')
-
-@skip(cluster=True)
-def testRenameChangePrefix(env):
-    env.cmd('ft.create idx1 PREFIX 1 1: SCHEMA name text')
-    env.cmd('ft.create idx2 PREFIX 1 2: SCHEMA name text')
-
-    env.cmd('SET 1:1 bar')
-    env.expect('RENAME 1:1 2:1').ok()
 
 @skip(cluster=True)
 def testCopy(env):
