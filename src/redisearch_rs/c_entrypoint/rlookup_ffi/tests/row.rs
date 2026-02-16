@@ -17,7 +17,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::{cmp, ffi::CString};
 
-use c_ffi_utils::opaque::IntoOpaque;
 use rlookup::{RLookup, RLookupKeyFlags, RLookupRow};
 use rlookup_ffi::row::{
     RLookupRow_MoveFieldsFrom, RLookupRow_WriteByName, RLookupRow_WriteByNameOwned,

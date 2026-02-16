@@ -188,7 +188,7 @@ typedef Size_40 OpaqueRLookupRowSize;
 #endif
 
 /**
- * An opaque query error which can be passed by value to C.
+ * An lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`
  * structure exactly.

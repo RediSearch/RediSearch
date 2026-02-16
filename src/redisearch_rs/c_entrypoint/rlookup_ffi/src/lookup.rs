@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use c_ffi_utils::opaque::IntoOpaque;
 use libc::size_t;
 use rlookup::{
     IndexSpec, IndexSpecCache, OpaqueRLookupRow, RLookup, RLookupKey, RLookupKeyFlag,
