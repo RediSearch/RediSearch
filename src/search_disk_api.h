@@ -39,6 +39,48 @@ typedef struct AsyncPollResult {
   uint16_t pending_count; // Number of reads still in flight
 } AsyncPollResult;
 
+// =============================================================================
+// Compaction Callbacks (for GC with memory synchronization)
+// =============================================================================
+
+/**
+ * @brief Scoring stats delta - passed to update_scoring_stats callback.
+ *
+ * All values represent decrements (documents/terms removed during compaction).
+ * Must match the Rust ScoringStatsDelta struct layout exactly.
+ */
+typedef struct SearchDisk_ScoringStatsDelta {
+  uint64_t num_docs_removed;        // Number of documents removed during compaction
+  uint64_t total_docs_len_removed;  // Total document length removed (for avgDocLen)
+} SearchDisk_ScoringStatsDelta;
+
+/**
+ * @brief FFI-safe callback struct for compaction operations.
+ *
+ * This struct is created by C and passed to Rust. Rust invokes these callbacks
+ * to perform operations on C-owned data structures (Trie, ScoringStats, locks).
+ *
+ * Must match the Rust CompactionCallbacks struct layout exactly.
+ */
+typedef struct SearchDisk_CompactionCallbacks {
+  // === Synchronization Callbacks ===
+  void (*acquire_fork_blocker)(void* ctx);  // Acquire fork blocker semaphore (placeholder)
+  void (*release_fork_blocker)(void* ctx);  // Release fork blocker semaphore (placeholder)
+  void (*acquire_write_lock)(void* ctx);    // Acquire IndexSpec write lock
+  void (*release_write_lock)(void* ctx);    // Release IndexSpec write lock
+
+  // === Memory Update Callbacks ===
+  // Update a term's document count in the Serving Trie
+  // term is NOT null-terminated; term_len specifies length
+  void (*update_trie_term)(void* ctx, const char* term, size_t term_len, size_t doc_count_decrement);
+
+  // Update IndexScoringStats
+  void (*update_scoring_stats)(void* ctx, const SearchDisk_ScoringStatsDelta* delta);
+
+  // === Context ===
+  void* ctx;  // Opaque pointer passed to all callbacks (typically IndexSpec*)
+} SearchDisk_CompactionCallbacks;
+
 // Result structure containing both DMD and user data (for successful reads only)
 typedef struct AsyncReadResult {
   RSDocumentMetadata *dmd;  // Pointer to allocated DMD (caller must free with DMD_Return)
@@ -118,11 +160,13 @@ typedef struct IndexDiskAPI {
    * @brief Run a GC compaction cycle on the disk index.
    *
    * Synchronously runs a full compaction on the inverted index column family,
-   * removing entries for deleted documents.
+   * removing entries for deleted documents. Also applies the compaction delta
+   * to update in-memory structures via the configured callbacks.
    *
    * @param index Pointer to the index
+   * @param callbacks Callbacks for synchronization and memory updates (can be NULL for legacy behavior)
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index);
+  void (*runGC)(RedisSearchDiskIndexSpec *index, const SearchDisk_CompactionCallbacks *callbacks);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

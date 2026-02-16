@@ -110,11 +110,13 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @brief Run a GC compaction cycle on the disk index
  *
  * Synchronously runs a full compaction on the inverted index column family,
- * removing entries for deleted documents.
+ * removing entries for deleted documents. If callbacks are provided, applies
+ * the compaction delta to update in-memory structures.
  *
  * @param index Pointer to the index
+ * @param callbacks Callbacks for synchronization and memory updates (can be NULL for legacy behavior)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, const SearchDisk_CompactionCallbacks *callbacks);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
