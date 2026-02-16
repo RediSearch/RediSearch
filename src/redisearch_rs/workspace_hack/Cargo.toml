@@ -77,7 +77,6 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -85,7 +84,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -93,7 +91,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -101,7 +98,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -109,7 +105,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -117,7 +112,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -125,7 +119,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -133,7 +126,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "runtime"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
@@ -141,7 +133,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
@@ -149,7 +140,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
@@ -157,7 +147,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
@@ -165,7 +154,6 @@ redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git",
 bindgen = { version = "0.72", default-features = false, features = ["static"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 clang-sys = { version = "1", default-features = false, features = ["clang_11_0", "static"] }
-getrandom = { version = "0.3", default-features = false, features = ["std"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 redis-module = { git = "https://github.com/RedisLabsModules/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98", default-features = false, features = ["bindgen-static", "min-redis-compatibility-version-6-0", "min-redis-compatibility-version-7-2"] }
 
