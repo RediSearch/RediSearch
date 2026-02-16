@@ -694,4 +694,250 @@ TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
   EvalCtx_Destroy(ctx);
 }
 
+// Test AND expressions with missing fields
+// This tests the fix for the issue where expression evaluation order affects results
+// when fields are missing from the document
+TEST_F(ExprTest, testAndExpressionWithMissingFields) {
+  // Create a lookup with both d1 and d2 keys, but only d2 has a value
+  RLookup lk;
+  RLookup_Init(&lk, NULL);
+  auto *kd1 = RLookup_GetKey_Write(&lk, "d1", RLOOKUP_F_NOFLAGS);
+  auto *kd2 = RLookup_GetKey_Write(&lk, "d2", RLOOKUP_F_NOFLAGS);
+  ASSERT_NE(kd1, nullptr);
+  ASSERT_NE(kd2, nullptr);
+
+  // Create a row with only d2=1 (d1 is not written, so it's missing)
+  RLookupRow row = {0};
+  RSValue *v2 = RSValue_NewNumber(1);
+  RLookup_WriteOwnKey(kd2, &row, v2);
+
+  // Test 1: @d1==0 && @d2==0
+  // d1 is missing, d2=1
+  // Expected: false (0) because d2==0 is false
+  {
+    TEvalCtx ctx("@d1==0 && @d2==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==0 && @d2==0 should be false when d1 is missing and d2=1";
+  }
+
+  // Test 2: @d2==0 && @d1==0
+  // d2=1, d1 is missing
+  // Expected: false (0) - same result as Test 1, regardless of order
+  {
+    TEvalCtx ctx("@d2==0 && @d1==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d2==0 && @d1==0 should be false when d2=1 and d1 is missing";
+  }
+
+  // Test 3: @d1==1 && @d2==1
+  // d1 is missing, d2=1
+  // Expected: false (0) because d1 is missing (treated as false)
+  {
+    TEvalCtx ctx("@d1==1 && @d2==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==1 && @d2==1 should be false when d1 is missing";
+  }
+
+  // Test 4: @d2==1 && @d1==1
+  // d2=1, d1 is missing
+  // Expected: false (0) - same result as Test 3, regardless of order
+  {
+    TEvalCtx ctx("@d2==1 && @d1==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d2==1 && @d1==1 should be false when d1 is missing";
+  }
+
+  // Test 5: Both fields missing
+  // Expected: false (0)
+  {
+    RLookup lk_empty;
+    RLookup_Init(&lk_empty, NULL);
+    auto *kd1_empty = RLookup_GetKey_Write(&lk_empty, "d1", RLOOKUP_F_NOFLAGS);
+    auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
+    ASSERT_NE(kd1_empty, nullptr);
+    ASSERT_NE(kd2_empty, nullptr);
+    RLookupRow row_empty = {0};
+
+    TEvalCtx ctx("@d1==0 && @d2==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk_empty;
+    ctx.srcrow = &row_empty;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==0 && @d2==0 should be false when both fields are missing";
+
+    RLookup_Cleanup(&lk_empty);
+  }
+
+  RLookup_Cleanup(&lk);
+}
+
+// Test OR expressions with missing fields
+TEST_F(ExprTest, testOrExpressionWithMissingFields) {
+  // Create a lookup with both d1 and d2 keys, but only d2 has a value
+  RLookup lk;
+  RLookup_Init(&lk, NULL);
+  auto *kd1 = RLookup_GetKey_Write(&lk, "d1", RLOOKUP_F_NOFLAGS);
+  auto *kd2 = RLookup_GetKey_Write(&lk, "d2", RLOOKUP_F_NOFLAGS);
+  ASSERT_NE(kd1, nullptr);
+  ASSERT_NE(kd2, nullptr);
+
+  // Create a row with only d2=1 (d1 is not written, so it's missing)
+  RLookupRow row = {0};
+  RSValue *v2 = RSValue_NewNumber(1);
+  RLookup_WriteOwnKey(kd2, &row, v2);
+
+  // Test 1: @d1==1 || @d2==1
+  // d1 is missing, d2=1
+  // Expected: true (1) because d2==1 is true
+  {
+    TEvalCtx ctx("@d1==1 || @d2==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(1, RSValue_Number_Get(res)) << "@d1==1 || @d2==1 should be true when d1 is missing and d2=1";
+  }
+
+  // Test 2: @d2==1 || @d1==1
+  // d2=1, d1 is missing
+  // Expected: true (1) - same result as Test 1, regardless of order
+  {
+    TEvalCtx ctx("@d2==1 || @d1==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(1, RSValue_Number_Get(res)) << "@d2==1 || @d1==1 should be true when d2=1 and d1 is missing";
+  }
+
+  // Test 3: @d1==0 || @d2==0
+  // d1 is missing, d2=1
+  // Expected: false (0) because both conditions are false
+  {
+    TEvalCtx ctx("@d1==0 || @d2==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==0 || @d2==0 should be false when d1 is missing and d2=1";
+  }
+
+  // Test 4: @d2==0 || @d1==0
+  // d2=1, d1 is missing
+  // Expected: false (0) - same result as Test 3, regardless of order
+  {
+    TEvalCtx ctx("@d2==0 || @d1==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d2==0 || @d1==0 should be false when d2=1 and d1 is missing";
+  }
+
+  // Test 5: Both fields missing
+  // Expected: false (0)
+  {
+    RLookup lk_empty;
+    RLookup_Init(&lk_empty, NULL);
+    auto *kd1_empty = RLookup_GetKey_Write(&lk_empty, "d1", RLOOKUP_F_NOFLAGS);
+    auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
+    ASSERT_NE(kd1_empty, nullptr);
+    ASSERT_NE(kd2_empty, nullptr);
+    RLookupRow row_empty = {0};
+
+    TEvalCtx ctx("@d1==1 || @d2==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk_empty;
+    ctx.srcrow = &row_empty;
+    ctx.err = &ctx.status_s;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==1 || @d2==1 should be false when both fields are missing";
+
+    RLookup_Cleanup(&lk_empty);
+  }
+
+  RLookup_Cleanup(&lk);
+}
+
 #undef ASSERT_EXPR_EVAL_NUMBER

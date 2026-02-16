@@ -192,21 +192,35 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   int res;
   RSValue *l = RSValue_NewUndefined(), *r = RSValue_NewUndefined();
   int rc = EXPR_EVAL_ERR;
-  if (evalInternal(eval, pred->left, l) != EXPR_EVAL_OK) {
-    goto cleanup;
-  } else if (pred->cond == RSCondition_Or && RSValue_BoolTest(l)) {
-    res = 1;
-    goto success;
-  } else if (pred->cond == RSCondition_And && !RSValue_BoolTest(l)) {
-    res = 0;
-    goto success;
-  } else if (evalInternal(eval, pred->right, r) != EXPR_EVAL_OK) {
+
+  // Evaluate left side first
+  int rc_left = evalInternal(eval, pred->left, l);
+
+  // Short-circuit evaluation for AND/OR operators
+  if (pred->cond == RSCondition_And || pred->cond == RSCondition_Or) {
+    int left_bool = RSValue_BoolTest(l);
+
+    // Short-circuit: AND with false, OR with true
+    if ((pred->cond == RSCondition_And && !left_bool) ||
+        (pred->cond == RSCondition_Or && left_bool)) {
+      RSValue_SetNumber(result, left_bool);
+      rc = EXPR_EVAL_OK;
+      goto cleanup;
+    }
+  }
+
+  // Evaluate right side
+  int rc_right = evalInternal(eval, pred->right, r);
+
+  // If the right side returned an actual error (not NULL), fail the evaluation
+  if (rc_right == EXPR_EVAL_ERR) {
     goto cleanup;
   }
 
+  // Evaluate the predicate (handles AND, OR, and comparison operators)
   res = getPredicateBoolean(eval, l, r, pred->cond);
 
-success:
+  // TODO - FIX this to work for the indexing path without failing for NULLs (sets the error..)
   if (!eval->err || QueryError_IsOk(eval->err)) {
     RSValue_SetNumber(result, res);
     rc = EXPR_EVAL_OK;
