@@ -83,7 +83,10 @@ fn apply_gc_to_single_leaf(#[values(false, true)] compress_floats: bool) {
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
     assert_eq!(result.index_gc_info.entries_removed, 5);
-    assert_eq!(tree.num_entries(), entries_before - 5);
+    assert_eq!(
+        tree.num_entries(),
+        entries_before - result.index_gc_info.entries_removed
+    );
     assert!(
         result.index_gc_info.bytes_freed > 0,
         "GC that removes entries should free bytes"
