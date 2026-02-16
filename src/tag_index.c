@@ -268,7 +268,7 @@ QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSe
   if (idx->diskSpec) {
     // DISK MODE: Use tag string to query disk
     RSToken tok = {.str = (char *)tag, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, 0, fieldIndex, weight);
+    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, fieldIndex, weight);
   }
 
   // MEMORY MODE: Use InvertedIndex from TrieMap
@@ -290,7 +290,7 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
   if (idx->diskSpec) {
     // DISK MODE: Direct disk API call
     RSToken tok = {.str = (char *)value, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, 0, fieldIndex, weight);
+    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, fieldIndex, weight);
   }
 
   // MEMORY MODE: Look up in TrieMap
