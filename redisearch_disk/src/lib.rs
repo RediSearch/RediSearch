@@ -96,6 +96,7 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             newTermIterator: Some(index_spec_new_term_iterator),
             newWildcardIterator: Some(index_spec_new_wildcard_iterator),
             markToBeDeleted: Some(index_spec_mark_to_be_deleted),
+            runGC: Some(index_spec_run_gc),
         },
         docTable: DocTableDiskAPI {
             putDocument: Some(index_spec_put_doc),
@@ -296,6 +297,28 @@ extern "C" fn index_spec_mark_to_be_deleted(index: *mut RedisSearchDiskIndexSpec
         index.mark_for_deletion();
     } else {
         warn!("index_spec_mark_to_be_deleted called with null pointer, skipping");
+    }
+}
+
+/// Runs a GC compaction cycle on the disk index.
+///
+/// Synchronously runs a full compaction on the fulltext inverted index column family,
+/// removing entries for deleted documents.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+extern "C" fn index_spec_run_gc(index: *mut RedisSearchDiskIndexSpec) {
+    // Safety: See safety point 1 above.
+    let index = unsafe { IndexSpec::try_as_ref(index) };
+
+    if let Some(index) = index {
+        debug!(
+            index_name = index.name(),
+            "running GC compaction on disk index"
+        );
+        index.compact_text_inverted_index();
+    } else {
+        warn!("index_spec_run_gc called with null pointer, skipping");
     }
 }
 

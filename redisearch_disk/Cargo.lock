@@ -2692,6 +2692,7 @@ dependencies = [
  "clap_builder",
  "either",
  "getrandom 0.3.4",
+ "insta",
  "itertools 0.13.0",
  "libc",
  "memchr",
