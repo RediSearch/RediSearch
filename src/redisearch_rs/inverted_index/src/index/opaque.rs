@@ -25,6 +25,82 @@ use crate::{
     raw_doc_ids_only::RawDocIdsOnly,
 };
 
+/// Encoding types that correspond to a variant of the opaque [`InvertedIndex`] enum.
+///
+/// Each encoding type knows how to extract its storage from the opaque wrapper,
+/// enabling type-safe access without manual matching.
+///
+/// # Panics
+///
+/// The extraction methods panic if the opaque wrapper contains a different encoding variant.
+pub trait OpaqueEncoding: Sized {
+    /// The storage type wrapping this encoding in the opaque [`InvertedIndex`] enum.
+    type Storage;
+
+    /// Extract a reference to this encoding's storage from the opaque wrapper.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the opaque wrapper contains a different encoding variant.
+    fn from_opaque(opaque: &InvertedIndex) -> &Self::Storage;
+
+    /// Extract a mutable reference to this encoding's storage from the opaque wrapper.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the opaque wrapper contains a different encoding variant.
+    fn from_mut_opaque(opaque: &mut InvertedIndex) -> &mut Self::Storage;
+}
+
+macro_rules! impl_opaque_encoding {
+    ($encoding:ident, $storage:ty) => {
+        impl OpaqueEncoding for $encoding {
+            type Storage = $storage;
+
+            fn from_opaque(opaque: &InvertedIndex) -> &Self::Storage {
+                match opaque {
+                    InvertedIndex::$encoding(ii) => ii,
+                    _ => panic!(
+                        "expected InvertedIndex::{}, got {:?}",
+                        stringify!($encoding),
+                        std::mem::discriminant(opaque),
+                    ),
+                }
+            }
+
+            fn from_mut_opaque(opaque: &mut InvertedIndex) -> &mut Self::Storage {
+                match opaque {
+                    InvertedIndex::$encoding(ii) => ii,
+                    _ => panic!(
+                        "expected InvertedIndex::{}, got {:?}",
+                        stringify!($encoding),
+                        std::mem::discriminant(opaque),
+                    ),
+                }
+            }
+        }
+    };
+}
+
+impl_opaque_encoding!(Full, FieldMaskTrackingIndex<Full>);
+impl_opaque_encoding!(FullWide, FieldMaskTrackingIndex<FullWide>);
+impl_opaque_encoding!(FreqsFields, FieldMaskTrackingIndex<FreqsFields>);
+impl_opaque_encoding!(FreqsFieldsWide, FieldMaskTrackingIndex<FreqsFieldsWide>);
+impl_opaque_encoding!(FreqsOnly, InvertedIndexInner<FreqsOnly>);
+impl_opaque_encoding!(FieldsOnly, FieldMaskTrackingIndex<FieldsOnly>);
+impl_opaque_encoding!(FieldsOnlyWide, FieldMaskTrackingIndex<FieldsOnlyWide>);
+impl_opaque_encoding!(FieldsOffsets, FieldMaskTrackingIndex<FieldsOffsets>);
+impl_opaque_encoding!(FieldsOffsetsWide, FieldMaskTrackingIndex<FieldsOffsetsWide>);
+impl_opaque_encoding!(OffsetsOnly, InvertedIndexInner<OffsetsOnly>);
+impl_opaque_encoding!(FreqsOffsets, InvertedIndexInner<FreqsOffsets>);
+impl_opaque_encoding!(DocIdsOnly, InvertedIndexInner<DocIdsOnly>);
+impl_opaque_encoding!(RawDocIdsOnly, InvertedIndexInner<RawDocIdsOnly>);
+impl_opaque_encoding!(Numeric, EntriesTrackingIndex<Numeric>);
+impl_opaque_encoding!(
+    NumericFloatCompression,
+    EntriesTrackingIndex<NumericFloatCompression>
+);
+
 /// An opaque inverted index structure. The actual implementation is determined at runtime based on
 /// the index flags provided when creating the index. This allows us to have a single interface for
 /// all index types while still being able to optimize the storage and performance for each index
@@ -49,55 +125,11 @@ pub enum InvertedIndex {
     FieldsOffsetsWide(FieldMaskTrackingIndex<FieldsOffsetsWide>),
     OffsetsOnly(InvertedIndexInner<OffsetsOnly>),
     FreqsOffsets(InvertedIndexInner<FreqsOffsets>),
-    DocumentIdOnly(InvertedIndexInner<DocIdsOnly>),
-    RawDocumentIdOnly(InvertedIndexInner<RawDocIdsOnly>),
+    DocIdsOnly(InvertedIndexInner<DocIdsOnly>),
+    RawDocIdsOnly(InvertedIndexInner<RawDocIdsOnly>),
     // Needs to track the entries count because it has the `StoreNumeric` flag set
     Numeric(EntriesTrackingIndex<Numeric>),
     NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
-}
-
-impl InvertedIndex {
-    /// Returns a mutable reference to the numeric inverted index.
-    ///
-    /// Only meant to be used internally by tests.
-    ///
-    /// # Panic
-    /// Will panic if the inverted index is not of type `Numeric`.
-    #[cfg(feature = "test_utils")]
-    pub fn as_numeric(&mut self) -> &mut InvertedIndexInner<Numeric> {
-        match self {
-            Self::Numeric(ii) => ii.inner_mut(),
-            _ => panic!("Unexpected inverted index type"),
-        }
-    }
-
-    /// Returns a reference to the Full inverted index.
-    ///
-    /// Only meant to be used internally by tests.
-    ///
-    /// # Panic
-    /// Will panic if the inverted index is not of type `Full`.
-    #[cfg(feature = "test_utils")]
-    pub fn as_full(&self) -> &FieldMaskTrackingIndex<Full> {
-        match self {
-            Self::Full(ii) => ii,
-            _ => panic!("Unexpected inverted index type, expected Full"),
-        }
-    }
-
-    /// Returns a reference to the FullWide inverted index.
-    ///
-    /// Only meant to be used internally by tests.
-    ///
-    /// # Panic
-    /// Will panic if the inverted index is not of type `FullWide`.
-    #[cfg(feature = "test_utils")]
-    pub fn as_full_wide(&self) -> &FieldMaskTrackingIndex<FullWide> {
-        match self {
-            Self::FullWide(ii) => ii,
-            _ => panic!("Unexpected inverted index type, expected FullWide"),
-        }
-    }
 }
 
 impl Debug for InvertedIndex {
@@ -114,8 +146,8 @@ impl Debug for InvertedIndex {
             Self::FieldsOffsetsWide(ii) => f.debug_tuple("FieldsOffsetsWide").field(ii).finish(),
             Self::OffsetsOnly(ii) => f.debug_tuple("OffsetsOnly").field(ii).finish(),
             Self::FreqsOffsets(ii) => f.debug_tuple("FreqsOffsets").field(ii).finish(),
-            Self::DocumentIdOnly(ii) => f.debug_tuple("DocumentIdOnly").field(ii).finish(),
-            Self::RawDocumentIdOnly(ii) => f.debug_tuple("RawDocumentIdOnly").field(ii).finish(),
+            Self::DocIdsOnly(ii) => f.debug_tuple("DocIdsOnly").field(ii).finish(),
+            Self::RawDocIdsOnly(ii) => f.debug_tuple("RawDocIdsOnly").field(ii).finish(),
             Self::Numeric(ii) => f.debug_tuple("Numeric").field(ii).finish(),
             Self::NumericFloatCompression(ii) => {
                 f.debug_tuple("NumericFloatCompression").field(ii).finish()
