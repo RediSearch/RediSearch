@@ -354,7 +354,8 @@ impl TestContext {
                 // SAFETY: inverted_index is a valid pointer created via Redis_OpenInvertedIndex
                 // and the FFI InvertedIndex type is a repr(C) enum that wraps the same data.
                 let ii: *const inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
-                unsafe { &*ii }.as_full()
+                use inverted_index::{full::Full, opaque::OpaqueEncoding};
+                Full::from_opaque(unsafe { &*ii })
             }
             _ => panic!("TestContext is not a Term context"),
         }
@@ -370,7 +371,8 @@ impl TestContext {
                 // SAFETY: inverted_index is a valid pointer created via Redis_OpenInvertedIndex
                 // and the FFI InvertedIndex type is a repr(C) enum that wraps the same data.
                 let ii: *const inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
-                unsafe { &*ii }.as_full_wide()
+                use inverted_index::{full::FullWide, opaque::OpaqueEncoding};
+                FullWide::from_opaque(unsafe { &*ii })
             }
             _ => panic!("TestContext is not a Term context"),
         }
