@@ -615,7 +615,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
+  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!tagIndex) {
