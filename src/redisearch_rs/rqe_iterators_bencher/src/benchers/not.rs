@@ -26,9 +26,6 @@ impl Bencher {
     const WEIGHT: f64 = 1.0;
     const MAX_DOC_ID: u64 = 1_000_000;
 
-    /// Duration chosen to be big enough such that it will not be reached.
-    const NOT_ITERATOR_LARGE_TIMEOUT: Duration = Duration::from_secs(300);
-
     fn benchmark_group<'a>(
         &self,
         c: &'a mut Criterion,
@@ -56,14 +53,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || {
-                    Not::new(
-                        Empty,
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
-                    )
-                },
+                || Not::new(Empty, Self::MAX_DOC_ID, 1.0, None),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
@@ -102,12 +92,7 @@ impl Bencher {
                 || {
                     // Child has 1% of docs (every 100th doc)
                     let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
-                    )
+                    Not::new(IdListSorted::new(data), Self::MAX_DOC_ID, 1.0, None)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -148,12 +133,7 @@ impl Bencher {
                 || {
                     // Child has 99% of docs (all except every 100th doc)
                     let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
-                    )
+                    Not::new(IdListSorted::new(data), Self::MAX_DOC_ID, 1.0, None)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -192,14 +172,7 @@ impl Bencher {
         // Rust implementation
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || {
-                    Not::new(
-                        Empty,
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
-                    )
-                },
+                || Not::new(Empty, Self::MAX_DOC_ID, 1.0, None),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                         black_box(current);
@@ -238,12 +211,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
-                    )
+                    Not::new(IdListSorted::new(data), Self::MAX_DOC_ID, 1.0, None)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
@@ -284,12 +252,7 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     let data: Vec<_> = (1..Self::MAX_DOC_ID).filter(|x| x % 100 != 0).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
-                    )
+                    Not::new(IdListSorted::new(data), Self::MAX_DOC_ID, 1.0, None)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {

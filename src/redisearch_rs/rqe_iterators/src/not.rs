@@ -38,14 +38,14 @@ pub struct Not<'index, I> {
     ///
     /// Uses an amortized check to minimize overhead in hot paths. The timeout
     /// is absolute for the iterator's lifetime and does not reset upon rewinding.
-    timeout_ctx: TimeoutContext,
+    timeout_ctx: Option<TimeoutContext>,
 }
 
 impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    pub fn new(child: I, max_doc_id: t_docId, weight: f64, timeout: Duration) -> Self {
+    pub fn new(child: I, max_doc_id: t_docId, weight: f64, timeout: Option<Duration>) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
@@ -57,7 +57,7 @@ where
             // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
             // the internal counter goes up. When it reaches this `limit` of 5_000 it will
             // reset that counter and do the actual (OS) expensive timeout check.
-            timeout_ctx: TimeoutContext::new(timeout, 5_000),
+            timeout_ctx: timeout.map(|timeout| TimeoutContext::new(timeout, 5_000)),
         }
     }
 
@@ -67,12 +67,35 @@ where
     /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        let result = self.timeout_ctx.check_timeout();
+        let Some(result) = self.timeout_ctx.as_mut().map(|ctx| ctx.check_timeout()) else {
+            return Ok(());
+        };
         if matches!(result, Err(RQEIteratorError::TimedOut)) {
             // NOTE: this is not done for optimized version of NOT iterator in C
             self.forced_eof = true;
         }
         result
+    }
+
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Not`] iterator.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    /// Set the child of this [`Not`] iterator.
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = MaybeEmpty::new(new_child);
+    }
+
+    /// Unset the child of this [`Not`] iterator (make it `None`).
+    pub fn unset_child(&mut self) {
+        self.child = MaybeEmpty::new_empty();
+    }
+
+    /// Take the child of this [`Not`] iterator if it exists.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
     }
 }
 
@@ -121,11 +144,11 @@ where
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        debug_assert!(self.last_doc_id() < doc_id);
-
         if self.at_eof() {
             return Ok(None);
         }
+
+        debug_assert!(self.last_doc_id() < doc_id);
 
         // Do not skip beyond max_doc_id
         if doc_id > self.max_doc_id {

@@ -369,10 +369,11 @@ void Profile_AddIters(QueryIterator **root) {
 
   // Add profile iterator before child iterators
   switch((*root)->type) {
-    case NOT_ITERATOR: {
-      QueryIterator *child = ((NotIterator *)(*root))->child;
+    case NOT_ITERATOR:
+    case NOT_OPTIMIZED_ITERATOR: {
+      QueryIterator *child = TakeNotIteratorChild(*root);
       Profile_AddIters(&child);
-      ((NotIterator *)(*root))->child = child;
+      SetNotIteratorChild(*root, child);
       break;
     }
     case OPTIONAL_ITERATOR: {
@@ -598,10 +599,18 @@ PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,                  "WILDCARD");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListSortedIt,              "ID-LIST-SORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListUnsortedIt,            "ID-LIST-UNSORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,                     "EMPTY");
-PRINT_PROFILE_SINGLE(printNotIt, NotIterator,                   "NOT");
 PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator,         "OPTIONAL");
 PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
+
+PRINT_PROFILE_FUNC(printNotIt) {
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    GetNotIteratorChild(root), "NOT");
+}
+PRINT_PROFILE_FUNC(printNotOptimizedIt) {
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    GetNotIteratorChild(root), "NOT-OPTIMIZED");
+}
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -626,6 +635,7 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
     case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
     // Single value
     case NOT_ITERATOR:                      { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
+    case NOT_OPTIMIZED_ITERATOR:            { printNotOptimizedIt(reply, root, counters, cpuTime, depth, limited, config);          break; }
     case OPTIONAL_ITERATOR:                 { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case EMPTY_ITERATOR:                    { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }

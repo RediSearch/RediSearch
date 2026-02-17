@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "iterators/iterator_api.h"
 #include "rmutil/alloc.h"
 
 #include "gtest/gtest.h"
@@ -81,9 +82,7 @@ protected:
       std::vector<t_docId> wildcard = {1, 2, 3};
       mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
       iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
-      NotIterator *ni = (NotIterator *)iterator_base;
-      ni->wcii->Free(ni->wcii);
-      ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
+      _SetOptimizedNotIteratorWildcard(iterator_base, (QueryIterator *) new MockIterator(wcDocIds));
     } else {
       mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
       iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
@@ -99,18 +98,17 @@ TEST_P(NotIteratorCommonTest, Read) {
   if (optimized && opt_max_doc_id.has_value()) {
     GTEST_SKIP() << "For optimized version the maxDocId is not necessarily respected (smaller than the max of Child or WCDocId): Is it worth adding this check? return base->lastDocId < ni->maxDocId ? ITERATOR_EOF : ITERATOR_OK; ";
   }
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
 
   size_t i = 0;
   while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
-    ASSERT_EQ(ni->base.current->docId, resultSet[i]);
-    ASSERT_EQ(ni->base.lastDocId, resultSet[i]);
-    ASSERT_FALSE(ni->base.atEOF);
+    ASSERT_EQ(iterator_base->current->docId, resultSet[i]);
+    ASSERT_EQ(iterator_base->lastDocId, resultSet[i]);
+    ASSERT_FALSE(iterator_base->atEOF);
     i++;
   }
   ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_TRUE(ni->base.atEOF);
+  ASSERT_TRUE(iterator_base->atEOF);
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF); // Reading after EOF should return EOF
   ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
 }
@@ -127,7 +125,6 @@ TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
   if (optimized && opt_max_doc_id.has_value()) {
     GTEST_SKIP() << "For optimized version the maxDocId is not necessarily respected (smaller than the max of Child or WCDocId): Is it worth adding this check? return base->lastDocId < ni->maxDocId ? ITERATOR_EOF : ITERATOR_OK; ";
   }
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   // Test skipping from 0
   for (t_docId id : childDocIds) {
@@ -177,7 +174,6 @@ TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
       }
     }
 
-    NotIterator *ni = (NotIterator*) iterator_base;
     if (skipToId <= iterator_base->lastDocId) {
       break;
     }
@@ -200,7 +196,6 @@ TEST_P(NotIteratorCommonTest, SkipToWCIds) {
   if (optimized && opt_max_doc_id.has_value()) {
     GTEST_SKIP() << "For optimized version the maxDocId is not necessarily respected (smaller than the max of Child or WCDocId): Is it worth adding this check? return base->lastDocId < ni->maxDocId ? ITERATOR_EOF : ITERATOR_OK; ";
   }
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   // Test skipping from 0
   for (t_docId id : wcDocIds) {
@@ -253,7 +248,6 @@ TEST_P(NotIteratorCommonTest, SkipToWCIds) {
       }
     }
 
-    NotIterator *ni = (NotIterator*) iterator_base;
     if (skipToId <= iterator_base->lastDocId) {
       break;
     }
@@ -279,7 +273,6 @@ TEST_P(NotIteratorCommonTest, SkipToAll) {
   if (optimized && opt_max_doc_id.has_value()) {
     GTEST_SKIP() << "For optimized version the maxDocId is not necessarily respected (smaller than the max of Child or WCDocId): Is it worth adding this check? return base->lastDocId < ni->maxDocId ? ITERATOR_EOF : ITERATOR_OK; ";
   }
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   for (t_docId id = 1; id < maxDocId; id++) {
     t_docId expectedId = 0;
@@ -318,16 +311,15 @@ TEST_P(NotIteratorCommonTest, SkipToAll) {
 }
 
 TEST_P(NotIteratorCommonTest, NumEstimated) {
-  NotIterator *ni = (NotIterator *)iterator_base;
   if (optimized) {
-    ASSERT_EQ(iterator_base->NumEstimated(iterator_base), ni->wcii->NumEstimated(ni->wcii));
+    QueryIterator const* wcii = _GetOptimizedNotIteratorWildcard(iterator_base);
+    ASSERT_EQ(iterator_base->NumEstimated(iterator_base), wcii->NumEstimated((QueryIterator*) wcii));
   } else {
     ASSERT_EQ(iterator_base->NumEstimated(iterator_base), maxDocId);
   }
 }
 
 TEST_P(NotIteratorCommonTest, Rewind) {
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j <= i && j < resultSet.size(); j++) {
@@ -386,34 +378,43 @@ INSTANTIATE_TEST_SUITE_P(
 class NotIteratorChildTimeoutTest : public NotIteratorCommonTest {
   protected:
   void TimeoutChildTestFirstRead() {
-    NotIterator *ni = (NotIterator *)iterator_base;
-    auto child = reinterpret_cast<MockIterator *>(ni->child);
+    QueryIterator* child_it = TakeNotIteratorChild(iterator_base);
+    auto child = reinterpret_cast<MockIterator*>(child_it);
     child->whenDone = ITERATOR_TIMEOUT;
     child->docIds.clear();
+    SetNotIteratorChild(iterator_base, child_it);
     IteratorStatus rc = iterator_base->Read(iterator_base);
     ASSERT_EQ(rc, ITERATOR_TIMEOUT);
   }
 
   void TimeoutChildTestSubsequentRead() {
-    NotIterator *ni = (NotIterator *)iterator_base;
-    auto child = reinterpret_cast<MockIterator *>(ni->child);
     IteratorStatus rc = iterator_base->Read(iterator_base);
     ASSERT_EQ(rc, ITERATOR_OK);
-    if (ni->base.lastDocId < ni->child->NumEstimated(ni->child)) {
+
+    QueryIterator* child_it = TakeNotIteratorChild(iterator_base);
+    auto child = reinterpret_cast<MockIterator*>(child_it);
+
+    if (iterator_base->lastDocId < child_it->NumEstimated(child_it)) {
       child->whenDone = ITERATOR_TIMEOUT;
       child->docIds.clear();
+
+      SetNotIteratorChild(iterator_base, child_it);
+
       while (rc == ITERATOR_OK) {
         rc = iterator_base->Read(iterator_base);
       }
       ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+    } else {
+      SetNotIteratorChild(iterator_base, child_it);
     }
   }
 
   void TimeoutChildTestSkipTo() {
-    NotIterator *ni = (NotIterator *)iterator_base;
-    auto child = reinterpret_cast<MockIterator *>(ni->child);
+    QueryIterator* child_it = TakeNotIteratorChild(iterator_base);
+    auto child = reinterpret_cast<MockIterator*>(child_it);
     child->whenDone = ITERATOR_TIMEOUT;
     child->docIds.clear();
+    SetNotIteratorChild(iterator_base, child_it);
     t_docId next = 1;
     IteratorStatus rc = ITERATOR_OK;
     while (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
@@ -505,13 +506,11 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
   }
 
   void TimeoutSelfTestRead() {
-    NotIterator *ni = (NotIterator *)iterator_base;
     IteratorStatus rc = iterator_base->Read(iterator_base);
     ASSERT_EQ(rc, ITERATOR_TIMEOUT);
   }
 
   void TimeoutSelfTestSkipTo() {
-    NotIterator *ni = (NotIterator *)iterator_base;
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, 1);
     ASSERT_EQ(rc, ITERATOR_TIMEOUT);
   }
@@ -578,24 +577,22 @@ protected:
 };
 
 TEST_F(NotIteratorNoChildTest, Read) {
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
 
   // Test reading until EOF
   size_t i = 0;
   while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
-    ASSERT_EQ(ni->base.current->docId, i + 1);
-    ASSERT_FALSE(ni->base.atEOF);
+    ASSERT_EQ(iterator_base->current->docId, i + 1);
+    ASSERT_FALSE(iterator_base->atEOF);
     i++;
   }
   ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_TRUE(ni->base.atEOF);
+  ASSERT_TRUE(iterator_base->atEOF);
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF); // Reading after EOF should return EOF
   ASSERT_EQ(i, maxDocId) << "Expected to read " << maxDocId << " documents";
 }
 
 TEST_F(NotIteratorNoChildTest, SkipTo) {
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   for (t_docId id = 1; id <= maxDocId; id++) {
     iterator_base->Rewind(iterator_base);
@@ -613,7 +610,6 @@ TEST_F(NotIteratorNoChildTest, SkipTo) {
 }
 
 TEST_F(NotIteratorNoChildTest, Rewind) {
-  NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
   for (int i = 0; i < maxDocId; i++) {
     for (int j = 0; j <= i && j < 5; j++) {
@@ -834,12 +830,8 @@ protected:
     ni_base = NewNotIterator(child, maxDocId, weight, timeout, &mockCtx->qctx);
 
     // Replace the wildcard iterator with a mock for testing
-    NotIterator *ni = (NotIterator *)ni_base;
-    QueryIterator *wcii = ni->wcii;
-    ASSERT_TRUE(wcii != nullptr);
-    wcii->Free(wcii); // Free the original wildcard iterator
     mockWildcard = new MockIterator(wildcard);
-    ni->wcii = reinterpret_cast<QueryIterator *>(mockWildcard);
+    _SetOptimizedNotIteratorWildcard(ni_base, reinterpret_cast<QueryIterator *>(mockWildcard));
   }
 
   void TearDown() override {
@@ -936,7 +928,7 @@ TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardOK) {
   ASSERT_EQ(status, VALIDATE_OK); // NOT iterator continues even when child is aborted
 
   // Verify both iterators were checked
-  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
+  ASSERT_EQ(GetNotIteratorChild(ni_base)->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
   ASSERT_EQ(ni_base->lastDocId, originalDocId); // Position should remain valid
 
@@ -1003,7 +995,7 @@ TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardMoved)
   ASSERT_EQ(status, VALIDATE_MOVED);
 
   // Verify both iterators were checked
-  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
+  ASSERT_EQ(GetNotIteratorChild(ni_base)->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
   ASSERT_GT(ni_base->lastDocId, originalDocId); // Position might change due to wildcard movement
 }
