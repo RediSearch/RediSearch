@@ -75,3 +75,29 @@ pub unsafe extern "C" fn Term_Free(t: *mut RSQueryTerm) {
     // (i.e. via `Box::into_raw`). `RSQueryTerm::Drop` frees the string.
     let _ = unsafe { Box::from_raw(t) };
 }
+
+/// Get the IDF (inverse document frequency) value from a query term.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetIDF(term: *const RSQueryTerm) -> f64 {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).idf() }
+}
+
+/// Set the IDF (inverse document frequency) value on a query term.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_SetIDF(term: *mut RSQueryTerm, value: f64) {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).set_idf(value) }
+}

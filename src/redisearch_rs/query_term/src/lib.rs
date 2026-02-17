@@ -97,6 +97,16 @@ impl RSQueryTerm {
             bm25_idf: 0.0,
         })
     }
+
+    /// Get the inverse document frequency (IDF) for TF-IDF scoring.
+    pub fn idf(&self) -> f64 {
+        self.idf
+    }
+
+    /// Set the inverse document frequency (IDF) for TF-IDF scoring.
+    pub fn set_idf(&mut self, value: f64) {
+        self.idf = value;
+    }
 }
 
 impl Drop for RSQueryTerm {
@@ -127,7 +137,7 @@ impl PartialEq for RSQueryTerm {
         };
 
         self_str == other_str
-            && self.idf == other.idf
+            && self.idf() == other.idf()
             && self.bm25_idf == other.bm25_idf
             && self.id == other.id
             && self.flags == other.flags
