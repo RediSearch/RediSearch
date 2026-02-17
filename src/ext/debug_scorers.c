@@ -32,7 +32,7 @@
 static double sumIdfRecursive(const RSIndexResult *r) {
   if (r->data.tag == RSResultData_Term) {
     RSQueryTerm *term = IndexResult_QueryTermRef(r);
-    return term ? term->idf : 0;
+    return term ? QueryTerm_GetIDF(term) : 0;
   }
   if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     double sum = 0;

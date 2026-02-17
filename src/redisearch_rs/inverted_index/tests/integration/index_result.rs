@@ -179,7 +179,7 @@ fn to_owned_a_virtual_index_result() {
 fn to_owned_a_term_index_result() {
     let mut term = RSQueryTerm::new("test_term".as_bytes(), 2, 3);
     term.bm25_idf = 4.0;
-    term.idf = 1.0;
+    term.set_idf(1.0);
 
     let offsets: [u8; 1] = [0];
     let offsets = RSOffsetSlice::from_slice(&offsets);

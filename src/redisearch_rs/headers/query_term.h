@@ -93,6 +93,26 @@ struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
  */
 void Term_Free(struct RSQueryTerm *t);
 
+/**
+ * Get the IDF (inverse document frequency) value from a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+double QueryTerm_GetIDF(const struct RSQueryTerm *term);
+
+/**
+ * Set the IDF (inverse document frequency) value on a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+void QueryTerm_SetIDF(struct RSQueryTerm *term, double value);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
