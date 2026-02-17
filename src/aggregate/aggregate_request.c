@@ -1102,6 +1102,8 @@ static bool IsNeededDepleter(AREQ *req) {
   return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
 }
 
+// This function should only be called from the main thread (calling RunInThread() is not thread safe)
+// AREQ execution flags are not set when this function is called currently
 static bool shouldCheckInPipelineTimeout(AREQ *req) {
   // We should check for timeout in pipeline only if timeout is > 0
   // and when the policy is RETURN or the policy is FAIL, without workers.

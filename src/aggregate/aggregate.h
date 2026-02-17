@@ -207,7 +207,7 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRI
 
 // Reply state for coordinating replies between main thread (timeout callback) and background thread
 // Transitions: NOT_REPLIED -> REPLYING -> REPLIED
-typedef enum {
+typedef enum : uint8_t {
   ReplyState_NotReplied = 0,  // No reply has been started yet
   ReplyState_Replying = 1,    // A reply is currently in progress
   ReplyState_Replied = 2,     // A reply has been completed
@@ -299,12 +299,12 @@ typedef struct AREQ {
   RS_Atomic(bool) timedOut;
   // Reply ownership state, coordinates reply between main and background thread
   // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
-  RS_Atomic(int) replyState;
+  RS_Atomic(uint8_t) replyState;
   // Flag to indicate whether to check for timeout using clock checks
   bool skipTimeoutChecks;
   // Reference count for shared ownership between QueryNode (timeout callback) and background thread.
   // Initialized to 1. Free when reaches 0.
-  uint32_t refcount;
+  uint8_t refcount;
 } AREQ;
 
 /**
@@ -542,7 +542,7 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
-#undef _Atomic
+#undef RS_Atomic
 
 }
 #endif
