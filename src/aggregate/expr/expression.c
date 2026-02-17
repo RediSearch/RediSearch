@@ -330,7 +330,6 @@ EvalCtx *EvalCtx_Create() {
 
   RLookup _lk = {0};
   r->lk = _lk;
-  RLookup_Init(&r->lk, NULL);
   QueryError _status = QueryError_Default();
   r->status = _status;
 

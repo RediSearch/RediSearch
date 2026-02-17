@@ -9,9 +9,6 @@ publish.workspace = true
 # feature enabled when building tests so they can link the C code in build.rs
 # see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
 unittest = []
-# They currently trigger a bug in hybrid (MOD-12370). This feature should be removed
-# once the bug has been fixed.
-disable_sort_checks_in_idlist = []
 
 [build-dependencies]
 build_utils = { path = "../build_utils" }
@@ -33,6 +30,8 @@ workspace_hack.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
+query_term.workspace = true
+query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }
 rqe_iterators = { path = ".", features = ["unittest"] }
 rqe_iterators_test_utils = { workspace = true }
 

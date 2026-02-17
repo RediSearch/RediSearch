@@ -7,10 +7,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "thin_vec.h"
+#include "query_term.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
-typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
@@ -298,14 +298,17 @@ typedef union RSAggregateResult {
 } RSAggregateResult;
 
 /**
- * Represents the encoded offsets of a term in a document. You can read the offsets by iterating
- * over it with RSIndexResult_IterateOffsets
+ * Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
+ * iterating over it with RSIndexResult_IterateOffsets.
+ *
+ * This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
+ * Use [`RSOffsetVector`] for owned offset data.
  */
 typedef struct RSOffsetVector {
   /**
-   * At this point the data ownership is still managed by the caller.
+   * Pointer to the borrowed offset data.
    */
-  char *data;
+  uint8_t *data;
   uint32_t len;
 } RSOffsetVector;
 
@@ -327,10 +330,13 @@ typedef uint8_t RSTermRecord_Tag;
 typedef struct RSTermRecord_Borrowed_Body {
   RSTermRecord_Tag tag;
   /**
-   * The term that brought up this record
+   * The term that brought up this record.
    *
-   * This term was created using `NewQueryTerm`, and in the borrowed case, it is actually
-   * the owner of the memory. So it should be freed when this record is dropped.
+   * The term is owned by the record. The name of the variant, `Borrowed`,
+   * refers to the `offsets` field.
+   *
+   * The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
+   * variants have the same memory layout.
    */
   RSQueryTerm *term;
   /**
@@ -344,18 +350,18 @@ typedef struct RSTermRecord_Borrowed_Body {
 typedef struct RSTermRecord_Owned_Body {
   RSTermRecord_Tag tag;
   /**
-   * The term that brought up this record
+   * The term that brought up this record.
    *
-   * The owned version points to the original borrowed term, and should therefore never clean
-   * up this memory.
+   * It borrows the term from another record.
+   * The name of the variant, `Owned`, refers to the `offsets` field.
    */
   RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
-   * The owned version will make a copy of the offsets data, hence that `'static` lifetime.
+   * The owned version owns a copy of the offsets data, which is freed on drop.
    */
-  struct RSOffsetVector offsets;
+  RSOffsetVector offsets;
 } RSTermRecord_Owned_Body;
 
 typedef union RSTermRecord {
@@ -633,6 +639,11 @@ struct RSIndexResult *NewHybridResult(void);
 /**
  * Allocate a new token record with a given term and weight. This result should be freed using
  * [`IndexResult_Free`].
+ *
+ * # Safety
+ *
+ * `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
+ * caller transfers ownership — it must not be freed separately.
  */
 struct RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
@@ -719,17 +730,6 @@ RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result);
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
 const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResult *result);
-
-/**
- * Get a mutable term offsets from a result if it is a term result. If the result is not a term,
- * then this function will return a `NULL` pointer.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-struct RSOffsetVector *IndexResult_TermOffsetsRefMut(struct RSIndexResult *result);
 
 /**
  * Get the aggregate result reference if the result is an aggregate result. If the result is
@@ -866,36 +866,38 @@ void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult
 struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggregateResult *agg);
 
 /**
- * Retrieve the offsets array from [`RSOffsetVector`].
+ * Retrieve the offsets array from an offset vector.
  *
  * Set the array length into the `len` pointer.
- * The returned array is borrowed from the [`RSOffsetVector`] and should not be modified.
+ * The returned array is borrowed and should not be modified.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
  */
 const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
 
 /**
- * Set the offsets array on a [`RSOffsetVector`].
+ * Set the offsets array on an offset vector.
  *
- * The [`RSOffsetVector`] will borrow the passed array so it's up to the caller to
- * ensure it stays alive during the [`RSOffsetVector`] lifetime.
+ * The vector will borrow the passed array so it's up to the caller to
+ * ensure it stays alive during its lifetime.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  * - `data` must point to an array of `len` offsets.
  * - if `data` is NULL then `len` should be 0.
  */
 void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
 
 /**
- * Free the data inside an [`RSOffsetVector`]'s offset
+ * Free the data inside an offset vector.
  *
  * # Safety
  *
@@ -904,7 +906,7 @@ void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, ui
  * - The data pointer of `offsets` had been allocated via the global allocator
  *   and points to an array matching the length of `offsets`.
  */
-void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
+void RSOffsetVector_FreeData(RSOffsetVector *offsets);
 
 /**
  * Copy the data from one offset vector to another.
@@ -916,18 +918,20 @@ void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
  *
  * The following invariants must be upheld when calling this function:
  * - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
- * - `src` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  * - `src` data should point to a valid array of `src.len` offsets.
  */
-void RSOffsetVector_CopyData(struct RSOffsetVector *dest, const struct RSOffsetVector *src);
+void RSOffsetVector_CopyData(RSOffsetVector *dest, const struct RSOffsetVector *src);
 
 /**
- * Retrieve the number of offsets in [`RSOffsetVector`].
+ * Retrieve the number of offsets in an offset vector.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  */
 uint32_t RSOffsetVector_Len(const struct RSOffsetVector *offsets);
 
