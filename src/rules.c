@@ -493,6 +493,11 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb) {
   RedisModule_SaveUnsigned(rdb, rule->index_all);
 }
 
+bool SchemaRule_FilterPasses(EvalCtx *r, const RSExpr *filter_exp) {
+  return EvalCtx_EvalExpr(r, filter_exp) == EXPR_EVAL_OK &&
+         RSValue_BoolTest(r->res);
+}
+
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
   // check type
   if (type != sp->rule->type) {
@@ -518,19 +523,14 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
   }
 
   // check filters
-  int ret = true;
+  bool ret = true;
   SchemaRule *rule = sp->rule;
   if (rule->filter_exp) {
-    EvalCtx *r = NULL;
-    // load hash only if required
-    r = EvalCtx_Create();
+    EvalCtx *r = EvalCtx_Create();
 
     RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
 
-    if (EvalCtx_EvalExpr(r, rule->filter_exp) != EXPR_EVAL_OK ||
-        !RSValue_BoolTest(r->res)) {
-      ret = false;
-    }
+    ret = SchemaRule_FilterPasses(r, rule->filter_exp);
     QueryError_ClearError(r->ee.err);
     EvalCtx_Destroy(r);
   }
