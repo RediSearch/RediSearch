@@ -55,7 +55,7 @@ typedef struct ForkGC {
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
 
-  // current value of RSGlobalConfig.gcConfigParams.fork.forkGCCleanNumericEmptyNodes
+  // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
   int cleanNumericEmptyNodes;
 } ForkGC;

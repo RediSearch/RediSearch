@@ -27,7 +27,7 @@ static int periodicCb(void *privdata) {
     return 1;
   }
 
-  if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.fork.forkGcCleanThreshold) {
+  if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return 1;
   }
@@ -38,7 +38,7 @@ static int periodicCb(void *privdata) {
 
   SearchDisk_RunGC(sp->diskSpec);
 
-  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.fork.forkGcRunIntervalSec;
+  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
   gc->interval.tv_nsec = 0;
 
   IndexSpecRef_Release(spec_ref);
@@ -88,7 +88,7 @@ DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedDocsFromLastRun = 0,
   };
-  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.fork.forkGcRunIntervalSec;
+  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
   gc->interval.tv_nsec = 0;
   gc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
 
