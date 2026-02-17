@@ -107,6 +107,16 @@ impl RSQueryTerm {
     pub fn set_idf(&mut self, value: f64) {
         self.idf = value;
     }
+
+    /// Get the BM25 IDF value for BM25 scoring.
+    pub fn bm25_idf(&self) -> f64 {
+        self.bm25_idf
+    }
+
+    /// Set the BM25 IDF value for BM25 scoring.
+    pub fn set_bm25_idf(&mut self, value: f64) {
+        self.bm25_idf = value;
+    }
 }
 
 impl Drop for RSQueryTerm {
@@ -138,7 +148,7 @@ impl PartialEq for RSQueryTerm {
 
         self_str == other_str
             && self.idf() == other.idf()
-            && self.bm25_idf == other.bm25_idf
+            && self.bm25_idf() == other.bm25_idf()
             && self.id == other.id
             && self.flags == other.flags
     }

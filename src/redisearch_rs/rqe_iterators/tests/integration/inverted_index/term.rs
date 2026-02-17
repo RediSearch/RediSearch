@@ -22,7 +22,7 @@ use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest
 fn new_term() -> Box<RSQueryTerm> {
     let mut term = RSQueryTerm::new(b"term", 1, 0);
     term.set_idf(5.0);
-    term.bm25_idf = 10.0;
+    term.set_bm25_idf(10.0);
     term
 }
 
@@ -60,7 +60,7 @@ impl TermBaseTest {
                 Box::new(move |doc_id| {
                     let mut term = RSQueryTerm::new(b"term", 1, 0);
                     term.set_idf(5.0);
-                    term.bm25_idf = 10.0;
+                    term.set_bm25_idf(10.0);
                     // Use doc_id as field_mask so we can test FilterMaskReader
                     expected_record(doc_id, doc_id as t_fieldMask, Some(term), OFFSETS)
                 }),
