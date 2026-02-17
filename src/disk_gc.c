@@ -15,7 +15,7 @@
 #include "rmalloc.h"
 #include "info/global_stats.h"
 
-static int periodicCb(void *privdata) {
+static int periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
@@ -27,7 +27,7 @@ static int periodicCb(void *privdata) {
     return 1;
   }
 
-  if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
+  if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return 1;
   }

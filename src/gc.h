@@ -33,7 +33,7 @@ typedef struct InfoGCStats {
 } InfoGCStats;
 
 typedef struct GCCallbacks {
-  int  (*periodicCallback)(void* gcCtx);
+  int  (*periodicCallback)(void* gcCtx, bool force);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);

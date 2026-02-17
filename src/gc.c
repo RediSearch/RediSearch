@@ -72,7 +72,7 @@ static RedisModuleTimerID scheduleNext(GCContext *gc) {
 static void taskCallback(void* data) {
   GCContext* gc = data;
 
-  int ret = gc->callbacks.periodicCallback(gc->gcCtx);
+  int ret = gc->callbacks.periodicCallback(gc->gcCtx, false);
 
   if (ret) { // The common case
     // The index was not freed. We need to reschedule the task.
@@ -98,7 +98,7 @@ static void debugTaskCallback(void* data) {
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
 
-  int ret = gc->callbacks.periodicCallback(gc->gcCtx);
+  int ret = gc->callbacks.periodicCallback(gc->gcCtx, true);
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
