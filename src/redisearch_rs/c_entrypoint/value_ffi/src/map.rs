@@ -24,7 +24,7 @@ pub struct RSValueMap {
 /// The map entries are uninitialized and must be set using [`RSValueMap_SetEntry`]
 /// before being finalized into an [`RsValue`] via [`RSValue_NewMap`].
 ///
-/// # SAFETY
+/// # Safety
 ///
 /// 1. All entries must be initialized via [`RSValueMap_SetEntry`] before
 ///    passing the map to [`RSValue_NewMap`].
@@ -41,13 +41,16 @@ pub unsafe extern "C" fn RSValueMap_AllocUninit(len: u32) -> *mut RSValueMap {
 ///
 /// Takes ownership of both the `key` and `value` [`RsValue`] pointers.
 ///
-/// # SAFETY
+/// # Safety
 ///
 /// 1. `map` must be a valid pointer to an [`RSValueMap`] created by
 ///    [`RSValueMap_AllocUninit`].
-/// 2. `index` must be less than the map length.
-/// 3. `key` and `value` must be valid pointers to [`RsValue`]
+/// 2. `key` and `value` must be valid pointers to [`RsValue`]
 ///    obtained from an `RSValue_*` function.
+///
+/// # Panics
+///
+/// Panics if `index` is greater than or equal to the map length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValueMap_SetEntry(
     map: *mut RSValueMap,
@@ -67,7 +70,7 @@ pub unsafe extern "C" fn RSValueMap_SetEntry(
 /// Takes ownership of the map structure and all its entries. The [`RSValueMap`]
 /// pointer is consumed and must not be used after this call.
 ///
-/// # SAFETY
+/// # Safety
 ///
 /// 1. `map` must be a valid pointer to an [`RSValueMap`] created by
 ///    [`RSValueMap_AllocUninit`].
@@ -98,7 +101,7 @@ pub unsafe extern "C" fn RSValue_NewMap(map: *mut RSValueMap) -> *mut RsValue {
 
 /// Returns the number of key-value pairs in a map [`RsValue`].
 ///
-/// # SAFETY
+/// # Safety
 ///
 /// 1. `map` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 ///
@@ -123,16 +126,16 @@ pub unsafe extern "C" fn RSValue_Map_Len(map: *const RsValue) -> u32 {
 /// The returned key and value pointers are borrowed from the map and must
 /// not be freed by the caller.
 ///
-/// # SAFETY
+/// # Safety
 ///
 /// 1. `map` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-/// 2. `index` must be less than the map length.
-/// 3. `key` and `value` must be valid, non-null pointers to writable
+/// 2. `key` and `value` must be valid, non-null pointers to writable
 ///    `*mut RsValue` locations.
 ///
 /// # Panics
 ///
-/// Panics if `map` is not a map value.
+/// - Panics if `map` is not a map value.
+/// - Panics if `index` is greater or equal to the map length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Map_GetEntry(
     map: *const RsValue,
@@ -146,9 +149,9 @@ pub unsafe extern "C" fn RSValue_Map_GetEntry(
     if let RsValue::Map(map) = map {
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let (shared_key, shared_value) = &map[index as usize];
-        // Safety: ensured by caller (3.)
+        // Safety: ensured by caller (2.)
         unsafe { key.write(shared_key.as_ptr() as *mut _) };
-        // Safety: ensured by caller (3.)
+        // Safety: ensured by caller (2.)
         unsafe { value.write(shared_value.as_ptr() as *mut _) };
     } else {
         panic!("Expected 'Map' type, got '{}'", map.variant_name())
