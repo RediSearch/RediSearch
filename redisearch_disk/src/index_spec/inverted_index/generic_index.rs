@@ -1,9 +1,11 @@
 use ffi::t_docId;
 use speedb::{ColumnFamilyDescriptor, WriteOptions};
+use std::time::Instant;
 
 use crate::{
     database::{ColumnFamilyGuard, SpeedbMultithreadedDatabase},
     key_traits::AsKeyExt,
+    metrics::{AtomicCompactionMetrics, CompactionMetrics},
 };
 
 use super::{
@@ -24,6 +26,9 @@ pub struct GenericInvertedIndex<Config> {
     /// The Speedb database where we store the inverted index.
     database: SpeedbMultithreadedDatabase,
 
+    /// Cumulative compaction metrics (cycles, time).
+    compaction_metrics: AtomicCompactionMetrics,
+
     /// Phantom data to associate the config type (required by Rust since Config isn't stored directly)
     _phantom: std::marker::PhantomData<Config>,
 }
@@ -43,6 +48,7 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
             cf,
             write_options,
             database,
+            compaction_metrics: AtomicCompactionMetrics::default(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -97,5 +103,30 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
     /// Get a reference to the underlying database
     pub fn database(&self) -> &SpeedbMultithreadedDatabase {
         &self.database
+    }
+
+    /// Triggers a full compaction on this index's column family.
+    pub fn compact_full(&self) {
+        tracing::info!(
+            cf = Config::COLUMN_FAMILY_NAME,
+            "Starting full compaction on inverted index column family"
+        );
+        let start = Instant::now();
+        self.database
+            .compact_range_cf(&self.cf, None::<&[u8]>, None::<&[u8]>);
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        self.compaction_metrics.record(CompactionMetrics {
+            cycles: 1,
+            ms_run: elapsed_ms,
+        });
+        tracing::info!(
+            cf = Config::COLUMN_FAMILY_NAME,
+            "Completed full compaction on inverted index column family"
+        );
+    }
+
+    /// Returns cumulative compaction metrics for this index.
+    pub fn get_compaction_metrics(&self) -> CompactionMetrics {
+        self.compaction_metrics.load()
     }
 }

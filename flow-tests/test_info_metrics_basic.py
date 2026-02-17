@@ -29,6 +29,12 @@ CF_METRIC_FIELDS = [
     'estimate_table_readers_mem',
 ]
 
+# Compaction cumulative metrics (inverted index dict only)
+COMPACTION_METRIC_FIELDS = [
+    'compaction_total_cycles',
+    'compaction_total_ms_run',
+]
+
 # Doc table specific fields (in addition to CF metrics)
 DOC_TABLE_EXTRA_FIELDS = [
     'deleted_ids_count',
@@ -43,9 +49,10 @@ def with_overrides(base, **overrides):
     """Return a copy of base dict with overrides applied."""
     return {**base, **overrides}
 
-def make_cf_metrics():
-    """Create a column family metrics dict with all fields defaulting to 0."""
-    return {field: 0 for field in CF_METRIC_FIELDS}
+def make_inverted_index_metrics():
+    """Inverted index dict = CF metrics + compaction metrics (all default 0)."""
+    return {field: 0 for field in CF_METRIC_FIELDS + COMPACTION_METRIC_FIELDS}
+
 
 def make_doc_table_metrics():
     """Create a doc table metrics dict with all fields defaulting to 0."""
@@ -59,7 +66,7 @@ def test_info_search_basic(redis_env):
     # Test before creating any indexes.
     info_before = redis_env.cmd('INFO', 'search')
     expected_doc_table = make_doc_table_metrics()
-    expected_inverted_index = make_cf_metrics()
+    expected_inverted_index = make_inverted_index_metrics()
     redis_env.assertEqual(info_before['search_disk_doc_table'], expected_doc_table)
     redis_env.assertEqual(info_before['search_disk_text_inverted_index'], expected_inverted_index)
 
@@ -125,7 +132,72 @@ def test_info_search_basic(redis_env):
         num_entries_active_memtable=1000, estimate_num_keys=1000)
     redis_env.assertEqual(disk_inv_after_pop, expected_inverted_index)
 
+def test_compaction_metrics(redis_env):
+    """
+    Verifies that compaction cumulative metrics (cycles, ms_run)
+    start at zero and increase as expected after each GC_FORCEINVOKE.
+    """
+    conn = redis_env.getConnection()
+
+    # Create index
+    conn.execute_command(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
+        'SCHEMA', 'title', 'TEXT'
+    )
+
+    # Add documents
+    n_docs = 10000
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc_{i}', 'title', f'hello world term_{i}')
+
+    waitForIndex(redis_env, 'idx')
+
+    # Compaction metrics should be zero before any compaction has run
+    info_after_create = redis_env.cmd('INFO', 'search')
+    inv_initial = info_after_create['search_disk_text_inverted_index']
+    redis_env.assertEqual(inv_initial['compaction_total_cycles'], 0,
+                          message='compaction_total_cycles should be 0 upon index creation')
+    redis_env.assertEqual(inv_initial['compaction_total_ms_run'], 0,
+                          message='compaction_total_ms_run should be 0 upon index creation')
+
+    # First GC invocation, trigger a compaction cycle
+    result = redis_env.cmd('_FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+    redis_env.assertEqual(result, 'DONE')
+
+    info_after_first_gc = redis_env.cmd('INFO', 'search')
+    inv = info_after_first_gc['search_disk_text_inverted_index']
+    cycles_after_first = inv['compaction_total_cycles']
+    ms_after_first = inv['compaction_total_ms_run']
+
+    redis_env.assertGreaterEqual(cycles_after_first, 1, message='At least one compaction cycle after first GC')
+    redis_env.assertGreaterEqual(ms_after_first, 0, message='compaction_total_ms_run should be >= 0')
+
+    # Delete many documents so that second compaction has work to do
+    n_delete = 5000
+    for i in range(n_delete):
+        conn.execute_command('DEL', f'doc_{i}')
+
+    # Second GC invocation, trigger a compaction cycle
+    result = redis_env.cmd('_FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+    redis_env.assertEqual(result, 'DONE')
+
+    info_after_second_gc = redis_env.cmd('INFO', 'search')
+    inv2 = info_after_second_gc['search_disk_text_inverted_index']
+    cycles_after_second = inv2['compaction_total_cycles']
+    ms_after_second = inv2['compaction_total_ms_run']
+
+    # Compaction cycles: exactly one more after second GC invocation
+    redis_env.assertEqual(
+        cycles_after_second, cycles_after_first + 1,
+        message=f'compaction_total_cycles should grow by 1: before={cycles_after_first}, after={cycles_after_second}'
+    )
+
+    # Total ms run should increase
+    redis_env.assertGreaterEqual(
+        ms_after_second, ms_after_first,
+        message=f'compaction_total_ms_run should increase: before={ms_after_first}, after={ms_after_second}'
+    )
+
 # TODO: Add tests with:
 #   * deletion (depends on MOD-13306).
-#   * Compaction/flush.
 #   * Disk usage, once we can initiate a flush via a debug command, or control the cache size more easily.

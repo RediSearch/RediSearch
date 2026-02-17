@@ -4,7 +4,8 @@ use std::ffi::CStr;
 use redisearch_disk::disk_context::DiskContext;
 use redisearch_disk::info_sink::InfoSink;
 use redisearch_disk::metrics::{
-    AsyncReadMetrics, ColumnFamilyMetrics, DocTableMetrics, IndexMetrics,
+    AsyncReadMetrics, ColumnFamilyMetrics, CompactionMetrics, DocTableMetrics, IndexMetrics,
+    InvertedIndexMetrics,
 };
 
 /// Mock implementation of InfoSink for testing.
@@ -72,6 +73,7 @@ fn test_output_info_metrics_empty() {
     assert!(field_names.contains(&"num_immutable_memtables"));
     assert!(field_names.contains(&"estimate_num_keys"));
     assert!(field_names.contains(&"async_total_reads_requested"));
+    assert!(field_names.contains(&"compaction_total_cycles"));
 }
 
 #[test]
@@ -88,10 +90,16 @@ fn test_output_info_metrics_with_data() {
             },
             deleted_ids_count: 5,
         },
-        inverted_index: ColumnFamilyMetrics {
-            estimate_num_keys: 50,
-            live_sst_files_size: 2048,
-            ..Default::default()
+        inverted_index: InvertedIndexMetrics {
+            column_family: ColumnFamilyMetrics {
+                estimate_num_keys: 50,
+                live_sst_files_size: 2048,
+                ..Default::default()
+            },
+            compaction: CompactionMetrics {
+                cycles: 3,
+                ms_run: 150,
+            },
         },
         async_read: AsyncReadMetrics {
             total_reads_requested: 10,
@@ -132,6 +140,10 @@ fn test_output_info_metrics_with_data() {
 
     // Inverted index metrics
     assert_eq!(
+        find_field("disk_text_inverted_index", "estimate_num_keys"),
+        Some(50)
+    );
+    assert_eq!(
         find_field("disk_text_inverted_index", "live_sst_files_size"),
         Some(2048)
     );
@@ -147,4 +159,14 @@ fn test_output_info_metrics_with_data() {
         Some(1)
     );
     assert_eq!(find_field("disk_doc_table", "async_reads_errors"), Some(1));
+
+    // Compaction metrics (in disk_text_inverted_index dict)
+    assert_eq!(
+        find_field("disk_text_inverted_index", "compaction_total_cycles"),
+        Some(3)
+    );
+    assert_eq!(
+        find_field("disk_text_inverted_index", "compaction_total_ms_run"),
+        Some(150)
+    );
 }

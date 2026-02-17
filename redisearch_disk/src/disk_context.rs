@@ -5,7 +5,7 @@ use speedb::{Cache, WriteBufferManager};
 
 use crate::index_spec::IndexSpec;
 use crate::info_sink::InfoSink;
-use crate::metrics::{AsyncReadMetrics, ColumnFamilyMetrics, DocTableMetrics, IndexMetrics};
+use crate::metrics::{AsyncReadMetrics, DocTableMetrics, IndexMetrics, InvertedIndexMetrics};
 
 /// Default memory limit for write buffers and block cache across all databases.
 /// This limits the total memory used by memtables and block caches.
@@ -98,7 +98,10 @@ impl DiskContext {
                 column_family: doc_table.collect_metrics(),
                 deleted_ids_count: doc_table.deleted_ids_len(),
             },
-            inverted_index: index.inverted_index().collect_metrics(),
+            inverted_index: InvertedIndexMetrics {
+                column_family: index.inverted_index().collect_metrics(),
+                compaction: index.inverted_index().get_compaction_metrics(),
+            },
             async_read: doc_table.get_async_read_metrics(),
         };
         self.store_index_metrics(index.name(), metrics)
@@ -128,7 +131,7 @@ impl DiskContext {
     pub fn output_info_metrics(&self, sink: &mut impl InfoSink) {
         // Aggregate all metrics
         let mut doc_table_total = DocTableMetrics::default();
-        let mut inverted_index_total = ColumnFamilyMetrics::default();
+        let mut inverted_index_total = InvertedIndexMetrics::default();
         let mut async_read_total = AsyncReadMetrics::default();
 
         for metrics in self.index_metrics.values() {

@@ -12,6 +12,7 @@ use super::{
 };
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
+use crate::metrics::CompactionMetrics;
 
 pub mod archive;
 pub mod block;
@@ -133,5 +134,15 @@ impl TagInvertedIndex {
         let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), NoOpChecker);
 
         Ok(iter)
+    }
+
+    /// Triggers a full compaction on the tags column family.
+    pub fn compact_full(&self) {
+        self.inner.compact_full();
+    }
+
+    /// Returns cumulative compaction metrics for the tags column family.
+    pub fn get_compaction_metrics(&self) -> CompactionMetrics {
+        self.inner.get_compaction_metrics()
     }
 }

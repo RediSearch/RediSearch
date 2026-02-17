@@ -8,11 +8,16 @@
 
 mod async_read;
 mod column_family;
+mod compaction;
 mod doc_table;
 mod index;
+mod inverted_index;
 
 pub use async_read::AtomicMetrics as AtomicAsyncReadMetrics;
 pub use async_read::Metrics as AsyncReadMetrics;
 pub use column_family::Metrics as ColumnFamilyMetrics;
+pub use compaction::AtomicMetrics as AtomicCompactionMetrics;
+pub use compaction::Metrics as CompactionMetrics;
 pub use doc_table::Metrics as DocTableMetrics;
 pub use index::Metrics as IndexMetrics;
+pub use inverted_index::Metrics as InvertedIndexMetrics;

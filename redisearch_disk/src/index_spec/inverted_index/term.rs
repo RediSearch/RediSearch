@@ -12,6 +12,7 @@ use super::{
 };
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
+use crate::metrics::CompactionMetrics;
 
 pub mod archive;
 pub mod block;
@@ -191,12 +192,10 @@ impl InvertedIndex {
 
     /// Triggers a full compaction on the fulltext column family.
     pub fn compact_full(&self) {
-        tracing::info!("Starting full compaction on inverted index column family");
-        self.inner.database().compact_range_cf(
-            &self.inner.cf_handle(),
-            None::<&[u8]>,
-            None::<&[u8]>,
-        );
-        tracing::info!("Completed full compaction on inverted index column family");
+        self.inner.compact_full();
+    }
+
+    pub fn get_compaction_metrics(&self) -> CompactionMetrics {
+        self.inner.get_compaction_metrics()
     }
 }
