@@ -102,6 +102,9 @@ enum TestContextInner {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
         inverted_index: ptr::NonNull<ffi::InvertedIndex>,
     },
+    Wildcard {
+        inverted_index: ptr::NonNull<ffi::InvertedIndex>,
+    },
 }
 
 /// Create a spec and search context from the given schema and index name.
@@ -290,6 +293,57 @@ impl TestContext {
         }
     }
 
+    /// Create a new [`TestContext`] with a doc-ids-only inverted index for wildcard queries.
+    ///
+    /// # Arguments
+    /// * `doc_ids` - An iterator over the document IDs to be indexed.
+    pub fn wildcard<I>(doc_ids: I) -> Self
+    where
+        I: Iterator<Item = u64>,
+    {
+        // Serialize TestContext creation to avoid concurrent access to C global state
+        let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        let ctx = ModuleCtx::new();
+        // Create IndexSpec with unique name to avoid parallel test conflicts
+        let index_name = unique_index_name("wildcard_idx");
+        let (mut spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", &index_name);
+
+        let mut memsize = 0;
+        let ii_ptr = inverted_index_ffi::NewInvertedIndex_Ex(
+            ffi::IndexFlags_Index_DocIdsOnly,
+            false,
+            false,
+            &mut memsize,
+        );
+        let ii = ptr::NonNull::new(ii_ptr.cast()).expect("Failed to create InvertedIndex");
+
+        // Populate with virtual records for each document ID
+        for doc_id in doc_ids {
+            let record = RSIndexResult::virt().doc_id(doc_id);
+            // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
+            unsafe {
+                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                    ii_ptr,
+                    &record as *const _ as *mut _,
+                );
+            }
+        }
+
+        // Set spec.existingDocs so Wildcard::should_abort() can find the index
+        // during revalidation (it compares spec.existingDocs with the reader's index).
+        unsafe {
+            spec.as_mut().existingDocs = ii_ptr.cast();
+        }
+
+        Self {
+            _ctx: ctx,
+            sctx,
+            spec,
+            inner: TestContextInner::Wildcard { inverted_index: ii },
+        }
+    }
+
     /// Write a record to an inverted index using the ForwardIndexEntry FFI.
     fn write_forward_index_entry(idx: *mut ffi::InvertedIndex, record: &RSIndexResult) {
         let term = CString::new("term").unwrap();
@@ -337,10 +391,12 @@ impl TestContext {
     }
 
     /// Get the field spec for this context.
+    /// Panics if this is a Wildcard context (which has no field spec).
     pub const fn field_spec(&self) -> &ffi::FieldSpec {
         match self.inner {
             TestContextInner::Numeric { field_spec, .. }
             | TestContextInner::Term { field_spec, .. } => unsafe { field_spec.as_ref() },
+            TestContextInner::Wildcard { .. } => panic!("Wildcard context has no field spec"),
         }
     }
 
@@ -384,6 +440,30 @@ impl TestContext {
     /// Use this when filtering term records by field or marking field expiration.
     pub const fn text_field_bit(&self) -> ffi::t_fieldMask {
         1 << self.field_spec().ftId
+    }
+
+    /// Get the wildcard (doc-ids-only) inverted index for this context.
+    /// Returns a reference to the FFI inverted index wrapper.
+    /// Panics if this is not a wildcard context.
+    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    pub fn wildcard_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Wildcard { inverted_index } => {
+                // SAFETY: inverted_index is a valid pointer created via NewInvertedIndex_Ex
+                let ii: *mut inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
+                unsafe { &mut *ii }
+            }
+            _ => panic!("TestContext is not a Wildcard context"),
+        }
+    }
+
+    /// Get a raw pointer to the wildcard inverted index suitable for FFI.
+    /// Panics if this is not a wildcard context.
+    pub fn wildcard_index_ptr(&self) -> *const ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Wildcard { inverted_index } => inverted_index.as_ptr(),
+            _ => panic!("TestContext is not a Wildcard context"),
+        }
     }
 
     /// Get the ffi inverted index for this context.
@@ -539,6 +619,9 @@ impl Drop for TestContext {
         // Serialize cleanup to avoid concurrent access to C global state.
         // This matches the lock acquired during creation.
         let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        // Note: the wildcard inverted index is freed by IndexSpec_RemoveFromGlobals
+        // below, via spec->existingDocs. No explicit free needed here.
 
         unsafe {
             ffi::SearchCtx_Free(self.sctx.as_ptr());

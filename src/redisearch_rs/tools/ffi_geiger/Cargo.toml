@@ -1,5 +1,5 @@
 [package]
-name = "safety_report"
+name = "ffi_geiger"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

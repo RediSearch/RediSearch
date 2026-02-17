@@ -29,6 +29,7 @@ members = [
     "slots_tracker",
     "sorting_vector",
     "tools/license_header_linter",
+    "tools/ffi_geiger",
     "tools/safety_report",
     "tracing_redismodule",
     "trie_bencher",
@@ -136,6 +137,7 @@ libc = "0.2.180"
 memchr = "2.7.6"
 pin-project = "1.1.10"
 pretty_assertions = "1.4.1"
+proc-macro2 = "1"
 proptest = { version = "1.9.0", default-features = false }
 proptest-derive = { version = "0.7.0", default-features = false }
 rstest = { version = "0.26", default-features = false }
