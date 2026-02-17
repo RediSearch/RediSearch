@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "search_disk_api.h"
 #include "rs_wall_clock.h"
 
 #ifdef __cplusplus
@@ -363,6 +364,8 @@ typedef struct IndexSpec {
 
   // Disk index handle
   RedisSearchDiskIndexSpec *diskSpec;
+
+  SearchDisk_CompactionCallbacks compactionCallbacks;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

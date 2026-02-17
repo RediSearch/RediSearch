@@ -264,6 +264,7 @@ static void SearchDisk_UpdateTrieTerm(void* ctx, const char* term, size_t term_l
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
 }
 
 // Update IndexScoringStats based on compaction delta
@@ -277,11 +278,8 @@ static void SearchDisk_UpdateScoringStats(void* ctx,
   }
 
   // Decrement numTerms (clamp to 0 to avoid underflow)
-  if (delta->num_terms_removed >= sp->stats.scoring.numTerms) {
-    sp->stats.scoring.numTerms = 0;
-  } else {
-    sp->stats.scoring.numTerms -= delta->num_terms_removed;
-  }
+  RS_ASSERT(delta->num_terms_removed <= sp->stats.scoring.numTerms);
+  sp->stats.scoring.numTerms -= delta->num_terms_removed;
 }
 
 // Factory function to create a populated CompactionCallbacks struct

@@ -1783,6 +1783,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskCtx).
+  spec->diskSpec = NULL;
+  spec->compactionCallbacks = (SearchDisk_CompactionCallbacks){0};
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -1793,6 +1795,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
+    spec->compactionCallbacks = SearchDisk_CreateCompactionCallbacks(spec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -3309,6 +3312,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   }
 
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
+  sp->diskSpec = NULL;
+  sp->compactionCallbacks = (SearchDisk_CompactionCallbacks){0};
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3318,6 +3323,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     if (!sp->diskSpec) {
       goto cleanup;
     }
+    sp->compactionCallbacks = SearchDisk_CreateCompactionCallbacks(sp);
   }
 
   // Check if we are using SST files with this RDB.
@@ -3500,6 +3506,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(spec_ref, sp);
   Cursors_initSpec(sp);
 
+  sp->diskSpec = NULL;
+  sp->compactionCallbacks = (SearchDisk_CompactionCallbacks){0};
   if (SearchDisk_IsEnabled()) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3515,6 +3523,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       }
     // Populate diskCtx for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
+    sp->compactionCallbacks = SearchDisk_CreateCompactionCallbacks(sp);
   }
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);

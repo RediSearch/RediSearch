@@ -825,8 +825,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   }
 
   if (sp->diskSpec) {
-    SearchDisk_CompactionCallbacks callbacks = SearchDisk_CreateCompactionCallbacks(sp);
-    SearchDisk_RunGC(sp->diskSpec, &callbacks);
+    SearchDisk_RunGC(sp->diskSpec, &sp->compactionCallbacks);
     RedisModule_ReplyWithSimpleString(ctx, "DONE");
     return REDISMODULE_OK;
   } else if (sp->gc) {

@@ -52,7 +52,7 @@ typedef struct AsyncPollResult {
  * GC only updates numTerms (when terms become completely empty).
  */
 typedef struct SearchDisk_ScoringStatsDelta {
-  uint64_t num_terms_removed;  // Number of terms that became empty during compaction
+  uint64_t num_terms_removed;  // Number of terms for which no docIDs were left after compaction
 } SearchDisk_ScoringStatsDelta;
 
 /**
