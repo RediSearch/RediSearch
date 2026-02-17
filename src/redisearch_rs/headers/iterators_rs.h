@@ -239,7 +239,8 @@ enum MetricType GetMetricType(QueryIterator *header);
 QueryIterator *NewNonOptimizedNotIterator(QueryIterator *child,
                                           t_docId max_doc_id,
                                           double weight,
-                                          timespec timeout);
+                                          timespec timeout,
+                                          bool skip_timeout_checks);
 
 /**
  * Get the child pointer of the not (non-optimized) iterator or NULL

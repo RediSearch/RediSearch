@@ -27,13 +27,19 @@ pub extern "C" fn NewNonOptimizedNotIterator(
     max_doc_id: t_docId,
     weight: f64,
     timeout: timespec,
+    skip_timeout_checks: bool,
 ) -> *mut QueryIterator {
     let child = NonNull::new(child)
         .expect("Trying to create a not iterator using a NULL child iterator pointer");
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
 
-    let rust_timeout = crate::timespec::duration_from_redis_timespec(timeout);
+    let rust_timeout = if skip_timeout_checks {
+        None
+    } else {
+        crate::timespec::duration_from_redis_timespec(timeout)
+    };
+
     let rust_iterator = Not::new(child, max_doc_id, weight, rust_timeout);
 
     RQEIteratorWrapper::boxed_new(IteratorType_NOT_ITERATOR, rust_iterator)

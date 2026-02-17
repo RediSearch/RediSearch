@@ -46,46 +46,6 @@ static size_t NI_NumEstimated(QueryIterator *base) {
   return ni->wcii ? ni->wcii->NumEstimated(ni->wcii) : ni->maxDocId;
 }
 
-/* Read from a NOT iterator - Non-Optimized version. This is applicable only if
- * the only or leftmost node of a query is a NOT node. We simply read until max
- * docId, skipping docIds that exist in the child */
-static IteratorStatus NI_Read_NotOptimized(QueryIterator *base) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
-  // Check if we reached the end
-  if (base->atEOF || base->lastDocId >= ni->maxDocId) {
-    base->atEOF = true;
-    return ITERATOR_EOF;
-  }
-
-  IteratorStatus rc;
-  if (base->lastDocId == ni->child->lastDocId) {
-    // read next entry from child, or EOF
-    rc = ni->child->Read(ni->child);
-    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-  }
-
-  while (base->lastDocId < ni->maxDocId) {
-    base->lastDocId++;
-    if (base->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
-      // Reset counter only if not skipping timeout checks (REDISEARCH_UNINITIALIZED)
-      if (ni->timeoutCtx.counter != REDISEARCH_UNINITIALIZED) {
-        ni->timeoutCtx.counter = 0;
-      }
-      base->current->docId = base->lastDocId;
-      return ITERATOR_OK;
-    }
-    rc = ni->child->Read(ni->child);
-    if (rc == ITERATOR_TIMEOUT) return rc;
-    // Check for timeout with low granularity (MOD-5512)
-    if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
-      base->atEOF = true;
-      return ITERATOR_TIMEOUT;
-    }
-  }
-  base->atEOF = true;
-  return ITERATOR_EOF;
-}
-
 /* Read from a NOT iterator - Optimized version, utilizing the `existing docs`
  * inverted index. This is applicable only if the only or leftmost node of a
  * query is a NOT node. We simply read until max docId, skipping docIds that
@@ -133,44 +93,6 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
   }
   base->atEOF = true;
   return ITERATOR_EOF;
-}
-
-/* SkipTo for NOT iterator - Non-optimized version. If we have a match - return
- * NOTFOUND. If we don't or we're at the end - return OK */
-static IteratorStatus NI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
-  RS_ASSERT(base->lastDocId < docId);
-  // do not skip beyond max doc id
-  if (base->atEOF) {
-    return ITERATOR_EOF;
-  }
-  if (docId > ni->maxDocId) {
-    base->atEOF = true;
-    return ITERATOR_EOF;
-  }
-
-  // Case 1: Child is ahead or at EOF - docId is not in child
-  if (ni->child->lastDocId > docId || ni->child->atEOF) {
-    base->lastDocId = base->current->docId = docId;
-    return ITERATOR_OK;
-  }
-  // Case 2: Child is behind docId - need to check if docId is in child
-  else if (ni->child->lastDocId < docId) {
-    IteratorStatus rc = ni->child->SkipTo(ni->child, docId);
-    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-    if (rc != ITERATOR_OK) {
-      // Child does not have docID, so is valid match
-      base->lastDocId = base->current->docId = docId;
-      return ITERATOR_OK;
-    }
-  }
-
-  // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
-  // We need to return NOTFOUND and set the current result to the next valid docId
-  base->current->docId = base->lastDocId = docId;
-  IteratorStatus rc = NI_Read_NotOptimized(base);
-
-  return rc == ITERATOR_OK ? ITERATOR_NOTFOUND : rc;
 }
 
 /* SkipTo for NOT iterator - Optimized version.
@@ -236,29 +158,6 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   }
 
   return rc;
-}
-
-// Revalidate for NOT iterator - Non-optimized version.
-static ValidateStatus NI_Revalidate_NotOptimized(QueryIterator *base) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
-
-  // 1. Revalidate the child iterator
-  ValidateStatus child_status = ni->child->Revalidate(ni->child);
-
-  // 2. Handle child validation results
-  if (child_status == VALIDATE_ABORTED) {
-    // Free child and replace with empty iterator
-    // When child is aborted, NOT iterator becomes "NOT nothing" = everything
-    ni->child->Free(ni->child);
-    ni->child = NewEmptyIterator();
-    // Continue processing - this doesn't invalidate our current position
-  }
-
-  // Now the child is either at EOF, OK or MOVED.
-  // if the child is at EOF or OK, we can return VALIDATE_OK.
-  // if the child is MOVED, it must have advanced beyond the iterator's lastDocId, so the current result is still valid in this case.
-  RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->atEOF || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
-  return VALIDATE_OK;
 }
 
 // Revalidate for NOT iterator - Optimized version.
@@ -331,6 +230,9 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
 
   bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
+
+  bool skipTimeoutChecks = (q && q->sctx) ? q->sctx->time.skipTimeoutChecks : false;
+
   if (optimized) {
     OptimizedNotIterator *ni = rm_calloc(1, sizeof(*ni));
     ret = &ni->base;
@@ -338,7 +240,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
 
     ni->child = it;
     ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
-    bool skipTimeoutChecks = (q && q->sctx) ? q->sctx->time.skipTimeoutChecks : false;
+
     // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
     ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0 };
 
@@ -349,12 +251,12 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     ret->lastDocId = 0;
     ret->NumEstimated = NI_NumEstimated;
     ret->Free = NI_Free;
-    ret->Read = optimized ? NI_Read_Optimized : NI_Read_NotOptimized;
-    ret->SkipTo = optimized ? NI_SkipTo_Optimized : NI_SkipTo_NotOptimized;
+    ret->Read = NI_Read_Optimized;
+    ret->SkipTo = NI_SkipTo_Optimized;
     ret->Rewind = NI_Rewind;
-    ret->Revalidate = optimized ? NI_Revalidate_Optimized : NI_Revalidate_NotOptimized;
+    ret->Revalidate = NI_Revalidate_Optimized;
   } else {
-    ret = NewNonOptimizedNotIterator(it, maxDocId, weight, timeout);
+    ret = NewNonOptimizedNotIterator(it, maxDocId, weight, timeout, skipTimeoutChecks);
   }
 
   return ret;
