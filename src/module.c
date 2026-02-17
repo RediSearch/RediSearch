@@ -506,9 +506,9 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 static inline void ReplyWithQueryErrorNoDetail(RedisModuleCtx *ctx, QueryErrorCode code,
   const char *message) {
-QueryError status = QueryError_Default();
-QueryError_SetError(&status, code, message);
-(void)QueryError_ReplyAndClear(ctx, &status);
+  QueryError status = QueryError_Default();
+  QueryError_SetError(&status, code, message);
+  (void)QueryError_ReplyAndClear(ctx, &status);
 }
 
 /* FT.TAGVALS {idx} {field}
