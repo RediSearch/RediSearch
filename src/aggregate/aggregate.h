@@ -412,8 +412,8 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * like so:
  *
  * @code {.c}
- * RLookup lksrc;
- * RLookup lkdst;
+ * RLookup lksrc = RLookup_New();
+ * RLookup lkdst = RLookup_New();
  * const char *kname[] = {"foo", "bar", "baz"};
  * RLookupKey *srckeys[3];
  * RLookupKey *dstkeys[3];
