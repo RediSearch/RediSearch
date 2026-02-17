@@ -2317,6 +2317,13 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {
+                    .name = "shard_k_ratio",
+                    .token = "SHARD_K_RATIO",
+                    .since = "8.6.1",
+                    .type = REDISMODULE_ARG_TYPE_DOUBLE,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
                     .name = "yield_score_as",
                     .token = "YIELD_SCORE_AS",
                     .type = REDISMODULE_ARG_TYPE_STRING,
