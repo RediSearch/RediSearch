@@ -905,6 +905,9 @@ class TestShardTimeout:
             debug_args = ['PAUSE_BEFORE_RP_N', 'Index', 0]
             if query_type == 'FT.AGGREGATE':
                 debug_args.append('INTERNAL_ONLY')
+            if query_type == 'FT.SEARCH':
+                # NOCONTENT is required to not use SAFE-LOADER
+                query_args.append('NOCONTENT')
             t_query = threading.Thread(
                 target=run_cmd_expect_timeout,
                 args=(env, [debug_cmd()] + parseDebugQueryCommandArgs(query_args, debug_args)),
@@ -937,5 +940,6 @@ class TestShardTimeout:
                 lambda: (getIsRPPaused(env) == 0, {'paused': getIsRPPaused(env)}),
                 'Timeout while waiting for query to resume in pipeline'
             )
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
