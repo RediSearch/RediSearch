@@ -1399,7 +1399,7 @@ TEST_F(LLApiTest, testInfoSize) {
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 463 + additional_overhead + get_trie_entry_extra_overhead(2));
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  RSGlobalConfig.gcConfigParams.fork.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   EXPECT_EQ(RediSearch_MemUsage(index), 320 + additional_overhead + get_trie_entry_extra_overhead(1));
@@ -1461,7 +1461,7 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 545 + additional_overhead + get_trie_entry_extra_overhead(2));
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  RSGlobalConfig.gcConfigParams.fork.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   EXPECT_EQ(RediSearch_MemUsage(index), 401 + additional_overhead + get_trie_entry_extra_overhead(1));

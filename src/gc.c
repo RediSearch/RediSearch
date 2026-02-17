@@ -12,6 +12,7 @@
 
 #include "gc.h"
 #include "fork_gc.h"
+#include "disk_gc.h"
 #include "config.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -40,6 +41,9 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   switch (gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
+      break;
+    case GCPolicy_Disk:
+      ret->gcCtx = DiskGC_New(spec_ref, &ret->callbacks);
       break;
   }
   return ret;

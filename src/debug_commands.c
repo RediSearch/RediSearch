@@ -824,18 +824,13 @@ DEBUG_COMMAND(GCForceInvoke) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (sp->diskSpec) {
-    SearchDisk_RunGC(sp->diskSpec);
-    RedisModule_ReplyWithSimpleString(ctx, "DONE");
-    return REDISMODULE_OK;
-  } else if (sp->gc) {
+  if (sp->gc) {
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
     GCContext_ForceInvoke(sp->gc, bc);
     return REDISMODULE_OK;
-  } else {
-    return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
   }
+  return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
 
 DEBUG_COMMAND(GCForceBGInvoke) {

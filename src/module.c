@@ -1664,9 +1664,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
       return REDISMODULE_ERR;
     }
-    // Disable GC when running in Flex mode
-    RSGlobalConfig.gcConfigParams.enableGC = false;
-    RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
+    // Use disk GC policy when running in Flex mode
+    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Disk;
+    RSGlobalConfig.gcConfigParams.disk.diskGcRunIntervalSec = DEFAULT_DISK_GC_RUN_INTERVAL;
+    RedisModule_Log(ctx, "notice", "GC policy set to disk (Flex mode)");
 
     if (RSGlobalConfig.numWorkerThreads == 0) {
       RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;

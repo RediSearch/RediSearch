@@ -52,7 +52,7 @@ static const char *on_oom_vals[3] = {
 };
 
 
-typedef enum { GCPolicy_Fork = 0 } GCPolicy;
+typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 const char *OomPolicy_ToString(RSOomPolicy);
@@ -67,10 +67,13 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:
       return "fork";
+    case GCPolicy_Disk:
+      return "disk";
     default:          // LCOV_EXCL_LINE cannot be reached
       return "huh?";  // LCOV_EXCL_LINE cannot be reached
   }
 }
+
 typedef struct {
   size_t forkGcRunIntervalSec;
   size_t forkGcCleanThreshold;
@@ -80,12 +83,16 @@ typedef struct {
 } forkGcConfig;
 
 typedef struct {
+  size_t diskGcRunIntervalSec;
+} diskGcConfig;
+
+typedef struct {
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   bool enableGC;
   size_t gcScanSize;
-  GCPolicy gcPolicy;
-
-  forkGcConfig forkGc;
+  GCPolicy gcPolicy;  // which policy to use for new indexes; both configs are always valid
+  forkGcConfig fork;
+  diskGcConfig disk;
 } GCConfig;
 
 // Configuration parameters related to aggregate request.
@@ -307,6 +314,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+#define DEFAULT_DISK_GC_RUN_INTERVAL 30
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
@@ -364,10 +372,10 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
-    .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
-    .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                          \
-    .gcConfigParams.forkGc.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
-    .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.fork.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
+    .gcConfigParams.fork.forkGcSleepBeforeExit = 0,                          \
+    .gcConfigParams.fork.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
+    .gcConfigParams.fork.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
@@ -377,7 +385,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
-    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                \
+    .gcConfigParams.fork.forkGCCleanNumericEmptyNodes = true,                \
+    .gcConfigParams.disk.diskGcRunIntervalSec = DEFAULT_DISK_GC_RUN_INTERVAL,\
     .freeResourcesThread = true,                                               \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \
