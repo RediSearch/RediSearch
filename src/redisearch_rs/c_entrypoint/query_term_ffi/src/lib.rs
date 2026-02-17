@@ -127,3 +127,18 @@ pub unsafe extern "C" fn QueryTerm_SetBM25_IDF(term: *mut RSQueryTerm, value: f6
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).set_bm25_idf(value) }
 }
+
+/// Get the term ID.
+///
+/// Each term in the query gets an incremental ID assigned during parsing.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).id() }
+}

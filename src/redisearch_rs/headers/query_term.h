@@ -133,6 +133,18 @@ double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
  */
 void QueryTerm_SetBM25_IDF(struct RSQueryTerm *term, double value);
 
+/**
+ * Get the term ID.
+ *
+ * Each term in the query gets an incremental ID assigned during parsing.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+int QueryTerm_GetID(const struct RSQueryTerm *term);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
