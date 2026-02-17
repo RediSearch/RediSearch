@@ -109,44 +109,77 @@ impl Default for CompactionCallbacks {
 }
 
 impl CompactionCallbacks {
-    /// Calls the acquire_write_lock callback if present.
+    /// Acquires the write lock and returns a guard that releases it on drop.
     ///
-    /// # Safety
-    /// The callback and ctx must be valid.
-    pub fn acquire_write_lock(&self) {
-        if let Some(f) = self.acquire_write_lock {
-            // SAFETY: Caller ensures ctx is valid and callback is safe to call
-            unsafe { f(self.ctx) };
-        }
+    /// This is the preferred way to acquire the lock, as it ensures the lock
+    /// is always released when the guard goes out of scope (RAII pattern).
+    ///
+    /// Operations that require the lock (like [`WriteGuard::update_trie_term`])
+    /// are only available through the guard, enforcing at compile time that
+    /// they can only be called while holding the lock.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let guard = callbacks.write_lock();
+    /// guard.update_trie_term("term", 5);
+    /// // Lock is automatically released when `guard` goes out of scope
+    /// ```
+    pub fn write_lock(&self) -> WriteGuard<'_> {
+        WriteGuard::new(self)
     }
+}
 
-    /// Calls the release_write_lock callback if present.
+/// A guard that holds the write lock and releases it on drop.
+///
+/// This guard implements the RAII pattern: the lock is acquired when the guard
+/// is created (via [`CompactionCallbacks::write_lock`]) and released when the
+/// guard is dropped.
+///
+/// Operations that require the write lock are exposed as methods on this guard,
+/// ensuring at compile time that they can only be called while holding the lock.
+///
+/// # Example
+///
+/// ```ignore
+/// {
+///     let guard = callbacks.write_lock();
+///     guard.update_trie_term("foo", 5);
+///     guard.update_scoring_stats(&delta);
+///     // Lock automatically released here
+/// }
+/// ```
+pub struct WriteGuard<'a> {
+    callbacks: &'a CompactionCallbacks,
+}
+
+impl<'a> WriteGuard<'a> {
+    /// Creates a new guard, acquiring the write lock.
     ///
-    /// # Safety
-    /// The callback and ctx must be valid.
-    pub fn release_write_lock(&self) {
-        if let Some(f) = self.release_write_lock {
+    /// Prefer using [`CompactionCallbacks::write_lock`] instead of calling this directly.
+    fn new(callbacks: &'a CompactionCallbacks) -> Self {
+        if let Some(f) = callbacks.acquire_write_lock {
             // SAFETY: Caller ensures ctx is valid and callback is safe to call
-            unsafe { f(self.ctx) };
+            unsafe { f(callbacks.ctx) };
         }
+        Self { callbacks }
     }
 
     /// Updates a term's document count in the Serving Trie.
     ///
+    /// This method requires holding the write lock (enforced by requiring `&self`).
+    ///
     /// # Arguments
     /// * `term` - The term string to update
     /// * `doc_count_decrement` - Number of documents to decrement
-    ///
-    /// # Safety
-    /// The callback and ctx must be valid.
     pub fn update_trie_term(&self, term: &str, doc_count_decrement: u64) {
-        if let Some(f) = self.update_trie_term {
+        if let Some(f) = self.callbacks.update_trie_term {
             let term_bytes = term.as_bytes();
-            // SAFETY: Caller ensures ctx is valid and callback is safe to call.
-            // We pass the term as a pointer + length (not null-terminated).
+            // SAFETY: We hold the write lock (enforced by having &self),
+            // and caller ensures ctx is valid.
             unsafe {
                 f(
-                    self.ctx,
+                    self.callbacks.ctx,
                     term_bytes.as_ptr() as *const c_char,
                     term_bytes.len(),
                     doc_count_decrement as usize,
@@ -157,17 +190,27 @@ impl CompactionCallbacks {
 
     /// Updates the IndexScoringStats with the given delta.
     ///
+    /// This method requires holding the write lock (enforced by requiring `&self`).
+    ///
     /// # Arguments
     /// * `delta` - The scoring stats delta to apply
-    ///
-    /// # Safety
-    /// The callback and ctx must be valid.
     pub fn update_scoring_stats(&self, delta: &ScoringStatsDelta) {
-        if let Some(f) = self.update_scoring_stats {
-            // SAFETY: Caller ensures ctx is valid and callback is safe to call.
+        if let Some(f) = self.callbacks.update_scoring_stats {
+            // SAFETY: We hold the write lock (enforced by having &self),
+            // and caller ensures ctx is valid.
             unsafe {
-                f(self.ctx, delta as *const ScoringStatsDelta);
+                f(self.callbacks.ctx, delta as *const ScoringStatsDelta);
             }
+        }
+    }
+}
+
+impl Drop for WriteGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(f) = self.callbacks.release_write_lock {
+            // SAFETY: We acquired the lock in new(), so we must release it.
+            // Caller ensures ctx is valid.
+            unsafe { f(self.callbacks.ctx) };
         }
     }
 }
