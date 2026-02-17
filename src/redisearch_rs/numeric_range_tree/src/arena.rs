@@ -79,14 +79,9 @@ impl NodeArena {
     ///
     /// # Panics
     ///
-    /// Panics if the resulting key index does not fit in `u32`.
+    /// Panics if the slab exceeds its maximum capacity (`u32::MAX` entries).
     pub fn insert(&mut self, node: NumericRangeNode) -> NodeIndex {
         let key = self.nodes.insert(node);
-        assert!(
-            key.index() <= u32::MAX as usize,
-            "Tried to store more than {} nodes in the arena",
-            u32::MAX
-        );
         NodeIndex(key)
     }
 
