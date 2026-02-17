@@ -23,6 +23,16 @@ typedef struct RSToken RSToken;
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
+/**
+ * Flags associated with query tokens and terms.
+ *
+ * Extension-set token flags — up to 31 bits are available for extensions,
+ * since 1 bit is reserved for the `expanded` flag on [`RSToken`].
+ *
+ * [`RSToken`]: https://github.com/RediSearch/RediSearch
+ */
+typedef uint32_t RSTokenFlags;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
