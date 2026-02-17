@@ -171,11 +171,6 @@ impl RSQueryTerm {
             Some(unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) })
         }
     }
-
-    /// Get the term as a string slice, if valid UTF-8.
-    pub fn as_str(&self) -> Option<&str> {
-        self.as_bytes().and_then(|b| std::str::from_utf8(b).ok())
-    }
 }
 
 impl Drop for RSQueryTerm {
