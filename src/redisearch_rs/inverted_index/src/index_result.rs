@@ -18,6 +18,7 @@ use thin_vec::SmallThinVec;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
+#[expect(improper_ctypes, reason = "RSQueryTerm is opaque - accessed via FFI functions only")]
 unsafe extern "C" {
     /// Adds the metrics of a child [`RSYieldableMetric`] to the parent [`RSYieldableMetric`].
     ///

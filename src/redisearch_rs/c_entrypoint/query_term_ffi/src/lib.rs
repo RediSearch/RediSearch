@@ -41,12 +41,12 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *m
     let tok_flags = tok.flags();
 
     if tok_str.is_null() {
-        return Box::into_raw(RSQueryTerm::new_null_str(id, tok_flags));
+        return Box::into_raw(Box::new(RSQueryTerm::new_null_str(id, tok_flags)));
     }
 
     // SAFETY: caller guarantees `tok_str` is valid for `tok_len` bytes.
     let slice = unsafe { std::slice::from_raw_parts(tok_str as *const u8, tok_len) };
-    Box::into_raw(RSQueryTerm::new(slice, id, tok_flags))
+    Box::into_raw(Box::new(RSQueryTerm::new(slice, id, tok_flags)))
 }
 
 /// Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
@@ -117,6 +117,23 @@ pub unsafe extern "C" fn QueryTerm_SetBM25_IDF(term: *mut RSQueryTerm, value: f6
     debug_assert!(!term.is_null(), "term cannot be NULL");
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).set_bm25_idf(value) }
+}
+
+/// Set both IDF values (TF-IDF and BM25) on a query term.
+///
+/// This is a convenience function for setting both values at once.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_SetIDFs(term: *mut RSQueryTerm, idf: f64, bm25_idf: f64) {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).set_idf(idf) };
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).set_bm25_idf(bm25_idf) };
 }
 
 /// Get the term ID.
@@ -190,9 +207,10 @@ pub unsafe extern "C" fn QueryTerm_GetStrAndLen(
 ) -> *const std::ffi::c_char {
     debug_assert!(!term.is_null(), "term cannot be NULL");
     debug_assert!(!out_len.is_null(), "out_len cannot be NULL");
-    // SAFETY: caller guarantees `term` and `out_len` are valid
-    unsafe {
-        *out_len = (*term).len();
-        (*term).str_ptr()
-    }
+    // SAFETY: caller guarantees `term` is valid and non-null
+    let len = unsafe { (*term).len() };
+    // SAFETY: caller guarantees `out_len` is valid and writable
+    unsafe { *out_len = len };
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).str_ptr() }
 }

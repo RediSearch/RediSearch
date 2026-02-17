@@ -29,7 +29,7 @@ impl<'a> TestTermRecord<'a> {
         term.set_bm25_idf(10.0);
 
         let record = RSIndexResult::with_term(
-            Some(term),
+            Some(Box::new(term)),
             RSOffsetSlice::from_slice(offsets),
             doc_id,
             field_mask,

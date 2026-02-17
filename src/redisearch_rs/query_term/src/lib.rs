@@ -80,70 +80,75 @@ impl RSQueryTerm {
     /// Rust-owned allocation (`Box<[u8]>`).
     ///
     /// The resulting term has `idf = 1.0` and `bm25_idf = 0.0`.
-    pub fn new(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
+    pub fn new(s: &[u8], id: i32, flags: RSTokenFlags) -> Self {
         let mut buf = Vec::with_capacity(s.len() + 1);
         buf.extend_from_slice(s);
         buf.push(0); // null terminator
         let str_copy = Box::into_raw(buf.into_boxed_slice()) as *mut c_char;
-        Box::new(Self {
+        Self {
             str_: str_copy,
             len: s.len(),
             idf: 1.0,
             id,
             flags,
             bm25_idf: 0.0,
-        })
+        }
     }
 
     /// Create a new [`RSQueryTerm`] with a null string pointer.
     ///
     /// This is used when creating terms from tokens that have null string pointers.
-    pub fn new_null_str(id: i32, flags: RSTokenFlags) -> Box<Self> {
-        Box::new(Self {
+    pub const fn new_null_str(id: i32, flags: RSTokenFlags) -> Self {
+        Self {
             str_: std::ptr::null_mut(),
             len: 0,
             idf: 1.0,
             id,
             flags,
             bm25_idf: 0.0,
-        })
+        }
     }
 
     /// Get the inverse document frequency (IDF) for TF-IDF scoring.
-    pub fn idf(&self) -> f64 {
+    pub const fn idf(&self) -> f64 {
         self.idf
     }
 
     /// Set the inverse document frequency (IDF) for TF-IDF scoring.
-    pub fn set_idf(&mut self, value: f64) {
+    pub const fn set_idf(&mut self, value: f64) {
         self.idf = value;
     }
 
     /// Get the BM25 IDF value for BM25 scoring.
-    pub fn bm25_idf(&self) -> f64 {
+    pub const fn bm25_idf(&self) -> f64 {
         self.bm25_idf
     }
 
     /// Set the BM25 IDF value for BM25 scoring.
-    pub fn set_bm25_idf(&mut self, value: f64) {
+    pub const fn set_bm25_idf(&mut self, value: f64) {
         self.bm25_idf = value;
     }
 
     /// Get the term ID.
     ///
     /// Each term in the query gets an incremental ID assigned during parsing.
-    pub fn id(&self) -> i32 {
+    pub const fn id(&self) -> i32 {
         self.id
     }
 
     /// Get the token flags.
-    pub fn flags(&self) -> RSTokenFlags {
+    pub const fn flags(&self) -> RSTokenFlags {
         self.flags
     }
 
     /// Get the term string length in bytes (excluding null terminator).
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.len
+    }
+
+    /// Check if the term string is empty (null pointer or zero length).
+    pub const fn is_empty(&self) -> bool {
+        self.str_.is_null() || self.len == 0
     }
 
     /// Get the raw string pointer (for FFI compatibility).
@@ -151,14 +156,14 @@ impl RSQueryTerm {
     /// # Safety
     ///
     /// Returned pointer is valid for the lifetime of this term and is null-terminated.
-    pub fn str_ptr(&self) -> *const c_char {
+    pub const fn str_ptr(&self) -> *const c_char {
         self.str_ as *const c_char
     }
 
     /// Get the term as a byte slice, if the string pointer is non-null.
     ///
     /// Does NOT assume valid UTF-8.
-    pub fn as_bytes(&self) -> Option<&[u8]> {
+    pub const fn as_bytes(&self) -> Option<&[u8]> {
         if self.str_.is_null() {
             None
         } else {
@@ -236,20 +241,20 @@ mod tests {
         let b = RSQueryTerm::new(b"hello", 1, 0);
         // Different allocations, same content.
         assert_ne!(a.str_ptr(), b.str_ptr());
-        assert_eq!(*a, *b);
+        assert_eq!(a, b);
     }
 
     #[test]
     fn partial_eq_different_content() {
         let a = RSQueryTerm::new(b"hello", 1, 0);
         let b = RSQueryTerm::new(b"world", 1, 0);
-        assert_ne!(*a, *b);
+        assert_ne!(a, b);
     }
 
     #[test]
     fn partial_eq_different_id() {
         let a = RSQueryTerm::new(b"hello", 1, 0);
         let b = RSQueryTerm::new(b"hello", 2, 0);
-        assert_ne!(*a, *b);
+        assert_ne!(a, b);
     }
 }
