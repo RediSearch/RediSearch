@@ -12,7 +12,7 @@ use std::io::{Cursor, Seek, Write};
 use ffi::t_docId;
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
+use crate::{Decoder, DocIdsDecoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode only the delta document ID of a record, without any other data.
 /// The delta is encoded using [varint encoding](varint).
@@ -53,3 +53,4 @@ impl Decoder for DocIdsOnly {
 }
 
 impl TermDecoder for DocIdsOnly {}
+impl DocIdsDecoder for DocIdsOnly {}
