@@ -1,6 +1,7 @@
 ---
 name: build
 description: Compile the project to verify changes build successfully.
+see_also: lint_and_format
 ---
 
 # Build Skill
@@ -103,3 +104,7 @@ After a successful build:
 - SpeedB library: `build/speedb-build/libspeedb.so`
 - Rust library: `redisearch_disk/target/*/libredisearch_disk.a`
 - vecsim library: `build/vecsim_disk/libvecsim_disk.a`
+
+## See Also
+
+- [Lint and Format Skill](../lint_and_format/SKILL.md) - Check code quality and formatting before committing
