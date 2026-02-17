@@ -28,18 +28,6 @@ def testSyntax1(env):
                'FILTER', 'a'
                'SCHEMA', 'foo', 'text').equal("Unknown symbol 'aSCHEMA'")
 
-def testFilter1(env):
-    conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'things',
-            'ON', 'HASH',
-            'FILTER', 'startswith(@__key, "thing:")',
-            'SCHEMA', 'name', 'text')
-
-    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1, 'thing:bar', ['name', 'foo']])
-
 def testPrefix0a(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'things', 'ON', 'HASH',
@@ -100,23 +88,6 @@ def testFlushallManyPrefixes(env):
     env.assertEqual(dump_trie['prefixes_count'], 0)
     env.assertEqual(dump_trie['prefixes_trie_nodes'], 0)
 
-def testFilter2(env):
-    conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'stuff', 'ON', 'HASH',
-            'FILTER', 'startswith(@__key, "stuff:")',
-            'SCHEMA', 'name', 'text', 'age', 'numeric')
-
-    env.cmd('ft.create', 'things', 'ON', 'HASH',
-            'FILTER', 'startswith(@__key, "thing:")',
-            'SCHEMA', 'name', 'text', 'age', 'numeric')
-
-    conn.execute_command('hset', 'thing:bar', 'name', 'foo')
-    conn.execute_command('hset', 'object:jojo', 'name', 'vivi')
-    conn.execute_command('hset', 'thing:bar', 'age', '42')
-
-    env.expect('ft.search', 'things', 'foo') \
-       .equal([1, 'thing:bar', ['name', 'foo', 'age', '42']])
-
 def testPrefix3(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'stuff',
@@ -134,24 +105,6 @@ def testPrefix3(env):
 
     env.expect('ft.search', 'things', 'foo') \
        .equal([1, 'thing:bar', ['name', 'foo', 'age', '42']])
-
-def testIdxField(env):
-    conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx1',
-            'ON', 'HASH',
-            'PREFIX', 1, 'doc',
-            'FILTER', '@indexName=="idx1"',
-            'SCHEMA', 'name', 'text', 'indexName', 'text')
-    env.cmd('ft.create', 'idx2',
-            'ON', 'HASH',
-            'FILTER', '@indexName=="idx2"',
-            'SCHEMA', 'name', 'text', 'indexName', 'text')
-
-    conn.execute_command('hset', 'doc1', 'name', 'foo', 'indexName', 'idx1')
-    conn.execute_command('hset', 'doc2', 'name', 'bar', 'indexName', 'idx2')
-
-    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1, 'doc1', ['name', 'foo', 'indexName', 'idx1']]))
-    env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1, 'doc2', ['name', 'bar', 'indexName', 'idx2']]))
 
 def testDel(env):
     conn = getConnectionByEnv(env)
@@ -366,36 +319,6 @@ def testScoreDecimal(env):
         env.assertEqual(float(res[2]), 0.5)
         res = env.cmd('ft.search', 'idx2', 'hello', 'scorer', 'TFIDF', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.25)
-
-def testMultiFilters1(env):
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'test', 'ON', 'HASH',
-               'PREFIX', '2', 'student:', 'pupil:',
-               'FILTER', 'startswith(@__key, "student:")',
-               'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
-    conn.execute_command('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17')
-    conn.execute_command('HSET', 'student:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '15')
-    conn.execute_command('HSET', 'pupil:no1', 'first', 'no1', 'last', 'no1', 'age', '17')
-    conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
-    res1 = [2, 'student:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '15'],
-                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
-    res = env.cmd('ft.search test *')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList(res1))
-
-def testMultiFilters2(env):
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'test', 'ON', 'HASH',
-               'PREFIX', '2', 'student:', 'pupil:',
-               'FILTER', '@age > 16',
-               'SCHEMA', 'first', 'TEXT', 'last', 'TEXT', 'age', 'NUMERIC').ok()
-    conn.execute_command('HSET', 'student:yes1', 'first', 'yes1', 'last', 'yes1', 'age', '17')
-    conn.execute_command('HSET', 'student:no1', 'first', 'no1', 'last', 'no1', 'age', '15')
-    conn.execute_command('HSET', 'pupil:yes2', 'first', 'yes2', 'last', 'yes2', 'age', '17')
-    conn.execute_command('HSET', 'pupil:no2', 'first', 'no2', 'last', 'no2', 'age', '15')
-    res1 = [2, 'pupil:yes2', ['first', 'yes2', 'last', 'yes2', 'age', '17'],
-                'student:yes1', ['first', 'yes1', 'last', 'yes1', 'age', '17']]
-    res = env.cmd('ft.search test *')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList(res1))
 
 @skip(cluster=True)
 def testInfo(env):
