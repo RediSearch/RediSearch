@@ -129,6 +129,11 @@ impl RSQueryTerm {
     pub fn flags(&self) -> RSTokenFlags {
         self.flags
     }
+
+    /// Get the term string length in bytes (excluding null terminator).
+    pub fn len(&self) -> usize {
+        self.len
+    }
 }
 
 impl Drop for RSQueryTerm {

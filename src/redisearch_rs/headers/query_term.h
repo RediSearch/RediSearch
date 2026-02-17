@@ -155,6 +155,16 @@ int QueryTerm_GetID(const struct RSQueryTerm *term);
  */
 RSTokenFlags QueryTerm_GetFlags(const struct RSQueryTerm *term);
 
+/**
+ * Get the term string length in bytes (excluding null terminator).
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+uintptr_t QueryTerm_GetLen(const struct RSQueryTerm *term);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
