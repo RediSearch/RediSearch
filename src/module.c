@@ -1200,8 +1200,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 3,
-    .patchVersion = 200,
+    .minorVersion = 5,
+    .patchVersion = 0,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
@@ -3668,7 +3668,8 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   ConcurrentSearchHandlerCtx handlerCtx = {
     .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref)
+    .spec_ref = StrongRef_Demote(spec_ref),
+    .numShards = NumShards  // Capture NumShards from main thread for thread-safe access
   };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,

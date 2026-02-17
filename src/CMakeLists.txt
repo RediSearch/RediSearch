@@ -236,6 +236,10 @@ collect_static_libs(redisearch_c LIBS_TO_MERGE VISITED_TARGETS)
 set(_svs_lib_dir "${CMAKE_BINARY_DIR}/_deps/svs-src/lib")
 if(EXISTS "${_svs_lib_dir}")
     file(GLOB _svs_static_libs "${_svs_lib_dir}/*.a")
+    # Exclude MKL from the combined archive — its ~42K object files overflow
+    # the u16 archive member index in rustc's ar_archive_writer.
+    # MKL is linked separately by the Rust build (see build_utils).
+    list(FILTER _svs_static_libs EXCLUDE REGEX "libmkl_static_library\\.a$")
     list(APPEND LIBS_TO_MERGE ${_svs_static_libs})
     message(STATUS "SVS static libraries found: ${_svs_static_libs}")
 else()
