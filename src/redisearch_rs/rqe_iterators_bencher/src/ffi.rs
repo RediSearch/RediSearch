@@ -456,7 +456,7 @@ mod tests {
             let mut t = RSQueryTerm::new(b"term", 1, 0);
             t.set_idf(5.0);
             t.set_bm25_idf(10.0);
-            Some(t)
+            Some(Box::new(t))
         };
 
         ii.write_term_entry(1, 1, 1, term(), &offsets);

@@ -106,6 +106,18 @@ double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
 void QueryTerm_SetBM25_IDF(struct RSQueryTerm *term, double value);
 
 /**
+ * Set both IDF values (TF-IDF and BM25) on a query term.
+ *
+ * This is a convenience function for setting both values at once.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
+
+/**
  * Get the term ID.
  *
  * Each term in the query gets an incremental ID assigned during parsing.
