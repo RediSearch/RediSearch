@@ -102,11 +102,11 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr1) = offsetsFromVVW(vw);
+  tr1->data.term.borrowed.offsets = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr2) = offsetsFromVVW(vw2);
+  tr2->data.term.borrowed.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
@@ -128,7 +128,7 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr3) = offsetsFromVVW(vw3);
+  tr3->data.term.borrowed.offsets = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);

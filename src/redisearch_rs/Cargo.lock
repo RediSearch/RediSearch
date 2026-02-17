@@ -636,6 +636,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ffi_geiger"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "proc-macro2",
+ "syn 2.0.114",
+ "walkdir",
+ "workspace_hack",
+]
+
+[[package]]
 name = "field"
 version = "0.0.1"
 dependencies = [
@@ -1733,6 +1745,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "document",
  "enumflags2",
  "ffi",
@@ -1754,6 +1767,7 @@ name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "ffi",
  "libc",

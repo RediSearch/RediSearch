@@ -26,4 +26,5 @@ pub use lookup::{
     RLookupOptions,
 };
 pub use row::RLookupRow;
+pub use row::opaque::OpaqueRLookupRow;
 pub use schema_rule::SchemaRule;
