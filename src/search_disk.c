@@ -18,8 +18,8 @@ RedisSearchDisk *disk_db = NULL;
 static bool asyncIOEnabled = true;
 
 // Throttle callbacks for vector disk tiered indexes
-static void VecSim_EnableThrottle(void);
-static void VecSim_DisableThrottle(void);
+static int VecSim_EnableThrottle(void);
+static int VecSim_DisableThrottle(void);
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
@@ -236,18 +236,21 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
 }
 
 // Throttle callback wrappers for VecSim
-static void VecSim_EnableThrottle(void) {
+static int VecSim_EnableThrottle(void) {
   RS_ASSERT(RedisModule_EnablePostponeClients);
-  RedisModule_EnablePostponeClients();  // Always returns OK
+  return RedisModule_EnablePostponeClients();  // Always returns OK
 }
 
-static void VecSim_DisableThrottle(void) {
+static int VecSim_DisableThrottle(void) {
   RS_ASSERT(RedisModule_DisablePostponeClients);
-  if (RedisModule_DisablePostponeClients() == REDISMODULE_ERR) {
+  int ret = RedisModule_DisablePostponeClients();
+  if (ret == REDISMODULE_ERR) {
       // This indicates a bug: disable called without matching enable
       RedisModule_Log(NULL, "warning",
           "VecSim_DisableThrottle: no matching enable call");
   }
+
+  return ret;
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
