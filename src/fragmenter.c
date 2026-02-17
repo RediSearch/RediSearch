@@ -494,7 +494,7 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
 
   iter->tmpTerm.score = QueryTerm_GetIDF(term);
   iter->tmpTerm.termId = QueryTerm_GetID(term);
-  iter->tmpTerm.len = term->len;
+  iter->tmpTerm.len = QueryTerm_GetLen(term);
   iter->tmpTerm.tokPos = iter->curTokPos;
   iter->tmpTerm.bytePos = iter->curByteOffset;
   *termInfo = &iter->tmpTerm;

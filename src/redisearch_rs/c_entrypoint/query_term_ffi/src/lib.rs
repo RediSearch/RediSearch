@@ -155,3 +155,16 @@ pub unsafe extern "C" fn QueryTerm_GetFlags(term: *const RSQueryTerm) -> query_t
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).flags() }
 }
+
+/// Get the term string length in bytes (excluding null terminator).
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetLen(term: *const RSQueryTerm) -> usize {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).len() }
+}
