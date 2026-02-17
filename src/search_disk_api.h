@@ -59,6 +59,13 @@ typedef struct BasicDiskAPI {
    * @return true if async I/O operations are available, false otherwise
    */
   bool (*isAsyncIOSupported)(RedisSearchDisk *disk);
+
+  /**
+   * @brief Set throttle callbacks for vector disk tiered indexes to pause/resume CMD_DENYOOM commands.
+   * @param enable Callback to pause CMD_DENYOOM commands (wraps RedisModule_EnablePostponeClients)
+   * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
+   */
+  void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {

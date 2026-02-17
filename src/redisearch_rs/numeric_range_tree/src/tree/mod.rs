@@ -261,7 +261,7 @@ impl NumericRangeTree {
     }
 
     /// Calculate the total memory usage of the tree, in bytes.
-    pub fn mem_usage(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         std::mem::size_of::<Self>() + self.stats.inverted_indexes_size + self.nodes.mem_usage()
     }
 }

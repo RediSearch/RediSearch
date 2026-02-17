@@ -28,6 +28,7 @@ typedef struct CommonPipelineCtx {
   RSTimeoutPolicy timeoutPolicy;
   struct timespec *timeout;
   RSOomPolicy oomPolicy;
+  bool skipTimeoutChecks;
 } CommonPipelineCtx;
 
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);

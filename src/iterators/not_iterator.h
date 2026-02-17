@@ -26,7 +26,8 @@ extern "C" {
 QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q);
 
 // Constructor used for benchmarking (easy to inject MockIterators)
-QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout);
+// timeoutCounter: initial counter value (use REDISEARCH_UNINITIALIZED to skip timeout checks)
+QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout, uint32_t timeoutCounter);
 
 QueryIterator const *GetNotIteratorChild(QueryIterator *const it);
 void SetNotIteratorChild(QueryIterator *it, QueryIterator* child);

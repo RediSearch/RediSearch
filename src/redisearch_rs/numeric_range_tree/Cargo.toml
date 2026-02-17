@@ -25,7 +25,7 @@ ffi.workspace = true
 hyperloglog.workspace = true
 inverted_index.workspace = true
 redis_reply.workspace = true
-slab.workspace = true
+generational_slab.workspace = true
 tracing.workspace = true
 workspace_hack.workspace = true
 

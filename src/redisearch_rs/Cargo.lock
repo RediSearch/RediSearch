@@ -636,6 +636,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ffi_geiger"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "proc-macro2",
+ "syn 2.0.114",
+ "walkdir",
+ "workspace_hack",
+]
+
+[[package]]
 name = "field"
 version = "0.0.1"
 dependencies = [
@@ -682,6 +694,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf68cef89750956493a66a10f512b9e58d9db21f2a573c079c0bdf1207a54a7"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "generational_slab"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "workspace_hack",
 ]
 
 [[package]]
@@ -1233,6 +1253,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "generational_slab",
  "hyperloglog",
  "insta",
  "inverted_index",
@@ -1243,7 +1264,6 @@ dependencies = [
  "redis_reply",
  "redisearch_rs",
  "rstest",
- "slab",
  "tracing",
  "workspace_hack",
 ]
@@ -1734,6 +1754,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "document",
  "enumflags2",
  "ffi",
@@ -1755,6 +1776,7 @@ name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "ffi",
  "libc",
@@ -2094,12 +2116,6 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
-
-[[package]]
-name = "slab"
-version = "0.4.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slots_tracker"
