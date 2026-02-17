@@ -298,7 +298,7 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_LEN_BAD,
-                                  "Invalid vector length. Expected", " %lu, got %lu", dim, arrLen);
+                                     "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 
