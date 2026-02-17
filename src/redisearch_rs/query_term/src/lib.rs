@@ -33,26 +33,26 @@ pub type RSTokenFlags = u32;
 ///
 /// # Memory layout
 ///
-/// This struct is `#[repr(C)]` so that C code can access its fields directly.
+/// All fields are private and accessed via type-safe methods and FFI functions.
+/// C code accesses fields via FFI accessor functions, not direct struct access.
 /// cbindgen:field-names=[str, len, idf, id, flags, bm25_idf]
-#[repr(C)]
 pub struct RSQueryTerm {
     /// The term string, always NULL-terminated.
-    pub str_: *mut c_char,
+    str_: *mut c_char,
     /// The term length in bytes.
     ///
     /// It doesn't count the null terminator.
-    pub len: usize,
+    len: usize,
     /// Inverse document frequency of the term in the index.
     ///
     /// See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>.
-    pub idf: f64,
+    idf: f64,
     /// Each term in the query gets an incremental id.
-    pub id: i32,
+    id: i32,
     /// Flags given by the engine or by the query expander.
-    pub flags: RSTokenFlags,
+    flags: RSTokenFlags,
     /// Inverse document frequency for BM25 scoring.
-    pub bm25_idf: f64,
+    bm25_idf: f64,
 }
 
 impl fmt::Debug for RSQueryTerm {
@@ -88,6 +88,20 @@ impl RSQueryTerm {
         Box::new(Self {
             str_: str_copy,
             len: s.len(),
+            idf: 1.0,
+            id,
+            flags,
+            bm25_idf: 0.0,
+        })
+    }
+
+    /// Create a new [`RSQueryTerm`] with a null string pointer.
+    ///
+    /// This is used when creating terms from tokens that have null string pointers.
+    pub fn new_null_str(id: i32, flags: RSTokenFlags) -> Box<Self> {
+        Box::new(Self {
+            str_: std::ptr::null_mut(),
+            len: 0,
             idf: 1.0,
             id,
             flags,
@@ -211,14 +225,7 @@ mod tests {
 
     #[test]
     fn debug_null_str() {
-        let term = RSQueryTerm {
-            str_: std::ptr::null_mut(),
-            len: 0,
-            idf: 0.0,
-            id: 0,
-            flags: 0,
-            bm25_idf: 0.0,
-        };
+        let term = RSQueryTerm::new_null_str(0, 0);
         let debug = format!("{term:?}");
         assert!(debug.contains("<null>"));
     }
