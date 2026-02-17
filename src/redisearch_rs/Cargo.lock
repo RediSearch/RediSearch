@@ -383,6 +383,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compaction_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "workspace_hack",
+]
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
