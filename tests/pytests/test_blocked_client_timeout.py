@@ -932,5 +932,10 @@ class TestShardTimeout:
 
             # Resume the paused RP to clean up (the query already timed out, but we need to resume)
             setPauseRPResume(env)
+            # Wait for RP to resume
+            wait_for_condition(
+                lambda: (getIsRPPaused(env) == 0, {'paused': getIsRPPaused(env)}),
+                'Timeout while waiting for query to resume in pipeline'
+            )
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
