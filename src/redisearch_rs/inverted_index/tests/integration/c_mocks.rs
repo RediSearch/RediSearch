@@ -7,20 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! This module contains mock implementations of C functions that are used in tests. Linking to a
-//! C static file with these implementations would have been a overkill.
+//! Mock implementations of C functions used across integration tests.
 //!
-//! The integration tests can use these as is if they don't add anything to the metrics or set
-//! any of the term record type's internals. Using these only requires the following:
-//!
-//! ```rust
-//! mod c_mocks;
-//! ```
+//! These are unified mocks that satisfy the linker for all test modules in this
+//! crate. Since all tests share a single binary, each mock symbol must be
+//! defined exactly once.
 
 use ffi::{RSQueryTerm, RSYieldableMetric};
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
+pub extern "C" fn ResultMetrics_Free(metrics: *mut RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
@@ -40,16 +36,13 @@ pub extern "C" fn RSYieldableMetric_Concat(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
-    if !t.is_null() {
-        panic!("No test created a term record");
-    }
+pub extern "C" fn Term_Free(_t: *mut RSQueryTerm) {
+    // Several tests use stack-allocated RSQueryTerm values, so this must be a
+    // no-op rather than panicking on non-null pointers.
 }
 
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 #[unsafe(no_mangle)]
-unsafe fn RSYieldableMetrics_Clone(
-    _src: *mut ffi::RSYieldableMetric,
-) -> *mut ffi::RSYieldableMetric {
+unsafe fn RSYieldableMetrics_Clone(_src: *mut RSYieldableMetric) -> *mut RSYieldableMetric {
     panic!("none of the tests should set any metrics");
 }
