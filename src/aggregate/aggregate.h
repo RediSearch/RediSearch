@@ -297,7 +297,7 @@ typedef struct AREQ {
 
   // Timeout signaling flag for Run in Threads mode (set by timeout callback on main thread)
   RS_Atomic(bool) timedOut;
-  // Reply ownership state for Run in Threads mode (coordinates reply between main and background thread)
+  // Reply ownership state, coordinates reply between main and background thread
   // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
   RS_Atomic(int) replyState;
   // Flag to indicate whether to check for timeout using clock checks

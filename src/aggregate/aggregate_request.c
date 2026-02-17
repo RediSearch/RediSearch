@@ -1543,7 +1543,7 @@ AREQ *AREQ_IncrRef(AREQ *req) {
 }
 
 void AREQ_DecrRef(AREQ *req) {
-  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_RELAXED)) {
+  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_ACQ_REL)) {
     AREQ_Free(req);
   }
 }
