@@ -61,6 +61,9 @@ typedef enum {
  */
 typedef struct RLookupKey RLookupKey;
 
+/** Returns a new RLookup struct. Will forward the call to Rust once RLookup is migrated. */
+static inline RLookup RLookup_New(void) { return (RLookup){0}; }
+
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
     const RLookupKey* key; \
