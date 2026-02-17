@@ -107,6 +107,7 @@ pub fn run_cbindgen(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::er
 pub fn bind_foreign_c_symbols() {
     force_link_time_symbol_resolution();
     link_redisearch_all();
+    link_mkl();
     link_c_plusplus();
 }
 
@@ -120,8 +121,13 @@ fn force_link_time_symbol_resolution() {
     }
 }
 
-fn link_redisearch_all() {
-    let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
+/// Return the CMake build output directory.
+///
+/// When the top-level build coordinator sets `BINDIR`, that value is used
+/// directly. Otherwise we fall back to the conventional release layout
+/// derived from the git root.
+fn bin_root() -> PathBuf {
+    if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
         // We rely on the top-level build coordinator to give us the correct path, rather
@@ -141,9 +147,48 @@ fn link_redisearch_all() {
         root.join(format!(
             "bin/{target_os}-{target_arch}-release/search-community/"
         ))
-    };
+    }
+}
 
-    link_static_lib(&bin_root, "src", "redisearch_all").unwrap();
+/// Link `libredisearch_all.a` using the `-bundle` modifier.
+///
+/// The `-bundle` modifier prevents the (very large) C archive from being
+/// embedded into every Rust rlib in the dependency tree. Instead, the linker
+/// flag `-lredisearch_all` propagates to final binaries (tests, benchmarks)
+/// where the linker selectively pulls only the objects that are actually
+/// needed. This avoids two problems:
+///
+/// 1. Cross-crate rlib contamination during `cargo test --workspace`, where
+///    C objects bundled into one crate's rlib can trigger undefined-symbol
+///    errors in unrelated workspace members.
+/// 2. Archive member counts exceeding `u16::MAX` in rustc's
+///    `ar_archive_writer` when MKL or other large archives are involved.
+fn link_redisearch_all() {
+    let bin_root = bin_root();
+    let lib_dir = bin_root.join("src");
+    let lib = lib_dir.join("libredisearch_all.a");
+    if std::fs::exists(&lib).unwrap_or(false) {
+        println!("cargo::rustc-link-lib=static:-bundle=redisearch_all");
+        println!("cargo::rerun-if-changed={}", lib.display());
+        println!("cargo::rustc-link-search=native={}", lib_dir.display());
+    } else {
+        panic!("Static library not found: {}", lib.display());
+    }
+}
+
+/// Link Intel MKL separately if present.
+///
+/// MKL is excluded from `libredisearch_all.a` because its ~42K object files
+/// overflow the `u16` archive member index in rustc's `ar_archive_writer`.
+/// Like `redisearch_all`, we link with `-bundle` to avoid rlib bloat.
+fn link_mkl() {
+    let svs_lib_dir = bin_root().join("_deps/svs-src/lib");
+    let mkl = svs_lib_dir.join("libmkl_static_library.a");
+    if std::fs::exists(&mkl).unwrap_or(false) {
+        println!("cargo::rerun-if-changed={}", mkl.display());
+        println!("cargo::rustc-link-search=native={}", svs_lib_dir.display());
+        println!("cargo::rustc-link-lib=static:-bundle=mkl_static_library");
+    }
 }
 
 /// Link the C++ standard library using the platform's default.
