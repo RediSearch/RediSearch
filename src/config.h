@@ -314,7 +314,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
-#define DEFAULT_DISK_GC_RUN_INTERVAL 30
+#define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
@@ -372,9 +372,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
-    .gcConfigParams.fork.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
-    .gcConfigParams.fork.forkGcSleepBeforeExit = 0,                          \
-    .gcConfigParams.fork.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
+    .gcConfigParams.fork.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,  \
+    .gcConfigParams.fork.forkGcSleepBeforeExit = 0,                            \
+    .gcConfigParams.fork.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL, \
     .gcConfigParams.fork.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
@@ -385,8 +385,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
-    .gcConfigParams.fork.forkGCCleanNumericEmptyNodes = true,                \
-    .gcConfigParams.disk.diskGcRunIntervalSec = DEFAULT_DISK_GC_RUN_INTERVAL,\
+    .gcConfigParams.fork.forkGCCleanNumericEmptyNodes = true,                  \
+    .gcConfigParams.disk.diskGcRunIntervalSec = DEFAULT_DISK_GC_RUN_INTERVAL,  \
     .freeResourcesThread = true,                                               \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \
@@ -398,13 +398,13 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
-    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,\
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
     .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
     .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
-    .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                    \
-    .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
-    .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,            \
+    .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                  \
+    .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
+    .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
     .infoEmitOnZeroIndexes = false,                                            \
     .simulateInFlex = false,           \
   }
