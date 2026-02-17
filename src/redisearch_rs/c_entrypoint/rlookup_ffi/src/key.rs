@@ -91,5 +91,5 @@ pub unsafe extern "C" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.path().as_ref().map_or(ptr::null(), |k| k.as_ptr())
+    key.path().as_ref().unwrap_or(key.name()).as_ptr()
 }
