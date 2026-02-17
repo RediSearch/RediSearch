@@ -92,7 +92,9 @@ typedef struct IndexDiskAPI {
    * Used for tag field indexing.
    *
    * @param index Pointer to the index
-   * @param values Array of tag values to associate the document with
+   * @param values Array of tag values to associate the document with.
+   *               NOTE: The array may contain NULL entries (e.g., from tokenization).
+   *               Implementations must check for NULL before dereferencing each entry.
    * @param numValues Number of tag values in the array
    * @param docId Document ID to index
    * @param fieldIndex Field index for the tag field
