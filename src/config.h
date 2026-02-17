@@ -381,7 +381,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
-    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                  \
+    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                \
     .freeResourcesThread = true,                                               \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \

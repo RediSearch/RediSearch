@@ -1665,7 +1665,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       return REDISMODULE_ERR;
     }
     // Use disk GC policy when running in Flex mode; override fork config to disk-appropriate defaults
-    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Disk;
     RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_DISK_GC_RUN_INTERVAL;
     RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_DISK_GC_CLEAN_THRESHOLD;
     RedisModule_Log(ctx, "notice", "GC policy set to disk (Flex mode)");
