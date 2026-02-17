@@ -1247,11 +1247,11 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     bool rerank = false;
     result = parseVectorField_hnsw(sp, fs, params, ac, status, &rerank);
     // Build disk params if disk mode is enabled
-    if (result && sp->diskSpec) {
+    if (result && sp->diskCtx.spec) {
       size_t nameLen;
       const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
       fs->vectorOpts.diskCtx = (VecSimDiskContext){
-        .storage = sp->diskSpec,
+        .storage = sp->diskCtx.spec,
         .indexName = rm_strndup(namePtr, nameLen),
         .indexNameLen = nameLen,
         .rerank = rerank,
@@ -1468,7 +1468,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       goto reset;
     }
 
-    if (sp->diskSpec)
+    if (sp->diskCtx.spec)
     {
       if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR fields");
@@ -1641,9 +1641,9 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
 }
 
 // Populate diskCtx for all HNSW vector fields in the spec.
-// This must be called after sp->diskSpec is set.
+// This must be called after sp->diskCtx.spec is set.
 static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
-  if (!sp->diskSpec) return;
+  if (!sp->diskCtx.spec) return;
 
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
@@ -1667,7 +1667,7 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
 
     // TODO: rerank is not persisted in RDB, defaulting to true on load.
     fs->vectorOpts.diskCtx = (VecSimDiskContext){
-      .storage = sp->diskSpec,
+      .storage = sp->diskCtx.spec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
       .rerank = true,
@@ -1781,21 +1781,20 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   }
 
   // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
+  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskCtx.spec
   // is available when parsing vector fields (for populating diskCtx).
-  spec->diskSpec = NULL;
-  spec->compactionCallbacks = (SearchDisk_CompactionCallbacks){0};
+  spec->diskCtx = (DiskIndexContext){0};
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
-    if (!spec->diskSpec) {
+    spec->diskCtx.spec = SearchDisk_OpenIndex(name, len, spec->rule->type);
+    RS_LOG_ASSERT(spec->diskCtx.spec, "Failed to open disk spec")
+    if (!spec->diskCtx.spec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
-    spec->compactionCallbacks = SearchDisk_CreateCompactionCallbacks(spec);
+    spec->diskCtx.compactionCallbacks = SearchDisk_CreateCompactionCallbacks(spec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -2011,7 +2010,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
 
-  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
+  if (spec->diskCtx.spec) SearchDisk_CloseIndex(spec->diskCtx.spec);
 
   // Free spec struct
   rm_free(spec);
@@ -2142,8 +2141,8 @@ void Indexes_Free(dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     // Delete disk index before removing from globals
     IndexSpec *spec = StrongRef_Get(specs[i]);
-    if (deleteDiskData && spec && spec->diskSpec ) {
-      SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+    if (deleteDiskData && spec && spec->diskCtx.spec) {
+      SearchDisk_MarkIndexForDeletion(spec->diskCtx.spec);
     }
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }
@@ -3223,10 +3222,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   // assume it was not set in when the RDB will be loaded as well
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
-  if (sp->diskSpec && useSst) {
+  if (sp->diskCtx.spec && useSst) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
-    SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
+    SearchDisk_IndexSpecRdbSave(rdb, sp->diskCtx.spec);
   }
 }
 
@@ -3312,18 +3311,16 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   }
 
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
-  sp->diskSpec = NULL;
-  sp->compactionCallbacks = (SearchDisk_CompactionCallbacks){0};
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    sp->diskCtx.spec = SearchDisk_OpenIndex(name, len, sp->rule->type);
     IndexSpec_PopulateVectorDiskParams(sp);
-    if (!sp->diskSpec) {
+    if (!sp->diskCtx.spec) {
       goto cleanup;
     }
-    sp->compactionCallbacks = SearchDisk_CreateCompactionCallbacks(sp);
+    sp->diskCtx.compactionCallbacks = SearchDisk_CreateCompactionCallbacks(sp);
   }
 
   // Check if we are using SST files with this RDB.
@@ -3333,7 +3330,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
 
   // Load the disk-related index data if we are on disk and the save flow used
   // sst-files, even if this is a duplicate.
-  // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
+  // In the case of a duplicate, `sp->diskCtx.spec=NULL` thus handled appropriately
   // On the disk side (RDB is depleted, without updating index fields).
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
@@ -3343,7 +3340,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
-    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
+    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskCtx.spec) != REDISMODULE_OK) {
       goto cleanup;
     }
   }
@@ -3506,24 +3503,22 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(spec_ref, sp);
   Cursors_initSpec(sp);
 
-  sp->diskSpec = NULL;
-  sp->compactionCallbacks = (SearchDisk_CompactionCallbacks){0};
   if (SearchDisk_IsEnabled()) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    sp->diskCtx.spec = SearchDisk_OpenIndex(name, len, sp->rule->type);
     // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
     // data in this version of RDB (encver).
-    if (!sp->diskSpec) {
+    if (!sp->diskCtx.spec) {
       RedisModule_LogIOError(rdb, "warning",
         "Could not open disk index");
         StrongRef_Release(spec_ref);
         return NULL;
       }
-    // Populate diskCtx for vector fields now that diskSpec is available
+    // Populate diskCtx for vector fields now that diskCtx.spec is available
     IndexSpec_PopulateVectorDiskParams(sp);
-    sp->compactionCallbacks = SearchDisk_CreateCompactionCallbacks(sp);
+    sp->diskCtx.compactionCallbacks = SearchDisk_CreateCompactionCallbacks(sp);
   }
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
@@ -3764,12 +3759,12 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   t_docId id = 0;
   uint32_t docLen = 0;
   if (isSpecOnDisk(spec)) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+    RS_LOG_ASSERT(spec->diskCtx.spec, "disk handle is unexpectedly NULL");
     size_t len;
     const char *keyStr = RedisModule_StringPtrLen(key, &len);
 
     // Delete the document
-    SearchDisk_DeleteDocument(spec->diskSpec, keyStr, len, &docLen, &id);
+    SearchDisk_DeleteDocument(spec->diskCtx.spec, keyStr, len, &docLen, &id);
 
     if (id == 0) {
       // Nothing to delete

@@ -362,10 +362,8 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
-  // Disk index handle
-  RedisSearchDiskIndexSpec *diskSpec;
-
-  SearchDisk_CompactionCallbacks compactionCallbacks;
+  // Disk index context (handle + compaction callbacks, always used together)
+  DiskIndexContext diskCtx;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
