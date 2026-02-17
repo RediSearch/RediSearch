@@ -80,33 +80,33 @@ impl RSQueryTerm {
     /// Rust-owned allocation (`Box<[u8]>`).
     ///
     /// The resulting term has `idf = 1.0` and `bm25_idf = 0.0`.
-    pub fn new(s: &[u8], id: i32, flags: RSTokenFlags) -> Self {
+    pub fn new(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
         let mut buf = Vec::with_capacity(s.len() + 1);
         buf.extend_from_slice(s);
         buf.push(0); // null terminator
         let str_copy = Box::into_raw(buf.into_boxed_slice()) as *mut c_char;
-        Self {
+        Box::new(Self {
             str_: str_copy,
             len: s.len(),
             idf: 1.0,
             id,
             flags,
             bm25_idf: 0.0,
-        }
+        })
     }
 
     /// Create a new [`RSQueryTerm`] with a null string pointer.
     ///
     /// This is used when creating terms from tokens that have null string pointers.
-    pub const fn new_null_str(id: i32, flags: RSTokenFlags) -> Self {
-        Self {
+    pub fn new_null_str(id: i32, flags: RSTokenFlags) -> Box<Self> {
+        Box::new(Self {
             str_: std::ptr::null_mut(),
             len: 0,
             idf: 1.0,
             id,
             flags,
             bm25_idf: 0.0,
-        }
+        })
     }
 
     /// Get the inverse document frequency (IDF) for TF-IDF scoring.
@@ -241,20 +241,20 @@ mod tests {
         let b = RSQueryTerm::new(b"hello", 1, 0);
         // Different allocations, same content.
         assert_ne!(a.str_ptr(), b.str_ptr());
-        assert_eq!(a, b);
+        assert_eq!(*a, *b);
     }
 
     #[test]
     fn partial_eq_different_content() {
         let a = RSQueryTerm::new(b"hello", 1, 0);
         let b = RSQueryTerm::new(b"world", 1, 0);
-        assert_ne!(a, b);
+        assert_ne!(*a, *b);
     }
 
     #[test]
     fn partial_eq_different_id() {
         let a = RSQueryTerm::new(b"hello", 1, 0);
         let b = RSQueryTerm::new(b"hello", 2, 0);
-        assert_ne!(a, b);
+        assert_ne!(*a, *b);
     }
 }

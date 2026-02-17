@@ -23,16 +23,6 @@ typedef struct RSToken RSToken;
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
-/**
- * Flags associated with query tokens and terms.
- *
- * Extension-set token flags — up to 31 bits are available for extensions,
- * since 1 bit is reserved for the `expanded` flag on [`RSToken`].
- *
- * [`RSToken`]: https://github.com/RediSearch/RediSearch
- */
-typedef uint32_t RSTokenFlags;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -76,16 +66,6 @@ void Term_Free(struct RSQueryTerm *t);
 double QueryTerm_GetIDF(const struct RSQueryTerm *term);
 
 /**
- * Set the IDF (inverse document frequency) value on a query term.
- *
- * # Safety
- *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
- * allocated by [`NewQueryTerm`].
- */
-void QueryTerm_SetIDF(struct RSQueryTerm *term, double value);
-
-/**
  * Get the BM25 IDF value from a query term.
  *
  * # Safety
@@ -94,16 +74,6 @@ void QueryTerm_SetIDF(struct RSQueryTerm *term, double value);
  * allocated by [`NewQueryTerm`].
  */
 double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
-
-/**
- * Set the BM25 IDF value on a query term.
- *
- * # Safety
- *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
- * allocated by [`NewQueryTerm`].
- */
-void QueryTerm_SetBM25_IDF(struct RSQueryTerm *term, double value);
 
 /**
  * Set both IDF values (TF-IDF and BM25) on a query term.
@@ -128,16 +98,6 @@ void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
  * allocated by [`NewQueryTerm`].
  */
 int QueryTerm_GetID(const struct RSQueryTerm *term);
-
-/**
- * Get the token flags.
- *
- * # Safety
- *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
- * allocated by [`NewQueryTerm`].
- */
-RSTokenFlags QueryTerm_GetFlags(const struct RSQueryTerm *term);
 
 /**
  * Get the term string length in bytes (excluding null terminator).

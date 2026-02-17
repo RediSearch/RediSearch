@@ -41,12 +41,12 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *m
     let tok_flags = tok.flags();
 
     if tok_str.is_null() {
-        return Box::into_raw(Box::new(RSQueryTerm::new_null_str(id, tok_flags)));
+        return Box::into_raw(RSQueryTerm::new_null_str(id, tok_flags));
     }
 
     // SAFETY: caller guarantees `tok_str` is valid for `tok_len` bytes.
     let slice = unsafe { std::slice::from_raw_parts(tok_str as *const u8, tok_len) };
-    Box::into_raw(Box::new(RSQueryTerm::new(slice, id, tok_flags)))
+    Box::into_raw(RSQueryTerm::new(slice, id, tok_flags))
 }
 
 /// Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
@@ -80,19 +80,6 @@ pub unsafe extern "C" fn QueryTerm_GetIDF(term: *const RSQueryTerm) -> f64 {
     unsafe { (*term).idf() }
 }
 
-/// Set the IDF (inverse document frequency) value on a query term.
-///
-/// # Safety
-///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
-/// allocated by [`NewQueryTerm`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryTerm_SetIDF(term: *mut RSQueryTerm, value: f64) {
-    debug_assert!(!term.is_null(), "term cannot be NULL");
-    // SAFETY: caller guarantees `term` is valid and non-null
-    unsafe { (*term).set_idf(value) }
-}
-
 /// Get the BM25 IDF value from a query term.
 ///
 /// # Safety
@@ -104,19 +91,6 @@ pub unsafe extern "C" fn QueryTerm_GetBM25_IDF(term: *const RSQueryTerm) -> f64 
     debug_assert!(!term.is_null(), "term cannot be NULL");
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).bm25_idf() }
-}
-
-/// Set the BM25 IDF value on a query term.
-///
-/// # Safety
-///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
-/// allocated by [`NewQueryTerm`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryTerm_SetBM25_IDF(term: *mut RSQueryTerm, value: f64) {
-    debug_assert!(!term.is_null(), "term cannot be NULL");
-    // SAFETY: caller guarantees `term` is valid and non-null
-    unsafe { (*term).set_bm25_idf(value) }
 }
 
 /// Set both IDF values (TF-IDF and BM25) on a query term.
@@ -149,19 +123,6 @@ pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
     debug_assert!(!term.is_null(), "term cannot be NULL");
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).id() }
-}
-
-/// Get the token flags.
-///
-/// # Safety
-///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
-/// allocated by [`NewQueryTerm`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryTerm_GetFlags(term: *const RSQueryTerm) -> query_term::RSTokenFlags {
-    debug_assert!(!term.is_null(), "term cannot be NULL");
-    // SAFETY: caller guarantees `term` is valid and non-null
-    unsafe { (*term).flags() }
 }
 
 /// Get the term string length in bytes (excluding null terminator).

@@ -184,7 +184,7 @@ fn to_owned_a_term_index_result() {
     let offsets: [u8; 1] = [0];
     let offsets = RSOffsetSlice::from_slice(&offsets);
 
-    let ir = RSIndexResult::with_term(Some(Box::new(term)), offsets, 7, 1, 1);
+    let ir = RSIndexResult::with_term(Some(term), offsets, 7, 1, 1);
     let mut ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
