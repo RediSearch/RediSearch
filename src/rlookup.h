@@ -111,6 +111,9 @@ RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup);
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
+/** Returns a new RLookupRow struct. Will forward the call to Rust once RLookupRow is migrated. */
+static inline RLookupRow RLookupRow_New(void) { return (RLookupRow){0}; }
+
 #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
 
 /**
