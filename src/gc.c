@@ -38,6 +38,7 @@ static GCDebugTask *GCDebugTaskCreate(GCContext *gc, RedisModuleBlockedClient* b
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
+  ret->policy = gcPolicy;
   switch (gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
@@ -131,9 +132,13 @@ void GCContext_Start(GCContext* gc) {
 }
 
 void GCContext_StopMock(GCContext* gc) {
-  // for fork gc debug
-  RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
-  WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
+  if (gc->policy == GCPolicy_Fork) {
+    RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
+    WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
+  } else if (gc->policy == GCPolicy_Disk) {
+    RedisModule_FreeThreadSafeContext(((DiskGC *)gc->gcCtx)->ctx);
+    WeakRef_Release(((DiskGC *)gc->gcCtx)->index);
+  }
   free(gc->gcCtx);
   free(gc);
 }
@@ -150,6 +155,10 @@ void GCContext_OnDelete(GCContext* gc) {
   if (gc->callbacks.onDelete) {
     gc->callbacks.onDelete(gc->gcCtx);
   }
+}
+
+void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
+  gc->callbacks.getStats(gc->gcCtx, out);
 }
 
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {

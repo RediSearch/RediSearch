@@ -118,15 +118,6 @@ void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
  */
 void FGC_Apply(ForkGC *gc);
 
-typedef struct InfoGCStats {
-  // Total bytes collected by the GCs
-  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
-  // allocated by a GC than the number of bytes collected.
-  ssize_t totalCollectedBytes;
-  size_t totalCycles;         // Total number of cycles ran
-  size_t totalTime;           // In ms
-} InfoGCStats;
-
 #ifdef __cplusplus
 }
 #endif

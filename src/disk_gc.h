@@ -25,6 +25,7 @@ typedef struct DiskGC {
   WeakRef index;
   RedisModuleCtx *ctx;
   struct timespec interval;
+  volatile size_t deletedDocsFromLastRun;
 } DiskGC;
 
 DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks);

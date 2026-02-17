@@ -23,6 +23,15 @@ extern "C" {
 
 #define GC_THREAD_POOL_SIZE 1
 
+typedef struct InfoGCStats {
+  // Total bytes collected by the GCs
+  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
+  // allocated by a GC than the number of bytes collected.
+  ssize_t totalCollectedBytes;
+  size_t totalCycles;   // Total number of cycles ran
+  size_t totalTime;     // In ms
+} InfoGCStats;
+
 typedef struct GCCallbacks {
   int  (*periodicCallback)(void* gcCtx);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
@@ -30,12 +39,14 @@ typedef struct GCCallbacks {
   void (*onDelete)(void* ctx);
   void (*onTerm)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
+  void (*getStats)(void* gcCtx, InfoGCStats* out);
 } GCCallbacks;
 
 typedef struct GCContext {
   void* gcCtx;
-  RedisModuleTimerID timerID; // Guarded by the GIL
+  RedisModuleTimerID timerID;  // Guarded by the GIL
   GCCallbacks callbacks;
+  uint32_t policy;  // GCPolicy_Fork or GCPolicy_Disk
 } GCContext;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
@@ -50,6 +61,13 @@ void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
+void GCContext_GetStats(GCContext* gc, InfoGCStats* out);
+
+static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
+  dst->totalCollectedBytes += src->totalCollectedBytes;
+  dst->totalCycles += src->totalCycles;
+  dst->totalTime += src->totalTime;
+}
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();

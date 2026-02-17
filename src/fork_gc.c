@@ -1206,6 +1206,13 @@ static void deleteCb(void *ctx) {
   IndexsGlobalStats_UpdateLogicallyDeleted(1);
 }
 
+static void getStatsCb(void *gcCtx, InfoGCStats *out) {
+  ForkGC *gc = gcCtx;
+  out->totalCollectedBytes = gc->stats.totalCollected;
+  out->totalCycles = gc->stats.numCycles;
+  out->totalTime = gc->stats.totalMSRun;
+}
+
 static struct timespec getIntervalCb(void *ctx) {
   ForkGC *gc = ctx;
   return gc->retryInterval;
@@ -1229,6 +1236,7 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->onDelete = deleteCb;
+  callbacks->getStats = getStatsCb;
 
   return forkGc;
 }

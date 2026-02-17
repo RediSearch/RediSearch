@@ -13,6 +13,7 @@
 #include "module.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "info/global_stats.h"
 
 static int periodicCb(void *privdata) {
   DiskGC *gc = privdata;
@@ -26,7 +27,19 @@ static int periodicCb(void *privdata) {
     return 1;
   }
 
+  if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.fork.forkGcCleanThreshold) {
+    IndexSpecRef_Release(spec_ref);
+    return 1;
+  }
+
+  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
+  gc->deletedDocsFromLastRun = 0;
+  IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)num_docs_to_clean);
+
   SearchDisk_RunGC(sp->diskSpec);
+
+  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.fork.forkGcRunIntervalSec;
+  gc->interval.tv_nsec = 0;
 
   IndexSpecRef_Release(spec_ref);
   return 1;
@@ -34,6 +47,7 @@ static int periodicCb(void *privdata) {
 
 static void onTerminateCb(void *privdata) {
   DiskGC *gc = privdata;
+  IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)gc->deletedDocsFromLastRun);
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);
@@ -51,8 +65,16 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 }
 
 static void deleteCb(void *ctx) {
-  (void)ctx;
-  /* Disk GC does not use a deletion threshold; no-op. */
+  DiskGC *gc = ctx;
+  ++gc->deletedDocsFromLastRun;
+  IndexsGlobalStats_UpdateLogicallyDeleted(1);
+}
+
+static void getStatsCb(void *gcCtx, InfoGCStats *out) {
+  (void)gcCtx;
+  out->totalCollectedBytes = 0;
+  out->totalCycles = 0;
+  out->totalTime = 0;
 }
 
 static struct timespec getIntervalCb(void *ctx) {
@@ -64,8 +86,9 @@ DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   DiskGC *gc = rm_calloc(1, sizeof(*gc));
   *gc = (DiskGC){
       .index = StrongRef_Demote(spec_ref),
+      .deletedDocsFromLastRun = 0,
   };
-  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.disk.diskGcRunIntervalSec;
+  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.fork.forkGcRunIntervalSec;
   gc->interval.tv_nsec = 0;
   gc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
 
@@ -75,6 +98,7 @@ DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->onDelete = deleteCb;
+  callbacks->getStats = getStatsCb;
 
   return gc;
 }

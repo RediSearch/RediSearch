@@ -865,6 +865,8 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
 
+  // TODO: return disk GC policy when it is enabled
+  // Do not expose disk GC, report fork when any GC is present
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
     info->score = sp->rule->score_default;
@@ -897,13 +899,12 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->indexingFailures = sp->stats.indexError.error_count;
 
   if (sp->gc) {
-    // LLAPI always uses ForkGC
-    ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
-
-    info->totalCollected = gcStats.totalCollected;
-    info->numCycles = gcStats.numCycles;
-    info->totalMSRun = gcStats.totalMSRun;
-    info->lastRunTimeMs = gcStats.lastRunTimeMs;
+    InfoGCStats gcStats;
+    GCContext_GetStats(sp->gc, &gcStats);
+    info->totalCollected = (size_t)(gcStats.totalCollectedBytes >= 0 ? gcStats.totalCollectedBytes : 0);
+    info->numCycles = gcStats.totalCycles;
+    info->totalMSRun = (long long)gcStats.totalTime;
+    info->lastRunTimeMs = 0;
   }
 
   dictResumeRehashing(sp->keysDict);
