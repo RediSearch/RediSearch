@@ -165,6 +165,30 @@ RSTokenFlags QueryTerm_GetFlags(const struct RSQueryTerm *term);
  */
 uintptr_t QueryTerm_GetLen(const struct RSQueryTerm *term);
 
+/**
+ * Get the string pointer from a query term.
+ *
+ * Returns a pointer to the null-terminated byte string. The string may not be valid UTF-8.
+ *
+ * # Safety
+ *
+ * `term` must be valid and non-null. Returned pointer is valid for the lifetime of the term.
+ */
+const char *QueryTerm_GetStr(const struct RSQueryTerm *term);
+
+/**
+ * Get both the string pointer and length from a query term.
+ *
+ * This is useful for C code that needs to work with the byte slice directly.
+ * The string may not be valid UTF-8.
+ *
+ * # Safety
+ *
+ * - `term` must be valid and non-null
+ * - `out_len` must be a valid pointer to write the length to
+ */
+const char *QueryTerm_GetStrAndLen(const struct RSQueryTerm *term, uintptr_t *out_len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
