@@ -207,11 +207,12 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRI
 
 // Reply state for coordinating replies between main thread (timeout callback) and background thread
 // Transitions: NOT_REPLIED -> REPLYING -> REPLIED
-typedef enum : uint8_t {
+typedef enum {
   ReplyState_NotReplied = 0,  // No reply has been started yet
   ReplyState_Replying = 1,    // A reply is currently in progress
   ReplyState_Replied = 2,     // A reply has been completed
 } ReplyState;
+
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
