@@ -13,7 +13,6 @@
 //! generates the `query_term.h` header via cbindgen.
 
 use std::ffi::c_int;
-use std::ptr;
 
 use query_term::RSQueryTerm;
 
@@ -42,15 +41,7 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *m
     let tok_flags = tok.flags();
 
     if tok_str.is_null() {
-        let term = Box::new(RSQueryTerm {
-            str_: ptr::null_mut(),
-            len: 0,
-            idf: 1.0,
-            id,
-            flags: tok_flags,
-            bm25_idf: 0.0,
-        });
-        return Box::into_raw(term);
+        return Box::into_raw(RSQueryTerm::new_null_str(id, tok_flags));
     }
 
     // SAFETY: caller guarantees `tok_str` is valid for `tok_len` bytes.

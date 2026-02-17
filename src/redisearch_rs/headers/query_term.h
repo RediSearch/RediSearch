@@ -10,16 +10,6 @@ typedef struct RSToken RSToken;
 
 
 /**
- * Flags associated with query tokens and terms.
- *
- * Extension-set token flags — up to 31 bits are available for extensions,
- * since 1 bit is reserved for the `expanded` flag on [`RSToken`].
- *
- * [`RSToken`]: https://github.com/RediSearch/RediSearch
- */
-typedef uint32_t RSTokenFlags;
-
-/**
  * A single term being evaluated at query time.
  *
  * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),
@@ -28,38 +18,20 @@ typedef uint32_t RSTokenFlags;
  *
  * # Memory layout
  *
- * This struct is `#[repr(C)]` so that C code can access its fields directly.
+ * All fields are private and accessed via type-safe methods and FFI functions.
+ * C code accesses fields via FFI accessor functions, not direct struct access.
  */
-typedef struct RSQueryTerm {
-  /**
-   * The term string, always NULL-terminated.
-   */
-  char *str;
-  /**
-   * The term length in bytes.
-   *
-   * It doesn't count the null terminator.
-   */
-  uintptr_t len;
-  /**
-   * Inverse document frequency of the term in the index.
-   *
-   * See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>.
-   */
-  double idf;
-  /**
-   * Each term in the query gets an incremental id.
-   */
-  int32_t id;
-  /**
-   * Flags given by the engine or by the query expander.
-   */
-  RSTokenFlags flags;
-  /**
-   * Inverse document frequency for BM25 scoring.
-   */
-  double bm25_idf;
-} RSQueryTerm;
+typedef struct RSQueryTerm RSQueryTerm;
+
+/**
+ * Flags associated with query tokens and terms.
+ *
+ * Extension-set token flags — up to 31 bits are available for extensions,
+ * since 1 bit is reserved for the `expanded` flag on [`RSToken`].
+ *
+ * [`RSToken`]: https://github.com/RediSearch/RediSearch
+ */
+typedef uint32_t RSTokenFlags;
 
 #ifdef __cplusplus
 extern "C" {
