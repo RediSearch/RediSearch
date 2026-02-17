@@ -9,7 +9,7 @@
 
 use libc::size_t;
 use rlookup::RLookupKey;
-use std::{ffi::c_char, ptr};
+use std::ffi::c_char;
 
 /// Get the flags (indicating the type and other attributes) for a `RLookupKey`.
 ///
@@ -101,5 +101,5 @@ pub unsafe extern "C" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.path().as_ref().map_or(ptr::null(), |k| k.as_ptr())
+    key.path().as_ref().unwrap_or(key.name()).as_ptr()
 }
