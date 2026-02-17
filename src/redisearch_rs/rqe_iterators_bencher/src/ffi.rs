@@ -199,15 +199,16 @@ impl QueryIterator {
     /// # Arguments
     /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
     /// * `weight` - The weight for the union result
+    /// * `use_heap` - Whether to force heap-based algorithm (for benchmarking purposes)
     #[inline(always)]
-    pub fn new_union(children_ids: &[Vec<t_docId>], weight: f64) -> Self {
+    pub fn new_union(children_ids: &[Vec<t_docId>], weight: f64, use_heap: bool) -> Self {
         let num_children = children_ids.len();
 
         // Allocate array of child iterator pointers using RedisModule_Alloc
         let children_ptr = unsafe {
             RedisModule_Alloc.unwrap()(
-                num_children * std::mem::size_of::<*mut bindings::QueryIterator>(),
-            ) as *mut *mut bindings::QueryIterator
+                num_children * std::mem::size_of::<*mut ffi::QueryIterator>(),
+            ) as *mut *mut ffi::QueryIterator
         };
 
         for (i, ids) in children_ids.iter().enumerate() {
@@ -221,46 +222,34 @@ impl QueryIterator {
             }
 
             // Create child iterator
-            let child =
-                unsafe { bindings::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0) };
+            let child = unsafe {
+                iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0)
+            };
             unsafe {
                 *children_ptr.add(i) = child;
             }
         }
 
-        // Create a local IteratorsConfig with minUnionIterHeap set to MAX to use flat algorithm.
-        // This matches the C struct layout from config.h:
-        // typedef struct {
-        //   long long maxPrefixExpansions;
-        //   long long minTermPrefix;
-        //   unsigned int minStemLength;
-        //   long long minUnionIterHeap;
-        // } IteratorsConfig;
-        #[repr(C)]
-        struct IteratorsConfig {
-            max_prefix_expansions: i64,
-            min_term_prefix: i64,
-            min_stem_length: u32,
-            min_union_iter_heap: i64,
-        }
-
-        let config = IteratorsConfig {
-            max_prefix_expansions: 0,
-            min_term_prefix: 0,
-            min_stem_length: 0,
-            min_union_iter_heap: i64::MAX, // Use flat algorithm for benchmarking consistency
+        // Create IteratorsConfig with appropriate minUnionIterHeap
+        // If use_heap is true, set minUnionIterHeap to 0 so we always use heap
+        // If use_heap is false, set minUnionIterHeap to a large value so we never use heap
+        let config = ffi::IteratorsConfig {
+            maxPrefixExpansions: 200,
+            minTermPrefix: 2,
+            minStemLength: 4,
+            minUnionIterHeap: if use_heap { 0 } else { i64::MAX },
         };
 
         // Create union iterator (takes ownership of children array)
         Self(unsafe {
-            bindings::NewUnionIterator(
+            ffi::NewUnionIterator(
                 children_ptr,
                 num_children as i32,
                 false, // quickExit: collect all matching children
                 weight,
-                bindings::QueryNodeType_QN_UNION,
+                ffi::QueryNodeType_QN_UNION,
                 std::ptr::null(), // q_str
-                &config as *const IteratorsConfig as *mut bindings::IteratorsConfig,
+                &config as *const ffi::IteratorsConfig as *mut ffi::IteratorsConfig,
             )
         })
     }

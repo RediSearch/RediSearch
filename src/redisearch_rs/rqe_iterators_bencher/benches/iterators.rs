@@ -63,8 +63,6 @@ fn benchmark_union(c: &mut Criterion) {
     bencher.bench(c);
 }
 
-fn benchmark_inverted_index_numeric_full(c: &mut Criterion) {
-    let bencher = benchers::inverted_index::NumericFullBencher::default();
 fn benchmark_inverted_index_numeric(c: &mut Criterion) {
     let bencher = benchers::inverted_index::NumericBencher::default();
     bencher.bench(c);
