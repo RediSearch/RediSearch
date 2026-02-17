@@ -16,7 +16,7 @@
 //! - [`DocIdMinHeap::replace_root`]: O(log n) in-place root replacement with single sift-down
 //! - [`DocIdMinHeap::for_each_root`]: O(k) iteration over all entries equal to root
 //!
-//! See `CUSTOM_HEAP_DESIGN.md` for detailed design rationale.
+//! See `UNION_ITERATOR_DESIGN.md` for detailed design rationale.
 
 use ffi::t_docId;
 
