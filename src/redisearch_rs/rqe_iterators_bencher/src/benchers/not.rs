@@ -26,8 +26,11 @@ impl Bencher {
     const WEIGHT: f64 = 1.0;
     const MAX_DOC_ID: u64 = 1_000_000;
 
-    /// Duration chosen to be big enough such that it will not be reached.
-    const NOT_ITERATOR_LARGE_TIMEOUT: Duration = Duration::from_secs(300);
+    /// Duration is irrelevant since we skip timeout checks in benchmarks.
+    const NOT_ITERATOR_TIMEOUT: Duration = Duration::ZERO;
+
+    /// Skip timeout checks in benchmarks to avoid any overhead.
+    const SKIP_TIMEOUT_CHECKS: bool = true;
 
     fn benchmark_group<'a>(
         &self,
@@ -60,7 +63,8 @@ impl Bencher {
                         Empty,
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -105,7 +109,8 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -150,7 +155,8 @@ impl Bencher {
                         Empty,
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -195,7 +201,8 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -241,7 +248,8 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {

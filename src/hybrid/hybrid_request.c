@@ -277,7 +277,7 @@ void HybridRequest_Free(HybridRequest *req) {
         areq->sctx = NULL;
       }
 
-      AREQ_Free(req->requests[i]);
+      AREQ_DecrRef(req->requests[i]);
     }
     array_free(req->requests);
 

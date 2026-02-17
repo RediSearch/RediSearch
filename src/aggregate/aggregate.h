@@ -9,7 +9,6 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
-#include <stdbool.h>
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
@@ -28,7 +27,12 @@
 #include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
 extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
+#include <stdatomic.h>
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -200,6 +204,15 @@ typedef enum {
 
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
+
+// Reply state for coordinating replies between main thread (timeout callback) and background thread
+// Transitions: NOT_REPLIED -> REPLYING -> REPLIED
+typedef enum {
+  ReplyState_NotReplied = 0,  // No reply has been started yet
+  ReplyState_Replying = 1,    // A reply is currently in progress
+  ReplyState_Replied = 2,     // A reply has been completed
+} ReplyState;
+
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -282,6 +295,17 @@ typedef struct AREQ {
   size_t prefixesOffset;
 
   ProfilePrinterCtx profileCtx;
+
+  // Timeout signaling flag for Run in Threads mode (set by timeout callback on main thread)
+  RS_Atomic(bool) timedOut;
+  // Reply ownership state, coordinates reply between main and background thread
+  // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
+  RS_Atomic(uint8_t) replyState;
+  // Flag to indicate whether to check for timeout using clock checks
+  bool skipTimeoutChecks;
+  // Reference count for shared ownership between QueryNode (timeout callback) and background thread.
+  // Initialized to 1. Free when reaches 0.
+  uint8_t refcount;
 } AREQ;
 
 /**
@@ -445,7 +469,20 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
-void AREQ_Free(AREQ *req);
+
+/**
+ * Increment the reference count of the AREQ.
+ * @param req the request to increment
+ * @return the request (for chaining)
+ */
+AREQ *AREQ_IncrRef(AREQ *req);
+
+/**
+ * Decrement the reference count of the AREQ.
+ * If the reference count reaches 0, the request is freed.
+ * @param req the request to decrement
+ */
+void AREQ_DecrRef(AREQ *req);
 
 /**
  * Start the cursor on the current request
@@ -488,9 +525,26 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
+bool AREQ_TimedOut(AREQ *req);
+void AREQ_SetTimedOut(AREQ *req);
+
+static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
+  return !req->skipTimeoutChecks;
+}
+
+static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
+  req->skipTimeoutChecks = skipTimeoutChecks;
+  // Also propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  if (req->sctx) {
+    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+  }
+}
+
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
+#undef RS_Atomic
+
 }
 #endif
 #endif
