@@ -42,7 +42,6 @@ fn score_variant_can_handle_unsorted_ids() {
 }
 
 #[test]
-#[cfg(not(feature = "disable_sort_checks_in_idlist"))]
 #[should_panic(expected = "Can't skip when working with unsorted document ids")]
 fn score_variant_cannot_skip() {
     let ids = vec![5, 3, 1, 4, 2];

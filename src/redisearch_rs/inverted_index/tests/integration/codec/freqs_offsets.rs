@@ -20,8 +20,8 @@ fn test_encode_freqs_offsets() {
     // Test cases for the freqs offsets encoder and decoder.
     let tests = [
         // (delta, freq, term offsets vector, expected encoding)
-        (0, 1, vec![1i8, 2, 3], vec![0, 0, 1, 3, 1, 2, 3]),
-        (10, 2, vec![1i8, 2, 3, 4], vec![0, 10, 2, 4, 1, 2, 3, 4]),
+        (0, 1, vec![1u8, 2, 3], vec![0, 0, 1, 3, 1, 2, 3]),
+        (10, 2, vec![1u8, 2, 3, 4], vec![0, 10, 2, 4, 1, 2, 3, 4]),
         (256, 3, vec![1, 2, 3], vec![1, 0, 1, 3, 3, 1, 2, 3]),
         (65536, 4, vec![1, 2, 3], vec![2, 0, 0, 1, 4, 3, 1, 2, 3]),
         (
@@ -42,7 +42,7 @@ fn test_encode_freqs_offsets() {
     for (delta, freq, offsets, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
 
-        let record = TestTermRecord::new(doc_id, 0, freq, offsets);
+        let record = TestTermRecord::new(doc_id, 0, freq, &offsets);
 
         let bytes_written = FreqsOffsets::encode(&mut buf, delta, &record.record)
             .expect("to encode freqs offsets record");
@@ -120,7 +120,7 @@ fn test_seek_freqs_offsets() {
     let found = FreqsOffsets::seek(&mut buf, 10, 30, &mut record_decoded)
         .expect("to decode freqs offsets record");
 
-    let record_expected = TestTermRecord::new(30, 0, 3, vec![5i8, 6, 7, 8]);
+    let record_expected = TestTermRecord::new(30, 0, 3, &[5u8, 6, 7, 8]);
 
     assert!(found);
     assert_eq!(
@@ -131,7 +131,7 @@ fn test_seek_freqs_offsets() {
     let found = FreqsOffsets::seek(&mut buf, 30, 40, &mut record_decoded)
         .expect("to decode freqs offsets record");
 
-    let record_expected = TestTermRecord::new(55, 0, 9, vec![20i8, 21]);
+    let record_expected = TestTermRecord::new(55, 0, 9, &[20u8, 21]);
 
     assert!(found);
     assert_eq!(
