@@ -142,3 +142,16 @@ pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).id() }
 }
+
+/// Get the token flags.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetFlags(term: *const RSQueryTerm) -> query_term::RSTokenFlags {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).flags() }
+}
