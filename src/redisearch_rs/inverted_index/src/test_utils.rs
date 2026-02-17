@@ -26,7 +26,7 @@ impl<'a> TestTermRecord<'a> {
     pub fn new(doc_id: u64, field_mask: t_fieldMask, freq: u32, offsets: &'a [u8]) -> Self {
         let mut term = RSQueryTerm::new(b"test", 1, 0);
         term.set_idf(5.0);
-        term.bm25_idf = 10.0;
+        term.set_bm25_idf(10.0);
 
         let record = RSIndexResult::with_term(
             Some(term),

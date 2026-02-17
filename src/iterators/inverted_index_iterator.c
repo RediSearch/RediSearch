@@ -446,7 +446,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   };
   if (term && sctx) {
     QueryTerm_SetIDF(term, CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    QueryTerm_SetBM25_IDF(term, CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -472,7 +472,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   };
   if (term && sctx) {
     QueryTerm_SetIDF(term, CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    QueryTerm_SetBM25_IDF(term, CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);

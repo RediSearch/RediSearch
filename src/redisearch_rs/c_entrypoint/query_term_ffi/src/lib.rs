@@ -101,3 +101,29 @@ pub unsafe extern "C" fn QueryTerm_SetIDF(term: *mut RSQueryTerm, value: f64) {
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).set_idf(value) }
 }
+
+/// Get the BM25 IDF value from a query term.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetBM25_IDF(term: *const RSQueryTerm) -> f64 {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).bm25_idf() }
+}
+
+/// Set the BM25 IDF value on a query term.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_SetBM25_IDF(term: *mut RSQueryTerm, value: f64) {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).set_bm25_idf(value) }
+}

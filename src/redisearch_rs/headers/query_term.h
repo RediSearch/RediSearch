@@ -113,6 +113,26 @@ double QueryTerm_GetIDF(const struct RSQueryTerm *term);
  */
 void QueryTerm_SetIDF(struct RSQueryTerm *term, double value);
 
+/**
+ * Get the BM25 IDF value from a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
+
+/**
+ * Set the BM25 IDF value on a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+void QueryTerm_SetBM25_IDF(struct RSQueryTerm *term, double value);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

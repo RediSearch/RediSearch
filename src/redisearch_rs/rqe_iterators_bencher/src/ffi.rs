@@ -455,7 +455,7 @@ mod tests {
         let term = || {
             let mut t = RSQueryTerm::new(b"term", 1, 0);
             t.set_idf(5.0);
-            t.bm25_idf = 10.0;
+            t.set_bm25_idf(10.0);
             Some(t)
         };
 

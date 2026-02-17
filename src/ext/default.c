@@ -243,7 +243,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   if (r->data.tag == RSResultData_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     RSQueryTerm *term = IndexResult_QueryTermRef(r);
-    double idf = term->bm25_idf;
+    double idf = QueryTerm_GetBM25_IDF(term);
     ret = CalculateBM25Std(b, k1, idf, f, dmd->docLen, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            term->str);
   } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
