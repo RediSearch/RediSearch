@@ -246,7 +246,7 @@ static int VecSim_DisableThrottle(void) {
   int ret = RedisModule_DisablePostponeClients();
   if (ret == REDISMODULE_ERR) {
       // This indicates a bug: disable called without matching enable
-      RedisModule_Log(NULL, "warning",
+      RedisModule_Log(RSDummyContext, "warning",
           "VecSim_DisableThrottle: no matching enable call");
   }
 
