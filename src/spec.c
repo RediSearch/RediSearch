@@ -3888,6 +3888,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         // skip if document type does not match the index type
         // The unsupported type is needed for crdt empty keys (deleted)
         if (type != DocumentType_Unsupported && type != spec->rule->type) {
+          StrongRef_Release(cloned_ref);
           continue;
         }
 
