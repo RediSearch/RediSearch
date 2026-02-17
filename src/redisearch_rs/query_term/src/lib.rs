@@ -117,6 +117,13 @@ impl RSQueryTerm {
     pub fn set_bm25_idf(&mut self, value: f64) {
         self.bm25_idf = value;
     }
+
+    /// Get the term ID.
+    ///
+    /// Each term in the query gets an incremental ID assigned during parsing.
+    pub fn id(&self) -> i32 {
+        self.id
+    }
 }
 
 impl Drop for RSQueryTerm {
@@ -149,7 +156,7 @@ impl PartialEq for RSQueryTerm {
         self_str == other_str
             && self.idf() == other.idf()
             && self.bm25_idf() == other.bm25_idf()
-            && self.id == other.id
+            && self.id() == other.id()
             && self.flags == other.flags
     }
 }
