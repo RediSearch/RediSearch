@@ -46,7 +46,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
   // Set throttle callbacks for vector disk tiered indexes
-  RS_DEBUG_ASSERT(disk->basic.setThrottleCallbacks);
+  RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
 
@@ -237,12 +237,12 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
 
 // Throttle callback wrappers for VecSim
 static void VecSim_EnableThrottle(void) {
-  RS_DEBUG_ASSERT(RedisModule_EnablePostponeClients);
+  RS_ASSERT(RedisModule_EnablePostponeClients);
   RedisModule_EnablePostponeClients();  // Always returns OK
 }
 
 static void VecSim_DisableThrottle(void) {
-  RS_DEBUG_ASSERT(RedisModule_DisablePostponeClients);
+  RS_ASSERT(RedisModule_DisablePostponeClients);
   if (RedisModule_DisablePostponeClients() == REDISMODULE_ERR) {
       // This indicates a bug: disable called without matching enable
       RedisModule_Log(NULL, "warning",
