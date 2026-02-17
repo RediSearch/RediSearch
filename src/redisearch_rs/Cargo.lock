@@ -1697,9 +1697,13 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 name = "result_processor"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "libc",
  "pin-project",
+ "redis_mock",
+ "redisearch_rs",
+ "result_processor",
  "search_result",
  "workspace_hack",
 ]
@@ -1711,7 +1715,10 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "result_processor",
+ "result_processor_ffi",
  "workspace_hack",
 ]
 
@@ -1733,6 +1740,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "document",
  "enumflags2",
  "ffi",
@@ -1742,6 +1750,8 @@ dependencies = [
  "proptest",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
+ "rlookup",
  "sorting_vector",
  "strum",
  "thiserror",
@@ -1757,7 +1767,10 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "redis_mock",
+ "redisearch_rs",
  "rlookup",
+ "rlookup_ffi",
  "sorting_vector",
  "value",
  "workspace_hack",
@@ -2130,8 +2143,12 @@ dependencies = [
 name = "sorting_vector"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "icu_casemap",
+ "redis_mock",
+ "redisearch_rs",
+ "sorting_vector",
  "value",
  "workspace_hack",
 ]

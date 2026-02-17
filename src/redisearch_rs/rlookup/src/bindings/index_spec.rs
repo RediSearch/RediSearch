@@ -9,7 +9,7 @@
 
 use std::slice;
 
-use crate::{SchemaRule, field_spec::FieldSpec};
+use crate::{SchemaRule, bindings::field_spec::FieldSpec};
 
 /// A safe wrapper around an `ffi::IndexSpec`.
 #[repr(transparent)]

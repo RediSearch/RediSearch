@@ -9,6 +9,11 @@
 
 //! This file contains tests to ensure the FFI functions behave as expected.
 
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Mock or stub the ones that aren't provided by the line above
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 use result_processor_ffi::counter::*;
 
 #[test]
@@ -60,33 +65,4 @@ fn rp_counter_new_creates_unique_instances() {
             .expect("Rust result processor must have a free function");
         free_fn(counter2);
     }
-}
-
-/// Mock implementation of `DMD_Free` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
-    unreachable!()
-}
-
-/// Mock implementation of `SEDestroy` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
-    unreachable!()
-}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset(_row: *mut ffi::RLookupRow) {}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe(_row: *mut ffi::RLookupRow) {}
-
-/// Stub implementation of `RPProfile_IncrementCount` for the linker to not complain when running these tests.
-/// This should not be called during these tests.
-///
-// FIXME: replace with `Profile::increment_count` once the profile result processor is ported.
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RPProfile_IncrementCount(_r: *mut ffi::ResultProcessor) {
-    unreachable!()
 }

@@ -12,7 +12,18 @@ value = { workspace = true, features = ["c_ffi_impl"] }
 workspace_hack.workspace = true
 
 [dev-dependencies]
-value = { workspace = true, features = ["test_utils"] }
+value.workspace = true
+
+# Crate required to invoke C symbols
+sorting_vector = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+redis_mock.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[features]
+unittest = []
 
 [lints]
 workspace = true
