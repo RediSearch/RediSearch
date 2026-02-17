@@ -89,9 +89,10 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     term->idf = idf;
     term->bm25_idf = bm25_idf;
-    QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight);
+    RSIndexResult *record = NewTokenRecord(term, weight);
+    QueryIterator *it = disk->index.newTermIterator(index, record, fieldMask);
     if (!it) {
-        Term_Free(term);
+        IndexResult_Free(record);
     }
     return it;
 }

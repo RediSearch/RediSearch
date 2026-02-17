@@ -99,12 +99,11 @@ typedef struct IndexDiskAPI {
    * @brief Creates a new iterator for the inverted index
    *
    * @param index Pointer to the index
-   * @param term Pointer to the query term (contains term string, idf, bm25_idf)
+   * @param record Pointer to the index result (created by NewTokenRecord, takes ownership)
    * @param fieldMask Field mask indicating which fields are present in the document
-   * @param weight Weight for the iterator (used in scoring)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSIndexResult* record, t_fieldMask fieldMask);
 
   /**
    * @brief Returns the number of documents in the index
