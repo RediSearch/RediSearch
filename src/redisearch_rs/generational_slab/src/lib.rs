@@ -173,6 +173,12 @@ pub struct Slab<T> {
     // Offset of the next available slot in the slab. Set to the slab's
     // capacity when the slab is full.
     next: u32,
+
+    // Minimum generation assigned to brand-new slots (the push branch of
+    // `insert_at`). Bumped by `clear()`, `drain()`, `compact()`, and
+    // `shrink_to_fit()` before entries are lost, so that old keys pointing
+    // to those positions can never alias the new entries.
+    generation_watermark: u32,
 }
 
 impl<T> Clone for Slab<T>
@@ -184,6 +190,7 @@ where
             entries: self.entries.clone(),
             len: self.len,
             next: self.next,
+            generation_watermark: self.generation_watermark,
         }
     }
 
@@ -191,6 +198,7 @@ where
         self.entries.clone_from(&source.entries);
         self.len = source.len;
         self.next = source.next;
+        self.generation_watermark = source.generation_watermark;
     }
 }
 
@@ -322,6 +330,7 @@ impl<T> Slab<T> {
             entries: Vec::new(),
             next: 0,
             len: 0,
+            generation_watermark: 0,
         }
     }
 
@@ -357,6 +366,7 @@ impl<T> Slab<T> {
             entries: Vec::with_capacity(capacity),
             next: 0,
             len: 0,
+            generation_watermark: 0,
         }
     }
 
@@ -496,6 +506,20 @@ impl<T> Slab<T> {
         // the capacity can be reduced to what is actually needed.
         // If the slab is empty the vector can simply be cleared, but that
         // optimization would not affect time complexity when T: Drop.
+
+        // Raise the watermark from trailing vacant entries that are about
+        // to be popped, so old keys pointing at those positions cannot
+        // alias future inserts.
+        let trim_start = {
+            let mut i = self.entries.len();
+            while i > 0 && matches!(self.entries[i - 1], Entry::Vacant { .. }) {
+                i -= 1;
+            }
+            i
+        };
+        self.generation_watermark =
+            Self::watermark_for(self.generation_watermark, &self.entries[trim_start..]);
+
         let len_before = self.entries.len();
         while let Some(&Entry::Vacant { .. }) = self.entries.last() {
             self.entries.pop();
@@ -588,6 +612,11 @@ impl<T> Slab<T> {
     where
         F: FnMut(&mut T, Key, Key) -> bool,
     {
+        // Raise the watermark before any entries are lost. Entries at
+        // positions that get truncated must not be silently aliased by
+        // future inserts at the same position.
+        self.generation_watermark = Self::watermark_for(self.generation_watermark, &self.entries);
+
         // If the closure unwinds, we need to restore a valid list of vacant entries
         struct CleanupGuard<'a, T> {
             slab: &'a mut Slab<T>,
@@ -660,6 +689,23 @@ impl<T> Slab<T> {
         mem::forget(guard);
     }
 
+    /// Compute the minimum safe watermark for a set of entries that are about
+    /// to be lost.
+    ///
+    /// For occupied entries the next safe generation is `gen + 1`; for vacant
+    /// entries it is `gen` (already bumped by `remove_at`).
+    fn watermark_for(current: u32, lost_entries: &[Entry<T>]) -> u32 {
+        let mut watermark = current;
+        for entry in lost_entries {
+            let floor = match *entry {
+                Entry::Occupied { generation, .. } => generation.wrapping_add(1),
+                Entry::Vacant { generation, .. } => generation,
+            };
+            watermark = watermark.max(floor);
+        }
+        watermark
+    }
+
     /// Clear the slab of all values.
     ///
     /// # Examples
@@ -676,6 +722,7 @@ impl<T> Slab<T> {
     /// assert!(slab.is_empty());
     /// ```
     pub fn clear(&mut self) {
+        self.generation_watermark = Self::watermark_for(self.generation_watermark, &self.entries);
         self.entries.clear();
         self.len = 0;
         self.next = 0;
@@ -1150,7 +1197,10 @@ impl<T> Slab<T> {
     /// ```
     pub fn vacant_key(&self) -> Key {
         let pos = self.next as usize;
-        let generation = self.entries.get(pos).map_or(0, |entry| entry.generation());
+        let generation = self
+            .entries
+            .get(pos)
+            .map_or(self.generation_watermark, |entry| entry.generation());
         Key {
             position: self.next,
             generation,
@@ -1196,12 +1246,13 @@ impl<T> Slab<T> {
                 "slab exceeded maximum capacity of {} entries",
                 u32::MAX
             );
+            let generation = self.generation_watermark;
             self.entries.push(Entry::Occupied {
                 value: val,
-                generation: 0,
+                generation,
             });
             self.next = pos + 1;
-            0
+            generation
         } else {
             let entry = &self.entries[pos_usize];
             let generation = entry.generation();
@@ -1411,6 +1462,7 @@ impl<T> Slab<T> {
     /// assert!(slab.is_empty());
     /// ```
     pub fn drain(&mut self) -> Drain<'_, T> {
+        self.generation_watermark = Self::watermark_for(self.generation_watermark, &self.entries);
         let old_len = self.len;
         self.len = 0;
         self.next = 0;

@@ -872,3 +872,85 @@ fn get_disjoint_mut_generation_mismatch() {
         Err(GetDisjointMutError::GenerationMismatch)
     );
 }
+
+#[test]
+fn clear_invalidates_stale_keys() {
+    let mut slab = Slab::new();
+    let old_key = slab.insert("hello");
+    slab.clear();
+    let _new_key = slab.insert("world");
+
+    assert_eq!(
+        slab.get(old_key),
+        None,
+        "stale key must not alias after clear"
+    );
+}
+
+#[test]
+fn drain_invalidates_stale_keys() {
+    let mut slab = Slab::new();
+    let old_key = slab.insert("hello");
+    let _: Vec<_> = slab.drain().collect();
+    let _new_key = slab.insert("world");
+
+    assert_eq!(
+        slab.get(old_key),
+        None,
+        "stale key must not alias after drain"
+    );
+}
+
+#[test]
+fn compact_invalidates_stale_keys() {
+    let mut slab = Slab::new();
+    let k0 = slab.insert("a");
+    let k1 = slab.insert("b");
+    // Remove position 0 so compact moves position 1→0
+    slab.remove(k0);
+    slab.compact(|_, _, _| true);
+    // Position 1 is now gone; insert again to re-create it
+    let _new = slab.insert("c");
+
+    assert_eq!(slab.get(k1), None, "stale key must not alias after compact");
+}
+
+#[test]
+fn clear_then_insert_bumps_generation() {
+    let mut slab = Slab::new();
+    let _old = slab.insert(42);
+    slab.clear();
+    let new_key = slab.insert(99);
+
+    assert!(
+        new_key.generation() > 0,
+        "generation should be bumped after clear, got {}",
+        new_key.generation()
+    );
+}
+
+#[test]
+fn shrink_to_fit_invalidates_stale_keys() {
+    let mut slab = Slab::new();
+    let k0 = slab.insert("a");
+    let k1 = slab.insert("b");
+    slab.remove(k0);
+    slab.remove(k1);
+    // Both slots are now vacant; shrink_to_fit pops them.
+    slab.shrink_to_fit();
+    assert!(slab.is_empty());
+    // Re-insert to re-create positions 0 and 1.
+    let _new0 = slab.insert("c");
+    let _new1 = slab.insert("d");
+
+    assert_eq!(
+        slab.get(k0),
+        None,
+        "stale key must not alias after shrink_to_fit"
+    );
+    assert_eq!(
+        slab.get(k1),
+        None,
+        "stale key must not alias after shrink_to_fit"
+    );
+}

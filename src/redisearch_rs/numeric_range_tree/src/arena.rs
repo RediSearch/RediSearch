@@ -34,6 +34,12 @@ impl NodeIndex {
     }
 }
 
+impl From<Key> for NodeIndex {
+    fn from(key: Key) -> Self {
+        Self(key)
+    }
+}
+
 /// Arena storage for [`NumericRangeNode`]s.
 ///
 /// This is a newtype wrapper around [`Slab<NumericRangeNode>`] that provides
@@ -128,7 +134,7 @@ impl NodeArena {
         mut callback: impl FnMut(&mut NumericRangeNode, NodeIndex, NodeIndex) -> bool,
     ) {
         self.nodes
-            .compact(|node, from, to| callback(node, NodeIndex(from as u32), NodeIndex(to as u32)))
+            .compact(|node, from, to| callback(node, from.into(), to.into()))
     }
 }
 
