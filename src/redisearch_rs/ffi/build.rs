@@ -113,14 +113,10 @@ fn main() {
         let _ = rerun_if_c_changes(&include);
     }
 
-    // Enable RLEC extensions (Redis Enterprise APIs like EnablePostponeClients)
-    bindings = bindings.clang_arg("-DREDISMODULE_SDK_RLEC");
-
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .blocklist_file(".*/document_rs.h")
         .allowlist_file(".*/types_rs.h")
-        .allowlist_file(".*/redismodule-rlec.h")
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(out_dir.join("bindings.rs"))
