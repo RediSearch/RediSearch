@@ -57,15 +57,12 @@ pub struct RSQueryTerm {
 
 impl fmt::Debug for RSQueryTerm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let term_str = if self.str_.is_null() {
-            "<null>"
-        } else {
-            // SAFETY: `str_` is not null (just checked) and `len` is guaranteed
-            // to be a valid length for the data pointer.
-            let slice = unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) };
+        let term_str = if let Some(bytes) = self.as_bytes() {
             // SAFETY: term strings originate from user queries and are treated
             // as valid UTF-8 throughout the C codebase.
-            unsafe { std::str::from_utf8_unchecked(slice) }
+            unsafe { std::str::from_utf8_unchecked(bytes) }
+        } else {
+            "<null>"
         };
 
         f.debug_struct("RSQueryTerm")
@@ -134,6 +131,32 @@ impl RSQueryTerm {
     pub fn len(&self) -> usize {
         self.len
     }
+
+    /// Get the raw string pointer (for FFI compatibility).
+    ///
+    /// # Safety
+    ///
+    /// Returned pointer is valid for the lifetime of this term and is null-terminated.
+    pub fn str_ptr(&self) -> *const c_char {
+        self.str_ as *const c_char
+    }
+
+    /// Get the term as a byte slice, if the string pointer is non-null.
+    ///
+    /// Does NOT assume valid UTF-8.
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        if self.str_.is_null() {
+            None
+        } else {
+            // SAFETY: `str_` is valid for `len` bytes when non-null
+            Some(unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) })
+        }
+    }
+
+    /// Get the term as a string slice, if valid UTF-8.
+    pub fn as_str(&self) -> Option<&str> {
+        self.as_bytes().and_then(|b| std::str::from_utf8(b).ok())
+    }
 }
 
 impl Drop for RSQueryTerm {
@@ -150,18 +173,8 @@ impl Drop for RSQueryTerm {
 impl PartialEq for RSQueryTerm {
     fn eq(&self, other: &Self) -> bool {
         // Compare string contents, not pointer addresses.
-        let self_str = if self.str_.is_null() {
-            &[]
-        } else {
-            // SAFETY: `str_` is not null and `len` is a valid length for the data pointer.
-            unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) }
-        };
-        let other_str = if other.str_.is_null() {
-            &[]
-        } else {
-            // SAFETY: `str_` is not null and `len` is a valid length for the data pointer.
-            unsafe { std::slice::from_raw_parts(other.str_ as *const u8, other.len) }
-        };
+        let self_str = self.as_bytes().unwrap_or(&[]);
+        let other_str = other.as_bytes().unwrap_or(&[]);
 
         self_str == other_str
             && self.idf() == other.idf()
@@ -215,7 +228,7 @@ mod tests {
         let a = RSQueryTerm::new(b"hello", 1, 0);
         let b = RSQueryTerm::new(b"hello", 1, 0);
         // Different allocations, same content.
-        assert_ne!(a.str_, b.str_);
+        assert_ne!(a.str_ptr(), b.str_ptr());
         assert_eq!(*a, *b);
     }
 

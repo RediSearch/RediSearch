@@ -168,3 +168,40 @@ pub unsafe extern "C" fn QueryTerm_GetLen(term: *const RSQueryTerm) -> usize {
     // SAFETY: caller guarantees `term` is valid and non-null
     unsafe { (*term).len() }
 }
+
+/// Get the string pointer from a query term.
+///
+/// Returns a pointer to the null-terminated byte string. The string may not be valid UTF-8.
+///
+/// # Safety
+///
+/// `term` must be valid and non-null. Returned pointer is valid for the lifetime of the term.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetStr(term: *const RSQueryTerm) -> *const std::ffi::c_char {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid
+    unsafe { (*term).str_ptr() }
+}
+
+/// Get both the string pointer and length from a query term.
+///
+/// This is useful for C code that needs to work with the byte slice directly.
+/// The string may not be valid UTF-8.
+///
+/// # Safety
+///
+/// - `term` must be valid and non-null
+/// - `out_len` must be a valid pointer to write the length to
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetStrAndLen(
+    term: *const RSQueryTerm,
+    out_len: *mut usize,
+) -> *const std::ffi::c_char {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    debug_assert!(!out_len.is_null(), "out_len cannot be NULL");
+    // SAFETY: caller guarantees `term` and `out_len` are valid
+    unsafe {
+        *out_len = (*term).len();
+        (*term).str_ptr()
+    }
+}

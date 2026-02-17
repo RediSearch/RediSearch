@@ -61,7 +61,7 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
   // sctx and term should always be set, except in some tests.
   RS_ASSERT(term);
-  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, QueryTerm_GetLen(term), false, NULL);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, QueryTerm_GetStr(term), QueryTerm_GetLen(term), false, NULL);
   if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
@@ -79,7 +79,7 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   }
   size_t sz;
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
-  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, term->str, QueryTerm_GetLen(term), false, &sz);
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, QueryTerm_GetStr(term), QueryTerm_GetLen(term), false, &sz);
   if (idx == TRIEMAP_NOTFOUND || !IndexReader_IsIndex(it->base.reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
