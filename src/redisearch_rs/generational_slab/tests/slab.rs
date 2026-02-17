@@ -85,14 +85,14 @@ fn get_vacant_entry_without_using() {
 #[should_panic(expected = "invalid key")]
 fn invalid_get_panics() {
     let slab = Slab::<usize>::with_capacity(1);
-    let _ = &slab[0];
+    let _ = &slab[Key::from(0)];
 }
 
 #[test]
 #[should_panic(expected = "invalid key")]
 fn invalid_get_mut_panics() {
     let mut slab = Slab::<usize>::new();
-    let _ = &mut slab[0];
+    let _ = &mut slab[Key::from(0)];
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn double_remove_panics() {
 #[should_panic(expected = "invalid key")]
 fn invalid_remove_panics() {
     let mut slab = Slab::<usize>::with_capacity(1);
-    slab.remove(0);
+    slab.remove(Key::from(0));
 }
 
 #[test]
@@ -126,8 +126,8 @@ fn slab_get_mut() {
 #[test]
 fn key_of_tagged() {
     let mut slab = Slab::new();
-    slab.insert(0);
-    assert_eq!(slab.key_of(&slab[0]), 0);
+    let key = slab.insert(0);
+    assert_eq!(slab.key_of(&slab[key]), key);
 }
 
 #[test]
@@ -160,8 +160,8 @@ fn reserve_does_not_allocate_if_available() {
         keys.push(slab.insert(i));
     }
 
-    for key in 0..4 {
-        slab.remove(key);
+    for key in &keys[..4] {
+        slab.remove(*key);
     }
 
     assert!(slab.capacity() - slab.len() == 8);
@@ -179,8 +179,8 @@ fn reserve_exact_does_not_allocate_if_available() {
         keys.push(slab.insert(i));
     }
 
-    for key in 0..4 {
-        slab.remove(key);
+    for key in &keys[..4] {
+        slab.remove(*key);
     }
 
     assert!(slab.capacity() - slab.len() == 8);
@@ -221,7 +221,7 @@ fn retain() {
     let key2 = slab.insert(1);
 
     slab.retain(|key, x| {
-        assert_eq!(key, *x);
+        assert_eq!(key.index(), *x);
         *x % 2 == 0
     });
 
@@ -238,7 +238,7 @@ fn retain() {
 
     // Inserting another element grows
     let key = slab.insert(345);
-    assert_eq!(key, 2);
+    assert_eq!(key.index(), 2);
 
     assert_eq!(4, slab.capacity());
 }
@@ -247,17 +247,18 @@ fn retain() {
 fn into_iter() {
     let mut slab = Slab::new();
 
+    let mut keys = Vec::new();
     for i in 0..8 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
-    slab.remove(0);
-    slab.remove(4);
-    slab.remove(5);
-    slab.remove(7);
+    slab.remove(keys[0]);
+    slab.remove(keys[4]);
+    slab.remove(keys[5]);
+    slab.remove(keys[7]);
 
     let vals: Vec<_> = slab
         .into_iter()
-        .inspect(|&(key, val)| assert_eq!(key, val))
+        .inspect(|&(key, val)| assert_eq!(key.index(), val))
         .map(|(_, val)| val)
         .collect();
     assert_eq!(vals, vec![1, 2, 3, 6]);
@@ -272,10 +273,10 @@ fn into_iter_rev() {
     }
 
     let mut iter = slab.into_iter();
-    assert_eq!(iter.next_back(), Some((3, 3)));
-    assert_eq!(iter.next_back(), Some((2, 2)));
-    assert_eq!(iter.next(), Some((0, 0)));
-    assert_eq!(iter.next_back(), Some((1, 1)));
+    assert_eq!(iter.next_back().map(|(k, v)| (k.index(), v)), Some((3, 3)));
+    assert_eq!(iter.next_back().map(|(k, v)| (k.index(), v)), Some((2, 2)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((0, 0)));
+    assert_eq!(iter.next_back().map(|(k, v)| (k.index(), v)), Some((1, 1)));
     assert_eq!(iter.next_back(), None);
     assert_eq!(iter.next(), None);
 }
@@ -292,13 +293,14 @@ fn iter() {
         .iter()
         .enumerate()
         .map(|(i, (key, val))| {
-            assert_eq!(i, key);
+            assert_eq!(i, key.index());
             *val
         })
         .collect();
     assert_eq!(vals, vec![0, 1, 2, 3]);
 
-    slab.remove(1);
+    let key1 = Key::from(1);
+    slab.remove(key1);
 
     let vals: Vec<_> = slab.iter().map(|(_, r)| *r).collect();
     assert_eq!(vals, vec![0, 2, 3]);
@@ -308,13 +310,14 @@ fn iter() {
 fn iter_rev() {
     let mut slab = Slab::new();
 
+    let mut keys = Vec::new();
     for i in 0..4 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
-    slab.remove(0);
+    slab.remove(keys[0]);
 
-    let vals = slab.iter().rev().collect::<Vec<_>>();
-    assert_eq!(vals, vec![(3, &3), (2, &2), (1, &1)]);
+    let vals: Vec<_> = slab.iter().rev().map(|(k, v)| (k.index(), *v)).collect();
+    assert_eq!(vals, vec![(3, 3), (2, 2), (1, 1)]);
 }
 
 #[test]
@@ -326,14 +329,14 @@ fn iter_mut() {
     }
 
     for (i, (key, e)) in slab.iter_mut().enumerate() {
-        assert_eq!(i, key);
+        assert_eq!(i, key.index());
         *e += 1;
     }
 
     let vals: Vec<_> = slab.iter().map(|(_, r)| *r).collect();
     assert_eq!(vals, vec![1, 2, 3, 4]);
 
-    slab.remove(2);
+    slab.remove(Key::from(2));
 
     for (_, e) in slab.iter_mut() {
         *e += 1;
@@ -347,26 +350,30 @@ fn iter_mut() {
 fn iter_mut_rev() {
     let mut slab = Slab::new();
 
+    let mut keys = Vec::new();
     for i in 0..4 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
-    slab.remove(2);
+    slab.remove(keys[2]);
 
     {
         let mut iter = slab.iter_mut();
-        assert_eq!(iter.next(), Some((0, &mut 0)));
-        let mut prev_key = !0;
+        assert_eq!(
+            iter.next().map(|(k, v)| (k.index(), &mut *v)),
+            Some((0, &mut 0))
+        );
+        let mut prev_idx: usize = usize::MAX;
         for (key, e) in iter.rev() {
             *e += 10;
-            assert!(prev_key > key);
-            prev_key = key;
+            assert!(prev_idx > key.index());
+            prev_idx = key.index();
         }
     }
 
-    assert_eq!(slab[0], 0);
-    assert_eq!(slab[1], 11);
-    assert_eq!(slab[3], 13);
-    assert!(!slab.contains(2));
+    assert_eq!(slab[keys[0]], 0);
+    assert_eq!(slab[keys[1]], 11);
+    assert_eq!(slab[keys[3]], 13);
+    assert!(!slab.contains(keys[2]));
 }
 
 #[test]
@@ -423,25 +430,26 @@ fn shrink_to_fit_doesnt_move() {
     slab.shrink_to_fit();
     assert_eq!(slab.len(), 2);
     assert!(slab.capacity() >= 3);
-    assert_eq!(slab.get(0), Some(&"foo"));
-    assert_eq!(slab.get(2), Some(&"baz"));
+    assert_eq!(slab.get(Key::from(0)), Some(&"foo"));
+    assert_eq!(slab.get(Key::from(2)), Some(&"baz"));
     assert_eq!(slab.vacant_entry().key(), bar);
 }
 
 #[test]
 fn shrink_to_fit_doesnt_recreate_list_when_nothing_can_be_done() {
     let mut slab = Slab::with_capacity(16);
+    let mut keys = Vec::new();
     for i in 0..4 {
-        slab.insert(Box::new(i));
+        keys.push(slab.insert(Box::new(i)));
     }
-    slab.remove(0);
-    slab.remove(2);
-    slab.remove(1);
-    assert_eq!(slab.vacant_entry().key(), 1);
+    slab.remove(keys[0]);
+    slab.remove(keys[2]);
+    slab.remove(keys[1]);
+    assert_eq!(slab.vacant_entry().key(), keys[1]);
     slab.shrink_to_fit();
     assert_eq!(slab.len(), 1);
     assert!(slab.capacity() >= 4);
-    assert_eq!(slab.vacant_entry().key(), 1);
+    assert_eq!(slab.vacant_entry().key(), keys[1]);
 }
 
 #[test]
@@ -454,12 +462,13 @@ fn compact_empty() {
     slab.compact(|_, _, _| panic!());
     assert_eq!(slab.len(), 0);
     assert_eq!(slab.capacity(), 0);
-    slab.insert(0);
-    slab.insert(1);
-    slab.insert(2);
-    slab.remove(1);
-    slab.remove(2);
-    slab.remove(0);
+    let mut keys = Vec::new();
+    keys.push(slab.insert(0));
+    keys.push(slab.insert(1));
+    keys.push(slab.insert(2));
+    slab.remove(keys[1]);
+    slab.remove(keys[2]);
+    slab.remove(keys[0]);
     slab.compact(|_, _, _| panic!());
     assert_eq!(slab.len(), 0);
     assert_eq!(slab.capacity(), 0);
@@ -468,18 +477,19 @@ fn compact_empty() {
 #[test]
 fn compact_no_moves_needed() {
     let mut slab = Slab::new();
+    let mut keys = Vec::new();
     for i in 0..10 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
-    slab.remove(8);
-    slab.remove(9);
-    slab.remove(6);
-    slab.remove(7);
+    slab.remove(keys[8]);
+    slab.remove(keys[9]);
+    slab.remove(keys[6]);
+    slab.remove(keys[7]);
     slab.compact(|_, _, _| panic!());
     assert_eq!(slab.len(), 6);
-    for ((index, &value), want) in slab.iter().zip(0..6) {
-        assert!(index == value);
-        assert_eq!(index, want);
+    for ((key, &value), want) in slab.iter().zip(0..6) {
+        assert!(key.index() == value);
+        assert_eq!(key.index(), want);
     }
     assert!(slab.capacity() >= 6 && slab.capacity() < 10);
 }
@@ -487,73 +497,76 @@ fn compact_no_moves_needed() {
 #[test]
 fn compact_moves_successfully() {
     let mut slab = Slab::with_capacity(20);
+    let mut keys = Vec::new();
     for i in 0..10 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
     for &i in &[0, 5, 9, 6, 3] {
-        slab.remove(i);
+        slab.remove(keys[i]);
     }
     let mut moved = 0;
     slab.compact(|&mut v, from, to| {
         assert!(from > to);
-        assert!(from >= 5);
-        assert!(to < 5);
-        assert_eq!(from, v);
+        assert!(from.index() >= 5);
+        assert!(to.index() < 5);
+        assert_eq!(from.index(), v);
         moved += 1;
         true
     });
     assert_eq!(slab.len(), 5);
     assert_eq!(moved, 2);
-    assert_eq!(slab.vacant_entry().key(), 5);
+    assert_eq!(slab.vacant_key().index(), 5);
     assert!(slab.capacity() >= 5 && slab.capacity() < 20);
     let mut iter = slab.iter();
-    assert_eq!(iter.next(), Some((0, &8)));
-    assert_eq!(iter.next(), Some((1, &1)));
-    assert_eq!(iter.next(), Some((2, &2)));
-    assert_eq!(iter.next(), Some((3, &7)));
-    assert_eq!(iter.next(), Some((4, &4)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((0, &8)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((1, &1)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((2, &2)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((3, &7)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((4, &4)));
     assert_eq!(iter.next(), None);
 }
 
 #[test]
 fn compact_doesnt_move_if_closure_errors() {
     let mut slab = Slab::with_capacity(20);
+    let mut keys = Vec::new();
     for i in 0..10 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
     for &i in &[9, 3, 1, 4, 0] {
-        slab.remove(i);
+        slab.remove(keys[i]);
     }
     slab.compact(|&mut v, from, to| {
         assert!(from > to);
-        assert_eq!(from, v);
+        assert_eq!(from.index(), v);
         v != 6
     });
     assert_eq!(slab.len(), 5);
     assert!(slab.capacity() >= 7 && slab.capacity() < 20);
-    assert_eq!(slab.vacant_entry().key(), 3);
+    assert_eq!(slab.vacant_key().index(), 3);
     let mut iter = slab.iter();
-    assert_eq!(iter.next(), Some((0, &8)));
-    assert_eq!(iter.next(), Some((1, &7)));
-    assert_eq!(iter.next(), Some((2, &2)));
-    assert_eq!(iter.next(), Some((5, &5)));
-    assert_eq!(iter.next(), Some((6, &6)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((0, &8)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((1, &7)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((2, &2)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((5, &5)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((6, &6)));
     assert_eq!(iter.next(), None);
 }
 
 #[test]
 fn compact_handles_closure_panic() {
     let mut slab = Slab::new();
+    let mut keys = Vec::new();
     for i in 0..10 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
     for i in 1..6 {
-        slab.remove(i);
+        slab.remove(keys[i]);
     }
     let result = catch_unwind(AssertUnwindSafe(|| {
         slab.compact(|&mut v, from, to| {
             assert!(from > to);
-            assert_eq!(from, v);
+            assert_eq!(from.index(), v);
             if v == 7 {
                 panic!("test");
             }
@@ -566,12 +579,12 @@ fn compact_handles_closure_panic() {
         Ok(()) => unreachable!(),
     }
     assert_eq!(slab.len(), 5 - 1);
-    assert_eq!(slab.vacant_entry().key(), 3);
+    assert_eq!(slab.vacant_key().index(), 3);
     let mut iter = slab.iter();
-    assert_eq!(iter.next(), Some((0, &0)));
-    assert_eq!(iter.next(), Some((1, &9)));
-    assert_eq!(iter.next(), Some((2, &8)));
-    assert_eq!(iter.next(), Some((6, &6)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((0, &0)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((1, &9)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((2, &8)));
+    assert_eq!(iter.next().map(|(k, v)| (k.index(), v)), Some((6, &6)));
     assert_eq!(iter.next(), None);
 }
 
@@ -613,10 +626,11 @@ fn partially_consumed_drain() {
 #[test]
 fn drain_rev() {
     let mut slab = Slab::new();
+    let mut keys = Vec::new();
     for i in 0..10 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
-    slab.remove(9);
+    slab.remove(keys[9]);
 
     let vals: Vec<u64> = slab.drain().rev().collect();
     assert_eq!(vals, (0..9).rev().collect::<Vec<u64>>());
@@ -642,19 +656,20 @@ fn const_new() {
 fn clone_from() {
     let mut slab1 = Slab::new();
     let mut slab2 = Slab::new();
+    let mut keys1 = Vec::new();
     for i in 0..5 {
-        slab1.insert(i);
+        keys1.push(slab1.insert(i));
         slab2.insert(2 * i);
         slab2.insert(2 * i + 1);
     }
-    slab1.remove(1);
-    slab1.remove(3);
+    slab1.remove(keys1[1]);
+    slab1.remove(keys1[3]);
     slab2.clone_from(&slab1);
 
     let mut iter2 = slab2.iter();
-    assert_eq!(iter2.next(), Some((0, &0)));
-    assert_eq!(iter2.next(), Some((2, &2)));
-    assert_eq!(iter2.next(), Some((4, &4)));
+    assert_eq!(iter2.next().map(|(k, v)| (k.index(), v)), Some((0, &0)));
+    assert_eq!(iter2.next().map(|(k, v)| (k.index(), v)), Some((2, &2)));
+    assert_eq!(iter2.next().map(|(k, v)| (k.index(), v)), Some((4, &4)));
     assert_eq!(iter2.next(), None);
     assert!(slab2.capacity() >= 10);
 }
@@ -665,46 +680,54 @@ fn get_disjoint_mut() {
     for i in 0..5 {
         slab.insert(i);
     }
-    slab.remove(1);
-    slab.remove(3);
+    let k0 = Key::from(0);
+    let k1 = Key::from(1);
+    let k2 = Key::from(2);
+    let k3 = Key::from(3);
+    let k4 = Key::from(4);
+    let k5 = Key::from(5);
+    let k42 = Key::from(42);
+    slab.remove(k1);
+    slab.remove(k3);
 
     assert_eq!(slab.get_disjoint_mut([]), Ok([]));
 
     assert_eq!(
-        slab.get_disjoint_mut([4, 2, 0]).unwrap().map(|x| *x),
+        slab.get_disjoint_mut([k4, k2, k0]).unwrap().map(|x| *x),
         [4, 2, 0]
     );
 
     assert_eq!(
-        slab.get_disjoint_mut([42, 2, 1, 2]),
+        slab.get_disjoint_mut([k42, k2, k1, k2]),
         Err(GetDisjointMutError::OverlappingIndices)
     );
 
     assert_eq!(
-        slab.get_disjoint_mut([1, 5]),
+        slab.get_disjoint_mut([k1, k5]),
         Err(GetDisjointMutError::IndexVacant)
     );
 
     assert_eq!(
-        slab.get_disjoint_mut([5, 1]),
+        slab.get_disjoint_mut([k5, k1]),
         Err(GetDisjointMutError::IndexOutOfBounds)
     );
 
-    let [a, b] = slab.get_disjoint_mut([0, 4]).unwrap();
+    let [a, b] = slab.get_disjoint_mut([k0, k4]).unwrap();
     (*a, *b) = (*b, *a);
-    assert_eq!(slab[0], 4);
-    assert_eq!(slab[4], 0);
+    assert_eq!(slab[k0], 4);
+    assert_eq!(slab[k4], 0);
 }
 
 #[test]
 fn get_disjoint_mut_out_of_bounds_index_error() {
     let mut slab: Slab<i32> = Slab::with_capacity(10);
-    slab.insert(1);
-    slab.insert(2);
+    let k0 = slab.insert(1);
+    let k1 = slab.insert(2);
+    let k5 = Key::from(5);
 
     // Index 0 and 1 are valid, but index 5 is out of bounds (beyond len)
     assert_eq!(
-        slab.get_disjoint_mut([0, 1, 5]),
+        slab.get_disjoint_mut([k0, k1, k5]),
         Err(GetDisjointMutError::IndexOutOfBounds)
     );
 }
@@ -725,14 +748,15 @@ fn mem_usage_with_capacity() {
 #[test]
 fn mem_usage_after_insert_and_remove() {
     let mut slab = Slab::<u64>::new();
+    let mut keys = Vec::new();
     for i in 0..5 {
-        slab.insert(i);
+        keys.push(slab.insert(i));
     }
     let usage_after_insert = slab.mem_usage();
     assert!(usage_after_insert > 0);
 
-    slab.remove(0);
-    slab.remove(1);
+    slab.remove(keys[0]);
+    slab.remove(keys[1]);
     // Removing doesn't shrink the allocation
     assert_eq!(slab.mem_usage(), usage_after_insert);
 }

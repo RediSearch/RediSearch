@@ -127,6 +127,33 @@ use core::iter::{self, FusedIterator};
 use core::mem::MaybeUninit;
 use core::{fmt, mem, ops, slice};
 
+/// A key into a [`Slab`].
+///
+/// Keys are returned by [`Slab::insert`] and can be used to access the stored
+/// value via [`Slab::get`], [`Slab::get_mut`], or indexing (`slab[key]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct Key(usize);
+
+impl Key {
+    /// Return the underlying index of this key.
+    pub const fn index(self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for Key {
+    fn from(index: usize) -> Self {
+        Key(index)
+    }
+}
+
+impl From<Key> for usize {
+    fn from(key: Key) -> Self {
+        key.0
+    }
+}
+
 /// Pre-allocated storage for a uniform data type
 ///
 /// See the [module documentation] for more details.
@@ -437,12 +464,13 @@ impl<T> Slab<T> {
     /// # use generational_slab::*;
     /// let mut slab = Slab::with_capacity(10);
     ///
+    /// let mut keys = Vec::new();
     /// for i in 0..4 {
-    ///     slab.insert(i);
+    ///     keys.push(slab.insert(i));
     /// }
     ///
-    /// slab.remove(0);
-    /// slab.remove(3);
+    /// slab.remove(keys[0]);
+    /// slab.remove(keys[3]);
     ///
     /// slab.shrink_to_fit();
     /// assert!(slab.capacity() >= 3 && slab.capacity() < 10);
@@ -522,7 +550,7 @@ impl<T> Slab<T> {
     /// slab.insert('c');
     /// slab.remove(a);
     /// slab.compact(|&mut value, from, to| {
-    ///     assert_eq!((value, from, to), ('c', 2, 0));
+    ///     assert_eq!((value, from.index(), to.index()), ('c', 2, 0));
     ///     true
     /// });
     /// assert!(slab.capacity() >= 2 && slab.capacity() < 10);
@@ -542,7 +570,7 @@ impl<T> Slab<T> {
     /// ```
     pub fn compact<F>(&mut self, mut rekey: F)
     where
-        F: FnMut(&mut T, usize, usize) -> bool,
+        F: FnMut(&mut T, Key, Key) -> bool,
     {
         // If the closure unwinds, we need to restore a valid list of vacant entries
         struct CleanupGuard<'a, T> {
@@ -575,7 +603,9 @@ impl<T> Slab<T> {
                     occupied_until += 1;
                 }
                 // Let the caller try to update references to the key
-                if !rekey(&mut value, guard.slab.entries.len(), occupied_until) {
+                let from = Key(guard.slab.entries.len());
+                let to = Key(occupied_until);
+                if !rekey(&mut value, from, to) {
                     // Changing the key failed, so push the entry back on at its old index.
                     guard.slab.entries.push(Entry::Occupied(value));
                     guard.decrement = false;
@@ -669,9 +699,9 @@ impl<T> Slab<T> {
     ///
     /// let mut iterator = slab.iter();
     ///
-    /// assert_eq!(iterator.next(), Some((0, &0)));
-    /// assert_eq!(iterator.next(), Some((1, &1)));
-    /// assert_eq!(iterator.next(), Some((2, &2)));
+    /// assert_eq!(iterator.next().map(|(k, v)| (k.index(), v)), Some((0, &0)));
+    /// assert_eq!(iterator.next().map(|(k, v)| (k.index(), v)), Some((1, &1)));
+    /// assert_eq!(iterator.next().map(|(k, v)| (k.index(), v)), Some((2, &2)));
     /// assert_eq!(iterator.next(), None);
     /// ```
     pub fn iter(&self) -> Iter<'_, T> {
@@ -726,10 +756,9 @@ impl<T> Slab<T> {
     /// let key = slab.insert("hello");
     ///
     /// assert_eq!(slab.get(key), Some(&"hello"));
-    /// assert_eq!(slab.get(123), None);
     /// ```
-    pub fn get(&self, key: usize) -> Option<&T> {
-        match self.entries.get(key) {
+    pub fn get(&self, key: Key) -> Option<&T> {
+        match self.entries.get(key.0) {
             Some(Entry::Occupied(val)) => Some(val),
             _ => None,
         }
@@ -750,10 +779,9 @@ impl<T> Slab<T> {
     /// *slab.get_mut(key).unwrap() = "world";
     ///
     /// assert_eq!(slab[key], "world");
-    /// assert_eq!(slab.get_mut(123), None);
     /// ```
-    pub fn get_mut(&mut self, key: usize) -> Option<&mut T> {
-        match self.entries.get_mut(key) {
+    pub fn get_mut(&mut self, key: Key) -> Option<&mut T> {
+        match self.entries.get_mut(key.0) {
             Some(&mut Entry::Occupied(ref mut val)) => Some(val),
             _ => None,
         }
@@ -786,18 +814,18 @@ impl<T> Slab<T> {
     /// assert_eq!(slab[key1], 2);
     /// assert_eq!(slab[key2], 1);
     /// ```
-    pub fn get2_mut(&mut self, key1: usize, key2: usize) -> Option<(&mut T, &mut T)> {
+    pub fn get2_mut(&mut self, key1: Key, key2: Key) -> Option<(&mut T, &mut T)> {
         assert!(key1 != key2);
 
         let (entry1, entry2);
 
-        if key1 > key2 {
-            let (slice1, slice2) = self.entries.split_at_mut(key1);
+        if key1.0 > key2.0 {
+            let (slice1, slice2) = self.entries.split_at_mut(key1.0);
             entry1 = slice2.get_mut(0);
-            entry2 = slice1.get_mut(key2);
+            entry2 = slice1.get_mut(key2.0);
         } else {
-            let (slice1, slice2) = self.entries.split_at_mut(key2);
-            entry1 = slice1.get_mut(key1);
+            let (slice1, slice2) = self.entries.split_at_mut(key2.0);
+            entry1 = slice1.get_mut(key1.0);
             entry2 = slice2.get_mut(0);
         }
 
@@ -816,7 +844,7 @@ impl<T> Slab<T> {
     /// overlapping, or vacant.
     pub fn get_disjoint_mut<const N: usize>(
         &mut self,
-        keys: [usize; N],
+        keys: [Key; N],
     ) -> Result<[&mut T; N], GetDisjointMutError> {
         // NB: The optimizer should inline the loops into a sequence
         // of instructions without additional branching.
@@ -835,12 +863,13 @@ impl<T> Slab<T> {
         let res_ptr = res.as_mut_ptr() as *mut &mut T;
 
         for (i, &key) in keys.iter().enumerate() {
-            // `key` won't be greater than `entries_len`.
-            if key >= entries_len {
+            let idx = key.0;
+            // `idx` won't be greater than `entries_len`.
+            if idx >= entries_len {
                 return Err(GetDisjointMutError::IndexOutOfBounds);
             }
             // SAFETY: we made sure above that this key is in bounds.
-            let entry_ptr = unsafe { entries_ptr.add(key) };
+            let entry_ptr = unsafe { entries_ptr.add(idx) };
             // SAFETY: `entry_ptr` is a valid pointer within the entries slice.
             match unsafe { &mut *entry_ptr } {
                 Entry::Vacant(_) => return Err(GetDisjointMutError::IndexVacant),
@@ -879,9 +908,9 @@ impl<T> Slab<T> {
     ///     assert_eq!(slab.get_unchecked(key), &2);
     /// }
     /// ```
-    pub unsafe fn get_unchecked(&self, key: usize) -> &T {
+    pub unsafe fn get_unchecked(&self, key: Key) -> &T {
         // SAFETY: The caller guarantees `key` is within bounds.
-        match *unsafe { self.entries.get_unchecked(key) } {
+        match *unsafe { self.entries.get_unchecked(key.0) } {
             Entry::Occupied(ref val) => val,
             _ => unreachable!(),
         }
@@ -912,9 +941,9 @@ impl<T> Slab<T> {
     ///
     /// assert_eq!(slab[key], 13);
     /// ```
-    pub unsafe fn get_unchecked_mut(&mut self, key: usize) -> &mut T {
+    pub unsafe fn get_unchecked_mut(&mut self, key: Key) -> &mut T {
         // SAFETY: The caller guarantees `key` is within bounds.
-        match *unsafe { self.entries.get_unchecked_mut(key) } {
+        match *unsafe { self.entries.get_unchecked_mut(key.0) } {
             Entry::Occupied(ref mut val) => val,
             _ => unreachable!(),
         }
@@ -947,13 +976,13 @@ impl<T> Slab<T> {
     /// assert_eq!(slab[key1], 2);
     /// assert_eq!(slab[key2], 1);
     /// ```
-    pub unsafe fn get2_unchecked_mut(&mut self, key1: usize, key2: usize) -> (&mut T, &mut T) {
+    pub unsafe fn get2_unchecked_mut(&mut self, key1: Key, key2: Key) -> (&mut T, &mut T) {
         debug_assert_ne!(key1, key2);
         let ptr = self.entries.as_mut_ptr();
         // SAFETY: The caller guarantees `key1` is within bounds.
-        let ptr1 = unsafe { ptr.add(key1) };
+        let ptr1 = unsafe { ptr.add(key1.0) };
         // SAFETY: The caller guarantees `key2` is within bounds.
-        let ptr2 = unsafe { ptr.add(key2) };
+        let ptr2 = unsafe { ptr.add(key2.0) };
         // SAFETY: The caller guarantees `key1 != key2` and both are within bounds,
         // so these are non-overlapping mutable references.
         match (unsafe { &mut *ptr1 }, unsafe { &mut *ptr2 }) {
@@ -1000,7 +1029,7 @@ impl<T> Slab<T> {
     /// unreachable!();
     /// ```
     #[track_caller]
-    pub fn key_of(&self, present_element: &T) -> usize {
+    pub fn key_of(&self, present_element: &T) -> Key {
         let element_ptr = present_element as *const T as usize;
         let base_ptr = self.entries.as_ptr() as usize;
         // Use wrapping subtraction in case the reference is bad
@@ -1013,7 +1042,7 @@ impl<T> Slab<T> {
             panic!("The reference points to a value outside this slab");
         }
         // The reference cannot point to a vacant entry, because then it would not be valid
-        key
+        Key(key)
     }
 
     /// Insert a value in the slab, returning key assigned to the value.
@@ -1034,12 +1063,12 @@ impl<T> Slab<T> {
     /// let key = slab.insert("hello");
     /// assert_eq!(slab[key], "hello");
     /// ```
-    pub fn insert(&mut self, val: T) -> usize {
+    pub fn insert(&mut self, val: T) -> Key {
         let key = self.next;
 
         self.insert_at(key, val);
 
-        key
+        Key(key)
     }
 
     /// Returns the key of the next vacant entry.
@@ -1053,17 +1082,18 @@ impl<T> Slab<T> {
     /// ```
     /// # use generational_slab::*;
     /// let mut slab = Slab::new();
-    /// assert_eq!(slab.vacant_key(), 0);
+    /// assert_eq!(slab.vacant_key().index(), 0);
     ///
     /// slab.insert(0);
-    /// assert_eq!(slab.vacant_key(), 1);
+    /// assert_eq!(slab.vacant_key().index(), 1);
     ///
     /// slab.insert(1);
-    /// slab.remove(0);
-    /// assert_eq!(slab.vacant_key(), 0);
+    /// let key0 = Key::from(0);
+    /// slab.remove(key0);
+    /// assert_eq!(slab.vacant_key().index(), 0);
     /// ```
-    pub const fn vacant_key(&self) -> usize {
-        self.next
+    pub const fn vacant_key(&self) -> Key {
+        Key(self.next)
     }
 
     /// Return a handle to a vacant entry allowing for further manipulation.
@@ -1128,8 +1158,8 @@ impl<T> Slab<T> {
     /// assert_eq!(slab.try_remove(hello), Some("hello"));
     /// assert!(!slab.contains(hello));
     /// ```
-    pub fn try_remove(&mut self, key: usize) -> Option<T> {
-        if let Some(entry) = self.entries.get_mut(key)
+    pub fn try_remove(&mut self, key: Key) -> Option<T> {
+        if let Some(entry) = self.entries.get_mut(key.0)
             && let Entry::Occupied(_) = entry
         {
             // Here we use `std::mem::replace` to move the entry's value to
@@ -1144,7 +1174,7 @@ impl<T> Slab<T> {
             };
 
             self.len -= 1;
-            self.next = key;
+            self.next = key.0;
             return val.into();
         }
         None
@@ -1171,7 +1201,7 @@ impl<T> Slab<T> {
     /// assert!(!slab.contains(hello));
     /// ```
     #[track_caller]
-    pub fn remove(&mut self, key: usize) -> T {
+    pub fn remove(&mut self, key: Key) -> T {
         self.try_remove(key).expect("invalid key")
     }
 
@@ -1190,13 +1220,13 @@ impl<T> Slab<T> {
     ///
     /// assert!(!slab.contains(hello));
     /// ```
-    pub fn contains(&self, key: usize) -> bool {
-        matches!(self.entries.get(key), Some(&Entry::Occupied(_)))
+    pub fn contains(&self, key: Key) -> bool {
+        matches!(self.entries.get(key.0), Some(&Entry::Occupied(_)))
     }
 
     /// Retain only the elements specified by the predicate.
     ///
-    /// In other words, remove all elements `e` such that `f(usize, &mut e)`
+    /// In other words, remove all elements `e` such that `f(key, &mut e)`
     /// returns false. This method operates in place and preserves the key
     /// associated with the retained values.
     ///
@@ -1220,16 +1250,16 @@ impl<T> Slab<T> {
     /// ```
     pub fn retain<F>(&mut self, mut f: F)
     where
-        F: FnMut(usize, &mut T) -> bool,
+        F: FnMut(Key, &mut T) -> bool,
     {
         for i in 0..self.entries.len() {
             let keep = match self.entries[i] {
-                Entry::Occupied(ref mut v) => f(i, v),
+                Entry::Occupied(ref mut v) => f(Key(i), v),
                 _ => true,
             };
 
             if !keep {
-                self.remove(i);
+                self.remove(Key(i));
             }
         }
     }
@@ -1272,22 +1302,22 @@ impl<T> Slab<T> {
     }
 }
 
-impl<T> ops::Index<usize> for Slab<T> {
+impl<T> ops::Index<Key> for Slab<T> {
     type Output = T;
 
     #[track_caller]
-    fn index(&self, key: usize) -> &T {
-        match self.entries.get(key) {
+    fn index(&self, key: Key) -> &T {
+        match self.entries.get(key.0) {
             Some(Entry::Occupied(v)) => v,
             _ => panic!("invalid key"),
         }
     }
 }
 
-impl<T> ops::IndexMut<usize> for Slab<T> {
+impl<T> ops::IndexMut<Key> for Slab<T> {
     #[track_caller]
-    fn index_mut(&mut self, key: usize) -> &mut T {
-        match self.entries.get_mut(key) {
+    fn index_mut(&mut self, key: Key) -> &mut T {
+        match self.entries.get_mut(key.0) {
             Some(&mut Entry::Occupied(ref mut v)) => v,
             _ => panic!("invalid key"),
         }
@@ -1295,7 +1325,7 @@ impl<T> ops::IndexMut<usize> for Slab<T> {
 }
 
 impl<T> IntoIterator for Slab<T> {
-    type Item = (usize, T);
+    type Item = (Key, T);
     type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> IntoIter<T> {
@@ -1307,7 +1337,7 @@ impl<T> IntoIterator for Slab<T> {
 }
 
 impl<'a, T> IntoIterator for &'a Slab<T> {
-    type Item = (usize, &'a T);
+    type Item = (Key, &'a T);
     type IntoIter = Iter<'a, T>;
 
     fn into_iter(self) -> Iter<'a, T> {
@@ -1316,7 +1346,7 @@ impl<'a, T> IntoIterator for &'a Slab<T> {
 }
 
 impl<'a, T> IntoIterator for &'a mut Slab<T> {
-    type Item = (usize, &'a mut T);
+    type Item = (Key, &'a mut T);
     type IntoIter = IterMut<'a, T>;
 
     fn into_iter(self) -> IterMut<'a, T> {
@@ -1434,21 +1464,21 @@ impl<'a, T> VacantEntry<'a, T> {
     /// assert_eq!(hello, slab[hello].0);
     /// assert_eq!("hello", slab[hello].1);
     /// ```
-    pub const fn key(&self) -> usize {
-        self.key
+    pub const fn key(&self) -> Key {
+        Key(self.key)
     }
 }
 
 // ===== IntoIter =====
 
 impl<T> Iterator for IntoIter<T> {
-    type Item = (usize, T);
+    type Item = (Key, T);
 
     fn next(&mut self) -> Option<Self::Item> {
         for (key, entry) in &mut self.entries {
             if let Entry::Occupied(v) = entry {
                 self.len -= 1;
-                return Some((key, v));
+                return Some((Key(key), v));
             }
         }
 
@@ -1466,7 +1496,7 @@ impl<T> DoubleEndedIterator for IntoIter<T> {
         while let Some((key, entry)) = self.entries.next_back() {
             if let Entry::Occupied(v) = entry {
                 self.len -= 1;
-                return Some((key, v));
+                return Some((Key(key), v));
             }
         }
 
@@ -1486,13 +1516,13 @@ impl<T> FusedIterator for IntoIter<T> {}
 // ===== Iter =====
 
 impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (usize, &'a T);
+    type Item = (Key, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
         for (key, entry) in &mut self.entries {
             if let Entry::Occupied(ref v) = *entry {
                 self.len -= 1;
-                return Some((key, v));
+                return Some((Key(key), v));
             }
         }
 
@@ -1510,7 +1540,7 @@ impl<T> DoubleEndedIterator for Iter<'_, T> {
         while let Some((key, entry)) = self.entries.next_back() {
             if let Entry::Occupied(ref v) = *entry {
                 self.len -= 1;
-                return Some((key, v));
+                return Some((Key(key), v));
             }
         }
 
@@ -1530,13 +1560,13 @@ impl<T> FusedIterator for Iter<'_, T> {}
 // ===== IterMut =====
 
 impl<'a, T> Iterator for IterMut<'a, T> {
-    type Item = (usize, &'a mut T);
+    type Item = (Key, &'a mut T);
 
     fn next(&mut self) -> Option<Self::Item> {
         for (key, entry) in &mut self.entries {
             if let Entry::Occupied(ref mut v) = *entry {
                 self.len -= 1;
-                return Some((key, v));
+                return Some((Key(key), v));
             }
         }
 
@@ -1554,7 +1584,7 @@ impl<T> DoubleEndedIterator for IterMut<'_, T> {
         while let Some((key, entry)) = self.entries.next_back() {
             if let Entry::Occupied(ref mut v) = *entry {
                 self.len -= 1;
-                return Some((key, v));
+                return Some((Key(key), v));
             }
         }
 
