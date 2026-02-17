@@ -328,7 +328,7 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
 EvalCtx *EvalCtx_Create() {
   EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
 
-  RLookup _lk = {0};
+  RLookup _lk = RLookup_New();
   r->lk = _lk;
   QueryError _status = QueryError_Default();
   r->status = _status;
