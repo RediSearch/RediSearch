@@ -65,7 +65,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
     // 1. For func_exists, always allow NULL values
     // 2. For all other functions, NULL values are errors
     if (internalRes == EXPR_EVAL_ERR ||
-        (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
+       (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       goto cleanup;
     }
     nusedargs++;
@@ -331,10 +331,7 @@ EvalCtx *EvalCtx_Create() {
 
   RLookup _lk = {0};
   r->lk = _lk;
-  RLookup_Init(&r->lk, NULL);
-  RLookupRow _row = {0};
-  r->row = _row;
-  QueryError _status = {0};
+  QueryError _status = QueryError_Default();
   r->status = _status;
 
   r->ee.lookup = &r->lk;
