@@ -418,7 +418,7 @@ QueryIterator *TakeNotIteratorChild(QueryIterator *base) {
 }
 
 void _SetOptimizedNotIteratorWildcard(QueryIterator *base, QueryIterator *wcii) {
-    RS_ASSERT(base->type == OPTIONAL_OPTIMIZED_ITERATOR);
+    RS_ASSERT(base->type == NOT_OPTIMIZED_ITERATOR);
 
     OptimizedNotIterator *it = (OptimizedNotIterator *)base;
     if (it->wcii) {
@@ -428,7 +428,8 @@ void _SetOptimizedNotIteratorWildcard(QueryIterator *base, QueryIterator *wcii) 
 }
 
 QueryIterator const* _GetOptimizedNotIteratorWildcard (QueryIterator *base) {
-    RS_ASSERT(base->type == OPTIONAL_OPTIMIZED_ITERATOR);
+    RS_ASSERT(base->type == NOT_OPTIMIZED_ITERATOR);
+
     OptimizedNotIterator const*it = (OptimizedNotIterator *)base;
     return it->wcii;
 }
