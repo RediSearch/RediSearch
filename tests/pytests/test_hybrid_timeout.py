@@ -188,29 +188,39 @@ def test_maxprefixexpansions_warning_both_components():
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
 
-def test_tail_property_not_loaded_error():
-    """Test error/warning when tail pipeline references property not loaded nor in pipeline"""
+@skip(cluster=True)
+def test_tail_property_not_loaded_error_standalone():
+    """Test error when tail pipeline references property not loaded (standalone mode)"""
     env = Env()
     setup_basic_index(env)
-    # In standalone, this is an error; in coordinator mode it may be a warning (POST PROCESSING)
-    # The error code also differs: PROP_NOT_FOUND (standalone) vs VALUE_NOT_FOUND (coordinator)
-    try:
-        response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
-                          '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
-                          query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
-                          'AS', 'doubled_score')
-        # Command succeeded (coordinator mode) — check warnings
-        if isinstance(response, dict):
-            # RESP3 dict
-            warnings = response.get('warnings', [])
-        elif isinstance(response, list) and 'warnings' in response:
-            # RESP2 list: find 'warnings' key and get the next element
-            idx = response.index('warnings')
-            warnings = response[idx + 1] if idx + 1 < len(response) else []
-        else:
-            warnings = []
-        env.assertTrue(any('__score' in w for w in warnings),
-                       message=f"Expected warning about __score, got warnings: {warnings}, response: {response}")
-    except Exception as e:
-        # Command errored (standalone mode) — check error message
-        env.assertContains('__score', str(e))
+    # In standalone, this is a fatal error (PROP_NOT_FOUND)
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
+              '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
+              query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
+              'AS', 'doubled_score').error().contains('__score')
+
+@skip(cluster=False)
+def test_tail_property_not_loaded_warning_coordinator():
+    """Test warning when tail pipeline references property not loaded (coordinator mode)
+    
+    Related: test_tail_property_not_loaded_error_standalone
+    In coordinator mode, tail pipeline errors become warnings (protocol limitation).
+    The error code also differs: VALUE_NOT_FOUND (coord) vs PROP_NOT_FOUND (standalone).
+    """
+    env = Env()
+    setup_basic_index(env)
+    # In coordinator, this returns partial results with a warning (POST PROCESSING)
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
+                      '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
+                      query_vector, 'LOAD', '1', '@__key', 'APPLY', '2*@__score',\
+                      'AS', 'doubled_score')
+    # Extract warnings from RESP2 (list) or RESP3 (dict)
+    if isinstance(response, dict):
+        warnings = response.get('warnings', [])
+    elif isinstance(response, list) and 'warnings' in response:
+        idx = response.index('warnings')
+        warnings = response[idx + 1] if idx + 1 < len(response) else []
+    else:
+        warnings = []
+    env.assertTrue(any('__score' in w for w in warnings),
+                   message=f"Expected warning about __score, got: {warnings}")
