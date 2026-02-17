@@ -124,6 +124,11 @@ impl RSQueryTerm {
     pub fn id(&self) -> i32 {
         self.id
     }
+
+    /// Get the token flags.
+    pub fn flags(&self) -> RSTokenFlags {
+        self.flags
+    }
 }
 
 impl Drop for RSQueryTerm {
@@ -157,7 +162,7 @@ impl PartialEq for RSQueryTerm {
             && self.idf() == other.idf()
             && self.bm25_idf() == other.bm25_idf()
             && self.id() == other.id()
-            && self.flags == other.flags
+            && self.flags() == other.flags()
     }
 }
 

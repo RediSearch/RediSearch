@@ -145,6 +145,16 @@ void QueryTerm_SetBM25_IDF(struct RSQueryTerm *term, double value);
  */
 int QueryTerm_GetID(const struct RSQueryTerm *term);
 
+/**
+ * Get the token flags.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+RSTokenFlags QueryTerm_GetFlags(const struct RSQueryTerm *term);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
