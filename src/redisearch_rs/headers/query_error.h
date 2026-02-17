@@ -37,6 +37,16 @@
 #define QUERY_ASM_INACCURATE_RESULTS "Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
 
 
+/**
+ * Error codes for query execution failures.
+ *
+ * **IMPORTANT**: Variants must be contiguous starting from `Ok = 0` with no explicit
+ * discriminants (except for `Ok`). The `query_error_code_max_value()` function and
+ * C/C++ test iteration logic rely on this assumption. The test
+ * `error_code_full_msg_equals_prefix_plus_default_msg` validates this by iterating
+ * all codes and will panic if gaps are introduced.
+ *
+ */
 enum QueryErrorCode
 #ifdef __cplusplus
   : uint8_t

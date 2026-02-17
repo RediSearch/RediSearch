@@ -21,6 +21,14 @@ pub const fn query_error_code_max_value() -> u8 {
     (QueryErrorCode::COUNT - 1) as u8
 }
 
+/// Error codes for query execution failures.
+///
+/// **IMPORTANT**: Variants must be contiguous starting from `Ok = 0` with no explicit
+/// discriminants (except for `Ok`). The `query_error_code_max_value()` function and
+/// C/C++ test iteration logic rely on this assumption. The test
+/// `error_code_full_msg_equals_prefix_plus_default_msg` validates this by iterating
+/// all codes and will panic if gaps are introduced.
+///
 /// cbindgen:prefix-with-name
 /// cbindgen:rename-all=ScreamingSnakeCase
 #[derive(Clone, Copy, Default, EnumCount, FromRepr, PartialEq, Eq)]
