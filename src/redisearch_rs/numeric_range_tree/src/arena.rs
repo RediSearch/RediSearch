@@ -82,6 +82,11 @@ impl NodeArena {
         self.nodes.capacity() as u32
     }
 
+    /// Get a mutable reference to a node in the arena, if it exists.
+    pub fn get_mut(&mut self, idx: NodeIndex) -> Option<&mut NumericRangeNode> {
+        self.nodes.get_mut(idx.key())
+    }
+
     /// Insert a node into the arena, returning its index.
     ///
     /// # Panics

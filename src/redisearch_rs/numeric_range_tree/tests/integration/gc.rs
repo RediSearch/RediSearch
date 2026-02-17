@@ -80,7 +80,7 @@ fn apply_gc_to_single_leaf(#[values(false, true)] compress_floats: bool) {
     let delta = scan_node_delta(&tree, tree.root_index(), &|doc_id| doc_id > 5);
 
     let delta = delta.expect("should have GC work");
-    let result = tree.apply_gc_to_node(tree.root_index(), delta);
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
     assert_eq!(result.index_gc_info.entries_removed, 5);
     assert_eq!(tree.num_entries(), entries_before - 5);
@@ -128,7 +128,7 @@ fn apply_gc_to_node_all_skip(#[values(false, true)] compress_floats: bool) {
 fn apply_gc_to_node_with_blocks_since_fork(#[values(false, true)] compress_floats: bool) {
     let (mut tree, delta) = build_tree_with_post_fork_writes(compress_floats);
 
-    let result = tree.apply_gc_to_node(tree.root_index(), delta);
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
     assert!(
         result.index_gc_info.entries_removed > 0,
@@ -149,7 +149,7 @@ fn apply_gc_to_node_empty_result(#[values(false, true)] compress_floats: bool) {
 
     // Delete all documents.
     let delta = scan_node_delta(&tree, tree.root_index(), &|_| false).expect("should have GC work");
-    let result = tree.apply_gc_to_node(tree.root_index(), delta);
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
     assert!(result.became_empty);
     assert_eq!(tree.empty_leaves(), 1);
@@ -293,7 +293,7 @@ fn gc_intensive_alternating_deletes(#[values(false, true)] compress_floats: bool
     let deltas = scan_all_node_deltas(&tree, &|doc_id| doc_id % 2 == 0);
     let mut total_removed = 0;
     for (node_idx, delta) in deltas {
-        let result = tree.apply_gc_to_node(node_idx, delta);
+        let result = tree.apply_gc_to_node(node_idx, delta).unwrap();
         total_removed += result.index_gc_info.entries_removed;
     }
 
@@ -388,14 +388,16 @@ fn gc_on_node_without_range() {
     let (leaf_node_idx, delta) = deltas.into_iter().next().unwrap();
 
     // Apply GC to the root (which has no range) — should early-return.
-    let result = tree.apply_gc_to_node(
-        tree.root_index(),
-        NodeGcDelta {
-            delta: delta.delta,
-            registers_with_last_block: delta.registers_with_last_block,
-            registers_without_last_block: delta.registers_without_last_block,
-        },
-    );
+    let result = tree
+        .apply_gc_to_node(
+            tree.root_index(),
+            NodeGcDelta {
+                delta: delta.delta,
+                registers_with_last_block: delta.registers_with_last_block,
+                registers_without_last_block: delta.registers_without_last_block,
+            },
+        )
+        .unwrap();
     assert_eq!(
         result.index_gc_info.entries_removed, 0,
         "applying GC to a node without a range should be a no-op"
@@ -404,7 +406,7 @@ fn gc_on_node_without_range() {
     // Also apply the original delta to the correct leaf to verify it works.
     let leaf_delta = scan_node_delta(&tree, leaf_node_idx, &|doc_id| doc_id > 5);
     let d = leaf_delta.expect("leaf should still have GC work");
-    let leaf_result = tree.apply_gc_to_node(leaf_node_idx, d);
+    let leaf_result = tree.apply_gc_to_node(leaf_node_idx, d).unwrap();
     assert!(
         leaf_result.index_gc_info.entries_removed > 0,
         "applying GC to a leaf with deleted docs should remove entries"
@@ -593,7 +595,7 @@ fn apply_gc_tracks_ignored_last_block(#[values(false, true)] compress_floats: bo
     // changing its num_entries vs scan time.
     tree.add(n + 1, 42.0, false, 0);
 
-    let result = tree.apply_gc_to_node(tree.root_index(), delta);
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
     assert!(
         result.index_gc_info.ignored_last_block,
@@ -601,6 +603,64 @@ fn apply_gc_tracks_ignored_last_block(#[values(false, true)] compress_floats: bo
     );
     // Block 0's deltas should still be applied.
     assert!(result.index_gc_info.entries_removed > 0);
+}
+
+#[rstest]
+fn apply_gc_ignored_last_block_no_delta(#[values(false, true)] compress_floats: bool) {
+    // Build a tree with 2 blocks where:
+    // - Block 0 (full) has entries to delete (gets a delta)
+    // - Block 1 (partially full) has NO deleted entries (no delta)
+    // Then add entries to block 1 after the scan (simulating parent writes
+    // post-fork). Block 1 must be partially full so post-fork entries land
+    // in it rather than in a new block.
+    //
+    // This exercises the path where last_block_changed is true but no delta
+    // exists for the last block — ignored_last_block must still be set, and
+    // HLL cardinality must include the post-fork entries.
+    let partial = ENTRIES_PER_BLOCK / 2;
+    let n = ENTRIES_PER_BLOCK + partial;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=n {
+        tree.add(i, 42.0, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+    // Block 0: ENTRIES_PER_BLOCK entries (doc IDs 1..=ENTRIES_PER_BLOCK) — full
+    // Block 1: partial entries (doc IDs ENTRIES_PER_BLOCK+1..=n) — not full
+
+    // Delete only entries in block 0 — block 1 has no deleted entries, so no
+    // BlockGcScanResult is produced for it.
+    let delta = scan_node_delta(&tree, tree.root_index(), &|doc_id| {
+        doc_id > ENTRIES_PER_BLOCK
+    })
+    .expect("should have GC work");
+    // Verify the delta only covers block 0.
+    assert_eq!(
+        delta.delta.last_block_idx(),
+        1,
+        "there should be 2 blocks (last index = 1)"
+    );
+
+    // Simulate parent writes after fork: add entries to block 1 (not full).
+    // Use a different value (99.0) so cardinality should increase.
+    tree.add(n + 1, 99.0, false, 0);
+
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert!(
+        result.index_gc_info.ignored_last_block,
+        "last block should be ignored when its num_entries changed after scan, \
+         even without a delta for the last block"
+    );
+    assert!(result.index_gc_info.entries_removed > 0);
+
+    // Cardinality must reflect post-fork entries (value 99.0 is new).
+    // With only value 42.0 surviving from block 1 plus value 99.0 from post-fork,
+    // cardinality should be at least 2.
+    let cardinality_after = tree.root().range().unwrap().cardinality();
+    assert!(
+        cardinality_after >= 2,
+        "cardinality should include post-fork entries, got {cardinality_after}"
+    );
 }
 
 #[test]

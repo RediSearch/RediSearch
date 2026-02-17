@@ -59,6 +59,26 @@ pub struct AddResult {
     pub num_leaves_delta: i32,
 }
 
+/// Result of trimming empty leaves from the tree.
+///
+/// Similar to [`AddResult`] but without `num_records_delta`, since trimming
+/// only removes empty nodes and does not change the number of entries
+/// (entries are removed by GC before trimming).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TrimEmptyLeavesResult {
+    /// The change in the tree's inverted index memory usage, in bytes.
+    /// Positive values indicate growth, negative values indicate shrinkage.
+    pub size_delta: i64,
+    /// Whether the tree structure changed (nodes were removed or rotated).
+    /// When true, the tree's `revision_id` should be incremented to
+    /// invalidate any concurrent iterators.
+    pub changed: bool,
+    /// The net change in the number of ranges (nodes with inverted indexes).
+    pub num_ranges_delta: i32,
+    /// The net change in the number of leaf nodes.
+    pub num_leaves_delta: i32,
+}
+
 /// Aggregate statistics for a [`NumericRangeTree`].
 ///
 /// Tracks counts of ranges, leaves, entries, memory usage, and

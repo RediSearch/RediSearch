@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use inverted_index::{GcApplyInfo, GcScanDelta};
 
-use super::{AddResult, NumericRangeTree, apply_signed_delta};
+use super::{NumericRangeTree, TrimEmptyLeavesResult, apply_signed_delta};
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
 use crate::range::Hll;
@@ -68,21 +68,18 @@ impl NumericRangeTree {
     /// inverted index, resets cardinality via HLL, and updates tree-level
     /// stats (`num_entries`, `inverted_indexes_size`, `empty_leaves`).
     ///
-    /// Returns per-node GC statistics.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `node_idx` does not refer to a valid node in the tree's arena.
+    /// Returns per-node GC statistics, if there is a node with the given index.
+    /// Returns `None` if there isn't one.
     pub fn apply_gc_to_node(
         &mut self,
         node_idx: NodeIndex,
         delta: NodeGcDelta,
-    ) -> SingleNodeGcResult {
-        let node = &mut self.nodes[node_idx];
+    ) -> Option<SingleNodeGcResult> {
+        let node = self.nodes.get_mut(node_idx)?;
         let is_leaf = node.is_leaf();
 
         let Some(range) = node.range_mut() else {
-            return SingleNodeGcResult::default();
+            return Some(SingleNodeGcResult::default());
         };
         let was_empty = range.entries().num_docs() == 0;
 
@@ -141,10 +138,10 @@ impl NumericRangeTree {
         #[cfg(all(feature = "unittest", not(miri)))]
         self.check_tree_invariants();
 
-        SingleNodeGcResult {
+        Some(SingleNodeGcResult {
             index_gc_info: info,
             became_empty,
-        }
+        })
     }
 
     /// Returns `true` if the tree has enough empty leaves to warrant compaction.
@@ -214,21 +211,15 @@ impl NumericRangeTree {
     ///
     /// Removes leaf nodes that have no documents and prunes the tree structure
     /// accordingly. Returns information about what changed.
-    pub fn trim_empty_leaves(&mut self) -> AddResult {
+    pub fn trim_empty_leaves(&mut self) -> TrimEmptyLeavesResult {
         #[cfg(all(feature = "unittest", not(miri)))]
-        let (stats_before, revision_id_before, total_records_before) =
-            (self.stats, self.revision_id, self.total_records());
+        let (stats_before, revision_id_before) = (self.stats, self.revision_id);
 
         let result = self._trim_empty_leaves();
 
         #[cfg(all(feature = "unittest", not(miri)))]
         {
-            self.check_delta_invariants(
-                stats_before,
-                revision_id_before,
-                total_records_before,
-                &result,
-            );
+            self.check_trim_delta_invariants(stats_before, revision_id_before, &result);
             self.check_tree_invariants();
 
             assert_eq!(
@@ -240,8 +231,8 @@ impl NumericRangeTree {
         result
     }
 
-    fn _trim_empty_leaves(&mut self) -> AddResult {
-        let mut rv = AddResult::default();
+    fn _trim_empty_leaves(&mut self) -> TrimEmptyLeavesResult {
+        let mut rv = TrimEmptyLeavesResult::default();
         Self::remove_empty_children(&mut self.nodes, self.root, &mut rv);
 
         if rv.changed {
@@ -265,7 +256,7 @@ impl NumericRangeTree {
     fn remove_empty_children(
         nodes: &mut NodeArena,
         node_idx: NodeIndex,
-        rv: &mut AddResult,
+        rv: &mut TrimEmptyLeavesResult,
     ) -> bool {
         let Some((left_idx, right_idx)) = nodes[node_idx].child_indices() else {
             // Leaf node — empty if there are no docs.
@@ -279,9 +270,11 @@ impl NumericRangeTree {
         // If both children are not empty, just balance if needed and update depth.
         if !right_empty && !left_empty {
             if rv.changed {
-                let new_depth = Self::balance_node(nodes, node_idx, rv);
+                let br = Self::balance_node(nodes, node_idx);
+                rv.size_delta += br.size_delta;
+                rv.num_ranges_delta += br.num_ranges_delta;
                 if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx] {
-                    internal.max_depth = new_depth;
+                    internal.max_depth = br.new_depth;
                 }
             }
             return false;
@@ -303,7 +296,6 @@ impl NumericRangeTree {
         // Free this node's range if any
         if let Some(r) = nodes[node_idx].take_range() {
             rv.size_delta -= r.memory_usage() as i64;
-            rv.num_records_delta -= r.num_entries() as i32;
             rv.num_ranges_delta -= 1;
         }
 
@@ -329,7 +321,7 @@ impl NumericRangeTree {
     }
 
     /// Free an entire subtree, removing all slots from the slab.
-    fn free_subtree(nodes: &mut NodeArena, node_idx: NodeIndex, rv: &mut AddResult) {
+    fn free_subtree(nodes: &mut NodeArena, node_idx: NodeIndex, rv: &mut TrimEmptyLeavesResult) {
         // Read child indices before removing, to avoid borrow issues.
         let children = nodes[node_idx].child_indices();
 
@@ -337,13 +329,11 @@ impl NumericRangeTree {
             NumericRangeNode::Leaf(leaf) => {
                 rv.num_leaves_delta -= 1;
                 rv.size_delta -= leaf.range.memory_usage() as i64;
-                rv.num_records_delta -= leaf.range.num_entries() as i32;
                 rv.num_ranges_delta -= 1;
             }
             NumericRangeNode::Internal(internal) => {
                 if let Some(range) = internal.range.as_ref() {
                     rv.size_delta -= range.memory_usage() as i64;
-                    rv.num_records_delta -= range.num_entries() as i32;
                     rv.num_ranges_delta -= 1;
                 }
             }

@@ -82,5 +82,7 @@ pub use inverted_index::NumericFilter;
 pub use iter::ReversePreOrderDfsIterator;
 pub use node::{InternalNode, LeafNode, NumericRangeNode};
 pub use range::NumericRange;
-pub use tree::{AddResult, NodeGcDelta, NumericRangeTree, SingleNodeGcResult};
+pub use tree::{
+    AddResult, NodeGcDelta, NumericRangeTree, SingleNodeGcResult, TrimEmptyLeavesResult,
+};
 pub use unique_id::TreeUniqueId;

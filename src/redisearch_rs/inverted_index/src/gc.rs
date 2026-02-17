@@ -212,8 +212,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 .unwrap_or(false);
             if remove_stale_delta {
                 deltas.pop();
-                info.ignored_last_block = true;
             }
+            info.ignored_last_block = true;
         }
 
         // There is no point in moving everything to a new vector if there are no deltas
