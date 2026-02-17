@@ -904,7 +904,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
     info->totalCollected = (size_t)(gcStats.totalCollectedBytes >= 0 ? gcStats.totalCollectedBytes : 0);
     info->numCycles = gcStats.totalCycles;
     info->totalMSRun = (long long)gcStats.totalTime;
-    info->lastRunTimeMs = 0;
+    info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
 
   dictResumeRehashing(sp->keysDict);

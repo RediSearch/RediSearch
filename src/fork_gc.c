@@ -1211,6 +1211,7 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->totalCollectedBytes = gc->stats.totalCollected;
   out->totalCycles = gc->stats.numCycles;
   out->totalTime = gc->stats.totalMSRun;
+  out->lastRunTimeMs = gc->stats.lastRunTimeMs;
 }
 
 static struct timespec getIntervalCb(void *ctx) {

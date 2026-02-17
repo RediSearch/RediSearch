@@ -30,6 +30,7 @@ typedef struct InfoGCStats {
   ssize_t totalCollectedBytes;
   size_t totalCycles;   // Total number of cycles ran
   size_t totalTime;     // In ms
+  long long lastRunTimeMs;
 } InfoGCStats;
 
 typedef struct GCCallbacks {

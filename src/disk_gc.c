@@ -75,6 +75,7 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->totalCollectedBytes = 0;
   out->totalCycles = 0;
   out->totalTime = 0;
+  out->lastRunTimeMs = 0;
 }
 
 static struct timespec getIntervalCb(void *ctx) {
