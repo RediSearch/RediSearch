@@ -17,7 +17,7 @@ enum RsStringKind {
     Borrowed,
 }
 
-/// A `CString` like string for [`RsValue`] with support for rust allocated string,
+/// A `CString` like string for [`RsValue`](crate::RsValue) with support for rust allocated string,
 /// C allocated strings, and constant strings, and support for a max length of `u32::MAX`,
 /// all in one package.
 ///
