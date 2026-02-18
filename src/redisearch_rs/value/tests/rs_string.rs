@@ -24,10 +24,9 @@ pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
 fn rm_alloc_cstring(s: &str) -> (*mut c_char, u32) {
     let len = s.len();
     let ptr = redis_mock::allocator::alloc_shim(len + 1) as *mut c_char;
-    unsafe {
-        std::ptr::copy_nonoverlapping(s.as_ptr(), ptr as *mut u8, len);
-        *ptr.add(len) = 0;
-    }
+    unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), ptr as *mut u8, len) };
+    let nul_ptr = unsafe { ptr.add(len) };
+    unsafe { *nul_ptr = 0 };
     (ptr, len as u32)
 }
 
