@@ -70,6 +70,7 @@ fn main() {
         src.join("iterators").join("inverted_index_iterator.h"),
         src.join("iterators").join("not_iterator.h"),
         src.join("iterators").join("optional_iterator.h"),
+        src.join("iterators").join("union_iterator.h"),
         src.join("json.h"),
         src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),

@@ -23,4 +23,5 @@ mod metric;
 mod not;
 mod optional;
 mod profile;
+mod union;
 mod wildcard;
