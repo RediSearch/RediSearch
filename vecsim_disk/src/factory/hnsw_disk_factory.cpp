@@ -15,8 +15,6 @@
 
 namespace HNSWDiskFactory {
 VecSimIndex* NewIndex(const VecSimParamsDisk* params, bool is_input_normalized) {
-    auto allocator = VecSimAllocator::newVecsimAllocator();
-
     const HNSWParams* hnswParams = &params->indexParams->algoParams.hnswParams;
     assert(hnswParams->type == VecSimType_FLOAT32 && "Only FLOAT32 type is currently supported");
 
@@ -29,10 +27,12 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params, bool is_input_normalized) 
         storage = CreateHNSWStorage<float>(handles);
     }
 
+    // Create allocator for the index - this must be used everywhere for proper memory management.
+    auto allocator = VecSimAllocator::newVecsimAllocator();
+
     // Create abstract params for disk backend:
     // - storedDataSize = SQ8 quantized size (for in-memory RawDataContainer)
     // - inputBlobSize = FP32 size (vectors come from frontend in FP32)
-    // Pass the same allocator to ensure consistency
     auto abstractParams = VecSimDiskFactory::NewDiskInitParams(hnswParams, params->indexParams->logCtx, allocator);
 
     // Create disk-specific components with multi-mode calculator (Full, QuantizedVsFull, Quantized)

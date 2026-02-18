@@ -22,13 +22,38 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 include(GoogleTest)
 
-# Enable BUILD_TESTS macro for test executables to access test-only methods in HNSWDiskIndex
-# (e.g., fitMemory, getDataByLabel, etc.)
-add_compile_definitions(BUILD_TESTS)
+# BUILD_TESTS macro is now defined in parent CMakeLists.txt for vecsim_disk library
+# with PUBLIC visibility, so test executables inherit it automatically.
+
+# =============================================================================
+# Common test utilities (compiled once, linked to tests that need them)
+# =============================================================================
+# Use VectorSimilarity's mock thread pool implementation
+set(TEST_UTILS_SOURCES
+    ${VECSIM_ROOT}/tests/utils/mock_thread_pool.cpp
+)
 
 function(add_vecsim_test test_name source_file)
     # Create test executable
     add_executable(${test_name} ${source_file})
+
+    # Add unit test directory and VectorSimilarity test utils to include path
+    target_include_directories(${test_name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit
+        ${VECSIM_ROOT}/tests/utils  # VectorSimilarity test utilities (tests_utils.h)
+    )
+
+    # Link against full vecsim_disk library (includes SpeedB transitively)
+    target_link_libraries(${test_name} PRIVATE gtest gtest_main vecsim_disk)
+
+    # Register with CTest
+    gtest_discover_tests(${test_name})
+endfunction()
+
+# Function to add a test with additional utility sources
+function(add_vecsim_test_with_utils test_name source_file)
+    # Create test executable with utility sources
+    add_executable(${test_name} ${source_file} ${TEST_UTILS_SOURCES})
 
     # Add unit test directory and VectorSimilarity test utils to include path
     target_include_directories(${test_name} PRIVATE
@@ -50,13 +75,22 @@ endfunction()
 # Find all test_*.cpp files in the unit directory
 file(GLOB TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/unit/test_*.cpp)
 
+# Tests that need the mock thread pool utilities
+set(TESTS_NEEDING_UTILS
+    test_tiered_hnsw_disk
+)
+
 # Add each test file
 foreach(TEST_SOURCE ${TEST_SOURCES})
     # Extract filename without path and extension (e.g., test_encoding.cpp -> test_encoding)
     get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)
 
-    # Add the test
-    add_vecsim_test(${TEST_NAME} ${TEST_SOURCE})
+    # Check if this test needs utilities
+    if(TEST_NAME IN_LIST TESTS_NEEDING_UTILS)
+        add_vecsim_test_with_utils(${TEST_NAME} ${TEST_SOURCE})
+    else()
+        add_vecsim_test(${TEST_NAME} ${TEST_SOURCE})
+    endif()
 endforeach()
 
 # =============================================================================

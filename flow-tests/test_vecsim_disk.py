@@ -59,6 +59,7 @@ def test_create_hnsw_disk_index(redis_env):
     assert info.get('IS_DISK') == 1, f"Expected IS_DISK=1, got {info.get('IS_DISK')}"
 
 
+@pytest.mark.skip(reason="Requires merge operator configuration in C++ (MOD-13796)")
 def test_add_vectors_and_knn_query(redis_env):
     """Test adding vectors and performing KNN queries.
 

@@ -123,10 +123,15 @@
         getNeighborsByHeuristic2(candidates, M, removed);                                                              \
     }                                                                                                                  \
                                                                                                                        \
-    /* Test accessor for mutuallyConnectNewElement */                                                                  \
-    MutualConnectResult testMutuallyConnectNewElement(idType new_node_id, candidatesMaxHeap<DistType>& top_candidates, \
-                                                      size_t level) const {                                            \
-        return mutuallyConnectNewElement(new_node_id, top_candidates, level);                                          \
+    /* Test accessor for selectNeighborsForLevel (search phase) */                                                     \
+    std::pair<LevelNeighborSelection, idType> testSelectNeighborsForLevel(                                             \
+        candidatesMaxHeap<DistType>&& top_candidates, levelType level) const {                                         \
+        return selectNeighborsForLevel(std::move(top_candidates), level);                                              \
+    }                                                                                                                  \
+                                                                                                                       \
+    /* Test accessor for connectNewElement (write phase) */                                                            \
+    GraphNodeList testConnectNewElement(idType new_node_id, const LevelNeighborSelection& selection) const {           \
+        return connectNewElement(new_node_id, selection);                                                              \
     }                                                                                                                  \
                                                                                                                        \
     /* Get M0 for testing (max neighbors at level 0) */                                                                \
@@ -226,14 +231,21 @@
         return result;                                                                                                 \
     }                                                                                                                  \
                                                                                                                        \
-    /* Test accessor for storeVector - Phase 1 of insertion */                                                         \
-    HNSWDiskAddVectorState testStoreVector(const void* vector_data, labelType label) {                                 \
-        return storeVector(vector_data, label);                                                                        \
+    /* Test accessor for indexVector - read-only search phase for async insertion */                                   \
+    /* Returns IndexVectorResult with pre-computed state for storeVectorConnections */                                 \
+    /* Level is now generated internally by indexVector */                                                             \
+    IndexVectorResult testIndexVector(const void* querySQ8) const { return indexVector(querySQ8); }                    \
+                                                                                                                       \
+    /* Test accessor for allocateAndRegister - allocates ID, stores SQ8, registers label */                            \
+    idType testAllocateAndRegister(labelType label, levelType maxLevel, const void* storageSQ8) {                      \
+        return allocateAndRegister(label, maxLevel, storageSQ8);                                                       \
     }                                                                                                                  \
                                                                                                                        \
-    /* Test accessor for indexVector - Phase 2 of insertion */                                                         \
-    GraphNodeList testIndexVector(const void* querySQ8, labelType label, const HNSWDiskAddVectorState& state) {        \
-        return indexVector(querySQ8, label, state);                                                                    \
+    /* Test accessor for storeVectorConnections - writes FP32 to disk, connects to graph */                            \
+    /* Returns list of nodes needing repair */                                                                         \
+    GraphNodeList testStoreVectorConnections(idType internalId, const void* fp32Data, const void* querySQ8,            \
+                                             IndexVectorResult&& indexResult) {                                        \
+        return storeVectorConnections(internalId, fp32Data, querySQ8, std::move(indexResult));                         \
     }                                                                                                                  \
                                                                                                                        \
     /* Test accessor for insertElementToGraph - the core graph insertion algorithm */                                  \

@@ -51,6 +51,14 @@ static inline BFParams NewBFParams(const HNSWParams& hnsw_params) {
 VecSimIndex* NewIndex(const VecSimParamsDisk* params) {
     const TieredIndexParams& tiered_params = params->indexParams->algoParams.tieredParams;
     VecSimParams* hnsw_backend_params = tiered_params.primaryIndexParams;
+    const HNSWParams& hnsw_params = hnsw_backend_params->algoParams.hnswParams;
+
+    // Multi-value indexes are not supported for disk-based tiered HNSW (MVP1 limitation).
+    // The addVector implementation assumes single-value semantics.
+    if (hnsw_params.multi) {
+        return nullptr;
+    }
+
     // initialize HNSWDisk index
     // Create VecSimParamsDisk for hnsw index
     VecSimParamsDisk hnsw_params_disk = {
@@ -66,7 +74,6 @@ VecSimIndex* NewIndex(const VecSimParamsDisk* params) {
     // Initialize Brute Force frontend index.
     // Frontend stores vectors in FP32 (full precision), so both inputBlobSize and storedDataSize = FP32 size.
     // The assertion verifies that frontend.storedDataSize == backend.inputBlobSize (both FP32).
-    const HNSWParams& hnsw_params = hnsw_backend_params->algoParams.hnswParams;
     auto bf_params = NewBFParams(hnsw_params);
 
     AbstractIndexInitParams frontendInitParams =

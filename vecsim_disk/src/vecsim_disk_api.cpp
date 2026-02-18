@@ -23,13 +23,21 @@ VecSimIndex* VecSimDisk_CreateIndex(const VecSimParamsDisk* params) {
 
 void VecSimDisk_FreeIndex(VecSimIndex* index) {
     if (index) {
-        // CRITICAL: Save allocator so it will not deallocate itself during destruction.
-        // The VecsimBaseObject::operator delete reads obj->allocator AFTER the destructor
-        // runs (which destroys the shared_ptr member). By keeping a reference here,
-        // the allocator stays alive until after delete completes.
-        // This pattern is copied from VecSimIndex_Free in VectorSimilarity.
+        // CRITICAL: We cannot use `delete index` for VecsimBaseObject-derived classes!
+        //
+        // The problem is that VecsimBaseObject::operator delete(void*, size_t) tries to
+        // access obj->allocator, but by the time operator delete is called, the destructor
+        // has already run and destroyed the allocator member variable.
+        //
+        // The workaround is to:
+        // 1. Save the allocator before destruction
+        // 2. Call the destructor explicitly (std::destroy_at uses virtual dispatch)
+        // 3. Free the memory using the saved allocator
+        //
+        // This avoids calling operator delete entirely.
         std::shared_ptr<VecSimAllocator> allocator = index->getAllocator();
-        delete index;
+        std::destroy_at(index);            // Virtual dispatch calls derived destructor
+        allocator->free_allocation(index); // Free memory without calling operator delete
     }
 }
 

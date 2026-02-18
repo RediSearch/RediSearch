@@ -25,9 +25,10 @@
 #include "speedb_c_wrappers.h"
 
 #include <cstring>
+#include <filesystem>
+#include <iostream>
 #include <memory>
 #include <string>
-#include <filesystem>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -87,11 +88,22 @@ public:
     }
 
     ~TempSpeeDB() {
+        // For the default column family handle returned from DB::Open with column_families,
+        // we should just delete the handle. The DB will clean up the column family data
+        // when closed. Do NOT call DestroyColumnFamilyHandle on the default CF.
+        // See https://github.com/facebook/rocksdb/issues/5006
         if (cf_) {
             delete cf_;
+            cf_ = nullptr;
         }
         if (db_) {
+            // Use Close() to explicitly close the DB before delete
+            auto status = db_->Close();
+            if (!status.ok()) {
+                std::cerr << "[TempSpeeDB] Warning: DB close failed: " << status.ToString() << std::endl;
+            }
             delete db_;
+            db_ = nullptr;
         }
 
         // Clean up test directory

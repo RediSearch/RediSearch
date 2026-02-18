@@ -10,6 +10,7 @@
 #pragma once
 
 #include "VecSim/vec_sim_tiered_index.h"
+#include "VecSim/algorithms/brute_force/brute_force_single.h"
 #include "algorithms/hnsw/hnsw_disk.h"
 #include "storage/hnsw_storage.h"
 #include "utils/consistency_lock.h"
@@ -17,6 +18,7 @@
 #include <atomic>
 #include <concepts>
 #include <memory>
+#include <optional>
 #include <utility>
 
 // Just use shared_ptr directly, but always create via factory
@@ -28,7 +30,7 @@ struct SafeVecSimDeleter {
         if (!p)
             return;
         auto allocator = p->getAllocator();
-        p->~T();
+        std::destroy_at(p);
         allocator->free_allocation(p);
     }
 };
@@ -87,6 +89,17 @@ struct DeleteDiskJob : public AsyncDiskJob {
         : AsyncDiskJob(allocator, type_, callback, index_), deleted_id(id_) {}
 };
 
+// Insert job structure - simplified to match RAM version
+// State capture and ID allocation all happen in the worker thread
+// NOTE: No overwrite handling needed - caller guarantees no duplicate labels
+struct InsertDiskJob : public AsyncDiskJob {
+    labelType label; // User-provided label for the vector
+
+    InsertDiskJob(std::shared_ptr<VecSimAllocator> allocator, labelType label_, JobCallback callback,
+                  VecSimIndex* index_)
+        : AsyncDiskJob(allocator, DISK_HNSW_INSERT_VECTOR_JOB, callback, index_), label(label_) {}
+};
+
 template <typename DataType, typename DistType>
 class TieredHNSWDiskIndex : public VecSimTieredIndex<DataType, DistType> {
 private:
@@ -106,6 +119,7 @@ private:
     // Flag to indicate if the index is being destroyed
     std::atomic<bool> is_destroyed{false};
 
+public:
     // Custom deleter for pending jobs that auto-submits when ref count reaches 0
     // This is used for jobs like DELETE_FINALIZE that should be submitted when all
     // jobs they're pending on have completed.
@@ -138,7 +152,7 @@ private:
     template <typename JobType, typename... Args>
     std::shared_ptr<AsyncDiskJob> createAutoSubmitJob(Args&&... args) {
         JobType* job = new (this->allocator) JobType(std::forward<Args>(args)...);
-        return std::shared_ptr<AsyncDiskJob>(job, PendingJobDeleter{this, &is_destroyed, this->allocator});
+        return std::shared_ptr<AsyncDiskJob>(job, PendingJobDeleter{this, &is_destroyed});
     }
 
     // Submit a single job and add to submitted_jobs to keep it alive
@@ -194,17 +208,87 @@ private:
         for (idType internal_id : deleted_ids) {
             // Create job with auto-submit deleter, pended by all currently running jobs
             // If no running jobs, it will be submitted immediately
-            pendByCurrentlyRunning<DeleteDiskJob>(this->allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, internal_id,
-                                                  executeDiskJobWrapper, this);
+            pendDeleteInitJobByCurrentlyRunning(internal_id);
         }
     }
 
-    // Job execution methods (stubs to be implemented with HNSW algorithm logic)
+    // Job execution methods
     void executeInsertJob(AsyncDiskJob* job) {
-        // TODO: Implement insert vector logic
-        // 1. Insert vector into HNSW disk index
-        // 2. submit repair jobs for affected nodes if necessary
-        // 3. remove related data from the flat index
+        auto* insert_job = static_cast<InsertDiskJob*>(job);
+        auto* hnsw_index = get_hnsw_index();
+
+        // Step 1: Copy full-precision data from flat buffer while holding the lock.
+        // We copy (not just take a pointer) so we can release the lock before the expensive
+        // indexing work. This is required because deleteVector() can invalidate the job
+        // and remove the data from the flat buffer while we're processing.
+        size_t data_size = hnsw_index->getInputBlobSize();
+        auto fullDataCopy = this->allocator->allocate_unique(data_size);
+        {
+            std::shared_lock<std::shared_mutex> lock(this->flatIndexGuard);
+            // Check if job was invalidated (by deleteVector) before we even start
+            if (!this->frontendIndex->isLabelExists(insert_job->label)) {
+                return; // Job invalidated - abort
+            }
+            // Cast to BruteForceIndex_Single to access getIdOfLabel and getDataByInternalId
+            auto* flatIndexSingle = static_cast<BruteForceIndex_Single<DataType, DistType>*>(this->frontendIndex);
+            idType flatInternalId = flatIndexSingle->getIdOfLabel(insert_job->label);
+            assert(flatInternalId != INVALID_ID &&
+                   "Label not found after isLabelExists returned true - should never happen");
+            const void* fullData = flatIndexSingle->getDataByInternalId(flatInternalId);
+            std::memcpy(fullDataCopy.get(), fullData, data_size);
+        }
+
+        // Step 2: Preprocess to quantized format in tiered layer (outside any lock)
+        // This is done here so we own the blobs and can pass them to both indexVector and storeVectorConnections
+        ProcessedBlobs processedBlobs = hnsw_index->preprocess(fullDataCopy.get());
+        const void* quantizedQuery = processedBlobs.getQueryBlob();
+        const void* quantizedStorage = processedBlobs.getStorageBlob();
+
+#ifdef BUILD_TESTS
+        // Test hook: allow tests to inject code for testing
+        if (testHookBeforeIndexVector) {
+            testHookBeforeIndexVector();
+        }
+#endif
+
+        // Step 3: Search phase (read-only) - indexVector()
+        // Generates random level internally and performs pure graph search.
+        // No writes or locks held during this potentially expensive operation.
+        auto indexResult = hnsw_index->indexVector(quantizedQuery);
+
+        // Step 4: Acquire consistency guard (outermost lock for fork safety)
+        // This must be held from now through all HNSW writes
+        vecsim_disk::ConsistencySharedGuard consistency_guard;
+
+        // Step 5: Atomic transition from flat buffer to HNSW under flat lock
+        // Validate label still exists, remove from flat, allocate ID and register in HNSW
+        idType internalId;
+        {
+            std::unique_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+
+            // Validate: if deleted during indexVector, abort
+            if (!this->frontendIndex->isLabelExists(insert_job->label)) {
+                return; // Deleted during search phase - abort
+            }
+
+            // Remove from flat buffer
+            this->frontendIndex->deleteVector(insert_job->label);
+
+            // Allocate ID, store quantized data, register label atomically in HNSW
+            internalId =
+                hnsw_index->allocateAndRegister(insert_job->label, indexResult.elementMaxLevel, quantizedStorage);
+        }
+        // flat_lock released - expensive graph work can now proceed
+
+        // Step 6: Complete graph insertion (writes full-precision data to disk, connects to graph)
+        // This is the expensive part - done without holding flat lock
+        auto nodesToRepair =
+            hnsw_index->storeVectorConnections(internalId, fullDataCopy.get(), quantizedQuery, std::move(indexResult));
+
+        // Step 7: Submit repair jobs for overflowed nodes (can run concurrently)
+        submitRepairs(nodesToRepair);
+
+        // consistency_guard released here automatically
     }
 
     void executeRepairJob(RepairDiskJob* job) {
@@ -344,7 +428,7 @@ private:
                         it->second->pending_jobs.push_back(pend_on);
                     }
                 } else {
-                    // Create new repair job with the wrapper callback using SafeVecSimDeleter
+                    // Create new repair job with the wrapper callback
                     auto job_ptr = make_vecsim_shared_ptr<RepairDiskJob>(this->allocator, repair.id, repair.level,
                                                                          executeDiskJobWrapper, this);
 
@@ -364,12 +448,12 @@ private:
         }
     }
 
-    // Create a job with auto-submit deleter and pend it by all currently running jobs
-    // If there are no currently running jobs, submits the job immediately
-    // Returns the shared_ptr to the created job
-    template <typename JobType, typename... Args>
-    std::shared_ptr<AsyncDiskJob> pendByCurrentlyRunning(Args&&... args) {
-        auto job = createAutoSubmitJob<JobType>(std::forward<Args>(args)...);
+    // Create a delete init job with auto-submit deleter and pend it by all currently running jobs.
+    // If there are no currently running jobs, the job will be submitted when its ref count reaches 0.
+    // Returns the shared_ptr to the created job.
+    std::shared_ptr<AsyncDiskJob> pendDeleteInitJobByCurrentlyRunning(idType deletedId) {
+        auto job = createAutoSubmitJob<DeleteDiskJob>(this->allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, deletedId,
+                                                      executeDiskJobWrapper, this);
 
         std::lock_guard<std::mutex> lock(running_guard);
         for (AsyncDiskJob* running : currently_running) {
@@ -399,13 +483,24 @@ public:
             std::lock_guard<std::mutex> lock(submitted_jobs_guard);
             submitted_jobs.clear();
         }
+
+        // Backend and frontend indices are freed by the base class destructor
+        // via VecSimIndex_Free(), which properly saves the allocator before
+        // calling delete (avoiding the use-after-free in operator delete).
     }
 
     // VecSimIndexInterface
     int addVector(const void* blob, labelType label) override;
     int deleteVector(labelType label) override;
     double getDistanceFrom_Unsafe(labelType label, const void* blob) const override;
-    size_t indexSize() const override { /* TBD */ return 0; }
+    size_t indexSize() const override {
+        // Total vectors = flat buffer + HNSW backend.
+        // We only need flatIndexGuard because:
+        // 1. frontendIndex->indexSize() requires synchronization (vectors can be added/moved)
+        // 2. backendIndex->indexSize() is thread-safe (atomic curElementCount_)
+        std::shared_lock<std::shared_mutex> lock(this->flatIndexGuard);
+        return this->frontendIndex->indexSize() + this->backendIndex->indexSize();
+    }
     size_t indexCapacity() const override { /* TBD */ return 0; }
     VecSimIndexBasicInfo basicInfo() const override;
     VecSimBatchIterator* newBatchIterator(const void*, VecSimQueryParams*) const override;
@@ -422,9 +517,18 @@ public:
         return static_cast<HNSWDiskIndex<DataType, DistType>*>(this->backendIndex);
     }
 
+    // Required by VecSimIndexInterface when BUILD_TESTS is defined
     size_t indexMetaDataCapacity() const override {
         return this->backendIndex->indexMetaDataCapacity() + this->frontendIndex->indexMetaDataCapacity();
     }
+
+    // Test hook: callback invoked after validity check but BEFORE indexVector
+    // Used to reproduce race condition in tests
+    std::function<void()> testHookBeforeIndexVector;
+
+    // Test helper: manually execute just the executeInsertJob logic for a job
+    // This allows fine-grained control over job execution timing in tests
+    void testExecuteInsertJob(AsyncDiskJob* job) { executeInsertJob(job); }
 #endif
 };
 
@@ -435,17 +539,72 @@ TieredHNSWDiskIndex<DataType, DistType>::TieredHNSWDiskIndex(HNSWDiskIndex<DataT
                                                              const TieredIndexParams& tieredParams,
                                                              std::shared_ptr<VecSimAllocator> allocator)
     : VecSimTieredIndex<DataType, DistType>(hnsw_index, brute_force_index, tieredParams, allocator),
-      pending_repairs(allocator), currently_running(allocator), submitted_jobs(allocator) {}
+      pending_repairs(allocator), currently_running(allocator), submitted_jobs(allocator) {
+    assert(this->SubmitJobsToQueue != nullptr && "TieredHNSWDiskIndex requires a job queue callback");
+}
 
 template <typename DataType, typename DistType>
 int TieredHNSWDiskIndex<DataType, DistType>::addVector(const void* data, labelType label) {
-    // TBD
-    return 0;
+    auto* hnsw_index = get_hnsw_index();
+
+    // Check if flat buffer is full - for now just log warning (throttling TBD)
+    if (this->frontendIndex->indexSize() >= this->flatBufferLimit) {
+        TIERED_LOG(VecSimCommonStrings::LOG_WARNING_STRING,
+                   "Flat buffer is full (size=%zu, limit=%zu), continuing to add vector",
+                   this->frontendIndex->indexSize(), this->flatBufferLimit);
+    }
+
+    assert(!hnsw_index->isMultiValue() && "Multi-value HNSW is not supported for MVP1");
+
+    // Step 1: Lock flat buffer and verify no duplicate labels
+    // ASSUMPTION: Caller guarantees no duplicate labels. We assert this for safety.
+    std::unique_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+
+    assert(!this->frontendIndex->isLabelExists(label) && !hnsw_index->isLabelExists(label) &&
+           "Duplicate label - caller must ensure uniqueness across both indices");
+
+    this->frontendIndex->addVector(data, label);
+    flat_lock.unlock();
+
+    // Step 2: Create InsertDiskJob and submit it
+    // NOTE: No state is captured on the main thread.
+    // All state capture (random level, entry point) happens in the worker thread
+    // inside executeInsertJob().
+    auto job = make_vecsim_shared_ptr<InsertDiskJob>(this->allocator, label, executeDiskJobWrapper, this);
+
+    // Step 3: Submit job to queue
+    submitDiskJob(job);
+
+    return 1; // Always a new vector (no overwrite possible per contract)
 }
 
 template <typename DataType, typename DistType>
 int TieredHNSWDiskIndex<DataType, DistType>::deleteVector(labelType label) {
-    // TBD
+    // TODO(MOD-13172): Implement delete flow using DISK_IN_PROCESS flag.
+    //
+    // The new flow uses DISK_IN_PROCESS flag for coordination with in-flight inserts:
+    // - Insert jobs call allocateAndRegister() atomically under flat lock, which marks IN_PROCESS
+    // - Delete can find labels in HNSW even while insert is still connecting to graph
+    // - Elements marked IN_PROCESS can be marked deleted (delete wins)
+    //
+    // IMPLEMENTATION:
+    // 1. Acquire consistency_guard (shared) - for fork safety
+    // 2. Acquire flatIndexGuard (exclusive)
+    // 3. Check where the label exists:
+    //
+    //    CASE A: Label in flat buffer
+    //      - Remove from flat buffer (insert job will fail validation when it runs)
+    //      - Return 1
+    //
+    //    CASE B: Label in HNSW index (may be IN_PROCESS or fully indexed)
+    //      - Mark deleted in HNSW (markDeleted)
+    //      - Submit cleanup jobs if needed
+    //      - Return 1
+    //
+    //    CASE C: Label doesn't exist anywhere
+    //      - Return 0
+    //
+    // LOCK ORDER: consistency_guard -> flatIndexGuard
     return 0;
 }
 
