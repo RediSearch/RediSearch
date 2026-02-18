@@ -11,13 +11,6 @@ bench = false
 [features]
 default = ["std"]
 std = []
-serde = ["dep:serde"]
-
-[dependencies.serde]
-version = "1"
-optional = true
-default-features = false
-features = ["alloc"]
 
 [lints]
 workspace = true

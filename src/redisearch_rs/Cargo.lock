@@ -700,7 +700,6 @@ dependencies = [
 name = "generational_slab"
 version = "0.0.1"
 dependencies = [
- "serde",
  "workspace_hack",
 ]
 
