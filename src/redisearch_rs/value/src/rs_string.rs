@@ -26,6 +26,10 @@ enum RsStringKind {
 /// - `ptr` must not be NULL and must point to a valid c-string of `len` size.
 /// - The size determined by `len` excludes the nul-terminator.
 /// - A nul-terminator is expected in memory at `ptr+len`.
+///
+/// There is one exception for the nul-terminator requirement: [`RsString`] constructed through
+/// `rm_alloc_string_without_nul_terminator`. Code expecting a nul-terminator should use the `_checked`
+/// variants of `as_ptr_len` and `as_bytes` which have debug asserts ensuring a nul-terminator exists.
 pub struct RsString {
     ptr: *const c_char,
     len: u32,
