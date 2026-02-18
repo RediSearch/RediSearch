@@ -71,6 +71,10 @@ bool isCrdt;
 bool isTrimming = false;
 bool isFlex = false;
 
+// Track whether the last RDB save was an SST persistence.
+// Used at shutdown to determine if we should delete disk data.
+static bool lastRdbWasSstPersistence = false;
+
 // Default values make no limits.
 size_t memoryLimit = -1;
 size_t used_memory = 0;
@@ -3220,6 +3224,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   // assume it was not set in when the RDB will be loaded as well
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
+  // Track SST persistence state for shutdown cleanup decisions
+  lastRdbWasSstPersistence = useSst;
   if (sp->diskSpec && useSst) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
@@ -4195,4 +4201,8 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
 
 void Indexes_EndLoading() {
   g_isLoading = false;
+}
+
+bool WasLastRdbSstPersistence(void) {
+  return lastRdbWasSstPersistence;
 }

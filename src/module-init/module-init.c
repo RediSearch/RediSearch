@@ -221,3 +221,12 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
   return REDISMODULE_OK;
 }
+
+void DepleterPool_ThreadPoolDestroy(void) {
+  if (depleterPool != NULL) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    redisearch_thpool_destroy(depleterPool);
+    depleterPool = NULL;
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
+}

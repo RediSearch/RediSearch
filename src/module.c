@@ -1772,26 +1772,44 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
 extern dict *legacySpecDict, *legacySpecRules;
 
-void RediSearch_CleanupModule(void) {
+// Production cleanup - Phases 1-3 only.
+// Skips global structures since OS reclaims on exit.
+void RediSearch_CleanupModule(bool deleteDiskData) {
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
   }
   invoked = 1;
 
-  // First free all indexes
-  Indexes_Free(specDict_g, false);
+  // Phase 1: Stop timers (OSS cluster only)
+  StopRedisTopologyUpdater(RSDummyContext);
+
+  // Phase 2: Free indexes
+  Indexes_Free(specDict_g, deleteDiskData);
   dictRelease(specDict_g);
   specDict_g = NULL;
 
+  // Phase 3: Drain/destroy all thread pools
   // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
   // data structure that is accessed upon releasing the spec (and running thread might hold
-  // a reference to the spec bat this time).
+  // a reference to the spec at this time).
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
+  DepleterPool_ThreadPoolDestroy();
+  GC_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
+  ReindexPool_ThreadPoolDestroy();
+  ConcurrentSearch_ThreadPoolDestroy();
+  MR_FreeCluster();
+}
 
-  // At this point, the thread local storage is no longer needed, since all threads
-  // finished their work.
+// Sanitizer cleanup - All phases.
+// Calls production cleanup then frees global structures.
+void RediSearch_SanitizerCleanupModule(void) {
+  // Phases 1-3: Production cleanup (never delete disk data in sanitizer)
+  RediSearch_CleanupModule(false);
+
+  // Phase 4: Free global structures (for sanitizer/valgrind memory leak detection)
   MainThread_DestroyBlockedQueries();
 
   if (legacySpecDict) {
@@ -1799,13 +1817,6 @@ void RediSearch_CleanupModule(void) {
     legacySpecDict = NULL;
   }
   LegacySchemaRulesArgs_Free(RSDummyContext);
-
-  // free thread pools
-  GC_ThreadPoolDestroy();
-  CleanPool_ThreadPoolDestroy();
-  ReindexPool_ThreadPoolDestroy();
-  ConcurrentSearch_ThreadPoolDestroy();
-  MR_FreeCluster();
 
   // free global structures
   Extensions_Free();
@@ -4448,20 +4459,9 @@ void setHiredisAllocators(){
   hiredisSetAllocators(&ha);
 }
 
-void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
-  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
-}
-
 void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
-  // To be called after `Initialize_ServerEventNotifications` as callbacks are overridden.
-  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
-    // clear resources when the server exits
-    // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, Coordinator_ShutdownEvent);
-  }
+  // Shutdown handler registration is now consolidated in Initialize_ServerEventNotifications.
+  // This function is kept for API compatibility but no longer registers a shutdown handler.
 }
 
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {

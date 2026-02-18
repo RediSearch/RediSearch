@@ -44,6 +44,7 @@ extern "C" {
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 extern redisearch_thpool_t *depleterPool;
+void DepleterPool_ThreadPoolDestroy(void);
 
 int IsMaster();
 bool IsEnterprise();
@@ -53,8 +54,13 @@ size_t GetNumShards_UnSafe();
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 
-/** Cleans up all globals in the module */
-void RediSearch_CleanupModule(void);
+/** Production cleanup - Phases 1-3 only (stop timers, free indexes, destroy pools).
+ *  @param deleteDiskData If true, delete disk data when freeing indexes.
+ */
+void RediSearch_CleanupModule(bool deleteDiskData);
+
+/** Sanitizer cleanup - All phases. Calls RediSearch_CleanupModule(false) then frees global structures. */
+void RediSearch_SanitizerCleanupModule(void);
 
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
