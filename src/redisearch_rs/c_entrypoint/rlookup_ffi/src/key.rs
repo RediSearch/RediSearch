@@ -9,7 +9,7 @@
 
 use libc::size_t;
 use rlookup::RLookupKey;
-use std::{ffi::c_char, ptr};
+use std::ffi::c_char;
 
 /// Get the flags (indicating the type and other attributes) for a `RLookupKey`.
 ///
