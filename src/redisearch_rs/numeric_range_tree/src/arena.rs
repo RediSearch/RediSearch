@@ -23,7 +23,7 @@ use crate::NumericRangeNode;
 ///
 /// Wraps a `generational_slab::Slab` key. This is a lightweight handle (single `u32`)
 /// that is stable across mutations to other slots in the slab.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct NodeIndex(u32);
 
@@ -66,7 +66,6 @@ impl NodeArena {
     /// This is not to be confused with the current _capacity_
     /// of the arena, i.e. the size of the underlying currently-allocated
     /// slab.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub const fn len(&self) -> u32 {
         // Safe to truncate because `Self::insert` ensures that the arena
         // never grows beyond `u32::MAX`.
@@ -77,11 +76,15 @@ impl NodeArena {
     ///
     /// This is the maximum number of nodes that can be stored in the arena
     /// without reallocating.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub const fn capacity(&self) -> u32 {
         // Safe to truncate because `Self::insert` ensures that the arena
         // never grows beyond `u32::MAX`.
         self.nodes.capacity() as u32
+    }
+
+    /// Get a mutable reference to a node in the arena, if it exists.
+    pub fn get_mut(&mut self, idx: NodeIndex) -> Option<&mut NumericRangeNode> {
+        self.nodes.get_mut(idx.key())
     }
 
     /// Insert a node into the arena, returning its index.
@@ -104,7 +107,6 @@ impl NodeArena {
     /// # Panics
     ///
     /// Panics if the index is invalid.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub fn remove(&mut self, idx: NodeIndex) -> NumericRangeNode {
         self.nodes.remove(idx.key())
     }
@@ -125,7 +127,6 @@ impl NodeArena {
     /// Iterate over all nodes in the arena mutably.
     ///
     /// Yields `(NodeIndex, &mut NumericRangeNode)` pairs.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (NodeIndex, &mut NumericRangeNode)> {
         self.nodes
             .iter_mut()
@@ -135,6 +136,18 @@ impl NodeArena {
     /// Get the memory usage of the arena, in bytes.
     pub const fn mem_usage(&self) -> usize {
         self.nodes.mem_usage()
+    }
+
+    /// Compact the arena, moving nodes to fill gaps.
+    ///
+    /// The callback is called for each moved node with `(from_idx, to_idx)`.
+    /// Return `true` from the callback to proceed with the move.
+    pub fn compact(
+        &mut self,
+        mut callback: impl FnMut(&mut NumericRangeNode, NodeIndex, NodeIndex) -> bool,
+    ) {
+        self.nodes
+            .compact(|node, from, to| callback(node, NodeIndex(from as u32), NodeIndex(to as u32)))
     }
 }
 

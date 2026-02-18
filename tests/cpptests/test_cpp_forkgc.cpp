@@ -617,8 +617,8 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   const char *pp = IndexBlock_Data(secondLastBlock);
   FGC_Apply(fgc);
 
-  // We hadn't performed any changes to the last block prior to the fork.
-  ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
+  // We add new documents to the last block after the fork, so we expect the GC to deny it.
+  ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(3, InvertedIndex_NumBlocks(iv));
 
   // The pointer to the last gc-block, received from the fork
