@@ -7,6 +7,13 @@ if(NOT CARGO_EXECUTABLE)
     message(FATAL_ERROR "Cargo not found. Please install Rust and Cargo.")
 endif()
 
+# Use RUST_TOOLCHAIN_MODIFIER if provided (e.g., +nightly, +stable)
+if(DEFINED RUST_TOOLCHAIN_MODIFIER)
+    set(TOOLCHAIN_MODIFIER "${RUST_TOOLCHAIN_MODIFIER}")
+else()
+    set(TOOLCHAIN_MODIFIER "")
+endif()
+
 # Use RUST_PROFILE if provided, otherwise default to release
 if(NOT DEFINED RUST_PROFILE)
     set(RUST_PROFILE "release")
@@ -16,12 +23,31 @@ endif()
 # This avoids CMake argument parsing issues with complex flag values
 set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 
+# Configure ASAN flags for Rust if sanitizer is enabled
+if(SAN STREQUAL "address")
+    message(STATUS "Configuring Rust build with AddressSanitizer")
+    # RUST_FLAGS for ASAN is set via environment variable RUSTFLAGS in build.sh
+
+    # -Zbuild-std is a cargo flag (not rustc), so set it separately
+    set(CARGO_BUILD_FLAGS "-Zbuild-std")
+
+    # Note: ASAN in Rust requires nightly compiler
+    # The build.sh script should handle setting the correct toolchain
+else()
+    set(CARGO_BUILD_FLAGS "")
+endif()
+
 # Map Rust profile names to their corresponding artifact directory names
 if(RUST_PROFILE STREQUAL "dev")
     set(RUST_ARTIFACT_DIR "debug")
 else()
     # For release, optimised_test, and other custom profiles, use the profile name as-is
     set(RUST_ARTIFACT_DIR "${RUST_PROFILE}")
+endif()
+
+# If a build target is explicitly specified, adjust the artifact directory accordingly
+if(DEFINED CARGO_BUILD_TARGET)
+    set(RUST_ARTIFACT_DIR "${CARGO_BUILD_TARGET}/${RUST_ARTIFACT_DIR}")
 endif()
 
 # Determine the output library path based on profile and context
@@ -42,7 +68,8 @@ if(NOT TARGET redisearch_rs_build)
         COMMAND ${CMAKE_COMMAND} -E env
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
-            ${CARGO_EXECUTABLE} build
+            ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
+            build
             --package redisearch_rs
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -77,7 +104,9 @@ endif()
 
 message(STATUS "Rust configuration:")
 message(STATUS "  Cargo: ${CARGO_EXECUTABLE}")
+message(STATUS "  Toolchain: ${TOOLCHAIN_MODIFIER}")
 message(STATUS "  Profile: ${RUST_PROFILE}")
+message(STATUS "  Cargo Build Flags: ${CARGO_BUILD_FLAGS}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
 message(STATUS "  Target Dir: ${RUST_TARGET_DIR}")
 message(STATUS "  Library Path: ${RUST_LIB_PATH}")
