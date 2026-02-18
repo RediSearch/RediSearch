@@ -824,10 +824,14 @@ TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   ASSERT_TRUE(dest_key_after_src2);
 
   // Verify override happened (original key should be nullified, new key created)
+  // This fails
+  // If we change RLookupKey_GetName to return .name instead of .name() (=> _name) it succeeds
   ASSERT_EQ(nullptr, RLookupKey_GetName(original_dest_key)) << "Original key should have been nullified";
+  // This is ok
   ASSERT_NE(original_dest_key, dest_key_after_src2) << "Should point to new key object after override";
 
   // Verify F_HIDDEN flag is now gone (src2 overwrote src1's hidden status)
+  // This is ok
   ASSERT_FALSE(RLookupKey_GetFlags(dest_key_after_src2) & RLOOKUP_F_HIDDEN) << "Destination key should NOT be hidden after src2 override";
 
   RLookup_Cleanup(&src1);
