@@ -15,20 +15,20 @@
 
 use std::ops::{Index, IndexMut};
 
-use slab::Slab;
+use generational_slab::Slab;
 
 use crate::NumericRangeNode;
 
 /// Index into the node arena.
 ///
-/// Wraps a `slab::Slab` key. This is a lightweight handle (single `u32`)
+/// Wraps a `generational_slab::Slab` key. This is a lightweight handle (single `u32`)
 /// that is stable across mutations to other slots in the slab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct NodeIndex(u32);
 
 impl NodeIndex {
-    /// Convert to a `usize` key for indexing into a [`slab::Slab`].
+    /// Convert to a `usize` key for indexing into a [`generational_slab::Slab`].
     const fn key(self) -> usize {
         self.0 as usize
     }
@@ -67,7 +67,7 @@ impl NodeArena {
     /// of the arena, i.e. the size of the underlying currently-allocated
     /// slab.
     #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
-    pub fn len(&self) -> u32 {
+    pub const fn len(&self) -> u32 {
         // Safe to truncate because `Self::insert` ensures that the arena
         // never grows beyond `u32::MAX`.
         self.nodes.len() as u32
@@ -78,7 +78,7 @@ impl NodeArena {
     /// This is the maximum number of nodes that can be stored in the arena
     /// without reallocating.
     #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
-    pub fn capacity(&self) -> u32 {
+    pub const fn capacity(&self) -> u32 {
         // Safe to truncate because `Self::insert` ensures that the arena
         // never grows beyond `u32::MAX`.
         self.nodes.capacity() as u32
@@ -133,19 +133,8 @@ impl NodeArena {
     }
 
     /// Get the memory usage of the arena, in bytes.
-    pub fn mem_usage(&self) -> usize {
-        // This is the way `slab::Slab` stores, internally, entries.
-        // The type isn't exposed via its public API, but add it here
-        // as a reference to allow the compiler to give us an accurate
-        // memory usage estimate.
-        // Future versions of `slab` may change this, but for now,
-        // this is the best we can do.
-        #[expect(dead_code)]
-        enum Entry<T> {
-            Vacant(usize),
-            Occupied(T),
-        }
-        self.nodes.capacity() * std::mem::size_of::<Entry<NumericRangeNode>>()
+    pub const fn mem_usage(&self) -> usize {
+        self.nodes.mem_usage()
     }
 }
 

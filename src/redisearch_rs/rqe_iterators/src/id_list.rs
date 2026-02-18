@@ -57,7 +57,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     pub fn with_result(ids: impl Into<OwnedSlice<t_docId>>, result: RSIndexResult<'index>) -> Self {
         let ids = ids.into();
 
-        if SORTED && !cfg!(feature = "disable_sort_checks_in_idlist") {
+        if SORTED {
             debug_assert!(
                 ids.is_sorted_by(|a, b| a < b),
                 "IDs must be sorted and unique"
@@ -101,7 +101,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// Returns `Some(false)` if there is no document with the given ID in the list.
     /// Returns `None` if the iterator has been advanced past the end of the ID list.
     pub(super) fn _skip_to(&mut self, target_id: t_docId) -> Option<bool> {
-        if !SORTED && !cfg!(feature = "disable_sort_checks_in_idlist") {
+        if !SORTED {
             panic!("Can't skip when working with unsorted document ids");
         }
 

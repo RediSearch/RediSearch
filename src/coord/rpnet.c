@@ -276,8 +276,8 @@ int getNextReply(RPNet *nc) {
     size_t numShards;
     while ((numShards = atomic_load(&nc->shardResponseBarrier->numShards)) == 0 ||
            atomic_load(&nc->shardResponseBarrier->numResponded) < numShards) {
-      // Check for timeout to avoid blocking indefinitely
-      if (nc->areq && nc->areq->sctx && TimedOut(&nc->areq->sctx->time.timeout)) {
+      // Check for timeout to avoid blocking indefinitely (respecting skipTimeoutChecks flag)
+      if (nc->areq && nc->areq->sctx && !nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
         break;
       }
       // Get next reply with timeout (uses CLOCK_MONOTONIC_RAW based timeout)
@@ -525,7 +525,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    if (TimedOut(&nc->areq->sctx->time.timeout)) {
+    // Check for timeout (respecting skipTimeoutChecks flag)
+    if (!nc->areq->sctx->time.skipTimeoutChecks && TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.

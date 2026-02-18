@@ -38,7 +38,6 @@ fn empty_initialization_works() {
     assert!(i.at_eof());
 }
 
-#[cfg(not(feature = "disable_sort_checks_in_idlist"))]
 #[test]
 #[should_panic(expected = "IDs must be sorted and unique")]
 fn unsorted_initialization_of_sorted_variant_panics() {
@@ -54,7 +53,6 @@ fn unsorted_initialization_of_unsorted_variant_works() {
     assert_eq!(RSResultKind::Virtual, result.kind());
 }
 
-#[cfg(not(feature = "disable_sort_checks_in_idlist"))]
 #[test]
 #[should_panic(expected = "Can't skip when working with unsorted document ids")]
 fn unsorted_variant_cannot_skip() {
@@ -62,7 +60,6 @@ fn unsorted_variant_cannot_skip() {
     let _ = i.skip_to(3);
 }
 
-#[cfg(not(feature = "disable_sort_checks_in_idlist"))]
 #[test]
 #[should_panic(expected = "IDs must be sorted and unique")]
 fn duplicate_initialization() {

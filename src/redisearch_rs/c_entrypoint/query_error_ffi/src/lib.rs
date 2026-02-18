@@ -9,7 +9,6 @@
 
 use std::ffi::{CStr, CString, c_char};
 
-use c_ffi_utils::opaque::IntoOpaque;
 use query_error::{QueryError, opaque::OpaqueQueryError};
 
 pub use query_error::{QueryErrorCode, QueryWarningCode};

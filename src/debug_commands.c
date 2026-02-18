@@ -826,10 +826,18 @@ DEBUG_COMMAND(GCForceInvoke) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-      ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
-  GCContext_ForceInvoke(sp->gc, bc);
-  return REDISMODULE_OK;
+  if (sp->diskSpec) {
+    SearchDisk_RunGC(sp->diskSpec);
+    RedisModule_ReplyWithSimpleString(ctx, "DONE");
+    return REDISMODULE_OK;
+  } else if (sp->gc) {
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(
+        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
+    GCContext_ForceInvoke(sp->gc, bc);
+    return REDISMODULE_OK;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
+  }
 }
 
 DEBUG_COMMAND(GCForceBGInvoke) {

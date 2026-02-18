@@ -59,6 +59,13 @@ typedef struct BasicDiskAPI {
    * @return true if async I/O operations are available, false otherwise
    */
   bool (*isAsyncIOSupported)(RedisSearchDisk *disk);
+
+  /**
+   * @brief Set throttle callbacks for vector disk tiered indexes to pause/resume CMD_DENYOOM commands.
+   * @param enable Callback to pause CMD_DENYOOM commands (wraps RedisModule_EnablePostponeClients)
+   * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
+   */
+  void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -113,6 +120,16 @@ typedef struct IndexDiskAPI {
    * @return Number of documents in the index
    */
   QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index, double weight);
+
+  /**
+   * @brief Run a GC compaction cycle on the disk index.
+   *
+   * Synchronously runs a full compaction on the inverted index column family,
+   * removing entries for deleted documents.
+   *
+   * @param index Pointer to the index
+   */
+  void (*runGC)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

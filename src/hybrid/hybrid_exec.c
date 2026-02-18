@@ -178,6 +178,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
     .timeout = &hreq->sctx->time.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
+    .skipTimeoutChecks = hreq->sctx->time.skipTimeoutChecks,
   };
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
@@ -565,9 +566,10 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     // TODO: Dump the entire hreq when explain is implemented
-    // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
+    // Create a dummy AREQ for BlockQueryClientWithTimeout (it expects an AREQ but we'll use the first one)
     AREQ *dummy_req = hreq->requests[0];
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, 0);
+    // Pass 0 and NULL - no Redis-level timeout for hybrid (for now)
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, dummy_req, 0, NULL);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 
