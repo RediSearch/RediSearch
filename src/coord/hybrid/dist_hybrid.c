@@ -747,7 +747,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-        HybridRequest_Free(hreq);
+        HybridRequest_DecrRef(hreq);
     }
     return REDISMODULE_OK;
 }
@@ -767,7 +767,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
         IndexSpecRef_Release(*strong_ref);
     }
     if (hreq) {
-        HybridRequest_Free(hreq);
+        HybridRequest_DecrRef(hreq);
     }
     RedisModule_EndReply(reply);
 }

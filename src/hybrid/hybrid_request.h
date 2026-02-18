@@ -76,21 +76,13 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
 // Reply state management functions for coordinating replies between main and background threads
 // Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
 // false if already claimed or replied (state was REPLYING or REPLIED).
-static inline bool HybridRequest_TryClaimReply(HybridRequest *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
+bool HybridRequest_TryClaimReply(HybridRequest *req);
 
 // Mark reply as complete. Must only be called after successfully claiming reply.
-static inline void HybridRequest_MarkReplied(HybridRequest *req) {
-  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
-}
+void HybridRequest_MarkReplied(HybridRequest *req);
 
 // Get current reply state (for checking/waiting in timeout callback)
-static inline uint8_t HybridRequest_GetReplyState(HybridRequest *req) {
-  return atomic_load_explicit(&req->replyState, memory_order_acquire);
-}
+uint8_t HybridRequest_GetReplyState(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
@@ -189,7 +181,19 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  */
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
 
-void HybridRequest_Free(HybridRequest *req);
+/**
+ * Increment the reference count of the HybridRequest.
+ * @param req the request to increment
+ * @return the request (for chaining)
+ */
+HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
+
+/**
+ * Decrement the reference count of the HybridRequest.
+ * If the reference count reaches 0, the request is freed.
+ * @param req the request to decrement
+ */
+void HybridRequest_DecrRef(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

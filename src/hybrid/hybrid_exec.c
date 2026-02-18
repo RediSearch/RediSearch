@@ -382,7 +382,7 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
 }
 
 static void FreeHybridRequest(void *ptr) {
-  HybridRequest_Free((HybridRequest *)ptr);
+  HybridRequest_DecrRef((HybridRequest *)ptr);
 }
 
 int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *reply, bool coord) {

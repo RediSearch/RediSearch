@@ -240,6 +240,20 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
   atomic_store_explicit(&req->timedOut, true, memory_order_release);
 }
 
+bool HybridRequest_TryClaimReply(HybridRequest *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+void HybridRequest_MarkReplied(HybridRequest *req) {
+  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
+}
+
+uint8_t HybridRequest_GetReplyState(HybridRequest *req) {
+  return atomic_load_explicit(&req->replyState, memory_order_acquire);
+}
+
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;
@@ -265,7 +279,7 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
  *
  * @param req The HybridRequest to free
  */
-void HybridRequest_Free(HybridRequest *req) {
+static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
     // Free all individual AREQ requests and their pipelines
@@ -322,6 +336,19 @@ void HybridRequest_Free(HybridRequest *req) {
     }
 
     rm_free(req);
+}
+
+HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
+  __atomic_fetch_add(&req->refcount, 1, __ATOMIC_RELAXED);
+  return req;
+}
+
+void HybridRequest_DecrRef(HybridRequest *req) {
+  // Use ACQ_REL: release ensures our writes are visible before decrement,
+  // acquire ensures we see all writes from other threads when refcount reaches 0.
+  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_ACQ_REL)) {
+    HybridRequest_Free(req);
+  }
 }
 
 /**
