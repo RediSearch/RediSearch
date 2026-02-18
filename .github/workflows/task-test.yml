@@ -494,7 +494,7 @@ jobs:
         run: make pytest ${{ inputs.test-config }}
 
       - name: Rust tests (MIRI)
-        if: ${{ inputs.unit-tests }} && inputs.san == 'address'
+        if: inputs.san == 'address' && inputs.unit-tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests_miri
         continue-on-error: ${{ !inputs.fail-fast }}
@@ -564,7 +564,7 @@ jobs:
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
-          (failure() || 
+          (failure() ||
             steps.rust_unit_tests_miri.outcome == 'failure' ||
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure' ||
