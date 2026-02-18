@@ -14,8 +14,9 @@ use std::{f64, ptr::NonNull};
 use ffi::{NumericRangeTree, RedisSearchCtx, t_docId};
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
-    TermReader, opaque::OpaqueEncoding,
+    RSOffsetSlice, TermReader, opaque::OpaqueEncoding,
 };
+use query_term::RSQueryTerm;
 
 use crate::expiration_checker::{ExpirationChecker, NoOpChecker};
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -505,14 +506,22 @@ where
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`inverted_index::FilterMaskReader`].
     ///
+    /// `term` is the query term that brought up this iterator. It is stored
+    /// in the result and persists across all reads.
+    ///
     /// `expiration_checker` is used to check for expired documents when reading from the inverted index.
     ///
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context` must remain valid for the lifetime of the iterator.
-    pub fn new(reader: R, context: NonNull<RedisSearchCtx>, expiration_checker: E) -> Self {
-        let result = RSIndexResult::term();
+    pub fn new(
+        reader: R,
+        context: NonNull<RedisSearchCtx>,
+        term: Box<RSQueryTerm>,
+        expiration_checker: E,
+    ) -> Self {
+        let result = RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, 0, 1);
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
             context,

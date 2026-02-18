@@ -19,6 +19,7 @@ field.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
 query_error.workspace = true
+query_term.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }
@@ -30,7 +31,6 @@ workspace_hack.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
-query_term.workspace = true
 query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }
 rqe_iterators = { path = ".", features = ["unittest"] }
 rqe_iterators_test_utils = { workspace = true }
