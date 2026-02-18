@@ -1478,6 +1478,7 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "query_error",
+ "strum",
  "workspace_hack",
 ]
 

@@ -1209,9 +1209,9 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
+  ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
-  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
+  ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
 #endif
   freeSchemaArgs(args);
   QueryError_ClearError(&err);

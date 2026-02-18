@@ -639,7 +639,7 @@ static inline bool convert_to_number(const RSValue *v, RSValue *vn, QueryError *
     if (!qerr) return false;
 
     const char *s = RSValue_StringPtrLen(v, NULL);
-    QueryError_SetWithUserDataFmt(qerr, QUERY_ERROR_CODE_NOT_NUMERIC, "Error converting string", " '%s' to number", s);
+    QueryError_SetWithUserDataFmt(qerr, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Error converting string", " '%s' to number", s);
     return false;
   }
 

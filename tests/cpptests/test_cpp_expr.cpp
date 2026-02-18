@@ -265,15 +265,15 @@ TEST_F(ExprTest, testFunction) {
 
   ctx.assign("banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 }
 
 struct EvalResult {
@@ -693,7 +693,7 @@ TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
   // Verify the error message mentions the missing property
   const char *err = QueryError_GetUserError(&ctx->status);
   ASSERT_NE(err, nullptr);
-  ASSERT_TRUE(strstr(err, "Property `foo` not loaded nor in pipeline") != nullptr) << "Error should mention the missing property: " << err;
+  ASSERT_TRUE(strstr(err, "SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline: `foo`") != nullptr) << "Error should mention the missing property: " << err;
 
   // Clean up - we own the expression since EvalCtx_EvalExpr sets _own_expr = false
   ExprAST_Free(expr);

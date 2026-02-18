@@ -478,7 +478,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NOT_NUMERIC, "Invalid numeric value", ": '%s'",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", ": '%s'",
                                RedisModule_StringPtrLen(field->text, NULL));
         return -1;
       }
@@ -489,7 +489,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
         fdata->isMulti = 0;
         fdata->numeric = fast_float_strtod(field->strval, &end);
         if (*end) {
-          QueryError_SetCode(status, QUERY_ERROR_CODE_NOT_NUMERIC);
+          QueryError_SetCode(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID);
           return -1;
         }
       }
@@ -623,7 +623,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
 
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ATTR,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_BLOB_SIZE_MISMATCH,
                            "Could not add vector with blob size", " %zu (expected size %zu)", fdata->vecLen,
                            fs->vectorOpts.expBlobSize);
     return -1;
@@ -658,7 +658,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                                field->lon, field->lat);
         return REDISMODULE_ERR;
       }
@@ -692,7 +692,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     }
     geohash = calcGeoHash(lon, lat);
     if (geohash == INVALID_GEOHASH) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
       return REDISMODULE_ERR;
     }
@@ -709,7 +709,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       }
       geohash = calcGeoHash(lon, lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
         array_free(arr);
         fdata->arrNumeric = NULL;
