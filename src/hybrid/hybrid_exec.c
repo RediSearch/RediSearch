@@ -238,7 +238,18 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
 
+    // Check timeout before starting pipeline
+    if (HybridRequest_TimedOut(hreq)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      goto done_err;
+    }
+
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
+
+    if (!HybridRequest_TryClaimReply(hreq)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      goto done_err;
+    }
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     QueryError err = QueryError_Default();
@@ -315,6 +326,7 @@ done:
     RedisModule_Reply_MapEnd(reply);
 
 done_err:
+    HybridRequest_MarkReplied(hreq);
     finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
 }
 

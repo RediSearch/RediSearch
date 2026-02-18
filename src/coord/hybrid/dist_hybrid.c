@@ -757,24 +757,34 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     HybridRequest *hreq, RedisModule_Reply *reply,
     QueryError *status) {
 
+    // Try to claim reply ownership. If we get it, we can safely write to the reply.
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+
+    if (!CoordRequestCtx_TryClaimReply(reqCtx)) {
+        // Timeout callback owns reply - just clear the error
+        QueryError_ClearError(status);
+        return;
+    }
+
     RS_ASSERT(QueryError_HasError(status));
 
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
     QueryError_ReplyAndClear(ctx, status);
+    RedisModule_EndReply(reply);
+    CoordRequestCtx_MarkReplied(reqCtx);
+
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
-        IndexSpecRef_Release(*strong_ref);
+      IndexSpecRef_Release(*strong_ref);
     }
     if (hreq) {
         HybridRequest_DecrRef(hreq);
     }
-    RedisModule_EndReply(reply);
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
-
 
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
