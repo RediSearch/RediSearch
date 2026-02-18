@@ -59,7 +59,7 @@ static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
   (void)gcCtx;
 }
 
-static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
+static void statsForInfoCb(const RedisModuleInfoCtx *ctx, void *gcCtx) {
   (void)ctx;
   (void)gcCtx;
 }
@@ -80,7 +80,7 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
 }
 
 static struct timespec getIntervalCb(void *ctx) {
-  DiskGC *gc = ctx;
+  const DiskGC *gc = ctx;
   return (struct timespec){ .tv_sec = gc->intervalSec, .tv_nsec = 0 };
 }
 

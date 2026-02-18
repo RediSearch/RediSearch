@@ -865,8 +865,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
 
-  // TODO: return disk GC policy when it is enabled
-  // Do not expose disk GC, report fork when any GC is present
+  // Report fork when any GC is present
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
     info->score = sp->rule->score_default;

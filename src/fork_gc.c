@@ -1207,7 +1207,7 @@ static void deleteCb(void *ctx) {
 }
 
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {
-  ForkGC *gc = gcCtx;
+  const ForkGC *gc = gcCtx;
   out->totalCollectedBytes = gc->stats.totalCollected;
   out->totalCycles = gc->stats.numCycles;
   out->totalTime = gc->stats.totalMSRun;
