@@ -82,10 +82,12 @@ jobs:
           terraform_version: 1.11.1
           terraform_wrapper: false
       - name: Prepare ReJSON Module
+        env:
+          REJSON_BRANCH: ${{ inputs.rejson_branch }}
         run: |
           rustc --version
           cargo --version
-          REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+          ./tests/deps/setup_rejson.sh
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
