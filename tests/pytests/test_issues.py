@@ -1846,3 +1846,39 @@ def test_mod_13010(env):
         length1, length2,
         message=f"Different number of messages: {length1} vs {length2}")
 
+@skip(cluster=False) # This test is only relevant for cluster
+def test_mod_14112(env: Env):
+  '''Test that FT.SEARCH returns an error (not crash) on topology validation failure.
+  When topology validation fails, the reducer context is NULL. Previously this caused
+  a SIGSEGV in sendSearchResults. Now we return an error gracefully.'''
+  # Create an index first (before breaking topology)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  # Pause topology refresh so our invalid topology stays in effect
+  env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+  # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
+  env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+  # Set topology to an invalid one (assuming port 9 is not open)
+  env.expect('SEARCH.CLUSTERSET',
+             'MYID',
+             '1',
+             'RANGES',
+             '2',
+             'SHARD',
+             '1',
+             'SLOTRANGE',
+             '0',
+             '8191',
+             'ADDR',
+             '127.0.0.1:9',
+             'MASTER',
+             'SHARD',
+             '2',
+             'SLOTRANGE',
+             '8192',
+             '16383',
+             'ADDR',
+             '127.0.0.1:9',
+             'MASTER'
+  ).ok()
+  # Verify that `FT.SEARCH` queries return an error (not crash)
+  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
