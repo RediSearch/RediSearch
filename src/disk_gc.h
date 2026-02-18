@@ -23,8 +23,8 @@ extern "C" {
  * Stats are maintained in disk info; we do not duplicate them here. */
 typedef struct DiskGC {
   WeakRef index;
-  _Atomic size_t intervalSec;
-  _Atomic size_t deletedDocsFromLastRun;
+  atomic_size_t intervalSec;
+  atomic_size_t deletedDocsFromLastRun;
 } DiskGC;
 
 DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
