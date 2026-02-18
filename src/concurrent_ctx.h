@@ -45,12 +45,22 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
 
 // Context for concurrent search handler
 // Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
+struct CoordRequestCtx;  // Forward declaration
+
+// Timeout context for blocking client timeout handling
+typedef struct ConcurrentSearchTimeoutCtx {
+  RedisModuleCmdFunc callback;  // Timeout callback (NULL if no timeout)
+  size_t timeoutMS;             // Timeout value in milliseconds (0 if no timeout)
+} ConcurrentSearchTimeoutCtx;
+
 typedef struct ConcurrentSearchHandlerCtx {
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   WeakRef spec_ref;                   // Weak reference to the index spec
   bool isProfile;                     // Whether this is an FT.PROFILE command
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
+  struct CoordRequestCtx *reqCtx;     // Coordinator request context (for timeout handling)
+  ConcurrentSearchTimeoutCtx timeout; // Timeout context for blocking client
 } ConcurrentSearchHandlerCtx;
 
 #define CMDCTX_KEEP_RCTX 0x01

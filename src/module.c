@@ -72,6 +72,8 @@
 #include "search_disk.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "coord/coord_request_ctx.h"
+#include "coord/hybrid/dist_hybrid.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
@@ -3621,6 +3623,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
 
+// Forward declaration for initQueryTimeout (defined later in file)
+static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
+
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Capture start time for coordinator dispatch time tracking
   rs_wall_clock_ns_t coordInitialTime = rs_wall_clock_now_ns();
@@ -3666,10 +3671,25 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  // Parse timeout from command args
+  size_t queryTimeoutMS;
+  QueryError status = QueryError_Default();
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
+
   ConcurrentSearchHandlerCtx handlerCtx = {
     .coordStartTime = coordInitialTime,
     .spec_ref = StrongRef_Demote(spec_ref),
-    .numShards = NumShards  // Capture NumShards from main thread for thread-safe access
+    .numShards = NumShards,  // Capture NumShards from main thread for thread-safe access
+    .reqCtx = reqCtx,
+    .timeout = {
+      .timeoutMS = queryTimeoutMS,
+      .callback = DistHybridTimeoutFailClient
+    }
   };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,

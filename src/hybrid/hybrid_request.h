@@ -1,9 +1,20 @@
 #pragma once
+
 #include "aggregate/aggregate.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
 #include "util/references.h"
 #include "redismodule.h"
+
+// Re-define RS_Atomic macro for use in HybridRequest struct.
+// aggregate.h undefs RS_Atomic at the end, so we need to define it again here.
+#ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
+#else
+#include <stdatomic.h>
+#define RS_Atomic(T) _Atomic(T)
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,7 +47,50 @@ typedef struct HybridRequest {
     ProfileClocks profileClocks;
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
+
+    // Timeout signaling flag for coordinator-level timeout handling
+    // Set by timeout callback on main thread, checked by background thread before replying
+    RS_Atomic(bool) timedOut;
+    // Reply ownership state, coordinates reply between main and background thread
+    // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
+    RS_Atomic(uint8_t) replyState;
+    // Flag to indicate whether to check for timeout using clock checks
+    bool skipTimeoutChecks;
+    // Reference count for shared ownership between timeout callback and background thread
+    // Initialized to 1. Free when reaches 0.
+    uint8_t refcount;
 } HybridRequest;
+
+// Timeout helper functions for HybridRequest (mirrors AREQ pattern)
+bool HybridRequest_TimedOut(HybridRequest *req);
+void HybridRequest_SetTimedOut(HybridRequest *req);
+
+static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
+  return !req->skipTimeoutChecks;
+}
+
+static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
+  req->skipTimeoutChecks = skipTimeoutChecks;
+}
+
+// Reply state management functions for coordinating replies between main and background threads
+// Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
+// false if already claimed or replied (state was REPLYING or REPLIED).
+static inline bool HybridRequest_TryClaimReply(HybridRequest *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+// Mark reply as complete. Must only be called after successfully claiming reply.
+static inline void HybridRequest_MarkReplied(HybridRequest *req) {
+  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
+}
+
+// Get current reply state (for checking/waiting in timeout callback)
+static inline uint8_t HybridRequest_GetReplyState(HybridRequest *req) {
+  return atomic_load_explicit(&req->replyState, memory_order_acquire);
+}
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {

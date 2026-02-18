@@ -23,6 +23,7 @@
 #include "dist_profile.h"
 #include "shard_window_ratio.h"
 #include "config.h"
+#include "coord/coord_request_ctx.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -816,4 +817,34 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
+}
+
+// Timeout callback for Coordinator HybridRequest execution
+// Called on the main thread when the blocking client times out (FAIL policy only).
+int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    // This shouldn't happen but handle gracefully
+    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
+  }
+
+  // Signal timeout to the background thread
+  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+  if (CoordRequestCtx_TryClaimReply(CoordReqCtx)) {
+    // We claimed it - reply with timeout error
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    CoordRequestCtx_MarkReplied(CoordReqCtx);
+  } else {
+    // Background thread owns reply - wait for it to finish if still in progress
+    while (CoordRequestCtx_GetReplyState(CoordReqCtx) == ReplyState_Replying) {
+      // Busy wait until background thread transitions to REPLIED
+    }
+  }
+
+  return REDISMODULE_OK;
 }

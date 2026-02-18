@@ -223,7 +223,21 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     hybridReq->profileClocks.initClock = now;
+
+    // Initialize timeout coordination fields
+    atomic_store_explicit(&hybridReq->timedOut, false, memory_order_relaxed);
+    atomic_store_explicit(&hybridReq->replyState, ReplyState_NotReplied, memory_order_relaxed);
+    hybridReq->refcount = 1;
+
     return hybridReq;
+}
+
+bool HybridRequest_TimedOut(HybridRequest *req) {
+  return atomic_load_explicit(&req->timedOut, memory_order_acquire);
+}
+
+void HybridRequest_SetTimedOut(HybridRequest *req) {
+  atomic_store_explicit(&req->timedOut, true, memory_order_release);
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {

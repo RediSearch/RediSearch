@@ -109,7 +109,10 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
-  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  // If timeoutMS is not 0, timeout callback must be set
+  RS_ASSERT(handlerCtx->timeout.timeoutMS == 0 || handlerCtx->timeout.callback != NULL);
+
+  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, handlerCtx->timeout.callback, handlerCtx->timeout.timeoutMS);
   cmdCtx->argc = argc;
   cmdCtx->spec_ref = handlerCtx->spec_ref;
   cmdCtx->coordStartTime = handlerCtx->coordStartTime;
