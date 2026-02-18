@@ -78,14 +78,14 @@ typedef struct {
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
-} GcScheduleConfig;
+} GCSettings;
 
 typedef struct {
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   bool enableGC;
   size_t gcScanSize;
   GCPolicy gcPolicy;
-  GcScheduleConfig gcSchedule;
+  GCSettings gcSettings;
 } GCConfig;
 
 // Configuration parameters related to aggregate request.
@@ -366,10 +366,10 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
-    .gcConfigParams.gcSchedule.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
-    .gcConfigParams.gcSchedule.forkGcSleepBeforeExit = 0,                      \
-    .gcConfigParams.gcSchedule.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
-    .gcConfigParams.gcSchedule.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
+    .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
+    .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
@@ -379,7 +379,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
-    .gcConfigParams.gcSchedule.forkGCCleanNumericEmptyNodes = true,            \
+    .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
     .freeResourcesThread = true,                                               \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \

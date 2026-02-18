@@ -29,7 +29,7 @@ static int periodicCb(void *privdata, bool force) {
     return 1;
   }
 
-  if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSchedule.forkGcCleanThreshold) {
+  if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return 1;
   }
@@ -39,7 +39,7 @@ static int periodicCb(void *privdata, bool force) {
   size_t num_docs_to_clean = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
   IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)num_docs_to_clean);
 
-  gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
+  gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
   IndexSpecRef_Release(spec_ref);
   return 1;
@@ -70,6 +70,7 @@ static void deleteCb(void *ctx) {
   IndexsGlobalStats_UpdateLogicallyDeleted(1);
 }
 
+// Stats are maintained in disk info.
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   (void)gcCtx;
   out->totalCollectedBytes = 0;
@@ -89,7 +90,7 @@ DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedDocsFromLastRun = 0,
   };
-  gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
+  gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;

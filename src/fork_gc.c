@@ -1004,7 +1004,7 @@ static int periodicCb(void *privdata, bool force) {
     return 0;
   }
 
-  if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSchedule.forkGcCleanThreshold) {
+  if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return 1;
   }
@@ -1039,7 +1039,7 @@ static int periodicCb(void *privdata, bool force) {
   // Check if we are out of memory before even trying to fork
   if (isOutOfMemory(ctx)) {
     RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
-    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRetryInterval;
+    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
     RedisModule_ThreadSafeContextUnlock(ctx);
     close(gc->pipe_read_fd);
@@ -1053,7 +1053,7 @@ static int periodicCb(void *privdata, bool force) {
 
   if (cpid == -1) {
     RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
-    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRetryInterval;
+    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
 
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -1069,7 +1069,7 @@ static int periodicCb(void *privdata, bool force) {
   size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 
-  gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
+  gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
   RedisModule_ThreadSafeContextUnlock(ctx);
 
@@ -1081,7 +1081,7 @@ static int periodicCb(void *privdata, bool force) {
     // Pass the index to the child process
     FGC_childScanIndexes(gc, StrongRef_Get(early_check));
     close(gc->pipe_write_fd);
-    sleep(RSGlobalConfig.gcConfigParams.gcSchedule.forkGcSleepBeforeExit);
+    sleep(RSGlobalConfig.gcConfigParams.gcSettings.forkGcSleepBeforeExit);
     RedisModule_ExitFromChild(EXIT_SUCCESS);
   } else {
     // main process
@@ -1095,7 +1095,7 @@ static int periodicCb(void *privdata, bool force) {
     }
 
     gc->execState = FGC_STATE_APPLYING;
-    gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSchedule.forkGCCleanNumericEmptyNodes;
+    gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
     if (FGC_parentHandleFromChild(gc) == FGC_SPEC_DELETED) {
       gcrv = 0;
     }
@@ -1225,10 +1225,10 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedDocsFromLastRun = 0,
   };
-  forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
+  forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
 
-  forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSchedule.forkGCCleanNumericEmptyNodes;
+  forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
 
   callbacks->onTerm = onTerminateCb;
