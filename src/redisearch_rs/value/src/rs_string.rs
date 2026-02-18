@@ -65,9 +65,10 @@ impl RsString {
     /// 1. `ptr` must not be NULL and must point to a valid c-string of `len` size.
     /// 2. The size determined by `len` excludes the nul-terminator.
     /// 3. A nul-terminator is expected in memory at `ptr+len`.
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
         // Safety: ensured by caller (1.)
-        debug_assert!(ptr != std::ptr::null());
+        debug_assert!(!ptr.is_null());
         // Safety: ensured by caller (2.)
         debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
@@ -88,7 +89,7 @@ impl RsString {
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
     pub unsafe fn rm_alloc_string_without_nul_terminator(ptr: *const c_char, len: u32) -> Self {
         // Safety: ensured by caller (1.)
-        debug_assert!(ptr != std::ptr::null());
+        debug_assert!(!ptr.is_null());
 
         Self {
             ptr,
@@ -108,9 +109,10 @@ impl RsString {
     /// 3. A nul-terminator is expected in memory at `ptr+len`.
     /// 4. The string pointed to by `ptr`/`len+1` must stay valid for as long as
     ///    this [`RsString`] is exists.
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn borrowed_string(ptr: *const c_char, len: u32) -> Self {
         // Safety: ensured by caller (1.)
-        debug_assert!(ptr != std::ptr::null());
+        debug_assert!(!ptr.is_null());
         // Safety: ensured by caller (2.)
         debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
