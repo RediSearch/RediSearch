@@ -451,7 +451,6 @@ void RSValue_SetNull(struct RsValue *value);
  * 3. `str` must be [valid] for reads of `len` bytes.
  * 4. `str` **must not** be used or freed after this function is called, as this function
  *    takes ownership of the allocation.
- * 5. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  *
@@ -476,7 +475,6 @@ void RSValue_SetString(struct RsValue *value, char *str, size_t len);
  * 3. `str` must be [valid] for reads of `len` bytes.
  * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
  *    lifetime of the [`RsValue`] and any clones of it.
- * 5. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  *
