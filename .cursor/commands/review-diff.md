@@ -25,6 +25,7 @@ Rules:
   - Performance regressions
   - API contract violations
   - Maintainability problems
+  - Consistency and alignment with current code base
 
 If the changes look clean and correct:
 Write exactly:
@@ -36,5 +37,6 @@ Output:
 - Be concise.
 - Each issue must include:
   - File name
+  - Severity (e.g., Critical, High, Medium, Low)
   - Clear problem description
   - Suggested fix (with code snippet if applicable)
