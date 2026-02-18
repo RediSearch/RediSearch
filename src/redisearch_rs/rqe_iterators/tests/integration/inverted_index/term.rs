@@ -75,7 +75,13 @@ impl TermBaseTest {
     {
         let reader = self.test.ii.reader();
 
-        Term::new(reader, self.test.mock_ctx.sctx(), new_term(), NoOpChecker)
+        Term::new(
+            reader,
+            self.test.mock_ctx.sctx(),
+            new_term(),
+            1.0,
+            NoOpChecker,
+        )
     }
 }
 
@@ -85,8 +91,9 @@ fn term_read() {
     let test = TermBaseTest::new(100);
     let mut it = test.create_iterator();
 
-    // Read the first record and verify the term is the expected one.
+    // Read the first record and verify the term and weight are correct.
     let record = it.read().unwrap().expect("expected at least one record");
+    assert_eq!(record.weight, 1.0);
     let term = record.as_term().expect("expected term record").query_term();
     let expected = new_term();
     assert_eq!(term, Some(&*expected));
@@ -108,7 +115,13 @@ fn term_skip_to() {
 fn term_filter() {
     let test = TermBaseTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new(reader, test.test.mock_ctx.sctx(), new_term(), NoOpChecker);
+    let mut it = Term::new(
+        reader,
+        test.test.mock_ctx.sctx(),
+        new_term(),
+        1.0,
+        NoOpChecker,
+    );
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
@@ -177,7 +190,7 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            Term::new(reader, self.test.context.sctx, new_term(), checker)
+            Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker)
         }
 
         fn create_iterator_wide(
@@ -192,7 +205,7 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            Term::new(reader, self.test.context.sctx, new_term(), checker)
+            Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker)
         }
 
         fn mark_even_ids_expired(&mut self) {
@@ -283,7 +296,7 @@ mod not_miri {
         > {
             let field_mask = self.test.context.text_field_bit();
             let reader = self.test.context.term_inverted_index().reader(field_mask);
-            Term::new(reader, self.test.context.sctx, new_term(), NoOpChecker)
+            Term::new(reader, self.test.context.sctx, new_term(), 1.0, NoOpChecker)
         }
     }
 

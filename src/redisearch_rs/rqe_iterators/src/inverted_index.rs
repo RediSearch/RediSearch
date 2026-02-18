@@ -509,6 +509,10 @@ where
     /// `term` is the query term that brought up this iterator. It is stored
     /// in the result and persists across all reads.
     ///
+    /// `weight` is the scoring weight applied to the result record. It is
+    /// typically derived from the query node and used by the scoring function
+    /// to scale the relevance of results from this iterator.
+    ///
     /// `expiration_checker` is used to check for expired documents when reading from the inverted index.
     ///
     /// # Safety
@@ -519,9 +523,11 @@ where
         reader: R,
         context: NonNull<RedisSearchCtx>,
         term: Box<RSQueryTerm>,
+        weight: f64,
         expiration_checker: E,
     ) -> Self {
-        let result = RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, 0, 1);
+        let result =
+            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, 0, 1).weight(weight);
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
             context,
