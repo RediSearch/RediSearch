@@ -28,7 +28,6 @@ use ffi::{
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 use std::ffi::{OsStr, c_char, c_void};
-use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tracing::{debug, error, info, warn};
 
@@ -238,10 +237,7 @@ extern "C" fn index_spec_open(
     // Create the IndexSpec, which will create its own database
     // Pass the disk context which contains the shared cache and WriteBufferManager
     match IndexSpec::new(index_name.clone(), document_type, disk_context, deleted_ids) {
-        Ok(index_spec) => {
-            let arc = Arc::new(index_spec);
-            Arc::into_raw(arc) as *mut RedisSearchDiskIndexSpec
-        }
+        Ok(index_spec) => Box::into_raw(Box::new(index_spec)) as *mut RedisSearchDiskIndexSpec,
         Err(error) => {
             error!(
                 index_name,
@@ -266,9 +262,9 @@ extern "C" fn index_spec_close(disk: *mut RedisSearchDisk, index: *mut RedisSear
         return;
     }
 
-    let arc_ptr = index as *const IndexSpec;
+    let box_ptr = index as *mut IndexSpec;
     // Safety: See safety point 2 above.
-    let name = unsafe { (*arc_ptr).name().to_string() };
+    let name = unsafe { (*box_ptr).name().to_string() };
     debug!(index_name = %name, "closing index spec");
 
     // Remove the index's metrics from the disk context
@@ -280,7 +276,7 @@ extern "C" fn index_spec_close(disk: *mut RedisSearchDisk, index: *mut RedisSear
 
     // Drop the index. If it was marked for deletion, the database's Drop implementation
     // Safety: See safety point 2 above.
-    drop(unsafe { Arc::from_raw(arc_ptr) });
+    drop(unsafe { Box::from_raw(box_ptr) });
 }
 
 /// Marks the index as to be deleted.
