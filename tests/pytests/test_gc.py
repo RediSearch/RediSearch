@@ -567,7 +567,7 @@ def testForceGCBypassesThreshold(env):
     for i in range(10):
         env.expect('HSET', 'doc%d' % i, 'title', 'hello world').equal(1)
 
-    # Delete 5 documents (well below threshold of 1000)
+    # Delete 9 documents (well below threshold of 1000)
     for i in range(9):
         env.expect('DEL', 'doc%d' % i).equal(1)
 

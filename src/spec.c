@@ -3496,10 +3496,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(spec_ref, sp, SearchDisk_IsEnabled() ? GCPolicy_Disk : GCPolicy_Fork);
-  Cursors_initSpec(sp);
-
   if (SearchDisk_IsEnabled()) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3516,6 +3512,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     // Populate diskCtx for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
   }
+
+  // Start GC after diskSpec is available so the disk GC callback can use it immediately.
+  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
+  Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
