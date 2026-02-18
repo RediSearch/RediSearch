@@ -4003,19 +4003,19 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
       return REDISMODULE_OK;
     }
 
+    if (MRCtx_GetNumReplied(mrctx) == 0) {
+      // Can happen in a topology error
+      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+      return REDISMODULE_OK;
+    }
+
     searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
     searchReducerCtx *rCtx = req->rctx;
+    // If NumReplied > 0 we expect ReducerCtx to be initialized
+    RS_ASSERT(rCtx)
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    if(!rCtx) {
-      // Reducer function was never called
-      // Can happen if there is a topology error
-      RedisModule_Log(ctx, "warning", "Topology error occurred, no results to return for SEARCH query");
-      sendSearchResults_EmptyResults(reply, req);
-      goto end_reply;
-    }
 
     if (req->profileArgs > 0) {
       // Profile command
@@ -4025,7 +4025,6 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
       sendSearchResults(reply, rCtx);
     }
 
-end_reply:
     RedisModule_EndReply(reply);
 
     rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
