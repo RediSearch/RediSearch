@@ -1,0 +1,52 @@
+version: 0.4
+name: search-ftsb-1M-enwiki_abstract-hashes-gc
+description: |
+  RediSearch GC benchmark flow:
+  1. Create FT index on HASH with TEXT field
+  2. Populate 1M enwiki documents using ftsb_redisearch
+  3. Run continuous HSET updates with periodic GC trigger (1 GC per 1000 HSETs)
+
+dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - redis-topologies:
+      - oss-standalone
+  - configuration-parameters:
+    - save: '""'
+  - init_commands:
+      - '"FT.CREATE" "benchIndex" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+      - '"_FT.DEBUG" "GC_STOP_SCHEDULE" "benchIndex"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  tool: memtier_benchmark
+  arguments: '--key-prefix doc: --key-minimum 1 --key-maximum 1000001 --data-size 32 --command "HSET __key__ title __data__" --command-ratio 1000 --command "_FT.DEBUG GC_FORCEINVOKE benchIndex 600000" --command-ratio 1 --hide-histogram --test-time 300 -c 1 -t 1'
+  resources:
+    requests:
+      cpus: "2"
+      memory: 2g
+
+tested-commands:
+  - HSET
+  - _FT.DEBUG
+
+tested-groups:
+  - hash
+  - search
+
+exporter:
+  redistimeseries:
+    metrics:
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p50.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p99.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p99.90'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Average Latency'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Min Latency'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Max Latency'"
+
+priority: 1
