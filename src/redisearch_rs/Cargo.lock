@@ -1672,6 +1672,7 @@ dependencies = [
  "toml",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
  "walkdir",
  "workspace_hack",
@@ -2621,7 +2622,10 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
+ "redis_mock",
  "value",
  "workspace_hack",
 ]

@@ -15,6 +15,11 @@ build_utils = { path = "../../build_utils" }
 [dependencies]
 c_ffi_utils.workspace = true
 ffi.workspace = true
+fnv.workspace = true
 libc.workspace = true
+query_error.workspace = true
 value.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true

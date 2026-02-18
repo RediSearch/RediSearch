@@ -111,7 +111,7 @@ impl RSValueTrait for RSValueFFI {
 
     fn create_string(str: Vec<u8>) -> Self {
         // Safety: RSValue_NewString receives a valid C string pointer (1) and length
-        let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), str.len()) };
+        let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), str.len() as u32) };
 
         Self(NonNull::new(value).expect("RSValue_NewCopiedString returned a null pointer"))
     }
@@ -143,8 +143,8 @@ impl RSValueTrait for RSValueFFI {
         if self.get_type() == ffi::RSValueType_RSValueType_String {
             let mut len: u32 = 0;
             // Safety: We tested that the type is a string, so we access it over the union safely.
-            let cstr: *mut c_char =
-                unsafe { ffi::RSValue_String_Get(self.0.as_ptr(), &mut len as *mut _) };
+            let cstr: *const c_char =
+                unsafe { ffi::RSValue_String_GetTrusted(self.0.as_ptr(), &mut len as *mut _) };
 
             // Safety: We assume the returned char pointer and associated len are valid.
             Some(unsafe { slice::from_raw_parts(cstr.cast(), len as usize) })
@@ -174,8 +174,7 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn mem_size() -> usize {
-        // Safety: Simply reading out a constant
-        unsafe { ffi::RSValueSize }
+        ffi::RSValueSize as usize
     }
 
     fn refcount(&self) -> usize {

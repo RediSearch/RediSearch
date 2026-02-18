@@ -31,7 +31,7 @@ TEST_F(ValueTest, testBasic) {
   v = RSValue_NewString(str2, strlen(str2));
   ASSERT_EQ(RSValueType_String, RSValue_Type(v));
   uint32_t v_str_len;
-  char *v_str = RSValue_String_Get(v, &v_str_len);
+  const char *v_str = RSValue_String_Get(v, &v_str_len);
   ASSERT_EQ(strlen(str), v_str_len);
   ASSERT_EQ(0, strcmp(str, v_str));
   RSValue_DecrRef(v);
@@ -39,9 +39,9 @@ TEST_F(ValueTest, testBasic) {
 
 TEST_F(ValueTest, testArray) {
   RSValue **array = RSValue_NewArrayBuilder(3);
-  array[0] = RSValue_NewConstString("foo", strlen("foo"));
-  array[1] = RSValue_NewConstString("bar", strlen("bar"));
-  array[2] = RSValue_NewConstString("baz", strlen("baz"));
+  array[0] = RSValue_NewBorrowedString("foo", strlen("foo"));
+  array[1] = RSValue_NewBorrowedString("bar", strlen("bar"));
+  array[2] = RSValue_NewBorrowedString("baz", strlen("baz"));
   RSValue *arr = RSValue_NewArrayFromBuilder(array, 3);
 
   ASSERT_EQ(3, RSValue_ArrayLen(arr));

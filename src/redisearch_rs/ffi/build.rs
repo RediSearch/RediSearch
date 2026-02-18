@@ -60,6 +60,7 @@ fn main() {
     let deps = root.join("deps");
     let headers = [
         deps.join("RedisModulesSDK").join("redismodule.h"),
+        deps.join("hiredis").join("sds.h"),
         deps.join("rmutil").join("vector.h"),
         src.join("buffer/buffer.h"),
         src.join("config.h"),
@@ -92,7 +93,7 @@ fn main() {
         src.join("util").join("arr").join("arr.h"),
         src.join("util").join("dict").join("dict.h"),
         src.join("util").join("references.h"),
-        src.join("value").join("value.h"),
+        src.join("redisearch_rs").join("headers").join("value.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();
