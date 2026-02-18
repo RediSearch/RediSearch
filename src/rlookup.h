@@ -61,9 +61,6 @@ typedef enum {
  */
 typedef struct RLookupKey RLookupKey;
 
-/** Returns a new RLookup struct. Will forward the call to Rust once RLookup is migrated. */
-static inline RLookup RLookup_New(void) { return (RLookup){0}; }
-
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
     const RLookupKey* key; \
@@ -110,9 +107,6 @@ RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup);
 // If a loader was added to load the entire document, this flag will allow
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
-
-/** Returns a new RLookupRow struct. Will forward the call to Rust once RLookupRow is migrated. */
-static inline RLookupRow RLookupRow_New(void) { return (RLookupRow){0}; }
 
 #define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
 
