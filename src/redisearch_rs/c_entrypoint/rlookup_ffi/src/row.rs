@@ -19,6 +19,12 @@ use std::{
 };
 use value::RSValueFFI;
 
+/// Returns a newly created [`RLookupRow`], which is moved into the caller.
+#[unsafe(no_mangle)]
+pub extern "C" fn RLookupRow_New<'a>() -> OpaqueRLookupRow<'a> {
+    RLookupRow::new(&RLookup::new()).into_opaque()
+}
+
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
 /// # Safety
