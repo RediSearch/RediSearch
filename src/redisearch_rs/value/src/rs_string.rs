@@ -23,7 +23,7 @@ enum RsStringKind {
 ///
 /// # Safety
 ///
-/// - `ptr` must not be NULL and must point to a valid c-string of `len` size.
+/// - `ptr` must not be NULL and must point to a valid c-string of `len+1` size.
 /// - The size determined by `len` excludes the nul-terminator.
 /// - A nul-terminator is expected in memory at `ptr+len`.
 ///
@@ -66,7 +66,7 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must not be NULL and must point to a valid c-string of `len` size.
+    /// 1. `ptr` must not be NULL and must point to a valid c-string of `len+1` size.
     /// 2. The size determined by `len` excludes the nul-terminator.
     /// 3. A nul-terminator is expected in memory at `ptr+len`.
     #[allow(clippy::multiple_unsafe_ops_per_block)]
