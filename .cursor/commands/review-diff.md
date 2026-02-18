@@ -1,7 +1,6 @@
 ---
 name: review-diff
 description: Strict code review of HEAD vs master. No fluff.
-model: gpt-5.3-codex
 ---
 
 First run:
