@@ -113,7 +113,10 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
 ///
 /// Panics if the value is not a `String` type.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u32) -> *mut c_char {
+pub unsafe extern "C" fn RSValue_String_Get(
+    value: *const RsValue,
+    lenp: *mut u32,
+) -> *const c_char {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
@@ -128,7 +131,7 @@ pub unsafe extern "C" fn RSValue_String_Get(value: *const RsValue, lenp: *mut u3
         *lenp = len;
     }
 
-    ptr as *mut _
+    ptr
 }
 
 /// Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
