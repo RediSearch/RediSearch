@@ -491,6 +491,8 @@ where
 /// * `E` - The expiration checker type used to check for expired documents.
 pub struct Term<'index, R, E = NoOpChecker> {
     it: InvIndIterator<'index, R, E>,
+    #[allow(dead_code)] // will be used by should_abort()
+    context: NonNull<RedisSearchCtx>,
 }
 
 impl<'index, R, E> Term<'index, R, E>
@@ -504,10 +506,16 @@ where
     /// a [`inverted_index::FilterMaskReader`].
     ///
     /// `expiration_checker` is used to check for expired documents when reading from the inverted index.
-    pub fn new(reader: R, expiration_checker: E) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// 1. `context` must point to a valid [`RedisSearchCtx`].
+    /// 2. `context` must remain valid for the lifetime of the iterator.
+    pub fn new(reader: R, context: NonNull<RedisSearchCtx>, expiration_checker: E) -> Self {
         let result = RSIndexResult::term();
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
+            context,
         }
     }
 }
