@@ -25,8 +25,6 @@ def test_invalid_field_type(env):
     """Test that creating an index with an invalid field type fails when search-_simulate-in-flex is true"""
     # Set the simulate-in-flex configuration to true
     env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TAG') \
-        .error().contains('TAG fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEO') \
         .error().contains('GEO fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEOSHAPE') \

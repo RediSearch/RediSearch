@@ -528,7 +528,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;

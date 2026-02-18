@@ -623,6 +623,8 @@ typedef struct {
   QueryEvalCtx *q;
   QueryNodeOptions *opts;
   double weight;
+  // For tag queries: needed to support disk mode via helpers
+  TagIndex *tagIdx;
 } TrieCallbackCtx;
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm);
@@ -773,21 +775,16 @@ static void rangeItersAddIterator(TrieCallbackCtx *ctx, QueryIterator *it) {
   }
 }
 
-static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
+// Callback for tag lex range queries - handles both disk and memory modes
+static void tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
-  RSToken tok = {0};
-  tok.str = (char *)r;
-  tok.len = n;
-  RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = ctx->opts->fieldIndex};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(invidx, q->sctx, fieldMaskOrIndex, term, ctx->weight);
-  if (!ir) {
-    Term_Free(term);
-    return;
-  }
 
-  rangeItersAddIterator(ctx, ir);
+  QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->tagIdx, q->sctx, r, n, invidx,
+                                                           ctx->weight, ctx->opts->fieldIndex);
+  if (ir) {
+    rangeItersAddIterator(ctx, ir);
+  }
 }
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm) {
@@ -1170,7 +1167,7 @@ static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, bool caseSensitive) {
   TrieMap *t = idx->values;
-  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
+  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
 
   if (!t) {
     return NULL;
@@ -1193,7 +1190,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
   TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       rangeIterCbStrs, &ctx);
+                       tagRangeIterCb, &ctx);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
 }
@@ -1433,12 +1430,15 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_ASSERT(qn->type == QN_TAG);
   QueryTagNode *node = &qn->tag;
-  TagIndex *idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX);
 
+  // Open the TagIndex - in disk mode it contains sentinel values for tag enumeration
+  // In memory mode it contains InvertedIndex pointers
+  TagIndex *idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX, q->sctx->spec->diskSpec);
   if (!idx) {
     // There are no documents to traverse.
     return NULL;
   }
+
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
     return query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, node->fs);

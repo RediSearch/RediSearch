@@ -615,11 +615,17 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!tagIndex) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    goto end;
+  }
+
+  // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (tagIndex->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
@@ -692,7 +698,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
     // Field was not initialized yet
     if (!idx) {
@@ -1161,11 +1167,17 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!idx) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    goto end;
+  }
+
+  // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (idx->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
