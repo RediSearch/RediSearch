@@ -14,13 +14,13 @@
 class RLookupTest : public ::testing::Test {};
 
 TEST_F(RLookupTest, testInit) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
   RLookup_Cleanup(&lk);
 }
 
 TEST_F(RLookupTest, testFlags) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
   RLookupKey *fook = RLookup_GetKey_Read(&lk, "foo", RLOOKUP_F_NOFLAGS);
   ASSERT_EQ(NULL, fook);
@@ -38,11 +38,11 @@ TEST_F(RLookupTest, testFlags) {
 }
 
 TEST_F(RLookupTest, testRow) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
   RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RSValue *vfoo = RSValue_NewNumberFromInt64(42);
   RSValue *vbar = RSValue_NewNumberFromInt64(666);
 
@@ -154,7 +154,7 @@ void cleanup_values(const std::vector<RSValue*>& values) {
 
 // Tests basic key addition from source to destination lookup
 TEST_F(RLookupTest, testAddKeysFromBasic) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -181,7 +181,7 @@ TEST_F(RLookupTest, testAddKeysFromBasic) {
 
 // Tests that adding keys from empty source doesn't change destination
 TEST_F(RLookupTest, testAddKeysFromEmptySource) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -208,7 +208,7 @@ TEST_F(RLookupTest, testAddKeysFromEmptySource) {
 
 // Tests key name conflicts with default behavior (first wins)
 TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -244,7 +244,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
 
 // Tests key name conflicts with override behavior
 TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -284,7 +284,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
 
 // Tests sequential additions from multiple sources with conflict resolution
 TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
-  RLookup src1 = {0}, src2 = {0}, src3 = {0}, dest = {0};
+  RLookup src1 = RLookup_New(), src2 = RLookup_New(), src3 = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
   RLookup_Init(&src3, NULL);
@@ -319,7 +319,7 @@ TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
 
 // Tests basic field writing between lookup rows
 TEST_F(RLookupTest, testWriteFieldsBasic) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -328,7 +328,7 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data and write to source row
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_New(), destRow = RLookupRow_New();
   std::vector<RSValue*> values = create_test_values({100, 200});
   write_values_to_row(srcKeys, &srcRow, values);
 
@@ -366,7 +366,7 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
 
 // Tests field writing when source row has no data
 TEST_F(RLookupTest, testWriteFieldsEmptySource) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -377,7 +377,7 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create empty rows
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_New(), destRow = RLookupRow_New();
 
   // Write from empty source
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest, false);
@@ -394,7 +394,7 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
 
 // Tests field writing between schemas with different internal indices
 TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -414,7 +414,7 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   ASSERT_TRUE(dest_key1 && dest_key2 && dest_key3);
 
   // Create rows and add data with distinct values
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_New(), destRow = RLookupRow_New();
 
   // Create test values with distinct data
   std::vector<RSValue*> values = create_test_values({111, 222, 333});
@@ -446,7 +446,7 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
 
 // Tests RLookupRow_WriteFieldsFrom with distinct field sets from each source
 TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
-  RLookup src1 = {0}, src2 = {0}, dest = {0};
+  RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
   RLookup_Init(&dest, NULL);
@@ -460,7 +460,7 @@ TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
   RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data and populate source rows
-  RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
+  RLookupRow src1Row = RLookupRow_New(), src2Row = RLookupRow_New(), destRow = RLookupRow_New();
   std::vector<RSValue*> src1Values = create_test_values({10, 20});  // field1=10, field2=20
   std::vector<RSValue*> src2Values = create_test_values({30, 40});  // field3=30, field4=40
 
@@ -487,7 +487,7 @@ TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
 
 // Tests RLookupRow_WriteFieldsFrom with overlapping field names (last write wins)
 TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
-  RLookup src1 = {0}, src2 = {0}, dest = {0};
+  RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
   RLookup_Init(&dest, NULL);
@@ -506,7 +506,7 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
   RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create rows with conflicting data for "field2"
-  RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
+  RLookupRow src1Row = RLookupRow_New(), src2Row = RLookupRow_New(), destRow = RLookupRow_New();
 
   // Create src1 values: field1=1, field2=100, field3=3
   std::vector<RSValue*> s1_vals = create_test_values({1, 100, 3});
@@ -577,7 +577,7 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
 
 // Tests RLookupRow_WriteFieldsFrom with identical field sets (last write wins)
 TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
-  RLookup src1 = {0}, src2 = {0}, dest = {0};
+  RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
   RLookup_Init(&dest, NULL);
@@ -596,7 +596,7 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create rows with different data for same field names
-  RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
+  RLookupRow src1Row = RLookupRow_New(), src2Row = RLookupRow_New(), destRow = RLookupRow_New();
 
   // Create test values using vectors for consistency
   std::vector<RSValue*> s1_vals = create_test_values({100, 200, 300});
@@ -668,7 +668,7 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
 
 // Tests hybrid search where one source has no data
 TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
-  RLookup src1 = {0}, src2 = {0}, dest = {0};
+  RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
   RLookup_Init(&dest, NULL);
@@ -682,7 +682,7 @@ TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
   RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data - only populate src1 (src2 remains empty)
-  RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
+  RLookupRow src1Row = RLookupRow_New(), src2Row = RLookupRow_New(), destRow = RLookupRow_New();
   std::vector<RSValue*> src1Values = create_test_values({50, 60});  // field1=50, field2=60
 
   write_values_to_row(src1Keys, &src1Row, src1Values);
@@ -710,7 +710,7 @@ TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
 
 // Tests createMissingKeys=true: keys are created in destination on demand
 TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -721,7 +721,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
   ASSERT_EQ(0, RLookup_GetRowLen(&dest));
 
   // Create test data and write to source row
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_New(), destRow = RLookupRow_New();
   std::vector<RSValue*> values = create_test_values({100, 200, 300});
   write_values_to_row(srcKeys, &srcRow, values);
 
@@ -754,7 +754,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
 
 // Tests createMissingKeys=true with partial overlap: some keys exist, some created
 TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
-  RLookup source = {0}, dest = {0};
+  RLookup source = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
 
@@ -767,7 +767,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
   ASSERT_EQ(1, RLookup_GetRowLen(&dest));
 
   // Create test data and write to source row
-  RLookupRow srcRow = {0}, destRow = {0};
+  RLookupRow srcRow = RLookupRow_New(), destRow = RLookupRow_New();
   std::vector<RSValue*> values = create_test_values({100, 200, 300});
   write_values_to_row(srcKeys, &srcRow, values);
 
@@ -791,7 +791,7 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
 
 // Tests F_HIDDEN flag handling: preservation and override behavior
 TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
-  RLookup src1 = {0}, src2 = {0}, dest = {0};
+  RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
   RLookup_Init(&dest, NULL);
