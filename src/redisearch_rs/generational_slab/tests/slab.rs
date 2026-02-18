@@ -370,76 +370,6 @@ fn iter_mut_rev() {
 }
 
 #[test]
-fn from_iterator_sorted() {
-    let mut slab = (0..5).map(|i| (i, i)).collect::<Slab<_>>();
-    assert_eq!(slab.len(), 5);
-    assert_eq!(slab[0], 0);
-    assert_eq!(slab[2], 2);
-    assert_eq!(slab[4], 4);
-    assert_eq!(slab.vacant_entry().key(), 5);
-}
-
-#[test]
-fn from_iterator_new_in_order() {
-    // all new keys come in increasing order, but existing keys are overwritten
-    let mut slab = [(0, 'a'), (1, 'a'), (1, 'b'), (0, 'b'), (9, 'a'), (0, 'c')]
-        .iter()
-        .cloned()
-        .collect::<Slab<_>>();
-    assert_eq!(slab.len(), 3);
-    assert_eq!(slab[0], 'c');
-    assert_eq!(slab[1], 'b');
-    assert_eq!(slab[9], 'a');
-    assert_eq!(slab.get(5), None);
-    assert_eq!(slab.vacant_entry().key(), 8);
-}
-
-#[test]
-fn from_iterator_unordered() {
-    let mut slab = vec![(1, "one"), (50, "fifty"), (3, "three"), (20, "twenty")]
-        .into_iter()
-        .collect::<Slab<_>>();
-    assert_eq!(slab.len(), 4);
-    assert_eq!(slab.vacant_entry().key(), 0);
-    let mut iter = slab.iter();
-    assert_eq!(iter.next(), Some((1, &"one")));
-    assert_eq!(iter.next(), Some((3, &"three")));
-    assert_eq!(iter.next(), Some((20, &"twenty")));
-    assert_eq!(iter.next(), Some((50, &"fifty")));
-    assert_eq!(iter.next(), None);
-}
-
-// https://github.com/tokio-rs/slab/issues/100
-#[test]
-fn from_iterator_issue_100() {
-    let mut slab: generational_slab::Slab<()> = vec![(1, ())].into_iter().collect();
-    assert_eq!(slab.len(), 1);
-    assert_eq!(slab.insert(()), 0);
-    assert_eq!(slab.insert(()), 2);
-    assert_eq!(slab.insert(()), 3);
-
-    let mut slab: generational_slab::Slab<()> = vec![(1, ()), (2, ())].into_iter().collect();
-    assert_eq!(slab.len(), 2);
-    assert_eq!(slab.insert(()), 0);
-    assert_eq!(slab.insert(()), 3);
-    assert_eq!(slab.insert(()), 4);
-
-    let mut slab: generational_slab::Slab<()> = vec![(1, ()), (3, ())].into_iter().collect();
-    assert_eq!(slab.len(), 2);
-    assert_eq!(slab.insert(()), 2);
-    assert_eq!(slab.insert(()), 0);
-    assert_eq!(slab.insert(()), 4);
-
-    let mut slab: generational_slab::Slab<()> = vec![(0, ()), (2, ()), (3, ()), (5, ())]
-        .into_iter()
-        .collect();
-    assert_eq!(slab.len(), 4);
-    assert_eq!(slab.insert(()), 4);
-    assert_eq!(slab.insert(()), 1);
-    assert_eq!(slab.insert(()), 6);
-}
-
-#[test]
 fn clear() {
     let mut slab = Slab::new();
 
@@ -731,7 +661,10 @@ fn clone_from() {
 
 #[test]
 fn get_disjoint_mut() {
-    let mut slab = Slab::from_iter((0..5).enumerate());
+    let mut slab = Slab::new();
+    for i in 0..5 {
+        slab.insert(i);
+    }
     slab.remove(1);
     slab.remove(3);
 
