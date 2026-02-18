@@ -2622,6 +2622,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "redis_mock",
  "value",
  "workspace_hack",
 ]
