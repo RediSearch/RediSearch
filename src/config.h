@@ -67,8 +67,6 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:
       return "fork";
-    case GCPolicy_Disk:
-      return "disk";
     default:          // LCOV_EXCL_LINE cannot be reached
       return "huh?";  // LCOV_EXCL_LINE cannot be reached
   }
@@ -86,7 +84,7 @@ typedef struct {
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   bool enableGC;
   size_t gcScanSize;
-  GCPolicy gcPolicy;  // which policy to use for new indexes; both configs are always valid
+  GCPolicy gcPolicy;
   GcScheduleConfig gcSchedule;
 } GCConfig;
 
