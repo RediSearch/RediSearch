@@ -1167,7 +1167,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
+  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!idx) {
