@@ -13,7 +13,7 @@
 #include "redismodule.h"
 #include "gc.h"
 #include "util/references.h"
-#include <time.h>
+#include <stdatomic.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,8 +23,8 @@ extern "C" {
  * Stats are maintained in disk info; we do not duplicate them here. */
 typedef struct DiskGC {
   WeakRef index;
-  struct timespec interval;
-  volatile size_t deletedDocsFromLastRun;
+  _Atomic size_t intervalSec;
+  _Atomic size_t deletedDocsFromLastRun;
 } DiskGC;
 
 DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks);

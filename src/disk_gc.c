@@ -14,6 +14,8 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "info/global_stats.h"
+#include <stdatomic.h>
+#include <time.h>
 
 static int periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
@@ -34,12 +36,10 @@ static int periodicCb(void *privdata, bool force) {
 
   SearchDisk_RunGC(sp->diskSpec);
 
-  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
-  gc->deletedDocsFromLastRun = 0;
+  size_t num_docs_to_clean = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
   IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)num_docs_to_clean);
 
-  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
-  gc->interval.tv_nsec = 0;
+  gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
 
   IndexSpecRef_Release(spec_ref);
   return 1;
@@ -47,7 +47,8 @@ static int periodicCb(void *privdata, bool force) {
 
 static void onTerminateCb(void *privdata) {
   DiskGC *gc = privdata;
-  IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)gc->deletedDocsFromLastRun);
+  size_t remaining = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
+  IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)remaining);
   WeakRef_Release(gc->index);
   rm_free(gc);
 }
@@ -65,7 +66,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 
 static void deleteCb(void *ctx) {
   DiskGC *gc = ctx;
-  ++gc->deletedDocsFromLastRun;
+  atomic_fetch_add(&gc->deletedDocsFromLastRun, 1);
   IndexsGlobalStats_UpdateLogicallyDeleted(1);
 }
 
@@ -79,7 +80,7 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
 
 static struct timespec getIntervalCb(void *ctx) {
   DiskGC *gc = ctx;
-  return gc->interval;
+  return (struct timespec){ .tv_sec = gc->intervalSec, .tv_nsec = 0 };
 }
 
 DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
@@ -88,8 +89,7 @@ DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedDocsFromLastRun = 0,
   };
-  gc->interval.tv_sec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
-  gc->interval.tv_nsec = 0;
+  gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec;
 
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
