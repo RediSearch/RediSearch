@@ -34,10 +34,10 @@ typedef enum RsValueType {
 
 /**
  * Opaque map structure used during map construction.
- * Holds uninitialized entries that are populated via [`RSValueMap_SetEntry`]
- * before being finalized into an [`RsValue::Map`] via [`RSValue_NewMap`].
+ * Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
+ * before being finalized into an [`RsValue::Map`] via [`RSValue_NewMapFromBuilder`].
  */
-typedef struct RSValueMap RSValueMap;
+typedef struct RSValueMapBuilder RSValueMapBuilder;
 
 /**
  * An actual [`RsValue`] object
@@ -51,14 +51,14 @@ extern "C" {
 /**
  * Allocates an array of null pointers with space for `len` [`RsValue`] pointers.
  *
- * The returned buffer must be populated and then passed to [`RSValue_NewArray`]
+ * The returned buffer must be populated and then passed to [`RSValue_NewArrayFromBuilder`]
  * to produce an array value.
  *
  * # Safety
  *
- * 1. The caller must eventually pass the returned pointer to [`RSValue_NewArray`].
+ * 1. The caller must eventually pass the returned pointer to [`RSValue_NewArrayFromBuilder`].
  */
-struct RsValue **RSValue_AllocateArray(uint32_t len);
+struct RsValue **RSValue_NewArrayBuilder(uint32_t len);
 
 /**
  * Creates a heap-allocated array [`RsValue`] from existing values.
@@ -68,11 +68,11 @@ struct RsValue **RSValue_AllocateArray(uint32_t len);
  *
  * # Safety
  *
- * 1. `values` must have been allocated via [`RSValue_AllocateArray`] with
+ * 1. `values` must have been allocated via [`RSValue_NewArrayBuilder`] with
  *    a capacity equal to `len`.
  * 2. All `len` entries in `values` must have been filled with valid [`RsValue`] pointers.
  */
-struct RsValue *RSValue_NewArray(struct RsValue **values, uint32_t len);
+struct RsValue *RSValue_NewArrayFromBuilder(struct RsValue **values, uint32_t len);
 
 /**
  * Returns the number of elements in an array [`RsValue`].
@@ -196,17 +196,17 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
 /**
- * Allocates a new, uninitialized [`RSValueMap`] with space for `len` entries.
+ * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
  *
- * The map entries are uninitialized and must be set using [`RSValueMap_SetEntry`]
- * before being finalized into an [`RsValue`] via [`RSValue_NewMap`].
+ * The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]
+ * before being finalized into an [`RsValue`] via [`RSValue_NewMapFromBuilder`].
  *
  * # Safety
  *
- * 1. All entries must be initialized via [`RSValueMap_SetEntry`] before
- *    passing the map to [`RSValue_NewMap`].
+ * 1. All entries must be initialized via [`RSValue_MapBuilderSetEntry`] before
+ *    passing the map to [`RSValue_NewMapFromBuilder`].
  */
-struct RSValueMap *RSValueMap_AllocUninit(uint32_t len);
+struct RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len);
 
 /**
  * Sets a key-value pair at a specific index in the map.
@@ -215,33 +215,32 @@ struct RSValueMap *RSValueMap_AllocUninit(uint32_t len);
  *
  * # Safety
  *
- * 1. `map` must be a valid pointer to an [`RSValueMap`] created by
- *    [`RSValueMap_AllocUninit`].
+ * 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+ *    [`RSValue_NewMapBuilder`].
  * 2. `key` and `value` must be valid pointers to [`RsValue`]
- *    obtained from an `RSValue_*` function.
  *
  * # Panics
  *
  * Panics if `index` is greater than or equal to the map length.
  */
-void RSValueMap_SetEntry(struct RSValueMap *map,
-                         size_t index,
-                         struct RsValue *key,
-                         struct RsValue *value);
+void RSValue_MapBuilderSetEntry(struct RSValueMapBuilder *map,
+                                size_t index,
+                                struct RsValue *key,
+                                struct RsValue *value);
 
 /**
- * Creates a heap-allocated map [`RsValue`] from an [`RSValueMap`].
+ * Creates a heap-allocated map [`RsValue`] from an [`RSValueMapBuilder`].
  *
- * Takes ownership of the map structure and all its entries. The [`RSValueMap`]
+ * Takes ownership of the map structure and all its entries. The [`RSValueMapBuilder`]
  * pointer is consumed and must not be used after this call.
  *
  * # Safety
  *
- * 1. `map` must be a valid pointer to an [`RSValueMap`] created by
- *    [`RSValueMap_AllocUninit`].
- * 2. All entries in the map must have been initialized via [`RSValueMap_SetEntry`].
+ * 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+ *    [`RSValue_NewMapBuilder`].
+ * 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
  */
-struct RsValue *RSValue_NewMap(struct RSValueMap *map);
+struct RsValue *RSValue_NewMapFromBuilder(struct RSValueMapBuilder *map);
 
 /**
  * Returns the number of key-value pairs in a map [`RsValue`].
