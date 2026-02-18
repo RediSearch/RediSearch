@@ -124,7 +124,7 @@ fn rm_alloc_without_nul_as_bytes() {
 
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "as_ptr_len_safe() called on possibly non-nul-terminated string")]
+#[should_panic(expected = "as_ptr_len_checked() called on possibly non-nul-terminated string")]
 fn rm_alloc_without_nul_as_ptr_len_checked_panics() {
     let (ptr, len) = rm_alloc_raw("raw");
     let s = unsafe { RsString::rm_alloc_string_without_nul_terminator(ptr, len) };
@@ -133,7 +133,7 @@ fn rm_alloc_without_nul_as_ptr_len_checked_panics() {
 
 #[test]
 #[cfg(debug_assertions)]
-#[should_panic(expected = "as_bytes_safe() called on possibly non-nul-terminated string")]
+#[should_panic(expected = "as_bytes_checked() called on possibly non-nul-terminated string")]
 fn rm_alloc_without_nul_as_bytes_checked_panics() {
     let (ptr, len) = rm_alloc_raw("raw");
     let s = unsafe { RsString::rm_alloc_string_without_nul_terminator(ptr, len) };
