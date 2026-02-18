@@ -528,6 +528,11 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
 
+// Reply state management for coordinating replies between main thread (timeout callback) and background thread
+bool AREQ_TryClaimReply(AREQ *req);
+void AREQ_MarkReplied(AREQ *req);
+uint8_t AREQ_GetReplyState(AREQ *req);
+
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;
 }

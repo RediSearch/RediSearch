@@ -1050,6 +1050,20 @@ void AREQ_SetTimedOut(AREQ *req) {
   atomic_store_explicit(&req->timedOut, true, memory_order_release);
 }
 
+bool AREQ_TryClaimReply(AREQ *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+void AREQ_MarkReplied(AREQ *req) {
+  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
+}
+
+uint8_t AREQ_GetReplyState(AREQ *req) {
+  return atomic_load_explicit(&req->replyState, memory_order_acquire);
+}
+
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
     int rv = handleCommonArgs(papCtx, ac, status);

@@ -43,21 +43,6 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 
-// Helper functions for reply state management (used in Run in Threads mode)
-
-// Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
-// false if already claimed or replied (state was REPLYING or REPLIED).
-static inline bool AREQ_TryClaimReply(AREQ *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
-
-// Mark reply as complete. Must only be called after successfully claiming reply.
-static inline void AREQ_MarkReplied(AREQ *req) {
-  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
-}
-
 // Try to claim reply ownership, send error reply, and mark as replied.
 // Returns true if we replied, false if someone else owns the reply.
 static inline bool AREQ_TryReplyWithError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {

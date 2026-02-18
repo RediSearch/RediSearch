@@ -3613,7 +3613,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   ConcurrentSearchHandlerCtx handlerCtx = {
     .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref)
+    .spec_ref = StrongRef_Demote(spec_ref),
+    .bcCtx = {0}
   };
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -3686,11 +3687,15 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     .spec_ref = StrongRef_Demote(spec_ref),
     .numShards = NumShards,  // Capture NumShards from main thread for thread-safe access
     .reqCtx = reqCtx,
-    .timeout = {
-      .timeoutMS = queryTimeoutMS,
-      .callback = DistHybridTimeoutFailClient
-    }
+    .bcCtx = {0}
   };
+
+  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+    handlerCtx.bcCtx.callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    handlerCtx.bcCtx.privdata = reqCtx;
+    handlerCtx.bcCtx.free_privdata = CoordRequestCtx_Free;
+  }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);

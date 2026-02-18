@@ -6,59 +6,56 @@
 
 #include "coord_request_ctx.h"
 #include "rmalloc.h"
-#include <stdatomic.h>
 
 CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));
   ctx->type = type;
-
-  // Initialize timeout coordination fields only - real init happens on background thread
-  if (type == COMMAND_HYBRID) {
-    atomic_store_explicit(&ctx->hreq.timedOut, false, memory_order_relaxed);
-    atomic_store_explicit(&ctx->hreq.replyState, ReplyState_NotReplied, memory_order_relaxed);
-    ctx->hreq.refcount = 1;
-  } else {
-    atomic_store_explicit(&ctx->areq.timedOut, false, memory_order_relaxed);
-    atomic_store_explicit(&ctx->areq.replyState, ReplyState_NotReplied, memory_order_relaxed);
-    ctx->areq.refcount = 1;
-  }
-
+  // Request pointer starts as NULL, set by background thread after parsing
   return ctx;
 }
 
-void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
+void CoordRequestCtx_Free(void *ptr) {
+  CoordRequestCtx *ctx = ptr;
   if (!ctx) return;
 
-  // TODO: Cleanup embedded AREQ/HybridRequest fields
-  // This will be implemented when we integrate with the background thread flow
+  // Decrement refcount on the request (if set)
+  if (ctx->type == COMMAND_HYBRID) {
+    if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
+  } else {
+    if (ctx->areq) AREQ_DecrRef(ctx->areq);
+  }
 
   rm_free(ctx);
 }
 
+void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
+  if (ctx->type == COMMAND_HYBRID) {
+    ctx->hreq = HybridRequest_IncrRef((HybridRequest *)req);
+  } else {
+    ctx->areq = AREQ_IncrRef((AREQ *)req);
+  }
+}
+
 bool CoordRequestCtx_TryClaimReply(CoordRequestCtx *ctx) {
   if (ctx->type == COMMAND_HYBRID) {
-    return HybridRequest_TryClaimReply(&ctx->hreq);
+    return ctx->hreq ? HybridRequest_TryClaimReply(ctx->hreq) : false;
   } else {
-    // AREQ's TryClaimReply is a static inline in aggregate_exec.c, so we implement here
-    int expected = ReplyState_NotReplied;
-    return atomic_compare_exchange_strong_explicit(&ctx->areq.replyState, &expected,
-        ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+    return ctx->areq ? AREQ_TryClaimReply(ctx->areq) : false;
   }
 }
 
 void CoordRequestCtx_MarkReplied(CoordRequestCtx *ctx) {
   if (ctx->type == COMMAND_HYBRID) {
-    HybridRequest_MarkReplied(&ctx->hreq);
+    if (ctx->hreq) HybridRequest_MarkReplied(ctx->hreq);
   } else {
-    // AREQ's MarkReplied is a static inline in aggregate_exec.c, so we implement here
-    atomic_store_explicit(&ctx->areq.replyState, ReplyState_Replied, memory_order_release);
+    if (ctx->areq) AREQ_MarkReplied(ctx->areq);
   }
 }
 
 uint8_t CoordRequestCtx_GetReplyState(CoordRequestCtx *ctx) {
   if (ctx->type == COMMAND_HYBRID) {
-    return HybridRequest_GetReplyState(&ctx->hreq);
+    return ctx->hreq ? HybridRequest_GetReplyState(ctx->hreq) : ReplyState_NotReplied;
   } else {
-    return atomic_load_explicit(&ctx->areq.replyState, memory_order_acquire);
+    return ctx->areq ? AREQ_GetReplyState(ctx->areq) : ReplyState_NotReplied;
   }
 }

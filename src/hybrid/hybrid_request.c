@@ -194,8 +194,16 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  * @return Newly allocated HybridRequest, or NULL on failure
  */
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
-    HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
+/**
+ * Initialize an already-allocated (zeroed) HybridRequest.
+ * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ *
+ * @param hybridReq Pointer to zeroed HybridRequest to initialize
+ * @param sctx The search context for the hybrid request
+ * @param requests Array of AREQ pointers, the hybrid request takes ownership
+ * @param nrequests Number of requests in the array
+ */
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
@@ -228,7 +236,11 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     atomic_store_explicit(&hybridReq->timedOut, false, memory_order_relaxed);
     atomic_store_explicit(&hybridReq->replyState, ReplyState_NotReplied, memory_order_relaxed);
     hybridReq->refcount = 1;
+}
 
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
+    HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
+    HybridRequest_Init(hybridReq, sctx, requests, nrequests);
     return hybridReq;
 }
 

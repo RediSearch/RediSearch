@@ -17,54 +17,62 @@ extern "C" {
  * Coordinator request context - wrapper for AREQ/HybridRequest that enables
  * coordinator-level timeout handling.
  *
- * This struct is allocated on the main thread before dispatching to background thread.
- * It embeds either AREQ or HybridRequest directly to enable:
- * - Single allocation (wrapper + request in one block)
- * - Immediate access to timeout fields from main thread
- * - Background thread fills in remaining fields after parsing
+ * Holds a pointer to the actual request (AREQ or HybridRequest), which is
+ * managed via reference counting. The background thread creates and initializes
+ * the request, then sets the pointer here for timeout coordination.
  *
- * The timeout fields (timedOut, replyState, refcount) in the embedded AREQ/HybridRequest
+ * The timeout fields (timedOut, replyState, refcount) in the pointed-to request
  * enable synchronization between main thread (timeout callback) and background thread.
  */
 typedef struct CoordRequestCtx {
   CommandType type;
   union {
-    AREQ areq;
-    HybridRequest hreq;
+    AREQ *areq;
+    HybridRequest *hreq;
   };
 } CoordRequestCtx;
 
 /**
- * Allocate and minimally initialize a CoordRequestCtx on the main thread.
- * Only initializes timeout coordination fields. Real request initialization
- * happens on the background thread via AREQ_Init/HybridRequest_Init.
+ * Allocate a CoordRequestCtx with NULL request pointer.
+ * The request pointer is set later by the background thread after parsing.
  */
 CoordRequestCtx *CoordRequestCtx_New(CommandType type);
 
 /**
- * Free the CoordRequestCtx and cleanup embedded AREQ/HybridRequest fields.
+ * Free the CoordRequestCtx and decrement the request's refcount.
+ * Takes void* to be compatible with free_privdata callback signature.
  */
-void CoordRequestCtx_Free(CoordRequestCtx *ctx);
+void CoordRequestCtx_Free(void *ctx);
+
+/**
+ * Set the request pointer and take shared ownership.
+ * Called by background thread after creating the request.
+ *
+ * This function increments the request's refcount, establishing shared ownership
+ * between the background thread (which created the request) and the CoordRequestCtx
+ * (which may be freed by the timeout callback). Both sides must call DecrRef when done.
+ */
+void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req);
 
 /**
  * Check if the request has timed out.
  */
 static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
   if (ctx->type == COMMAND_HYBRID) {
-    return HybridRequest_TimedOut(&ctx->hreq);
+    return ctx->hreq ? HybridRequest_TimedOut(ctx->hreq) : false;
   } else {
-    return AREQ_TimedOut(&ctx->areq);
+    return ctx->areq ? AREQ_TimedOut(ctx->areq) : false;
   }
 }
 
 /**
- * Set the timeout flag on the embedded request.
+ * Set the timeout flag on the request.
  */
 static inline void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
   if (ctx->type == COMMAND_HYBRID) {
-    HybridRequest_SetTimedOut(&ctx->hreq);
+    if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);
   } else {
-    AREQ_SetTimedOut(&ctx->areq);
+    if (ctx->areq) AREQ_SetTimedOut(ctx->areq);
   }
 }
 

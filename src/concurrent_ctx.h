@@ -47,11 +47,13 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
 // Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
 struct CoordRequestCtx;  // Forward declaration
 
-// Timeout context for blocking client timeout handling
-typedef struct ConcurrentSearchTimeoutCtx {
-  RedisModuleCmdFunc callback;  // Timeout callback (NULL if no timeout)
-  size_t timeoutMS;             // Timeout value in milliseconds (0 if no timeout)
-} ConcurrentSearchTimeoutCtx;
+// Context for blocking client
+typedef struct ConcurrentSearchBlockClientCtx {
+  RedisModuleCmdFunc callback;            // Callback for timeout
+  rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
+  void *privdata;                         // Private data for the blocked client
+  void (*free_privdata)(void*);           // Callback to free private data
+} ConcurrentSearchBlockClientCtx;
 
 typedef struct ConcurrentSearchHandlerCtx {
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
@@ -60,7 +62,7 @@ typedef struct ConcurrentSearchHandlerCtx {
   bool isProfile;                     // Whether this is an FT.PROFILE command
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
   struct CoordRequestCtx *reqCtx;     // Coordinator request context (for timeout handling)
-  ConcurrentSearchTimeoutCtx timeout; // Timeout context for blocking client
+  ConcurrentSearchBlockClientCtx bcCtx; // Context for blocking client
 } ConcurrentSearchHandlerCtx;
 
 #define CMDCTX_KEEP_RCTX 0x01
@@ -86,6 +88,9 @@ rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(struct ConcurrentCmdCtx *c
 
 // Returns the number of shards captured from the main thread.
 size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
+
+// Returns the blocked client held in the context.
+RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,

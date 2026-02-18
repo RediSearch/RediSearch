@@ -106,6 +106,17 @@ typedef struct blockedClientHybridCtx {
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
 
+/**
+ * Initialize an already-allocated (zeroed) HybridRequest.
+ * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ *
+ * @param hybridReq Pointer to zeroed HybridRequest to initialize
+ * @param sctx The search context for the hybrid request
+ * @param requests Array of AREQ pointers, the hybrid request takes ownership
+ * @param nrequests Number of requests in the array
+ */
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+
 /*
 * We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
 * For example lookup keys
