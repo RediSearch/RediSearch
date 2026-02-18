@@ -11,7 +11,7 @@ workspace = true
 [dependencies]
 ffi.workspace = true
 field.workspace = true
-inverted_index.workspace = true
+inverted_index = { workspace = true, features = ["test_utils"] }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = ["test_utils"] }
 libc.workspace = true
 query_error.workspace = true

@@ -11,7 +11,8 @@ use std::{io::Cursor, sync::atomic};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
-    DecodedBy, Decoder, Encoder, InvertedIndex, NumericDecoder, RSIndexResult, TermDecoder,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, RSIndexResult,
+    TermDecoder, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
 
@@ -45,9 +46,16 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + NumericDecoder> NumericRead
 }
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
-    for IndexReaderCore<'index, E>
+impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+    TermReader<'index> for IndexReaderCore<'index, E>
+where
+    E::Storage: HasInnerIndex<E>,
 {
+    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
+        let storage = E::from_opaque(opaque);
+        let ii = storage.inner_index();
+        self.points_to_ii(ii)
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
@@ -192,8 +200,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         }
     }
 
-    /// Check if this reader is reading from the given index
-    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+    /// Check if this reader is reading from the given index by comparing their pointers.
+    pub fn points_to_ii(&self, index: &InvertedIndex<E>) -> bool {
         std::ptr::eq(self.ii, index)
     }
 
