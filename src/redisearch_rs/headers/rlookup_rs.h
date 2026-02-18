@@ -591,6 +591,11 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                QueryError *status);
 
 /**
+ * Returns a newly created [`RLookupRow`], which is moved into the caller.
+ */
+struct RLookupRow RLookupRow_New(const struct RLookup *lookup);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * # Safety

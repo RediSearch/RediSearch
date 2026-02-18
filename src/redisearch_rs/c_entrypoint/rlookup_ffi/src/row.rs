@@ -21,23 +21,22 @@ use std::{
 };
 use value::RSValueFFI;
 
-// /// Returns a newly created [`RLookupRow`], which is moved into the caller.
-// #[cfg(debug_assertions)]
-// #[unsafe(no_mangle)]
-// pub unsafe extern "C" fn RLookupRow_New_2a<'a>(
-//     lookup: *const OpaqueRLookup,
-// ) -> OpaqueRLookupRow<'a> {
-//     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+/// Returns a newly created [`RLookupRow`], which is moved into the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupRow_New<'a>(
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))] lookup: *const OpaqueRLookup,
+) -> OpaqueRLookupRow<'a> {
+    #[cfg(debug_assertions)]
+    {
+        let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
-//     RLookupRow::new(lookup).into_opaque()
-// }
-
-// /// Returns a newly created [`RLookupRow`], which is moved into the caller.
-// #[cfg(not(debug_assertions))]
-// #[unsafe(no_mangle)]
-// pub extern "C" fn RLookupRow_New_3a<'a>() -> OpaqueRLookupRow<'a> {
-//     RLookupRow::new(&RLookup::new()).into_opaque()
-// }
+        RLookupRow::new(lookup).into_opaque()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        RLookupRow::new().into_opaque()
+    }
+}
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
