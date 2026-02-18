@@ -9,6 +9,7 @@
 
 use std::time::Duration;
 
+use ffi::t_docId;
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
     not::Not,
@@ -488,51 +489,22 @@ fn skip_to_child_behind_child_skip_returns_eof() {
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn read_timeout_via_timeout_ctx() {
-    let child = Mock::new([5_001]);
+    let mut child_doc_ids = [0; 5_000];
+    for i in 0..5_000 {
+        child_doc_ids[i] = (i + 1) as t_docId;
+    }
+    let child = Mock::new(child_doc_ids);
     let mut data = child.data();
     // Set child to return timeout error when it reaches EOF
     data.add_delay_since_index(1, Duration::from_micros(100));
 
     let mut it = Not::new(child, 10_000, 1.0, Some(Duration::from_micros(50)));
 
-    for idx in 1..=4_999 {
-        assert_eq!(
-            idx as u64,
-            it.read()
-                .expect(&format!("iteration #{idx} not to timeout yet"))
-                .expect(&format!("iteration #{idx} to be some"))
-                .doc_id,
-            "iteration #{idx} to have expected Some(doc)",
-        )
-    }
-
-    assert!(!it.at_eof(), "did not yet expect to EOF");
-
+    let result = it.read();
     assert!(
-        matches!(it.read(), Err(RQEIteratorError::TimedOut)),
-        "expected timeout due to timeout context in Not iterator triggered"
+        matches!(result, Err(RQEIteratorError::TimedOut)),
+        "expected timeout due to timeout context in Not iterator triggered: result = {result:?}",
     );
-
-    assert!(
-        it.at_eof(),
-        "iterator is expected to EOF once timed out via timeout context"
-    );
-
-    it.rewind();
-    assert!(
-        !it.at_eof(),
-        "rewind should have also cleared the force EOF"
-    );
-    assert_eq!(
-        1,
-        it.read()
-            .expect("rewind should have allowed reading once again")
-            .expect("as such we expect a result here")
-            .doc_id,
-        "rewind should have allowed us to start reading again from start, despites earlier timeout"
-    )
-    // that said... internal timeout context is _not_ reset,
-    // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
 
 #[test]

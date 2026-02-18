@@ -65,6 +65,8 @@ where
     /// we also mark this iterator as EOF.
     ///
     /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
+    ///
+    /// In case no timeout is enforced it will just return `Ok(())`.
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         let Some(result) = self.timeout_ctx.as_mut().map(|ctx| ctx.check_timeout()) else {
@@ -75,6 +77,15 @@ where
             self.forced_eof = true;
         }
         result
+    }
+
+    /// Wrapper around [`TimeoutContext::reset_timeout`] to reset the timeout counter.
+    /// In case no timeout is enforced it will just return `Ok(())`.
+    #[inline(always)]
+    fn reset_timeout(&mut self) {
+        if let Some(ctx) = self.timeout_ctx.as_mut() {
+            ctx.reset_counter();
+        }
     }
 
     /// Get a shared reference to the _child_ iterator
@@ -114,23 +125,24 @@ where
         while !self.at_eof() {
             self.result.doc_id += 1;
 
-            // 1. Sync child if we've moved past its last known position
+            // Sync child if we've moved past its last known position
             let child_at_eof = if self.result.doc_id > self.child.last_doc_id() {
                 self.child.read()?.is_none()
             } else {
                 false
             };
 
-            // 2. Unified Checkpoint: Exactly one check per iteration.
-            // This occurs AFTER the child.read() and before we decide to return.
-            self.check_timeout()?;
-
-            // 3. Comparison Logic
+            // Comparison Logic
             // If child is EOF, or we haven't reached the child's position,
             // or the child skipped past us, this document is a valid result.
             if child_at_eof || self.result.doc_id != self.child.last_doc_id() {
+                self.reset_timeout();
                 return Ok(Some(&mut self.result));
             }
+
+            // Unified Checkpoint: Exactly one check per iteration.
+            // This occurs AFTER the child.read() and before we decide to return.
+            self.check_timeout()?;
 
             // Otherwise: doc_id == child.last_doc_id(), so we skip and loop again.
         }
@@ -144,11 +156,11 @@ where
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        debug_assert!(self.last_doc_id() < doc_id);
+
         if self.at_eof() {
             return Ok(None);
         }
-
-        debug_assert!(self.last_doc_id() < doc_id);
 
         // Do not skip beyond max_doc_id
         if doc_id > self.max_doc_id {

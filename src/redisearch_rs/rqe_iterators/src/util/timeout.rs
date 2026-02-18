@@ -57,4 +57,10 @@ impl TimeoutContext {
 
         Ok(())
     }
+
+    /// Reset the internal counter.
+    #[inline(always)]
+    pub fn reset_counter(&mut self) {
+        self.counter = 0;
+    }
 }

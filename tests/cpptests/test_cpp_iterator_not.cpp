@@ -118,7 +118,7 @@ TEST_P(NotIteratorCommonTest, SkipToEOF) {
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, maxDocId + 1), ITERATOR_EOF);
   ASSERT_TRUE(iterator_base->atEOF);
   // Test returning after EOF gives EOF
-  ASSERT_EQ(iterator_base->SkipTo(iterator_base, 2), ITERATOR_EOF);
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, maxDocId + 2), ITERATOR_EOF);
 }
 
 TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
