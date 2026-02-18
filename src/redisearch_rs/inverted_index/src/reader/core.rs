@@ -11,7 +11,8 @@ use std::{io::Cursor, sync::atomic};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
-    DecodedBy, Decoder, Encoder, InvertedIndex, NumericDecoder, RSIndexResult, TermDecoder,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, RSIndexResult,
+    TermDecoder, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, t_docId};
 
@@ -45,9 +46,16 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + NumericDecoder> NumericRead
 }
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
-    for IndexReaderCore<'index, E>
+impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+    TermReader<'index> for IndexReaderCore<'index, E>
+where
+    E::Storage: HasInnerIndex<E>,
 {
+    fn is_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
+        let storage = E::from_opaque(opaque);
+        let ii = storage.inner_index();
+        self.is_index(ii)
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
