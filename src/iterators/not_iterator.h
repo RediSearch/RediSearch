@@ -33,8 +33,8 @@ QueryIterator const *GetNotIteratorChild(QueryIterator *const it);
 void SetNotIteratorChild(QueryIterator *it, QueryIterator* child);
 QueryIterator *TakeNotIteratorChild(QueryIterator *it);
 
-void _SetOptimizedNotIteratorWildcard(QueryIterator *it, QueryIterator* wcii);
-QueryIterator const *_GetOptimizedNotIteratorWildcard(QueryIterator *it);
+void _SetNotIteratorOptimizedWildcard(QueryIterator *it, QueryIterator* wcii);
+QueryIterator const *_GetNotIteratorOptimizedWildcard(QueryIterator *it);
 
 #ifdef __cplusplus
 }

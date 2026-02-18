@@ -82,7 +82,7 @@ protected:
       std::vector<t_docId> wildcard = {1, 2, 3};
       mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
       iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
-      _SetOptimizedNotIteratorWildcard(iterator_base, (QueryIterator *) new MockIterator(wcDocIds));
+      _SetNotIteratorOptimizedWildcard(iterator_base, (QueryIterator *) new MockIterator(wcDocIds));
     } else {
       mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
       iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
@@ -312,7 +312,7 @@ TEST_P(NotIteratorCommonTest, SkipToAll) {
 
 TEST_P(NotIteratorCommonTest, NumEstimated) {
   if (optimized) {
-    QueryIterator const* wcii = _GetOptimizedNotIteratorWildcard(iterator_base);
+    QueryIterator const* wcii = _GetNotIteratorOptimizedWildcard(iterator_base);
     ASSERT_EQ(iterator_base->NumEstimated(iterator_base), wcii->NumEstimated((QueryIterator*) wcii));
   } else {
     ASSERT_EQ(iterator_base->NumEstimated(iterator_base), maxDocId);
@@ -831,7 +831,7 @@ protected:
 
     // Replace the wildcard iterator with a mock for testing
     mockWildcard = new MockIterator(wildcard);
-    _SetOptimizedNotIteratorWildcard(ni_base, reinterpret_cast<QueryIterator *>(mockWildcard));
+    _SetNotIteratorOptimizedWildcard(ni_base, reinterpret_cast<QueryIterator *>(mockWildcard));
   }
 
   void TearDown() override {

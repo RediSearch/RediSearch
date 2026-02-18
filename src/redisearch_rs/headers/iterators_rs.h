@@ -236,7 +236,7 @@ enum MetricType GetMetricType(QueryIterator *header);
  * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
  * 2. `child` must not be aliased.
  */
-QueryIterator *NewNonOptimizedNotIterator(QueryIterator *child,
+QueryIterator *NewNotIteratorNonOptimized(QueryIterator *child,
                                           t_docId max_doc_id,
                                           double weight,
                                           timespec timeout,
@@ -248,28 +248,28 @@ QueryIterator *NewNonOptimizedNotIterator(QueryIterator *child,
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewNonOptimizedNotIterator`].
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
  */
-const QueryIterator *GetNonOptimizedNotIteratorChild(const QueryIterator *header);
+const QueryIterator *GetNotIteratorNonOptimizedChild(const QueryIterator *header);
 
 /**
  * Take ownership over the child of the not (non-optimized) iterator.
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewNonOptimizedNotIterator`].
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
  */
-QueryIterator *TakeNonOptimizedNotIteratorChild(QueryIterator *header);
+QueryIterator *TakeNotIteratorNonOptimizedChild(QueryIterator *header);
 
 /**
  * Set (or overwrite) the child iterator of the not (non-optimized) iterator.
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewNonOptimizedNotIterator`].
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
  * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
  */
-void SetNonOptimizedNotIteratorChild(QueryIterator *header,
+void SetNotIteratorNonOptimizedChild(QueryIterator *header,
                                      QueryIterator *child);
 
 /**

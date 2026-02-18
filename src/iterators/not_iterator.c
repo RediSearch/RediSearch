@@ -18,10 +18,10 @@ typedef struct {
   QueryIterator *child;       // child index iterator
   t_docId maxDocId;
   TimeoutCtx timeoutCtx;
-} OptimizedNotIterator;
+} NotIteratorOptimized;
 
 static void NI_Rewind(QueryIterator *base) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
+  NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
   base->current->docId = 0;
   base->atEOF = false;
   base->lastDocId = 0;
@@ -32,7 +32,7 @@ static void NI_Rewind(QueryIterator *base) {
 }
 
 static void NI_Free(QueryIterator *base) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
+  NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
   ni->child->Free(ni->child);
   if (ni->wcii) {
     ni->wcii->Free(ni->wcii);
@@ -42,7 +42,7 @@ static void NI_Free(QueryIterator *base) {
 }
 
 static size_t NI_NumEstimated(QueryIterator *base) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
+  NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
   return ni->wcii ? ni->wcii->NumEstimated(ni->wcii) : ni->maxDocId;
 }
 
@@ -51,7 +51,7 @@ static size_t NI_NumEstimated(QueryIterator *base) {
  * query is a NOT node. We simply read until max docId, skipping docIds that
  * exist in the child */
 static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
+  NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
   // Check if we reached the end
   if (base->atEOF || base->lastDocId >= ni->maxDocId) {
     base->atEOF = true;
@@ -105,7 +105,7 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
  * - ITERATOR_TIMEOUT if the operation timed out
  */
 static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
+  NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
   RS_ASSERT(base->lastDocId < docId);
 
   // Check if we've reached the end or if docId exceeds maximum
@@ -162,7 +162,7 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
 
 // Revalidate for NOT iterator - Optimized version.
 static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
-  OptimizedNotIterator *ni = (OptimizedNotIterator *)base;
+  NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
 
   // 1. Revalidate the wildcard iterator first
   ValidateStatus wcii_status = ni->wcii->Revalidate(ni->wcii);
@@ -234,7 +234,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
   bool skipTimeoutChecks = (q && q->sctx) ? q->sctx->time.skipTimeoutChecks : false;
 
   if (optimized) {
-    OptimizedNotIterator *ni = rm_calloc(1, sizeof(*ni));
+    NotIteratorOptimized *ni = rm_calloc(1, sizeof(*ni));
     ret = &ni->base;
     ni->wcii = NewWildcardIterator_Optimized(q->sctx, weight);
 
@@ -247,7 +247,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
     ret->current->docId = 0;
     ret->atEOF = false;
-    ret->type = NOT_OPTIMIZED_ITERATOR;
+    ret->type = NOT_ITERATOR_OPTIMIZED;
     ret->lastDocId = 0;
     ret->NumEstimated = NI_NumEstimated;
     ret->Free = NI_Free;
@@ -256,7 +256,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     ret->Rewind = NI_Rewind;
     ret->Revalidate = NI_Revalidate_Optimized;
   } else {
-    ret = NewNonOptimizedNotIterator(it, maxDocId, weight, timeout, skipTimeoutChecks);
+    ret = NewNotIteratorNonOptimized(it, maxDocId, weight, timeout, skipTimeoutChecks);
   }
 
   return ret;
@@ -264,7 +264,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
 
 // LCOV_EXCL_START
 QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout, uint32_t timeoutCounter) {
-  OptimizedNotIterator *ni = rm_calloc(1, sizeof(*ni));
+  NotIteratorOptimized *ni = rm_calloc(1, sizeof(*ni));
   QueryIterator *ret = &ni->base;
   ni->child = child;
   ni->wcii = wcii;
@@ -274,7 +274,7 @@ QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, Quer
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;
   ret->atEOF = false;
-  ret->type = NOT_OPTIMIZED_ITERATOR;
+  ret->type = NOT_ITERATOR_OPTIMIZED;
   ret->lastDocId = 0;
   ret->NumEstimated = NI_NumEstimated;
   ret->Free = NI_Free;
@@ -288,50 +288,50 @@ QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, Quer
 // LCOV_EXCL_STOP
 
 QueryIterator const* GetNotIteratorChild(QueryIterator *base) {
-    if (base->type == NOT_OPTIMIZED_ITERATOR) {
-        OptimizedNotIterator const*it = (OptimizedNotIterator *)base;
+    if (base->type == NOT_ITERATOR_OPTIMIZED) {
+        NotIteratorOptimized const*it = (NotIteratorOptimized *)base;
         return it->child;
     } else {
-        return GetNonOptimizedNotIteratorChild(base);
+        return GetNotIteratorNonOptimizedChild(base);
     }
 }
 
 void SetNotIteratorChild(QueryIterator *base, QueryIterator *newChild) {
-    if (base->type == NOT_OPTIMIZED_ITERATOR) {
-        OptimizedNotIterator *it = (OptimizedNotIterator *)base;
+    if (base->type == NOT_ITERATOR_OPTIMIZED) {
+        NotIteratorOptimized *it = (NotIteratorOptimized *)base;
         if (it->child) {
             it->child->Free(it->child);
         }
         it->child = newChild;
     } else {
-        SetNonOptimizedNotIteratorChild(base, newChild);
+        SetNotIteratorNonOptimizedChild(base, newChild);
     }
 }
 
 QueryIterator *TakeNotIteratorChild(QueryIterator *base) {
-    if (base->type == NOT_OPTIMIZED_ITERATOR) {
-        OptimizedNotIterator *it = (OptimizedNotIterator *)base;
+    if (base->type == NOT_ITERATOR_OPTIMIZED) {
+        NotIteratorOptimized *it = (NotIteratorOptimized *)base;
         QueryIterator* child = it->child;
         it->child = NULL;
         return child;
     } else {
-        return TakeNonOptimizedNotIteratorChild(base);
+        return TakeNotIteratorNonOptimizedChild(base);
     }
 }
 
-void _SetOptimizedNotIteratorWildcard(QueryIterator *base, QueryIterator *wcii) {
-    RS_ASSERT(base->type == NOT_OPTIMIZED_ITERATOR);
+void _SetNotIteratorOptimizedWildcard(QueryIterator *base, QueryIterator *wcii) {
+    RS_ASSERT(base->type == NOT_ITERATOR_OPTIMIZED);
 
-    OptimizedNotIterator *it = (OptimizedNotIterator *)base;
+    NotIteratorOptimized *it = (NotIteratorOptimized *)base;
     if (it->wcii) {
         it->wcii->Free(it->wcii);
     }
     it->wcii = wcii;
 }
 
-QueryIterator const* _GetOptimizedNotIteratorWildcard (QueryIterator *base) {
-    RS_ASSERT(base->type == NOT_OPTIMIZED_ITERATOR);
+QueryIterator const* _GetNotIteratorOptimizedWildcard (QueryIterator *base) {
+    RS_ASSERT(base->type == NOT_ITERATOR_OPTIMIZED);
 
-    OptimizedNotIterator const*it = (OptimizedNotIterator *)base;
+    NotIteratorOptimized const*it = (NotIteratorOptimized *)base;
     return it->wcii;
 }

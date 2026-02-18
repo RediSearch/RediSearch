@@ -22,7 +22,7 @@ use crate::c2rust::CRQEIterator;
 ///
 /// 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
 /// 2. `child` must not be aliased.
-pub extern "C" fn NewNonOptimizedNotIterator(
+pub unsafe extern "C" fn NewNotIteratorNonOptimized(
     child: *mut QueryIterator,
     max_doc_id: t_docId,
     weight: f64,
@@ -51,8 +51,8 @@ pub extern "C" fn NewNonOptimizedNotIterator(
 ///
 /// # Safety
 ///
-/// 1. `header` must be a valid non-null pointer created via [`NewNonOptimizedNotIterator`].
-pub unsafe extern "C" fn GetNonOptimizedNotIteratorChild(
+/// 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+pub unsafe extern "C" fn GetNotIteratorNonOptimizedChild(
     header: *const QueryIterator,
 ) -> *const QueryIterator {
     debug_assert!(!header.is_null());
@@ -76,8 +76,8 @@ pub unsafe extern "C" fn GetNonOptimizedNotIteratorChild(
 ///
 /// # Safety
 ///
-/// 1. `header` must be a valid non-null pointer created via [`NewNonOptimizedNotIterator`].
-pub unsafe extern "C" fn TakeNonOptimizedNotIteratorChild(
+/// 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+pub unsafe extern "C" fn TakeNotIteratorNonOptimizedChild(
     header: *mut QueryIterator,
 ) -> *mut QueryIterator {
     debug_assert!(!header.is_null());
@@ -102,9 +102,9 @@ pub unsafe extern "C" fn TakeNonOptimizedNotIteratorChild(
 ///
 /// # Safety
 ///
-/// 1. `header` must be a valid non-null pointer created via [`NewNonOptimizedNotIterator`].
+/// 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
 /// 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
-pub unsafe extern "C" fn SetNonOptimizedNotIteratorChild(
+pub unsafe extern "C" fn SetNotIteratorNonOptimizedChild(
     header: *mut QueryIterator,
     child: *mut QueryIterator,
 ) {
@@ -119,13 +119,14 @@ pub unsafe extern "C" fn SetNonOptimizedNotIteratorChild(
     let wrapper =
         unsafe { RQEIteratorWrapper::<Not<CRQEIterator>>::mut_ref_from_header_ptr(header) };
 
-    if child.is_null() {
-        wrapper.inner.unset_child();
-    } else {
-        let child = NonNull::new(child)
-            .expect("Trying to set a NULL child for a non-optimized not iterator");
-        // SAFETY: thanks to 2 + null check above
-        let child = unsafe { CRQEIterator::new(child) };
-        wrapper.inner.set_child(child);
+    match NonNull::new(child) {
+        Some(child) => {
+            // SAFETY: thanks to 2 + null check from this match statement
+            let child = unsafe { CRQEIterator::new(child) };
+            wrapper.inner.set_child(child);
+        }
+        None => {
+            wrapper.inner.unset_child();
+        }
     }
 }
