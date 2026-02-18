@@ -70,6 +70,29 @@ where
             child: Some(child),
         }
     }
+
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Optional`] iterator.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    /// Set the child of this [`Optional`] iterator.
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = Some(new_child);
+    }
+
+    /// Unset the child of this [`Optional`] iterator (make it `None`).
+    pub fn unset_child(&mut self) {
+        self.child = None;
+    }
+
+    /// Take the child of this [`Optional`] iterator if it had one.
+    /// After this the child iterator of this [`Optional`] will behave
+    /// as if it was the `Empty` iterator.
+    pub const fn take_child(&mut self) -> Option<I> {
+        self.child.take()
+    }
 }
 
 impl<'index, I> RQEIterator<'index> for Optional<'index, I>
