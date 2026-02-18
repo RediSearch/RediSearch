@@ -20,7 +20,7 @@ echo $OS
 source ${OS}.sh $MODE
 source install_cmake.sh $MODE
 
-# Install Python here since they're needed on all platforms and
+# Install Python here since it is needed on all platforms and
 # the installer doesn't rely on any platform-specific tools (e.g. the package manager)
 source install_python.sh
 
