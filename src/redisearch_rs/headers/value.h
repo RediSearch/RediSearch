@@ -284,7 +284,7 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  *
  * Panics if the value is not a `String` type.
  */
-char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
+const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
 
 /**
  * Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
