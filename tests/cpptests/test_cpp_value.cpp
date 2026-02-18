@@ -31,7 +31,7 @@ TEST_F(ValueTest, testBasic) {
   v = RSValue_NewString(str2, strlen(str2));
   ASSERT_EQ(RSValueType_String, RSValue_Type(v));
   uint32_t v_str_len;
-  char *v_str = RSValue_String_Get(v, &v_str_len);
+  const char *v_str = RSValue_String_Get(v, &v_str_len);
   ASSERT_EQ(strlen(str), v_str_len);
   ASSERT_EQ(0, strcmp(str, v_str));
   RSValue_DecrRef(v);
