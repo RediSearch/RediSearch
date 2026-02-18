@@ -271,6 +271,8 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   ASSERT_TRUE(check_key1 && check_key2 && check_key3 && check_key4);
 
   // Verify override DID happen for conflicting key (original key name nullified)
+  // Fails
+  // If we change RLookupKey_GetName to return .name instead of .name() (=> _name) it succeeds
   ASSERT_EQ(nullptr, RLookupKey_GetName(original_field2_key)) << "Original field2 key should have been nullified";
   ASSERT_NE(original_field2_key, check_key2) << "field2 should point to new key object";
 
