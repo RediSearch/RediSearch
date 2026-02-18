@@ -20,9 +20,8 @@ echo $OS
 source ${OS}.sh $MODE
 source install_cmake.sh $MODE
 
-# Install Rust and Python here since they're needed on all platforms and
+# Install Python here since they're needed on all platforms and
 # the installer doesn't rely on any platform-specific tools (e.g. the package manager)
-source install_rust.sh
 source install_python.sh
 
 git config --global --add safe.directory '*'
