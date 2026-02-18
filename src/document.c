@@ -892,7 +892,11 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   RLookup lookup_s = RLookup_New();
-  RLookupRow row = RLookupRow_New();
+  #ifdef ENABLE_ASSERT
+    RLookupRow row = RLookupRow_New(&lookup_s);
+  #else
+    RLookupRow row = RLookupRow_New();
+  #endif
   RSValue *rv = NULL;
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);

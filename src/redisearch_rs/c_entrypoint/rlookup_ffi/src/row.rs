@@ -10,6 +10,8 @@
 use c_ffi_utils::opaque::IntoOpaque;
 use ffi::RSValue;
 use libc::size_t;
+#[cfg(debug_assertions)]
+use rlookup::OpaqueRLookup;
 use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{CStr, c_char},
@@ -19,11 +21,23 @@ use std::{
 };
 use value::RSValueFFI;
 
-/// Returns a newly created [`RLookupRow`], which is moved into the caller.
-#[unsafe(no_mangle)]
-pub extern "C" fn RLookupRow_New<'a>() -> OpaqueRLookupRow<'a> {
-    RLookupRow::new(&RLookup::new()).into_opaque()
-}
+// /// Returns a newly created [`RLookupRow`], which is moved into the caller.
+// #[cfg(debug_assertions)]
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn RLookupRow_New_2a<'a>(
+//     lookup: *const OpaqueRLookup,
+// ) -> OpaqueRLookupRow<'a> {
+//     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+
+//     RLookupRow::new(lookup).into_opaque()
+// }
+
+// /// Returns a newly created [`RLookupRow`], which is moved into the caller.
+// #[cfg(not(debug_assertions))]
+// #[unsafe(no_mangle)]
+// pub extern "C" fn RLookupRow_New_3a<'a>() -> OpaqueRLookupRow<'a> {
+//     RLookupRow::new(&RLookup::new()).into_opaque()
+// }
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///

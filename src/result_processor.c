@@ -2015,7 +2015,13 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  */
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
-  RLookupRow translated = RLookupRow_New();
+
+  #ifdef ENABLE_ASSERT
+    RLookup _lookup = RLookup_New();
+    RLookupRow translated = RLookupRow_New(&_lookup);
+  #else
+    RLookupRow translated = RLookupRow_New();
+  #endif
   RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
       self->lookupCtx->sourceLookups[upstreamIndex], &translated,
       self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
@@ -2024,7 +2030,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
+
   // Coordinator case - no dmd - use docKey in rlookup
+
   const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
     RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));

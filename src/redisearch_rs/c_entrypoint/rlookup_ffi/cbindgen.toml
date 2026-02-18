@@ -34,6 +34,9 @@ exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr",
 "RLookupKeyHeader" = "RLookupKey"
 "RLookupRow_RSValueFFI" = "RLookupRow"
 "RSSortingVector_RSValueFFI" = "RSSortingVector"
+"RLookup_WriteKey" = "MangeBange"
+"RLookupRow_New_2a" = "RLookupRow_New_2b"
+"RLookupRow_New_3a" = "RLookupRow_New_3b"
 
 [defines]
 # Remap this rust cfg to the C #define also set by CMake for debug builds.
