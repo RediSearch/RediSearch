@@ -23,8 +23,9 @@ enum RsStringKind {
 ///
 /// # Safety
 ///
-/// - `ptr` must not be NULL and must point to a valid string of `len` size.
-/// - The string pointed to by `ptr`/`len` must be nul-terminated.
+/// - `ptr` must not be NULL and must point to a valid c-string of `len` size.
+/// - The size determined by `len` excludes the nul-terminator.
+/// - A nul-terminator is expected in memory at `ptr+len`.
 pub struct RsString {
     ptr: *const c_char,
     len: u32,
@@ -57,8 +58,9 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
-    /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
+    /// 1. `ptr` must not be NULL and must point to a valid c-string of `len` size.
+    /// 2. The size determined by `len` excludes the nul-terminator.
+    /// 3. A nul-terminator is expected in memory at `ptr+len`.
     pub const unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
         Self {
             ptr,
@@ -72,8 +74,9 @@ impl RsString {
     /// # Safety
     ///
     /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
-    /// 2. The string pointed to by `ptr`/`len` must be nul-terminated.
-    /// 3. The string pointed to by `ptr`/`len` must stay valid for as long as
+    /// 2. The size determined by `len` excludes the nul-terminator.
+    /// 3. A nul-terminator is expected in memory at `ptr+len`.
+    /// 4. The string pointed to by `ptr`/`len+1` must stay valid for as long as
     ///    this [`RsString`] is exists.
     pub const unsafe fn borrowed_string(ptr: *const c_char, len: u32) -> Self {
         Self {
