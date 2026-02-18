@@ -38,7 +38,6 @@ static GCDebugTask *GCDebugTaskCreate(GCContext *gc, RedisModuleBlockedClient* b
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
-  ret->policy = gcPolicy;
   switch (gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
@@ -132,15 +131,8 @@ void GCContext_Start(GCContext* gc) {
 }
 
 void GCContext_StopMock(GCContext* gc) {
-  if (gc->policy == GCPolicy_Fork) {
-    RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
-    WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
-  } else if (gc->policy == GCPolicy_Disk) {
-    RedisModule_FreeThreadSafeContext(((DiskGC *)gc->gcCtx)->ctx);
-    WeakRef_Release(((DiskGC *)gc->gcCtx)->index);
-  }
-  free(gc->gcCtx);
-  free(gc);
+  gc->callbacks.onTerm(gc->gcCtx);
+  rm_free(gc);
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {

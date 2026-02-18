@@ -47,7 +47,6 @@ typedef struct GCContext {
   void* gcCtx;
   RedisModuleTimerID timerID;  // Guarded by the GIL
   GCCallbacks callbacks;
-  uint32_t policy;  // GCPolicy_Fork or GCPolicy_Disk
 } GCContext;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);

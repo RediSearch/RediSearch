@@ -23,7 +23,6 @@ extern "C" {
  * Stats are maintained in disk info; we do not duplicate them here. */
 typedef struct DiskGC {
   WeakRef index;
-  RedisModuleCtx *ctx;
   struct timespec interval;
   volatile size_t deletedDocsFromLastRun;
 } DiskGC;

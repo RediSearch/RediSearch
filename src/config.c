@@ -349,13 +349,13 @@ CONFIG_GETTER(getMinStemLen) {
 
 // FORKGC_SLEEP_BEFORE_EXIT
 CONFIG_SETTER(setForkGCSleep) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcSleepBeforeExit, AC_F_GE0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSchedule.forkGcSleepBeforeExit, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGCSleep) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%zu", config->gcConfigParams.forkGc.forkGcSleepBeforeExit);
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcSchedule.forkGcSleepBeforeExit);
 }
 
 // MAXDOCTABLESIZE
@@ -817,35 +817,35 @@ CONFIG_GETTER(getGcScanSize) {
 
 // FORK_GC_RUN_INTERVAL
 CONFIG_SETTER(setForkGcInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRunIntervalSec, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSchedule.forkGcRunIntervalSec, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSchedule.forkGcRunIntervalSec);
 }
 
 // FORK_GC_CLEAN_THRESHOLD
 CONFIG_SETTER(setForkGcCleanThreshold) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcCleanThreshold, 0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSchedule.forkGcCleanThreshold, 0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcCleanThreshold);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSchedule.forkGcCleanThreshold);
 }
 
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRetryInterval, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSchedule.forkGcRetryInterval, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRetryInterval);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSchedule.forkGcRetryInterval);
 }
 
 // UNION_ITERATOR_HEAP
@@ -872,15 +872,15 @@ CONFIG_GETTER(getCursorMaxIdle) {
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
-  config->gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = 1;
+  config->gcConfigParams.gcSchedule.forkGCCleanNumericEmptyNodes = 1;
   return REDISMODULE_OK;
 }
 
-CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.gcSchedule.forkGCCleanNumericEmptyNodes, 0)
 
 // _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
-CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
-CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.gcSchedule.forkGCCleanNumericEmptyNodes)
+CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.gcSchedule.forkGCCleanNumericEmptyNodes, 0)
 
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -1872,7 +1872,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSchedule.forkGcCleanThreshold)
     )
   )
 
@@ -1881,7 +1881,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRetryInterval)
     )
   )
 
@@ -1890,7 +1890,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSchedule.forkGcRunIntervalSec)
     )
   )
 
@@ -1899,7 +1899,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-sleep-before-exit", 0,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSchedule.forkGcSleepBeforeExit)
     )
   )
 
