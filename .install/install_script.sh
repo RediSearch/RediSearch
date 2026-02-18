@@ -37,3 +37,7 @@ source install_rust.sh
 source install_python.sh
 
 git config --global --add safe.directory '*'
+
+# make sure submodules are initialized
+git submodule sync --recursive
+git submodule update --init --recursive
