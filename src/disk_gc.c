@@ -29,14 +29,14 @@ static int periodicCb(void *privdata, bool force) {
     return 1;
   }
 
-  if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  size_t num_docs_to_clean = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
+  if (!force && num_docs_to_clean < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return 1;
   }
 
   SearchDisk_RunGC(sp->diskSpec);
 
-  size_t num_docs_to_clean = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
   IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)num_docs_to_clean);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
