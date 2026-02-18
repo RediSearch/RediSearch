@@ -82,7 +82,7 @@ where
     /// Wrapper around [`TimeoutContext::reset_timeout`] to reset the timeout counter.
     /// In case no timeout is enforced it will just return `Ok(())`.
     #[inline(always)]
-    fn reset_timeout(&mut self) {
+    const fn reset_timeout(&mut self) {
         if let Some(ctx) = self.timeout_ctx.as_mut() {
             ctx.reset_counter();
         }
