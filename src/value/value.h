@@ -175,22 +175,20 @@ RSValue *RSValue_NewNumberFromInt64(int64_t ii);
 RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
 
 /**
- * Creates an RSValueMap structure with heap-allocated space for entries.
+ * Creates a heap-allocated RSValueMap structure with space for entries.
  * The map entries are uninitialized and must be set using RSValueMap_SetEntry.
- * Note: This returns a struct by value, not a pointer, but the struct
- * points to the heap allocation.
  * @param len The number of entries to allocate space for
- * @return An RSValueMap struct with heap-allocated but uninitialized entries
+ * @return A pointer to a heap-allocated RSValueMap with uninitialized entries
  */
-RSValueMap RSValueMap_AllocUninit(uint32_t len);
+RSValueMap *RSValueMap_AllocUninit(uint32_t len);
 
 /**
  * Creates a heap-allocated RSValue of type RSValueType_Map from an RSValueMap.
- * Takes ownership of the map structure and all its entries.
- * @param map The RSValueMap to wrap (ownership is transferred)
+ * Takes ownership of the map structure and all its entries. Frees the RSValueMap pointer.
+ * @param map The RSValueMap pointer to wrap (ownership is transferred, pointer is freed)
  * @return A pointer to a heap-allocated RSValue of type RSValueType_Map
  */
-RSValue *RSValue_NewMap(RSValueMap map);
+RSValue *RSValue_NewMap(RSValueMap *map);
 
 /**
  * Creates a heap-allocated RSValue Trio from three RSValues.
