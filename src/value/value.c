@@ -349,7 +349,7 @@ double RSValue_Number_Get(const RSValue *v) {
 }
 
 // String getters/setters
-char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
+const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
   RS_ASSERT(v && v->_t == RSValueType_String);
   if(lenp) {
     *lenp = v->_strval.len;
