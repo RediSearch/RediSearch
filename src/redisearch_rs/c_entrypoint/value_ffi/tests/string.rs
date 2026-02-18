@@ -51,6 +51,7 @@ unsafe fn drop_value(ptr: *mut RsValue) {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn new_string_creates_rm_alloc_string() {
     let (ptr, len) = rm_alloc_cstring("hello");
     let value = unsafe { RSValue_NewString(ptr, len) };
@@ -171,6 +172,7 @@ fn string_ptr_len_returns_null_for_non_string() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn set_string_replaces_value_with_rm_alloc_string() {
     let value = RSValue_NewNumber(42.0);
 
