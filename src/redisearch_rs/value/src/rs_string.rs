@@ -133,7 +133,7 @@ impl RsString {
         #[cfg(debug_assertions)]
         assert!(
             self.guaranteed_nul_terminated,
-            "as_ptr_len_safe() called on possibly non-nul-terminated string"
+            "as_ptr_len_checked() called on possibly non-nul-terminated string"
         );
         (self.ptr, self.len)
     }
@@ -155,7 +155,7 @@ impl RsString {
         #[cfg(debug_assertions)]
         assert!(
             self.guaranteed_nul_terminated,
-            "as_bytes_safe() called on possibly non-nul-terminated string"
+            "as_bytes_checked() called on possibly non-nul-terminated string"
         );
 
         // SAFETY: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
