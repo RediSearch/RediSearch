@@ -527,7 +527,7 @@ private:
     // --- ID Allocation ---
     // nextId_: Next fresh ID to allocate (monotonically increasing).
     //          Only used when holes_ is empty. After deletions, nextId_ > curElementCount_.
-    std::atomic<idType> nextId_{0};
+    idType nextId_{0};
     mutable std::mutex holesMutex_; // Protects holes_
     // holes_: Recycled IDs from deleted elements. Populated in deleteVector().
     vecsim_stl::vector<idType> holes_;
@@ -590,8 +590,29 @@ private:
      * @brief Grow both idToMetaData and nodeLocks_ by blockSize.
      *
      * Called when capacity is full before allocating a new ID.
+     * Uses double-checked locking: re-checks if growth is still needed after
+     * acquiring metadataMutex_ to avoid redundant growth from concurrent callers.
+     *
+     * @param triggeringId The ID that triggered the growth request. Growth is
+     *                     skipped if this ID is already within current capacity.
      */
-    void growByBlock();
+    void growByBlock(idType triggeringId);
+
+    /**
+     * @brief Shrink both idToMetaData and nodeLocks_ by blockSize.
+     *
+     * Called when there's excess capacity (e.g., after many deletions).
+     * Uses double-checked locking: re-checks if shrinking is still safe after
+     * acquiring metadataMutex_ to avoid unsafe shrinking from concurrent callers.
+     *
+     * Shrinking is only performed if:
+     * - Current capacity >= blockSize
+     * - nextId_ <= (maxElements_ - blockSize) (at least one full unused block at the tail)
+     *
+     * This allows shrinking to zero capacity when the index is truly empty
+     * (nextId_ == 0 and current capacity == blockSize).
+     */
+    void shrinkByBlock();
 
     /**
      * @brief Initialize metadata and lock for an element.
@@ -990,16 +1011,54 @@ template <typename DataType, typename DistType>
 bool HNSWDiskIndex<DataType, DistType>::isCapacityFull() const {
     // Capacity is full when we have no holes and nextId_ >= maxElements_
     std::lock_guard<std::mutex> lock(holesMutex_);
-    return holes_.empty() && nextId_.load(std::memory_order_relaxed) >= maxElements_.load(std::memory_order_relaxed);
+    return holes_.empty() && nextId_ >= maxElements_.load(std::memory_order_relaxed);
 }
 
 template <typename DataType, typename DistType>
-void HNSWDiskIndex<DataType, DistType>::growByBlock() {
+void HNSWDiskIndex<DataType, DistType>::growByBlock(idType triggeringId) {
     std::unique_lock<std::shared_mutex> metaLock(metadataMutex_);
+
+    // Double-check after acquiring lock: another thread may have already grown capacity
     size_t currentMax = maxElements_.load(std::memory_order_relaxed);
+    if (triggeringId < currentMax) {
+        return; // Capacity already sufficient
+    }
+
     size_t newCapacity = currentMax + this->blockSize;
 
     // Pre-allocate idToMetaData and nodeLocks_ to avoid frequent reallocations
+    idToMetaData.resize(newCapacity);
+    nodeLocks_.resize(newCapacity);
+
+    maxElements_.store(newCapacity, std::memory_order_release);
+}
+
+template <typename DataType, typename DistType>
+void HNSWDiskIndex<DataType, DistType>::shrinkByBlock() {
+    std::unique_lock<std::shared_mutex> metaLock(metadataMutex_);
+    std::lock_guard<std::mutex> holesLock(holesMutex_);
+
+    size_t currentMax = maxElements_.load(std::memory_order_relaxed);
+    if (currentMax == 0) {
+        return; // Another thread may have already shrunk to zero.
+    }
+    assert(currentMax % this->blockSize == 0 && "shrinkByBlock: capacity must be block-aligned");
+    assert(currentMax >= this->blockSize && "shrinkByBlock: non-zero capacity must be at least one block");
+
+    // Double-check after acquiring lock: ensure we still have enough unused capacity
+    // Only shrink if we have at least one full block of unused capacity at the end.
+    // Use subtraction to avoid overflow in (nextId + blockSize).
+    // Note: shrinking to zero capacity is allowed when index is truly empty.
+    // Hold holesMutex_ while reading nextId_ and shrinking to avoid racing allocateId(),
+    // which increments nextId_ under holesMutex_.
+    size_t nextIdValue = nextId_;
+    if (nextIdValue > currentMax - this->blockSize) {
+        return; // Not safe to shrink - IDs might be in use or about to be used
+    }
+
+    size_t newCapacity = currentMax - this->blockSize;
+
+    // Shrink idToMetaData and nodeLocks_ to release memory
     idToMetaData.resize(newCapacity);
     nodeLocks_.resize(newCapacity);
 
@@ -1032,7 +1091,7 @@ idType HNSWDiskIndex<DataType, DistType>::allocateId() {
     // Call growByBlock() outside of holesMutex_ to avoid nested lock acquisition
     // (growByBlock acquires metadataMutex_ exclusively)
     if (needGrow) {
-        growByBlock();
+        growByBlock(newId);
     }
     return newId;
 }
@@ -1062,6 +1121,8 @@ idType HNSWDiskIndex<DataType, DistType>::allocateIdAndStoreVector(const void* q
 template <typename DataType, typename DistType>
 void HNSWDiskIndex<DataType, DistType>::recycleId(idType id) {
     // TODO(delete PR) [MOD-13172]: Smarter hole management (if the id is last, also trim any holes from the left)
+    // NOTE: If recycleId() starts triggering shrinkByBlock(), ensure holes_ does not retain
+    // IDs >= new capacity after shrinking. Otherwise allocateId() may pop an out-of-bounds ID.
     std::lock_guard<std::mutex> lock(holesMutex_);
     holes_.push_back(id);
 }

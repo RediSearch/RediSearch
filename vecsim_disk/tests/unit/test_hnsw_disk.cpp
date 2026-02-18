@@ -870,6 +870,77 @@ TEST_F(HNSWDiskTest, GrowByBlockMultipleTimes) {
     EXPECT_EQ(index->testGetMaxElements(), firstCapacity * 2);
 }
 
+TEST_F(HNSWDiskTest, AllocateIdConcurrentSingleBlockGrowth) {
+    TestIndex<float, float> index(DIM);
+
+    constexpr size_t numThreads = 64;
+    std::barrier startBarrier(static_cast<std::ptrdiff_t>(numThreads));
+    std::vector<idType> allocatedIds(numThreads, INVALID_ID);
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
+
+    for (size_t i = 0; i < numThreads; i++) {
+        threads.emplace_back([&, i]() {
+            startBarrier.arrive_and_wait();
+            allocatedIds[i] = index->testAllocateId();
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    std::set<idType> uniqueIds(allocatedIds.begin(), allocatedIds.end());
+    EXPECT_EQ(uniqueIds.size(), numThreads);
+    EXPECT_EQ(*uniqueIds.begin(), 0);
+    EXPECT_EQ(*uniqueIds.rbegin(), numThreads - 1);
+    EXPECT_EQ(index->testGetNextId(), numThreads);
+
+    // All concurrent allocations should fit in one initial block growth.
+    EXPECT_EQ(index->testGetMaxElements(), 1024);
+}
+
+TEST_F(HNSWDiskTest, ShrinkByBlockCoreBehavior) {
+    TestIndex<float, float> index(DIM);
+
+    // First allocation grows to one block.
+    index->testAllocateId();
+    EXPECT_EQ(index->testGetMaxElements(), 1024);
+
+    // Fill the first block so nextId reaches the second block boundary.
+    for (size_t i = 1; i < 1024; i++) {
+        index->testAllocateId();
+    }
+    EXPECT_EQ(index->testGetNextId(), 1024);
+
+    // Grow to two blocks while keeping exactly one full unused block at the tail.
+    index->testGrowByBlock(1024);
+    EXPECT_EQ(index->testGetMaxElements(), 2048);
+
+    // Exact boundary (nextId + blockSize == currentMax) should allow one shrink.
+    index->testShrinkByBlock();
+    EXPECT_EQ(index->testGetMaxElements(), 1024);
+    EXPECT_EQ(index->testGetIdToMetaDataSize(), 1024);
+    EXPECT_EQ(index->testGetNodeLocksSize(), 1024);
+
+    // Empty index with a single pre-allocated block should shrink to zero.
+    TestIndex<float, float> emptyIndex(DIM);
+    emptyIndex->testGrowByBlock(0);
+    EXPECT_EQ(emptyIndex->testGetMaxElements(), 1024);
+    EXPECT_EQ(emptyIndex->testGetNextId(), 0);
+
+    emptyIndex->testShrinkByBlock();
+    EXPECT_EQ(emptyIndex->testGetMaxElements(), 0);
+    EXPECT_EQ(emptyIndex->testGetIdToMetaDataSize(), 0);
+    EXPECT_EQ(emptyIndex->testGetNodeLocksSize(), 0);
+
+    // Additional concurrent/no-op safety: shrinking again at zero must remain a no-op.
+    emptyIndex->testShrinkByBlock();
+    EXPECT_EQ(emptyIndex->testGetMaxElements(), 0);
+    EXPECT_EQ(emptyIndex->testGetIdToMetaDataSize(), 0);
+    EXPECT_EQ(emptyIndex->testGetNodeLocksSize(), 0);
+}
+
 // =============================================================================
 // Graph Search Algorithm Tests
 // =============================================================================

@@ -25,7 +25,10 @@
     GraphNodeType testGetEntryPointState() const { return safeGetEntryPointState(); }                                  \
     void testTryUpdateEntryPoint(idType id, size_t level) { replaceEntryPoint(id, level); }                            \
     void testReplaceEntryPoint() { replaceEntryPointOnDelete(); }                                                      \
-    idType testGetNextId() const { return nextId_.load(); }                                                            \
+    idType testGetNextId() const {                                                                                     \
+        std::lock_guard<std::mutex> lock(holesMutex_);                                                                 \
+        return nextId_;                                                                                                \
+    }                                                                                                                  \
     size_t testGetHolesCount() const {                                                                                 \
         std::lock_guard<std::mutex> lock(holesMutex_);                                                                 \
         return holes_.size();                                                                                          \
@@ -173,7 +176,8 @@
         initElementMetadata(id, label, level);                                                                         \
     }                                                                                                                  \
     size_t testGetMaxElements() const { return maxElements_.load(std::memory_order_relaxed); }                         \
-    void testGrowByBlock() { growByBlock(); }                                                                          \
+    void testGrowByBlock(idType triggeringId) { growByBlock(triggeringId); }                                           \
+    void testShrinkByBlock() { shrinkByBlock(); }                                                                      \
     size_t testGetNodeLocksSize() const { return nodeLocks_.size(); }                                                  \
     size_t testGetIdToMetaDataSize() const { return idToMetaData.size(); }                                             \
                                                                                                                        \
