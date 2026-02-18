@@ -208,6 +208,9 @@ impl<'index> TermReader<'index> for TermIndexReader<'index> {
     }
 }
 
+/// Type alias for the Term iterator type used in the FFI wrapper.
+type TermIterator<'index> = Term<'index, TermIndexReader<'index>, FieldExpirationChecker>;
+
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
 /// Handles both the standard variable-length encoding ([`DocIdsOnly`]) and the
@@ -588,14 +591,15 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
     RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR, iterator)
 }
 
-/// Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
+/// Gets the flags of the underlying IndexReader from an inverted index iterator.
 ///
 /// # Safety
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
 /// 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
-/// 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+/// 4. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
+/// 5. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
@@ -611,7 +615,7 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
 
     match it_ref.base.type_ {
         ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
-            // SAFETY: the numeric iterator is in Rust.
+            // SAFETY: 2. the numeric iterator is in Rust.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast())
             };
@@ -624,10 +628,17 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             };
             wrapper.inner.flags()
         }
+        ffi::IteratorType_INV_IDX_TERM_ITERATOR => {
+            // SAFETY: 4. the term iterator is in Rust.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<TermIterator<'static>>::ref_from_header_ptr(it.cast())
+            };
+            wrapper.inner.reader().flags()
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 4.
+            // SAFETY: 5.
             let reader_ref = unsafe { &*reader };
             reader_ref.flags()
         }
@@ -760,6 +771,9 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
                 _ => panic!("Mismatched index types for wildcard swap_index"),
             }
         }
+        ffi::IteratorType_INV_IDX_TERM_ITERATOR => {
+            panic!("SwapIndex is not meant to be used with term iterators");
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
@@ -831,8 +845,6 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
 
 /// Creates a new term inverted index iterator for querying term fields.
 ///
-/// This is the Rust implementation of the C `NewInvIndIterator_TermQuery`.
-///
 /// # Parameters
 ///
 /// * `idx` - Pointer to the inverted index to query.
@@ -859,7 +871,7 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
 #[allow(improper_ctypes_definitions)] // `field_mask_or_index` contains `t_fieldMask` (u128)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewInvIndIterator_TermQuery_Rs(
+pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
     field_mask_or_index: FieldMaskOrIndex,

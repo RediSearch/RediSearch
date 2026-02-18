@@ -96,14 +96,15 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx,
                                               double range_max);
 
 /**
- * Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
+ * Gets the flags of the underlying IndexReader from an inverted index iterator.
  *
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
  * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
  * 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
- * 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+ * 4. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
+ * 5. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
  *
  * # Returns
  *
@@ -197,8 +198,6 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx,
 /**
  * Creates a new term inverted index iterator for querying term fields.
  *
- * This is the Rust implementation of the C `NewInvIndIterator_TermQuery`.
- *
  * # Parameters
  *
  * * `idx` - Pointer to the inverted index to query.
@@ -224,11 +223,11 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx,
  * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
-QueryIterator *NewInvIndIterator_TermQuery_Rs(const InvertedIndex *idx,
-                                              const RedisSearchCtx *sctx,
-                                              FieldMaskOrIndex field_mask_or_index,
-                                              RSQueryTerm *term,
-                                              double weight);
+QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx,
+                                           const RedisSearchCtx *sctx,
+                                           FieldMaskOrIndex field_mask_or_index,
+                                           RSQueryTerm *term,
+                                           double weight);
 
 /**
  * Creates a new metric iterator sorted by ID.

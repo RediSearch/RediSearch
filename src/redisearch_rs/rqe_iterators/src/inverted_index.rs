@@ -545,6 +545,18 @@ where
         }
     }
 
+    /// Get a reference to the underlying reader.
+    pub const fn reader(&self) -> &R {
+        &self.it.reader
+    }
+
+    /// Get a mutable reference to the underlying reader.
+    ///
+    /// Used by the FFI layer to perform index swaps for revalidation testing.
+    pub const fn reader_mut(&mut self) -> &mut R {
+        &mut self.it.reader
+    }
+
     /// Check if the iterator should abort revalidation.
     ///
     /// The term's inverted index may have been garbage-collected and
