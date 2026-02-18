@@ -33,7 +33,11 @@ QueryIterator const *GetNotIteratorChild(QueryIterator *const it);
 void SetNotIteratorChild(QueryIterator *it, QueryIterator* child);
 QueryIterator *TakeNotIteratorChild(QueryIterator *it);
 
+// Setter used only for cpp unit tests of NOT iterator.
+// Should be removed once we port+swap the optimized version of NOT iterator.
 void _SetNotIteratorOptimizedWildcard(QueryIterator *it, QueryIterator* wcii);
+// Getter used only for cpp unit tests of NOT iterator.
+// Should be removed once we port+swap the optimized version of NOT iterator.
 QueryIterator const *_GetNotIteratorOptimizedWildcard(QueryIterator *it);
 
 #ifdef __cplusplus
