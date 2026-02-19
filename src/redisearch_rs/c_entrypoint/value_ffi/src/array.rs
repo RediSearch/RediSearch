@@ -22,7 +22,10 @@ use value::{Array, RsValue, shared::SharedRsValue};
 pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut RsValue {
     let array: Vec<*mut RsValue> = vec![std::ptr::null_mut(); len as usize];
 
-    Box::into_raw(array.into_boxed_slice()) as *mut _
+    // `Box::into_raw` returns a `*mut [*mut _]` here, `cast_mut()` can't convert that to a
+    // `*mut *mut _`. `as_mut_ptr()` can, but that is nightly only still. Keeping an `as`
+    // cast for now.
+    Box::into_raw(array.into_boxed_slice()) as *mut *mut RsValue
 }
 
 /// Creates a heap-allocated array [`RsValue`] from existing values.
@@ -51,7 +54,7 @@ pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
 
     let value = RsValue::Array(Array::new(array));
     let shared = SharedRsValue::new(value);
-    shared.into_raw() as *mut _
+    shared.into_raw().cast_mut()
 }
 
 /// Returns the number of elements in an array [`RsValue`].
@@ -94,7 +97,7 @@ pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RsValue, index: u32) ->
     if let RsValue::Array(array) = value {
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let shared = &array[index as usize];
-        shared.as_ptr() as *mut _
+        shared.as_ptr().cast_mut()
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
         panic!("Expected 'Array' type, got '{}'", value.variant_name())
