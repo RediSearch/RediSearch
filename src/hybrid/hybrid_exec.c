@@ -525,6 +525,15 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     return REDISMODULE_ERR;
   }
 
+  // Release the spec lock after pipeline building but BEFORE depleters try to
+  // acquire their locks.
+  // This prevents a deadlock caused by writer-preference rwlock: if a writer
+  // arrives while we hold the read lock, the depleters (trying to acquire
+  // read locks) would be blocked forever.
+  if (depleteInBackground) {
+    RedisSearchCtx_UnlockSpec(sctx);
+  }
+
   // Record pipeline build time if profiling is enabled
   if (isProfile) {
     hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
@@ -777,12 +786,16 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
+  // Acquire read lock before building pipeline (matching AREQ_Execute_Callback)
+  RedisSearchCtx_LockSpecRead(sctx);
+
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
   } else if (QueryError_HasError(&status)) {
     QueryError_ReplyAndClear(outctx, &status);
   }
+
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientHybridCtx_destroy(BCHCtx);
