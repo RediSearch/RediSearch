@@ -110,13 +110,13 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @brief Run a GC compaction cycle on the disk index
  *
  * Synchronously runs a full compaction on the inverted index column family,
- * removing entries for deleted documents. If callbacks are provided, applies
- * the compaction delta to update in-memory structures.
+ * removing entries for deleted documents. Applies the compaction delta to
+ * update in-memory structures via FFI calls to the provided C IndexSpec.
  *
- * @param index Pointer to the index
- * @param callbacks Callbacks for synchronization and memory updates (can be NULL for legacy behavior)
+ * @param index Pointer to the disk index
+ * @param spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, const SearchDisk_CompactionCallbacks *callbacks);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -358,21 +358,3 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
  * @param ctx Redis module info context
  */
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
-
-// Compaction Callbacks API
-
-// Forward declaration for IndexSpec (defined in spec.h)
-typedef struct IndexSpec IndexSpec;
-
-/**
- * @brief Create a populated CompactionCallbacks struct for an IndexSpec
- *
- * Creates a callbacks struct with function pointers for:
- * - Write lock acquire/release
- * - Trie term document count updates
- * - Scoring stats updates
- *
- * @param sp Pointer to the IndexSpec
- * @return Populated CompactionCallbacks struct
- */
-SearchDisk_CompactionCallbacks SearchDisk_CreateCompactionCallbacks(IndexSpec* sp);

@@ -81,11 +81,11 @@ typedef struct {
  * @return true if the document is not deleted or expired, false otherwise.
  */
 static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, const RSDocumentMetadata **dmd) {
-  if (spec->diskCtx.spec) {
+  if (spec->diskSpec) {
     RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->ref_count = 1;
     // Start from checking the deleted-ids (in memory), then perform IO
-    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskCtx.spec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskCtx.spec, it->current->docId, diskDmd, &sctx->time.current);
+    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd, &sctx->time.current);
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -135,7 +135,7 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
 
     // Skip deleted documents (in-memory check, no IO)
     t_docId docId = it->current->docId;
-    if (SearchDisk_DocIdDeleted(spec->diskCtx.spec, docId)) {
+    if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
       continue;
     }
 
@@ -362,12 +362,12 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
 
   // Determine which Next function to use based on disk configuration
-  if (sctx->spec->diskCtx.spec &&
+  if (sctx->spec->diskSpec &&
       SearchDisk_IsAsyncIOSupported() &&
       SearchDisk_GetAsyncIOEnabled()) {
     // Create async pool and setup async I/O
     RedisSearchDiskAsyncReadPool asyncPool =
-        SearchDisk_CreateAsyncReadPool(sctx->spec->diskCtx.spec, MAX_ONGOING_READ_SIZE);
+        SearchDisk_CreateAsyncReadPool(sctx->spec->diskSpec, MAX_ONGOING_READ_SIZE);
 
     if (asyncPool) {
       // Async disk flow with buffering
@@ -844,9 +844,9 @@ typedef struct {
  */
 
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
-  if (self->loadopts.sctx->spec->diskCtx.spec) {
+  if (self->loadopts.sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskCtx.spec, SearchResult_GetDocumentMetadata(r)->id)) {
+    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
       SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }

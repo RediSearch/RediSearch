@@ -101,8 +101,8 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   size_t prevNumTerms = spec->stats.scoring.numTerms;
 
   while (entry != NULL) {
-    if (spec->diskCtx.spec) {
-      if (SearchDisk_IndexDocument(spec->diskCtx.spec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq)) {
+    if (spec->diskSpec) {
+      if (SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq)) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
     } else {
@@ -195,7 +195,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
     RS_ASSERT(cur->doc);
 
-    if (spec->diskCtx.spec) {
+    if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
       uint32_t oldLen = 0;
@@ -206,7 +206,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
-      t_docId docId = SearchDisk_PutDocument(spec->diskCtx.spec, key, len,
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
         cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
       if (oldLen > 0) {
