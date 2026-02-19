@@ -184,7 +184,10 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
 
     let (ptr, len) = loop {
         match value {
-            RsValue::String(str) => break str.as_ptr_len(),
+            RsValue::String(str) => {
+                let (ptr, len) = str.as_ptr_len();
+                break (ptr, len as usize);
+            }
             RsValue::RedisString(str) => break str.as_ptr_len(),
             RsValue::Ref(ref_val) => value = ref_val.value(),
             RsValue::Trio(trio) => value = trio.left().value(),
@@ -194,7 +197,7 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
 
     // Safety: ensured by caller (2.)
     if let Some(len_ptr) = unsafe { len_ptr.as_mut() } {
-        *len_ptr = len as usize;
+        *len_ptr = len;
     }
     ptr
 }
