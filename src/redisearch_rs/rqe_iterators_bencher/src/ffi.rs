@@ -340,7 +340,7 @@ impl InvertedIndex {
     ) {
         let record = RSIndexResult::with_term(
             term,
-            inverted_index::RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+            inverted_index::RSOffsetSlice::from_slice(offsets),
             doc_id,
             field_mask as u128,
             freq,

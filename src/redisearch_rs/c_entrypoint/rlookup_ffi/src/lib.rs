@@ -10,4 +10,4 @@
 mod lookup;
 pub mod row;
 
-pub use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
+pub use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};

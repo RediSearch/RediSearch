@@ -23,6 +23,7 @@
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
 #include "info/info_redis/block_client.h"
+#include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
@@ -41,6 +42,32 @@ typedef struct {
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
+
+// Helper functions for reply state management (used in Run in Threads mode)
+
+// Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
+// false if already claimed or replied (state was REPLYING or REPLIED).
+static inline bool AREQ_TryClaimReply(AREQ *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+// Mark reply as complete. Must only be called after successfully claiming reply.
+static inline void AREQ_MarkReplied(AREQ *req) {
+  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
+}
+
+// Try to claim reply ownership, send error reply, and mark as replied.
+// Returns true if we replied, false if someone else owns the reply.
+static inline bool AREQ_TryReplyWithError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
+  if (!AREQ_TryClaimReply(req)) {
+    return false;
+  }
+  QueryError_ReplyAndClear(ctx, status);
+  AREQ_MarkReplied(req);
+  return true;
+}
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -330,6 +357,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     .timeoutPolicy = req->reqConfig.timeoutPolicy,
     .timeout = &req->sctx->time.timeout,
     .oomPolicy = req->reqConfig.oomPolicy,
+    .skipTimeoutChecks = req->sctx->time.skipTimeoutChecks,
   };
   startPipelineCommon(&ctx, rp, results, r, rc);
 
@@ -402,7 +430,20 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
     bool cursor_done = false;
 
+    // Check timeout before starting pipeline
+    if (AREQ_TimedOut(req)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      cursor_done = true;
+      goto done_2_err;
+    }
+
     startPipeline(req, rp, &results, &r, &rc);
+
+    if (!AREQ_TryClaimReply(req)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      cursor_done = true;
+      goto done_2_err;
+    }
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
@@ -410,12 +451,14 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(qctx->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
+      AREQ_MarkReplied(req);
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       // Track timeout error in global statistics
       QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
+      AREQ_MarkReplied(req);
       goto done_2_err;
     }
 
@@ -470,6 +513,9 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
+    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
+    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
+
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
@@ -518,6 +564,8 @@ done_2:
       RedisModule_Reply_ArrayEnd(reply);
     }
 
+    AREQ_MarkReplied(req);
+
 done_2_err:
     finishSendChunk(req, results, &r, cursor_done);
 
@@ -545,7 +593,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   if (rc == RS_RESULT_TIMEDOUT) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
-    RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
     // Non-fatal error
@@ -577,19 +625,34 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     SearchResult **results = NULL;
     bool cursor_done = false;
 
+    // Check timeout before starting pipeline
+    if (AREQ_TimedOut(req)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      cursor_done = true;
+      goto done_3_err;
+    }
+
     startPipeline(req, rp, &results, &r, &rc);
+
+    if (!AREQ_TryClaimReply(req)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      cursor_done = true;
+      goto done_3_err;
+    }
 
     if (ShouldReplyWithError(QueryError_GetCode(rp->parent->err), req->reqConfig.timeoutPolicy, IsProfile(req))) {
       // Track errors in global statistics
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(rp->parent->err), 1, !IsInternal(req));
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
+      AREQ_MarkReplied(req);
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       // Track errors in global statistics
       QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
       ReplyWithTimeoutError(reply);
       cursor_done = true;
+      AREQ_MarkReplied(req);
       goto done_3_err;
     }
 
@@ -654,6 +717,9 @@ done_3:
     // <error>
     _replyWarnings(req, reply, rc);
 
+    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
+    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
+
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
@@ -680,6 +746,8 @@ done_3:
       }
       RedisModule_Reply_ArrayEnd(reply);
     }
+
+    AREQ_MarkReplied(req);
 
 done_3_err:
     finishSendChunk(req, results, &r, cursor_done);
@@ -847,7 +915,7 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
-  AREQ_Free(req);
+  AREQ_DecrRef(req);
 }
 
 static blockedClientReqCtx *blockedClientReqCtx_New(AREQ *req,
@@ -868,12 +936,15 @@ static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, AREQ *re
 }
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
-  if (BCRctx->req) {
-    AREQ_Free(BCRctx->req);
-  }
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
   RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
+
+  // Release our reference to the request.
+  // The request is shared with the timeout callback via BlockedQueryNode->privdata.
+  // Whichever releases last will free the AREQ.
+  AREQ_DecrRef(BCRctx->req);
+
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
 }
@@ -891,9 +962,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
-    // Notify the client that the query was aborted
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    QueryError_ReplyAndClear(outctx, &status);
+    AREQ_TryReplyWithError(req, outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -930,7 +1000,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  QueryError_ReplyAndClear(outctx, &status);
+  if (!AREQ_TryReplyWithError(req, outctx, &status)) {
+    // Timeout callback owns reply - just clear the error
+    QueryError_ClearError(&status);
+  }
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
@@ -959,7 +1032,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
     TimedOut_WithStatus(&sctx->time.timeout, status);
   }
 
@@ -1029,7 +1102,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     goto done;
   }
 
@@ -1045,7 +1118,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 done:
   if (rc != REDISMODULE_OK && *r) {
-    AREQ_Free(*r);
+    AREQ_DecrRef(*r);
     *r = NULL;
     if (thctx) {
       RedisModule_FreeThreadSafeContext(thctx);
@@ -1083,11 +1156,53 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   return REDISMODULE_OK;
 }
 
+// Timeout callback for AREQ execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (FAIL policy only).
+static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  AREQ *req = (AREQ *)node->privdata;
+  // Signal timeout to background thread
+  AREQ_SetTimedOut(req);
+
+  if (AREQ_TryClaimReply(req)) {
+    // We claimed it - reply with timeout error
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    AREQ_MarkReplied(req);
+  } else {
+    // Background thread owns reply - wait for it to finish if still in progress
+    while (atomic_load_explicit(&req->replyState, memory_order_acquire) == ReplyState_Replying) {
+      // Busy wait until background thread transitions to REPLIED
+    }
+  }
+
+  return REDISMODULE_OK;
+}
+
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, 0);
+
+    BlockedClientTimeoutCB timeoutCB = NULL;
+    int blockedClientTimeoutMS = 0;
+    // Determine timeout callback based on policy
+    if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      timeoutCB = QueryTimeoutFailCallback;
+      blockedClientTimeoutMS = r->reqConfig.queryTimeoutMS;
+    }
+
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, r, blockedClientTimeoutMS, timeoutCB);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
@@ -1168,7 +1283,7 @@ error:
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, GetNumShards_UnSafe() == 1);
 
   if (r) {
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
   }
 
   return QueryError_ReplyAndClear(ctx, &status);
@@ -1185,12 +1300,12 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return NULL;
   }
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, AREQ_SearchCtx(r)->spec);
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
   CurrentThread_ClearIndexSpec();
   return ret;
 }
@@ -1213,6 +1328,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // update timeout for current cursor read
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
+  // Reset Reply state
+  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_release);
 
   if (!num) {
     num = req->cursorConfig.chunkSize;
@@ -1504,7 +1621,7 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 error:
   if (r) {
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
   }
   return QueryError_ReplyAndClear(ctx, &status);
 }

@@ -121,7 +121,7 @@ class FGCTest : public ::testing::Test {
 static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, "f1", strlen("f1"));
-  auto tix = TagIndex_Open(const_cast<FieldSpec *>(fs), CREATE_INDEX);
+  auto tix = TagIndex_Open(const_cast<FieldSpec *>(fs), CREATE_INDEX, NULL);
   size_t sz;
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), CREATE_INDEX, &sz);
   sctx->spec->stats.invertedSize += sz;
@@ -617,8 +617,8 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   const char *pp = IndexBlock_Data(secondLastBlock);
   FGC_Apply(fgc);
 
-  // We hadn't performed any changes to the last block prior to the fork.
-  ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
+  // We add new documents to the last block after the fork, so we expect the GC to deny it.
+  ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
   ASSERT_EQ(3, InvertedIndex_NumBlocks(iv));
 
   // The pointer to the last gc-block, received from the fork

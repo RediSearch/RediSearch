@@ -21,6 +21,10 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'dump_invidx').error().contains('wrong number of arguments')
         self.env.expect(debug_cmd()).error().contains('wrong number of arguments')
 
+    def testDebugNoIndex(self):
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
+        self.env.expect(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [
@@ -246,17 +250,17 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
 
     def testGCStopAndContinueSchedule(self):
-        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
     def testTTLcommands(self):
         num_indexes = len(self.env.cmd('FT._LIST'))
-        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'TTL', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
@@ -622,7 +626,7 @@ def testDebugScannerStatus(env: Env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerStatusError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND Index not found')
 
     # Test error handling
     # Giving invalid argument to debug scanner control command
@@ -780,14 +784,46 @@ class TestQueryDebugCommands(object):
         self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
 
     ######################## Main tests ########################
-    def StrictPolicy(self):
+    def TimeoutPolicyConstraints(self):
+        """
+        Test TIMEOUT_AFTER_N policy constraints for shard-level queries:
+        - ON_TIMEOUT RETURN: always supported
+        - ON_TIMEOUT FAIL: only supported without workers (WORKERS=0)
+        - ON_TIMEOUT RETURN-STRICT: never supported
+        """
         env = self.env
+        conn = getConnectionByEnv(env)
+
+        # Skip for cluster - these constraints only apply to shard-level queries
+        if env.isCluster():
+            return
+
+        # Get current workers count to determine expected behavior
+        workers = conn.execute_command(config_cmd(), 'GET', 'WORKERS')
+        if type(workers) == list:
+            workers = int(workers[1])
+        else:
+            workers = int(workers['WORKERS'])
+
+        # Test ON_TIMEOUT FAIL
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
 
-        with env.assertResponseError(contained="Timeout limit was reached"):
+        if workers > 0:
+            # With workers, ON_TIMEOUT FAIL is not supported with TIMEOUT_AFTER_N
+            with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0"):
+                runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+        else:
+            # Without workers, ON_TIMEOUT FAIL should work with TIMEOUT_AFTER_N
+            # The query should succeed and return a timeout error (not a parse error)
+            with env.assertResponseError(contained="Timeout limit was reached"):
+                runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Test ON_TIMEOUT RETURN-STRICT (never supported)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):
             runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
-        # restore the default policy
+        # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
     def SearchDebug(self):
@@ -809,7 +845,7 @@ class TestQueryDebugCommands(object):
         # with no sorter (dialect 4)
         self.QueryWithLimit(basic_debug_query + ["DIALECT", 4], timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
-        self.StrictPolicy()
+        self.TimeoutPolicyConstraints()
 
     def testSearchDebug(self):
         self.SearchDebug()
@@ -881,7 +917,7 @@ class TestQueryDebugCommands(object):
             res = env.cmd(*basic_debug_query, *debug_params)
             self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
 
-        self.StrictPolicy()
+        self.TimeoutPolicyConstraints()
 
     def testAggregateDebug(self):
         self.AggregateDebug()
@@ -1097,7 +1133,7 @@ def test_update_debug_scanner_config(env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerUpdateError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND Index not found')
 
 @skip(cluster=True)
 def test_yield_counter(env):

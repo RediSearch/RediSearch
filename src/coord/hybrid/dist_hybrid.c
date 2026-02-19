@@ -21,6 +21,8 @@
 #include "info/global_stats.h"
 #include "profile/profile.h"
 #include "dist_profile.h"
+#include "shard_window_ratio.h"
+#include "config.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -111,14 +113,26 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
 
 /**
  * Appends all VSIM-related arguments to MR command.
- * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER if present.
+ * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER
+ * if present.
+ *
+ * SHARD_K_RATIO is only valid for KNN queries, but this is validated during
+ * parsing - no validation is done here.
  *
  * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
  * @param vsimOffset - offset where VSIM keyword appears
+ * @param kArgIndex - output parameter for the index of the K value argument in
+ *        the built command (set to -1 if no KNN K argument found). Can be NULL.
  */
-static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int argc, int vsimOffset) {
+static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
+                                 int argc, int vsimOffset, int *kArgIndex) {
+  RS_LOG_ASSERT(kArgIndex, "kArgIndex must not be NULL");
+
+  // Initialize output parameter
+  *kArgIndex = -1;
+
   // Add VSIM keyword and field
   MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
   MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
@@ -148,9 +162,27 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
     if (vectorMethodOffset < argc - 2) {
       RedisModule_StringToLongLong(argv[vectorMethodOffset + 1], &methodNargs);
 
-      // Append method name, argument count, and all method arguments
-      for (int i = 0; i < methodNargs + 2; ++i) {
-        MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+      // Append method name (KNN/RANGE) and argument count
+      MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset]);     // KNN or RANGE
+      MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + 1]); // argument count
+
+      // Append method arguments
+      // Format for KNN: KNN <count> K <value> [EF_RUNTIME <value>]...
+      for (int i = 2; i < methodNargs + 2; ++i) {
+        size_t argLen;
+        const char *argStr = RedisModule_StringPtrLen(argv[vectorMethodOffset + i], &argLen);
+        bool kFound = (argLen == 1 && strncasecmp(argStr, "K", 1) == 0);
+
+        if (*kArgIndex == -1 && kFound && i + 1 < methodNargs + 2) {
+          // Found K keyword - append it and record position of the K value
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);  // K keyword
+          ++i;  // Move to K value
+          *kArgIndex = xcmd->num;  // Record position where K value will be appended
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);  // K value
+        } else {
+          // Regular argument - append as-is
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+        }
       }
     }
   }
@@ -193,7 +225,8 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams) {
+                            IndexSpec *sp, const VectorQuery *vq,
+                            size_t numShards) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -216,7 +249,17 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset);
+  int kArgIndex = -1;
+  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, &kArgIndex);
+
+  // Calculate and apply effective K for KNN queries if SHARD_K_RATIO is set
+  if (vq && vq->type == VECSIM_QT_KNN) {
+    double shardWindowRatio = vq->knn.shardWindowRatio;
+    if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO && numShards > 1) {
+      size_t effectiveK = calculateEffectiveK(vq->knn.k, shardWindowRatio, numShards);
+      modifyVsimKNN(xcmd, kArgIndex, effectiveK, vq->knn.k);
+    }
+  }
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
@@ -526,8 +569,9 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
-static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
-        RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
+static int HybridRequest_prepareForExecution(HybridRequest *hreq,
+        RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
+        size_t numShards, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
     hreq->profile = printDistHybridProfile;
@@ -598,7 +642,15 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, &hybridParams);
+    // Get the VectorQuery from the vector request's AST for SHARD_K_RATIO
+    // optimization
+    // Note: parsedVectorData is only set on shards, not on coordinator
+    // The coordinator has the VectorQuery in the AST after parsing
+    const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
+    const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
+                      ? vectorRequest->ast.root->vn.vq : NULL;
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
+                                 sp, vq, numShards);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -650,7 +702,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
-    int numShards = GetNumShards_UnSafe();
+    int numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
     cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
@@ -728,7 +780,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
     if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
+        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
         DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
         return;
@@ -748,7 +800,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
+    // Get numShards captured from main thread for thread-safe access
+    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }

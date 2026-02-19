@@ -28,6 +28,7 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "search_disk.h"
 #include "info/global_stats.h"
 #include "sorting_vector_rs.h"
 
@@ -477,7 +478,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
     case FLD_VAR_T_RMS:
       fdata->isMulti = 0;
       if (RedisModule_StringToDouble(field->text, &fdata->numeric) == REDISMODULE_ERR) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NOT_NUMERIC, "Invalid numeric value", ": '%s'",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", ": '%s'",
                                RedisModule_StringPtrLen(field->text, NULL));
         return -1;
       }
@@ -488,7 +489,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
         fdata->isMulti = 0;
         fdata->numeric = fast_float_strtod(field->strval, &end);
         if (*end) {
-          QueryError_SetCode(status, QUERY_ERROR_CODE_NOT_NUMERIC);
+          QueryError_SetCode(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID);
           return -1;
         }
       }
@@ -622,7 +623,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
 
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ATTR,
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_VECTOR_BLOB_SIZE_MISMATCH,
                            "Could not add vector with blob size", " %zu (expected size %zu)", fdata->vecLen,
                            fs->vectorOpts.expBlobSize);
     return -1;
@@ -657,7 +658,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       fdata->isMulti = 0;
       geohash = calcGeoHash(field->lon, field->lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                                field->lon, field->lat);
         return REDISMODULE_ERR;
       }
@@ -691,7 +692,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     }
     geohash = calcGeoHash(lon, lat);
     if (geohash == INVALID_GEOHASH) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
       return REDISMODULE_ERR;
     }
@@ -708,7 +709,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       }
       geohash = calcGeoHash(lon, lat);
       if (geohash == INVALID_GEOHASH) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Invalid geo coordinates", ": %f, %f",
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_GEO_COORDINATES_INVALID, "Invalid geo coordinates", ": %f, %f",
                         lon, lat);
         array_free(arr);
         fdata->arrNumeric = NULL;
@@ -758,18 +759,21 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX);
+  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX, ctx->spec->diskSpec);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;
   }
+
   if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
     tidx->suffix = NewTrieMap();
   }
 
-  ctx->spec->stats.invertedSize +=
-      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
-  ctx->spec->stats.numRecords++;
+  // TagIndex_Index handles both disk and memory modes internally
+  if (!TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
+    return -1;
+  }
   return 0;
 }
 
@@ -891,8 +895,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  RLookup lookup_s;
-  RLookupRow row = {0};
+  RLookup lookup_s = RLookup_New();
+  RLookupRow row = RLookupRow_New();
   RSValue *rv = NULL;
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);

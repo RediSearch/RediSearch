@@ -256,7 +256,7 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
     }
     if (timedout) {
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     }
     if (reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);

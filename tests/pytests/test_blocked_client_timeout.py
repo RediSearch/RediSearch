@@ -68,7 +68,8 @@ def wait_for_client_blocked(env, client_id, timeout=30):
     def check_fn():
         blocked = is_client_blocked(env, client_id)
         return blocked, {'client_id': client_id, 'blocked': blocked}
-    wait_for_condition(check_fn, f'Timeout waiting for client {client_id} to be blocked', timeout)
+    client_list = env.execute_command('CLIENT', 'LIST')
+    wait_for_condition(check_fn, f'Timeout waiting for client {client_id} to be blocked , list = {client_list}', timeout)
 
 
 def wait_for_client_unblocked(env, client_id, timeout=30):
@@ -77,6 +78,24 @@ def wait_for_client_unblocked(env, client_id, timeout=30):
         blocked = is_client_blocked(env, client_id)
         return not blocked, {'client_id': client_id, 'blocked': blocked}
     wait_for_condition(check_fn, f'Timeout waiting for client {client_id} to be unblocked', timeout)
+
+def get_query_client(conn, query, msg='Client for query not found'):
+    """Wait until a client hason a query and return its client id."""
+    output = conn.execute_command('CLIENT', 'LIST')
+    clients = parse_client_list(output)
+    for client in clients:
+        if client['cmd'] == query and 'b' in client['flags']:
+            return client['id']
+    return None
+
+def wait_for_blocked_query_client(env, query, msg='Client for query not found', timeout=30):
+    """Wait for a client to become blocked on a query."""
+    with TimeLimit(timeout, msg):
+        while True:
+            client_id = get_query_client(env, query, msg)
+            if client_id:
+                return client_id
+            time.sleep(0.1)
 
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
@@ -126,14 +145,14 @@ class TestCoordinatorTimeout:
             'Timeout while waiting for shard to pause'
         )
 
-        blocked_client_id = env.cmd('CLIENT', 'ID')
-
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
             args=(env, query_args),
             daemon=True
         )
         t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, query_args[0], f'Client for query {query_args[0]} not found')
 
         wait_for_condition(
             lambda: (getWorkersThpoolStats(env)['numThreadsAlive'] > 0, {'numThreadsAlive': getWorkersThpoolStats(env)['numThreadsAlive']}),
@@ -144,8 +163,6 @@ class TestCoordinatorTimeout:
             lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done, {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
             'Timeout while waiting for worker to finish job'
         )
-
-        wait_for_client_blocked(env, blocked_client_id)
 
         env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
 
@@ -176,8 +193,6 @@ class TestCoordinatorTimeout:
             lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
             'Timeout while waiting for coordinator threads to pause', timeout=30)
 
-        blocked_client_id = env.cmd('CLIENT', 'ID')
-
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
             args=(env, ['FT.SEARCH', 'idx', '*']),
@@ -185,7 +200,7 @@ class TestCoordinatorTimeout:
         )
         t_query.start()
 
-        wait_for_client_blocked(env, blocked_client_id)
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
 
         # Unblock the client to simulate timeout
         env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
@@ -216,8 +231,6 @@ class TestCoordinatorTimeout:
         # Pause worker thread pool on all shards first
         verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE')
 
-        blocked_client_id = env.cmd('CLIENT', 'ID')
-
         coord_initial_jobs_done = getCoordThpoolStats(env)['totalJobsDone']
 
         t_query = threading.Thread(
@@ -226,6 +239,8 @@ class TestCoordinatorTimeout:
             daemon=True
         )
         t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
 
         # Verify coordinator fanned out to all shards (jobs done should increase on coordinator by 1)
         wait_for_condition(
@@ -305,8 +320,6 @@ class TestCoordinatorTimeout:
             return all(s == psutil.STATUS_STOPPED for s in statuses), {'statuses': statuses}
         wait_for_condition(check_all_paused, 'Timeout while waiting for shards to pause')
 
-        blocked_client_id = env.cmd('CLIENT', 'ID')
-
         query_result = []
 
         t_query = threading.Thread(
@@ -315,6 +328,8 @@ class TestCoordinatorTimeout:
             daemon=True
         )
         t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, query_args[0])
 
         wait_for_condition(
             lambda: (getWorkersThpoolStats(env)['numThreadsAlive'] > 0, {'numThreadsAlive': getWorkersThpoolStats(env)['numThreadsAlive']}),
@@ -325,8 +340,6 @@ class TestCoordinatorTimeout:
             lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done, {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
             'Timeout while waiting for worker to finish job'
         )
-
-        wait_for_client_blocked(env, blocked_client_id)
 
         # Unblock the client with TIMEOUT
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
@@ -386,8 +399,6 @@ class TestCoordinatorTimeout:
             'Timeout while waiting for coordinator to pause'
         )
 
-        blocked_client_id = env.cmd('CLIENT', 'ID')
-
         query_result = []
 
         t_query = threading.Thread(
@@ -397,7 +408,7 @@ class TestCoordinatorTimeout:
         )
         t_query.start()
 
-        wait_for_client_blocked(env, blocked_client_id)
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
 
         # Unblock the client to simulate timeout
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
@@ -465,6 +476,42 @@ class TestCoordinatorTimeout:
 
         # Restore previous policy
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_shard_timeout_fail(self):
+        """Test shard timeout with FAIL policy."""
+        env = self.env
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+
+
+        for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+
+            # Pause workers on coordinator
+            env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, [query_type, 'idx', '*']),
+                daemon=True
+            )
+            t_query.start()
+
+            blocked_client_id = wait_for_blocked_query_client(env, f'_{query_type}', f'Client for query _{query_type} not found')
+
+            # Unblock the client to simulate timeout
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+            # Resume worker threads on all shards
+            env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
 
 class TestCoordinatorReducePause:
@@ -778,3 +825,121 @@ class TestCoordinatorReducePause:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
         self._cleanup_pause_state()
+
+class TestShardTimeout:
+    """Tests for the blocked client timeout mechanism for shards."""
+    def __init__(self):
+        # Skip if cluster
+        skipTest(cluster=True)
+
+        self.env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0')
+        self.n_docs = 100
+
+        conn = getConnectionByEnv(self.env)
+
+        # Create an index
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+        # Insert documents
+        for i in range(self.n_docs):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
+    def test_shard_timeout_fail(self):
+        """Test shard timeout with FAIL policy."""
+        env = self.env
+
+        # Set timeout policy to FAIL
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Pause worker thread
+
+        for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+
+            env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+            # Run a query that will be blocked
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, [query_type, 'idx', '*']),
+                daemon=True
+            )
+            t_query.start()
+
+            # Some cases cause the query client to change, so we check the client id explicitly
+            blocked_client_id = wait_for_blocked_query_client(env, query_type, f'Client for query {query_type} not found')
+
+            # Unblock the client to simulate timeout
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+            # Resume worker thread
+            env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_shard_timeout_fail_in_pipeline(self):
+        """Test shard timeout with FAIL policy when query is paused inside the pipeline.
+
+        This test uses PAUSE_BEFORE_RP_N to pause the query inside the pipeline,
+        then triggers a timeout via CLIENT UNBLOCK to verify the blocked client
+        timeout mechanism works correctly when the query is mid-execution.
+        """
+        env = self.env
+
+        # Set timeout policy to FAIL
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+
+        # Run a query that will be blocked
+        # Using PAUSE_BEFORE_RP_N to pause inside the pipeline
+        for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+
+            query_args = [query_type, 'idx', '*']
+            debug_args = ['PAUSE_BEFORE_RP_N', 'Index', 0]
+            if query_type == 'FT.AGGREGATE':
+                debug_args.append('INTERNAL_ONLY')
+            if query_type == 'FT.SEARCH':
+                # NOCONTENT is required to not use SAFE-LOADER
+                query_args.append('NOCONTENT')
+            t_query = threading.Thread(
+                target=run_cmd_expect_timeout,
+                args=(env, [debug_cmd()] + parseDebugQueryCommandArgs(query_args, debug_args)),
+                daemon=True
+            )
+            t_query.start()
+
+            # Some cases cause the query client to change, so we check the client id explicitly
+            blocked_client_id = wait_for_blocked_query_client(env, f'{debug_cmd()}|{query_type}', f'Client for query {debug_cmd()}|{query_type} not found')
+
+            # Wait for the query to be paused inside the pipeline
+            wait_for_condition(
+                lambda: (getIsRPPaused(env) == 1, {'paused': getIsRPPaused(env)}),
+                'Timeout while waiting for query to pause in pipeline'
+            )
+
+
+            # Unblock the client to simulate timeout
+            env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+            # Resume the paused RP to clean up (the query already timed out, but we need to resume)
+            setPauseRPResume(env)
+            # Wait for RP to resume
+            wait_for_condition(
+                lambda: (getIsRPPaused(env) == 0, {'paused': getIsRPPaused(env)}),
+                'Timeout while waiting for query to resume in pipeline'
+            )
+            env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
