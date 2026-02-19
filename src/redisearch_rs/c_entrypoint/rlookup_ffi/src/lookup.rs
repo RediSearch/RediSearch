@@ -471,7 +471,7 @@ pub unsafe extern "C" fn RLookup_GetRowLen(lookup: *const OpaqueRLookup) -> u32 
 
 /// Returns a newly created [`RLookup`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_New() -> OpaqueRLookup {
+pub extern "C" fn RLookup_New() -> OpaqueRLookup {
     RLookup::new().into_opaque()
 }
 

@@ -39,7 +39,7 @@ pub unsafe extern "C" fn RLookupRow_New(lookup: *const OpaqueRLookup) -> OpaqueR
 /// Returns a newly created [`RLookupRow`].
 #[cfg(not(debug_assertions))]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
+pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
     RLookupRow::new().into_opaque()
 }
 
