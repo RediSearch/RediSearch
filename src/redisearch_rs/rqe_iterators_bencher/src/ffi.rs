@@ -110,6 +110,7 @@ impl QueryIterator {
 
     #[inline(always)]
     pub unsafe fn new_term(ii: *mut ffi::InvertedIndex) -> Self {
+        let term: *mut ffi::RSQueryTerm = Box::into_raw(RSQueryTerm::new(b"term", 1, 0)).cast();
         Self(unsafe {
             let field_mask_ffi = ffi::FieldMaskOrIndex {
                 __bindgen_anon_2: ffi::FieldMaskOrIndex__bindgen_ty_2 {
@@ -119,7 +120,7 @@ impl QueryIterator {
                 },
             };
 
-            ffi::NewInvIndIterator_TermQuery(ii, ptr::null(), field_mask_ffi, ptr::null_mut(), 1.0)
+            ffi::NewInvIndIterator_TermQuery(ii, ptr::null(), field_mask_ffi, term, 1.0)
         })
     }
 
