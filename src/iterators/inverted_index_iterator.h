@@ -47,9 +47,6 @@ typedef struct {
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight);
 
-// Returns an iterator for a wildcard index (optimized for wildcard queries) - mainly to revalidate the index
-QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
-
 // Returns an iterator for a missing index - revalidate the missing index was not deleted
 // Result is a virtual result with a weight of 0.0, and a field mask of RS_FIELDMASK_ALL
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex);
