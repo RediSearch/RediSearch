@@ -88,6 +88,18 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache = spcache;
     }
 
+    pub fn disable_options(&mut self, options: RLookupOptions) {
+        self.options &= !options;
+    }
+
+    pub fn enable_options(&mut self, options: RLookupOptions) {
+        self.options |= options;
+    }
+
+    pub const fn has_index_spec_cache(&self) -> bool {
+        self.index_spec_cache.is_some()
+    }
+
     pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
         self.index_spec_cache
             .as_ref()
@@ -384,7 +396,7 @@ impl<'a> RLookup<'a> {
     }
 
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
-    pub(crate) const fn get_row_len(&self) -> u32 {
+    pub const fn get_row_len(&self) -> u32 {
         self.keys.rowlen
     }
 
