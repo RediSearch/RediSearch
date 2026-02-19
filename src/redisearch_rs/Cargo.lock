@@ -2162,6 +2162,8 @@ dependencies = [
  "enumflags2",
  "ffi",
  "inverted_index",
+ "rlookup",
+ "value",
  "workspace_hack",
 ]
 
