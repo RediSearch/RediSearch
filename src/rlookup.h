@@ -17,6 +17,8 @@
 #include "sortable.h"
 #include "util/arr.h"
 
+#include "rlookup_rs.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
