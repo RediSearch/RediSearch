@@ -152,10 +152,7 @@ fn compact_text_inverted_index_removes_deleted_documents() {
     let docs_to_delete: HashSet<u64> = [5, 10, 25, 50, 75, 99].into_iter().collect();
 
     for &doc_id in &all_doc_ids {
-        index
-            .inverted_index()
-            .insert(term.to_string(), doc_id, 0b1, 1)
-            .unwrap();
+        index.inverted_index().insert(term, doc_id, 0b1, 1).unwrap();
     }
 
     // Mark some documents as deleted

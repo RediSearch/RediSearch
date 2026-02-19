@@ -131,7 +131,7 @@ impl InvertedIndex {
     /// which fields the term appears in.
     pub fn insert(
         &self,
-        term: String,
+        term: &str,
         doc_id: t_docId,
         field_mask: t_fieldMask,
         frequency: u32,

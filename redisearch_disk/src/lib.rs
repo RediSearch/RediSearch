@@ -446,7 +446,7 @@ extern "C" fn index_spec_index_term(
     let term = unsafe {
         let slice = std::slice::from_raw_parts(term.cast::<u8>(), term_len);
         match std::str::from_utf8(slice) {
-            Ok(s) => s.to_string(),
+            Ok(s) => s,
             Err(error) => {
                 error!(
                     error = &error as &dyn std::error::Error,

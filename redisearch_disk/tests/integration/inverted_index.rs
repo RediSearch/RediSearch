@@ -53,8 +53,8 @@ fn basic() {
     let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents
-    ii.insert("term1".to_string(), 1, 0b1, 5).unwrap();
-    ii.insert("term1".to_string(), 3, 0b1, 2).unwrap();
+    ii.insert("term1", 1, 0b1, 5).unwrap();
+    ii.insert("term1", 3, 0b1, 2).unwrap();
 
     let idf = 0.5;
     let bm25_idf = 0.6;
@@ -158,14 +158,14 @@ fn field_mask() {
     let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents, each in a separate field.
-    ii.insert("term1".to_string(), 1, 0b00000001, 0).unwrap();
-    ii.insert("term1".to_string(), 2, 0b00000010, 0).unwrap();
-    ii.insert("term1".to_string(), 3, 0b00000100, 0).unwrap();
-    ii.insert("term1".to_string(), 4, 0b00001000, 0).unwrap();
-    ii.insert("term1".to_string(), 5, 0b00010000, 0).unwrap();
-    ii.insert("term1".to_string(), 6, 0b00100000, 0).unwrap();
-    ii.insert("term1".to_string(), 7, 0b01000000, 0).unwrap();
-    ii.insert("term1".to_string(), 8, 0b10000000, 0).unwrap();
+    ii.insert("term1", 1, 0b00000001, 0).unwrap();
+    ii.insert("term1", 2, 0b00000010, 0).unwrap();
+    ii.insert("term1", 3, 0b00000100, 0).unwrap();
+    ii.insert("term1", 4, 0b00001000, 0).unwrap();
+    ii.insert("term1", 5, 0b00010000, 0).unwrap();
+    ii.insert("term1", 6, 0b00100000, 0).unwrap();
+    ii.insert("term1", 7, 0b01000000, 0).unwrap();
+    ii.insert("term1", 8, 0b10000000, 0).unwrap();
 
     // Get the iterator for a term, for all fields.
     let query_term = create_query_term("term1", 0.5, 0.6);
@@ -201,7 +201,7 @@ fn empty_iterator() {
         assert_eq!(it.num_estimated(), 0);
     }
 
-    ii.insert("term".to_string(), 1, 0b1, 5).unwrap();
+    ii.insert("term", 1, 0b1, 5).unwrap();
 
     // Get the iterator for another term
     let query_term = create_query_term("another_term", 0.7, 0.8);
@@ -219,8 +219,8 @@ fn iterator_stays_with_term() {
     let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents
-    ii.insert("term1".to_string(), 1, 0b1, 5).unwrap();
-    ii.insert("term2".to_string(), 3, 0b1, 2).unwrap();
+    ii.insert("term1", 1, 0b1, 5).unwrap();
+    ii.insert("term2", 3, 0b1, 2).unwrap();
 
     // Get the iterator for a term
     let query_term = create_query_term("term1", 0.5, 0.6);
@@ -241,8 +241,8 @@ fn iterator_term_with_underscore() {
     let (_temp_dir, ii) = get_temp_inverted_index();
 
     // Add a term with some documents
-    ii.insert("term".to_string(), 1, 0b1, 5).unwrap();
-    ii.insert("term_somemore".to_string(), 3, 0b1, 2).unwrap();
+    ii.insert("term", 1, 0b1, 5).unwrap();
+    ii.insert("term_somemore", 3, 0b1, 2).unwrap();
 
     // Get the iterator for a term
     let query_term = create_query_term("term", 0.5, 0.6);

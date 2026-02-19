@@ -83,14 +83,14 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
     /// The document is wrapped in the appropriate block type and serialized.
     pub fn insert(
         &self,
-        prefix: String,
+        prefix: &str,
         doc_id: t_docId,
         doc: <Config::SerializableBlock as SerializableBlock>::Document,
     ) -> Result<(), speedb::Error>
     where
         <Config::SerializableBlock as SerializableBlock>::Document: Into<Config::SerializableBlock>,
     {
-        let key = InvertedIndexKey::new(&prefix, Some(doc_id));
+        let key = InvertedIndexKey::new(prefix, Some(doc_id));
         let block: Config::SerializableBlock = doc.into();
         let serialized = block.serialize();
 

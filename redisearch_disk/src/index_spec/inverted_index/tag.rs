@@ -113,7 +113,7 @@ impl TagInvertedIndex {
     }
 
     /// Inserts a document ID into the postings list for the given tag.
-    pub fn insert(&self, tag: String, doc_id: t_docId) -> Result<(), speedb::Error> {
+    pub fn insert(&self, tag: &str, doc_id: t_docId) -> Result<(), speedb::Error> {
         let doc = TagDocument::new(doc_id);
         self.inner.insert(tag, doc_id, doc)
     }
