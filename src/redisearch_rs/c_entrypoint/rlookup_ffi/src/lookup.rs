@@ -71,11 +71,11 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_DisableOptions(
-    lookup: Option<NonNull<RLookup<'_>>>,
+    lookup: Option<NonNull<OpaqueRLookup>>,
     options: u32,
 ) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     let options = RLookupOptions::from_bits(options).unwrap();
 
@@ -91,9 +91,12 @@ pub unsafe extern "C" fn RLookup_DisableOptions(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_EnableOptions(lookup: Option<NonNull<RLookup<'_>>>, options: u32) {
+pub unsafe extern "C" fn RLookup_EnableOptions(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    options: u32,
+) {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.unwrap().as_mut() };
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     let options = RLookupOptions::from_bits(options).unwrap();
 
@@ -459,9 +462,9 @@ pub unsafe extern "C" fn RLookup_GetLength(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RLookup_GetRowLen(lookup: *const RLookup<'_>) -> u32 {
+pub unsafe extern "C" fn RLookup_GetRowLen(lookup: *const OpaqueRLookup) -> u32 {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_ref().unwrap() };
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
     lookup.get_row_len()
 }
@@ -500,9 +503,9 @@ pub unsafe extern "C" fn RLookup_Init(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const RLookup<'_>) -> bool {
+pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueRLookup) -> bool {
     // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_ref().unwrap() };
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
     lookup.has_index_spec_cache()
 }
