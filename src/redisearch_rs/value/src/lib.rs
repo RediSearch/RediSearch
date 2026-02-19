@@ -9,9 +9,12 @@
 
 pub use crate::{
     collection::{Array, Map},
+    redis_string::RedisString,
+    rs_string::RsString,
     shared::SharedRsValue,
     trio::RsValueTrio,
 };
+use std::fmt::Debug;
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -25,12 +28,14 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-mod collection;
+pub mod collection;
+pub mod redis_string;
+pub mod rs_string;
 pub mod shared;
 pub mod trio;
 
 /// An actual [`RsValue`] object
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RsValue {
     /// Undefined, not holding a value.
     Undefined,
@@ -38,8 +43,10 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value (placeholder)
-    String(String),
+    /// String
+    String(RsString),
+    /// String value backed by a Redis string
+    RedisString(RedisString),
     /// Array value
     Array(Array),
     /// Reference value
@@ -65,6 +72,7 @@ impl RsValue {
             RsValue::Null => "Null",
             RsValue::Number(_) => "Number",
             RsValue::String(_) => "String",
+            RsValue::RedisString(_) => "RedisString",
             RsValue::Array(_) => "Array",
             RsValue::Ref(_) => "Ref",
             RsValue::Trio(_) => "Trio",

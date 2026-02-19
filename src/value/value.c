@@ -167,7 +167,7 @@ inline void RSValue_SetNumber(RSValue *v, double n) {
   v->_numval = n;
 }
 
-inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
+inline void RSValue_SetString(RSValue *v, char *str, uint32_t len) {
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = str;
@@ -175,7 +175,7 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
 }
 
 
-inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
+inline void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len) {
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = (char *)str;
@@ -216,7 +216,7 @@ RSValue *RSValue_NewString(char *str, uint32_t len) {
 }
 
 /* Same as RSValue_NewString but for const strings */
-RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
+RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
   v->_strval.str = (char *) str;
   v->_strval.len = len;
@@ -236,12 +236,13 @@ RSValue *RSValue_NullStatic() {
   return &RS_NULL;
 }
 
-RSValue *RSValue_NewCopiedString(const char *s, size_t n) {
+RSValue *RSValue_NewCopiedString(const char *s, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
-  char *cp = rm_malloc(n + 1);
-  cp[n] = 0;
-  memcpy(cp, s, n);
-  RSValue_SetString(v, cp, n);
+  size_t alloc_size = (size_t)len;
+  char *cp = rm_malloc(alloc_size + 1);
+  cp[alloc_size] = 0;
+  memcpy(cp, s, alloc_size);
+  RSValue_SetString(v, cp, len);
   return v;
 }
 
@@ -349,7 +350,7 @@ double RSValue_Number_Get(const RSValue *v) {
 }
 
 // String getters/setters
-char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
+const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
   RS_ASSERT(v && v->_t == RSValueType_String);
   if(lenp) {
     *lenp = v->_strval.len;
@@ -495,6 +496,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     case RSValueType_RedisString: {
       size_t sz;
       const char *str = RedisModule_StringPtrLen(v->_rstrval, &sz);
+      RS_ASSERT(sz <= UINT32_MAX);
       RSValue_SetConstString(dst, str, sz);
       break;
     }
