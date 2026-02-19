@@ -25,12 +25,6 @@ static inline SearchResult SearchResult_New() {
     return r;
 }
 
-static inline SearchResult SearchResult_New_2(const RLookup *lookup) {
-    SearchResult r = {0};
-    r._row_data = RLookupRow_New(lookup);
-    return r;
-}
-
 /**
  * Returns the document ID of `res`.
  *
