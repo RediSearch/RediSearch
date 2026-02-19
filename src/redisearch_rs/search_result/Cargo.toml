@@ -8,7 +8,8 @@ publish.workspace = true
 [dependencies]
 ffi.workspace = true
 inverted_index.workspace = true
-
+rlookup.workspace = true
+value.workspace = true
 enumflags2.workspace = true
 workspace_hack.workspace = true
 
