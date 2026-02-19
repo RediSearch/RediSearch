@@ -308,12 +308,11 @@ uintptr_t NumericRangeTree_BaseSize(void);
  * Reply with a summary of the numeric range tree (for NUMIDX_SUMMARY).
  *
  * This outputs the tree statistics in the format expected by FT.DEBUG NUMIDX_SUMMARY.
- * If `t` is NULL, outputs zeros for all fields (empty tree).
  *
  * # Safety
  *
  * - `ctx` must be a valid Redis module context.
- * - `t` must either point to a valid [`NumericRangeTree`] or be NULL.
+ * - `t` must point to a valid [`NumericRangeTree`].
  */
 void NumericRangeTree_DebugSummary(RedisModuleCtx *ctx, const struct NumericRangeTree *t);
 
@@ -322,12 +321,11 @@ void NumericRangeTree_DebugSummary(RedisModuleCtx *ctx, const struct NumericRang
  *
  * This outputs all entries from all ranges in the tree. If `with_headers` is true,
  * each range's entries are prefixed with header information (numDocs, numEntries, etc).
- * If `t` is NULL, outputs an empty array.
  *
  * # Safety
  *
  * - `ctx` must be a valid Redis module context.
- * - `t` must either point to a valid [`NumericRangeTree`] or be NULL.
+ * - `t` must point to a valid [`NumericRangeTree`].
  */
 void NumericRangeTree_DebugDumpIndex(RedisModuleCtx *ctx,
                                      const struct NumericRangeTree *t,
@@ -338,12 +336,11 @@ void NumericRangeTree_DebugDumpIndex(RedisModuleCtx *ctx,
  *
  * This outputs the tree structure as a nested map. If `minimal` is true,
  * range entry details are omitted (only tree structure is shown).
- * If `t` is NULL, outputs an empty tree structure with all zeros.
  *
  * # Safety
  *
  * - `ctx` must be a valid Redis module context.
- * - `t` must either point to a valid [`NumericRangeTree`] or be NULL.
+ * - `t` must point to a valid [`NumericRangeTree`].
  */
 void NumericRangeTree_DebugDumpTree(RedisModuleCtx *ctx,
                                     const struct NumericRangeTree *t,

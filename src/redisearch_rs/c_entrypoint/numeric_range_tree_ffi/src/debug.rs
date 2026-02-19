@@ -20,29 +20,20 @@ use numeric_range_tree::NumericRangeTree;
 /// Reply with a summary of the numeric range tree (for NUMIDX_SUMMARY).
 ///
 /// This outputs the tree statistics in the format expected by FT.DEBUG NUMIDX_SUMMARY.
-/// If `t` is NULL, outputs zeros for all fields (empty tree).
 ///
 /// # Safety
 ///
 /// - `ctx` must be a valid Redis module context.
-/// - `t` must either point to a valid [`NumericRangeTree`] or be NULL.
+/// - `t` must point to a valid [`NumericRangeTree`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
     ctx: *mut RedisModuleCtx,
     t: *const NumericRangeTree,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
-
-    // Handle NULL pointer by creating an empty tree for output
-    let empty_tree;
-    let tree: &NumericRangeTree = if t.is_null() {
-        empty_tree = NumericRangeTree::default();
-        &empty_tree
-    } else {
-        // SAFETY: Caller ensures `t` is a valid pointer per function safety docs.
-        unsafe { &*t }
-    };
-
+    assert!(!t.is_null(), "t cannot be NULL");
+    // SAFETY: Caller ensures `t` is a valid pointer per function safety docs.
+    let tree: &NumericRangeTree = unsafe { &*t };
     // SAFETY: ctx is valid per function docs
     unsafe {
         numeric_range_tree::debug::debug_summary(ctx, tree);
@@ -53,12 +44,11 @@ pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
 ///
 /// This outputs all entries from all ranges in the tree. If `with_headers` is true,
 /// each range's entries are prefixed with header information (numDocs, numEntries, etc).
-/// If `t` is NULL, outputs an empty array.
 ///
 /// # Safety
 ///
 /// - `ctx` must be a valid Redis module context.
-/// - `t` must either point to a valid [`NumericRangeTree`] or be NULL.
+/// - `t` must point to a valid [`NumericRangeTree`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
     ctx: *mut RedisModuleCtx,
@@ -66,17 +56,9 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
     with_headers: bool,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
-
-    // Handle NULL pointer by creating an empty tree for output
-    let empty_tree;
-    let tree: &NumericRangeTree = if t.is_null() {
-        empty_tree = NumericRangeTree::default();
-        &empty_tree
-    } else {
-        // SAFETY: Caller ensures `t` is a valid pointer per function safety docs.
-        unsafe { &*t }
-    };
-
+    assert!(!t.is_null(), "t cannot be NULL");
+    // SAFETY: Caller ensures `t` is a valid pointer per function safety docs.
+    let tree: &NumericRangeTree = unsafe { &*t };
     // SAFETY: ctx is valid per function docs
     unsafe {
         numeric_range_tree::debug::debug_dump_index(ctx, tree, with_headers);
@@ -87,12 +69,11 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
 ///
 /// This outputs the tree structure as a nested map. If `minimal` is true,
 /// range entry details are omitted (only tree structure is shown).
-/// If `t` is NULL, outputs an empty tree structure with all zeros.
 ///
 /// # Safety
 ///
 /// - `ctx` must be a valid Redis module context.
-/// - `t` must either point to a valid [`NumericRangeTree`] or be NULL.
+/// - `t` must point to a valid [`NumericRangeTree`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_DebugDumpTree(
     ctx: *mut RedisModuleCtx,
@@ -100,17 +81,9 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpTree(
     minimal: bool,
 ) {
     debug_assert!(!ctx.is_null(), "ctx cannot be NULL");
-
-    // Handle NULL pointer by creating an empty tree for output
-    let empty_tree;
-    let tree: &NumericRangeTree = if t.is_null() {
-        empty_tree = NumericRangeTree::default();
-        &empty_tree
-    } else {
-        // SAFETY: Caller ensures `t` is a valid pointer per function safety docs.
-        unsafe { &*t }
-    };
-
+    assert!(!t.is_null(), "t cannot be NULL");
+    // SAFETY: Caller ensures `t` is a valid pointer per function safety docs.
+    let tree: &NumericRangeTree = unsafe { &*t };
     // SAFETY: ctx is valid per function docs
     unsafe {
         numeric_range_tree::debug::debug_dump_tree(ctx, tree, minimal);
