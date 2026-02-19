@@ -9,8 +9,8 @@
 
 use libc::size_t;
 use rlookup::{
-    IndexSpec, IndexSpecCache, OpaqueRLookupRow, RLookup, RLookupKey, RLookupKeyFlag,
-    RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
+    IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey,
+    RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
