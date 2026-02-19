@@ -106,7 +106,7 @@ struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
  * Creates and returns a new **owned** [`RsValue`] object of type undefined.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  */
 struct RsValue *RSValue_NewUndefined(void);
 
@@ -114,7 +114,7 @@ struct RsValue *RSValue_NewUndefined(void);
  * Creates and returns a new **owned** [`RsValue`] object of type null.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  */
 struct RsValue *RSValue_NewNull(void);
 
@@ -123,7 +123,7 @@ struct RsValue *RSValue_NewNull(void);
  * containing the given numeric value.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  */
 struct RsValue *RSValue_NewNumber(double value);
 
@@ -133,7 +133,7 @@ struct RsValue *RSValue_NewNumber(double value);
  * Takes ownership of all three arguments.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  *
  * # Safety
  *
@@ -149,7 +149,7 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
  * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  *
  * # Safety
  *
@@ -167,7 +167,7 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
  * borrowing the given string buffer without taking ownership.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  *
  * # Safety
  *
@@ -185,7 +185,7 @@ struct RsValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
  * taking ownership of the given [`RedisModuleString`].
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  *
  * # Safety
  *
@@ -204,7 +204,7 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  * The caller retains ownership of `str`.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  *
  * # Safety
  *
