@@ -504,9 +504,9 @@ pub mod opaque {
     #[cfg(not(debug_assertions))]
     type OpaqueRLookupSize = Size<40>;
 
-    /// An opaque query error which can be passed by value to C.
+    /// An opaque lookup which can be passed by value to C.
     ///
-    /// The size and alignment of this struct must match the Rust `QueryError`
+    /// The size and alignment of this struct must match the Rust `RLookup`
     /// structure exactly.
     #[repr(C, align(8))]
     pub struct OpaqueRLookup(OpaqueRLookupSize);
