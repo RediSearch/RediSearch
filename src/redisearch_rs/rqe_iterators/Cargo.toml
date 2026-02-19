@@ -18,6 +18,7 @@ ffi.workspace = true
 field.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
+numeric_range_tree.workspace = true
 query_error.workspace = true
 thiserror.workspace = true
 redis_mock.workspace = true
