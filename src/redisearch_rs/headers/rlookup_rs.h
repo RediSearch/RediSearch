@@ -128,34 +128,6 @@ typedef struct RLookup RLookup;
  */
 typedef struct RSSortingVector RSSortingVector;
 
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_48[48];
-
-/**
- * A type with size `N`.
- */
-typedef uint8_t Size_40[40];
-
-#if defined(ENABLE_ASSERT)
-typedef Size_48 OpaqueRLookupSize;
-#endif
-
-#if !defined(ENABLE_ASSERT)
-typedef Size_40 OpaqueRLookupSize;
-#endif
-
-/**
- * An opaque query error which can be passed by value to C.
- *
- * The size and alignment of this struct must match the Rust `QueryError`
- * structure exactly.
- */
-typedef struct ALIGNED(8) RLookup {
-  OpaqueRLookupSize _0;
-} RLookup;
-
 typedef struct RLookupKey {
   /**
    * Index into the dynamic values array within the associated `RLookupRow`.
@@ -194,6 +166,34 @@ typedef struct RLookupKey {
   struct RLookupKey *next;
 } RLookupKey;
 
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_48[48];
+
+/**
+ * A type with size `N`.
+ */
+typedef uint8_t Size_40[40];
+
+#if defined(ENABLE_ASSERT)
+typedef Size_48 OpaqueRLookupSize;
+#endif
+
+#if !defined(ENABLE_ASSERT)
+typedef Size_40 OpaqueRLookupSize;
+#endif
+
+/**
+ * An opaque query error which can be passed by value to C.
+ *
+ * The size and alignment of this struct must match the Rust `QueryError`
+ * structure exactly.
+ */
+typedef struct ALIGNED(8) RLookup {
+  OpaqueRLookupSize _0;
+} RLookup;
+
 #if defined(ENABLE_ASSERT)
 typedef Size_48 OpaqueRLookupRowSize;
 #endif
@@ -215,6 +215,75 @@ typedef struct ALIGNED(8) RLookupRow {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Get the flags (indicating the type and other attributes) for a `RLookupKey`.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint32_t RLookupKey_GetFlags(const struct RLookupKey *key);
+
+/**
+ * Get the index into the array where the value resides.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint16_t RLookupKey_GetDstIdx(const struct RLookupKey *key);
+
+/**
+ * Get the index within the sort vector where the value is located.
+ *
+ * If the source of this value points to a sort vector, then this is the
+ * index within the sort vector that the value is located.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint16_t RLookupKey_GetSvIdx(const struct RLookupKey *key);
+
+/**
+ * Get the name of the field.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+const char *RLookupKey_GetName(const struct RLookupKey *key);
+
+/**
+ * Get the length of the name field in bytes.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t RLookupKey_GetNameLen(const struct RLookupKey *key);
+
+/**
+ * Get the path of the field.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+const char *RLookupKey_GetPath(const struct RLookupKey *key);
 
 /**
  * Add all non-overridden keys from `src` to `dest`.
