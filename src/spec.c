@@ -4232,7 +4232,6 @@ void IndexSpec_UpdateScoringStats(IndexSpec* sp, uint64_t num_terms_removed) {
     return;
   }
 
-  // Decrement numTerms (clamp to 0 to avoid underflow)
   RS_ASSERT(num_terms_removed <= sp->stats.scoring.numTerms);
   sp->stats.scoring.numTerms -= num_terms_removed;
 }
