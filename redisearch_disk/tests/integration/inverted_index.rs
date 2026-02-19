@@ -1,4 +1,5 @@
-use ffi::{NewQueryTerm, RSQueryTerm, RSToken, t_docId, t_fieldMask};
+use ffi::{t_docId, t_fieldMask};
+use query_term::RSQueryTerm;
 use redisearch_disk::{
     database::SpeedbMultithreadedDatabase, index_spec::inverted_index::InvertedIndex,
 };
@@ -10,33 +11,13 @@ const FIELD_MASK_NONE: t_fieldMask = 0;
 
 /// Creates an RSQueryTerm for testing purposes.
 /// The caller does not need to free the term - it will be freed when the iterator is dropped.
-fn create_query_term(term_str: &str, idf: f64, bm25_idf: f64) -> *mut RSQueryTerm {
-    let token = RSToken {
-        str_: term_str.as_ptr() as *mut _,
-        len: term_str.len(),
-        _bitfield_align_1: Default::default(),
-        _bitfield_1: Default::default(),
-        __bindgen_padding_0: Default::default(),
-    };
-    let token_ptr = Box::into_raw(Box::new(token));
-    // SAFETY: token_ptr is a valid pointer to an RSToken
-    let query_term = unsafe { NewQueryTerm(token_ptr as *mut _, 0) };
-
-    // Now that NewQueryTerm copied tok->str into ret->str,
-    // the temporary token struct is no longer needed.
-    // SAFETY: We just created this box above
-    unsafe {
-        drop(Box::from_raw(token_ptr));
-    }
-
-    // Patch the IDF fields
-    // SAFETY: query_term is a valid pointer returned by NewQueryTerm
-    unsafe {
-        (*query_term).idf = idf;
-        (*query_term).bm25_idf = bm25_idf;
-    }
-
-    query_term
+/// Creates an RSQueryTerm for testing purposes.
+/// The caller does not need to free the term - it will be freed when the iterator is dropped.
+fn create_query_term(term_str: &str, idf: f64, bm25_idf: f64) -> Box<RSQueryTerm> {
+    let mut term = RSQueryTerm::new(term_str.as_bytes(), 0, 0);
+    term.idf = idf;
+    term.bm25_idf = bm25_idf;
+    term
 }
 
 fn get_temp_inverted_index() -> (TempDir, InvertedIndex) {
@@ -53,10 +34,7 @@ fn get_temp_inverted_index() -> (TempDir, InvertedIndex) {
 fn validate_result_idf_bm25_idf(result: &inverted_index::RSIndexResult, idf: f64, bm25_idf: f64) {
     // Verify IDF information can be extracted from the term result
     if let inverted_index::RSResultData::Term(term_record) = &result.data {
-        let term_ptr = term_record.query_term();
-        assert!(!term_ptr.is_null(), "Term pointer should not be null");
-        // SAFETY: We just checked that term_ptr is not null
-        let term = unsafe { &*term_ptr };
+        let term = term_record.query_term().expect("Expected term to be set");
         assert_eq!(
             term.idf, idf,
             "IDF should match the value passed to term_iterator"
@@ -83,8 +61,7 @@ fn basic() {
 
     // Get the iterator for a term
     let query_term = create_query_term("term1", idf, bm25_idf);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let mut it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23) }.unwrap();
+    let mut it = ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23).unwrap();
 
     // Check the initial state of the iterator
     assert_eq!(it.num_estimated(), 3);
@@ -158,8 +135,7 @@ fn basic() {
 
     // Test a term that does not exist
     let query_term = create_query_term("nonexistent", 0.7, 0.8);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let mut it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 4.56) }.unwrap();
+    let mut it = ii.term_iterator(query_term, FIELD_MASK_ALL, 4.56).unwrap();
 
     // Read from the iterator
     assert!(it.read().unwrap().is_none());
@@ -193,24 +169,21 @@ fn field_mask() {
 
     // Get the iterator for a term, for all fields.
     let query_term = create_query_term("term1", 0.5, 0.6);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23) }.unwrap();
+    let it = ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23).unwrap();
 
     let doc_ids = drain_iterator(it);
     assert_eq!(&doc_ids, &[1, 2, 3, 4, 5, 6, 7, 8]);
 
     // Get the iterator for a term, for some fields.
     let query_term = create_query_term("term1", 0.7, 0.8);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let it = unsafe { ii.term_iterator(query_term, 0b10101010, 4.56) }.unwrap();
+    let it = ii.term_iterator(query_term, 0b10101010, 4.56).unwrap();
 
     let doc_ids = drain_iterator(it);
     assert_eq!(&doc_ids, &[2, 4, 6, 8]);
 
     // Get the iterator for a term, for no fields.
     let query_term = create_query_term("term1", 0.9, 1.0);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let it = unsafe { ii.term_iterator(query_term, FIELD_MASK_NONE, 7.89) }.unwrap();
+    let it = ii.term_iterator(query_term, FIELD_MASK_NONE, 7.89).unwrap();
 
     let doc_ids = drain_iterator(it);
     assert_eq!(doc_ids.len(), 0);
@@ -223,8 +196,7 @@ fn empty_iterator() {
     {
         // Get the iterator when there are no terms
         let query_term = create_query_term("some_term", 0.5, 0.6);
-        // SAFETY: query_term is a valid pointer created by create_query_term
-        let it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 1.00) }.unwrap();
+        let it = ii.term_iterator(query_term, FIELD_MASK_ALL, 1.00).unwrap();
 
         assert_eq!(it.num_estimated(), 0);
     }
@@ -233,8 +205,7 @@ fn empty_iterator() {
 
     // Get the iterator for another term
     let query_term = create_query_term("another_term", 0.7, 0.8);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let mut it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 1.00) }.unwrap();
+    let mut it = ii.term_iterator(query_term, FIELD_MASK_ALL, 1.00).unwrap();
 
     assert_eq!(it.num_estimated(), 0);
 
@@ -253,8 +224,7 @@ fn iterator_stays_with_term() {
 
     // Get the iterator for a term
     let query_term = create_query_term("term1", 0.5, 0.6);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let mut it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23) }.unwrap();
+    let mut it = ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23).unwrap();
 
     // Read the first document
     let result = it.read().unwrap().unwrap();
@@ -276,8 +246,7 @@ fn iterator_term_with_underscore() {
 
     // Get the iterator for a term
     let query_term = create_query_term("term", 0.5, 0.6);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let mut it = unsafe { ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23) }.unwrap();
+    let mut it = ii.term_iterator(query_term, FIELD_MASK_ALL, 1.23).unwrap();
 
     // Read the first document
     let result = it.read().unwrap().unwrap();

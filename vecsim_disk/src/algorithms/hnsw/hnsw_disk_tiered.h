@@ -47,8 +47,8 @@ std::shared_ptr<T> make_vecsim_shared_ptr(std::shared_ptr<VecSimAllocator> alloc
 }
 
 enum DiskJobType {
-    DISK_HNSW_INSERT_VECTOR_JOB = HNSW_INSERT_VECTOR_JOB,
-    DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB = HNSW_REPAIR_NODE_CONNECTIONS_JOB,
+    DISK_HNSW_INSERT_VECTOR_JOB,
+    DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB,
     DISK_HNSW_DELETE_VECTOR_INIT_JOB,
     DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB,
 };
@@ -58,8 +58,7 @@ struct AsyncDiskJob : public AsyncJob {
 
     AsyncDiskJob(std::shared_ptr<VecSimAllocator> allocator, DiskJobType type_, JobCallback callback,
                  VecSimIndex* index_)
-        // TODO: Add a generic disk type and pass it here to the base class
-        : AsyncJob(allocator, HNSW_INSERT_VECTOR_JOB, callback, index_), type(type_), pending_jobs(allocator) {}
+        : AsyncJob(allocator, HNSW_DISK_JOB, callback, index_), type(type_), pending_jobs(allocator) {}
 
 private:
     // Vector of pending jobs that are waiting for this job to complete

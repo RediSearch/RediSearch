@@ -23,6 +23,7 @@ inverted_index = { path = "../deps/RediSearch/src/redisearch_rs/inverted_index" 
 # Private fork of redis-module. Keep in sync with [patch] section below.
 redis-module = { git = "https://github.com/redislabsdev/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98", default-features = false }
 num-traits = "0.2.19"
+query_term = { path = "../deps/RediSearch/src/redisearch_rs/query_term" }
 roaring = "0.10"
 rqe_iterators = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators" }
 rqe_iterators_interop = { path = "../deps/RediSearch/src/redisearch_rs/rqe_iterators_interop" }
@@ -75,7 +76,7 @@ bench = false
 # Patch redis-module for RediSearch submodule crates to use our private fork.
 # Keep rev in sync with redis-module in [dependencies] above.
 [patch."https://github.com/RedisLabsModules/redismodule-rs.git"]
-redis-module = { git = "https://github.com/redislabsdev/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98", default-features = false }
+redis-module = { git = "https://github.com/redislabsdev/redismodule-rs.git", rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98" }
 
 [lints.clippy]
 # `unsafe` pushes on you, the developer, the responsibility

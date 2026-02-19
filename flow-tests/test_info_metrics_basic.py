@@ -65,10 +65,11 @@ def test_info_search_basic(redis_env):
 
     # Test before creating any indexes.
     info_before = redis_env.cmd('INFO', 'search')
+    redis_env.assertNotIn('search_disk_doc_table', info_before)
+    redis_env.assertNotIn('search_disk_text_inverted_index', info_before)
+    redis_env.assertNotIn('search_used_memory_indexes', info_before)
     expected_doc_table = make_doc_table_metrics()
     expected_inverted_index = make_inverted_index_metrics()
-    redis_env.assertEqual(info_before['search_disk_doc_table'], expected_doc_table)
-    redis_env.assertEqual(info_before['search_disk_text_inverted_index'], expected_inverted_index)
 
     # --------------------------- Create an index ------------------------------
     redis_env.cmd("FT.CREATE", "idx", "SKIPINITIALSCAN", "SCHEMA", "t", "TEXT")
@@ -79,10 +80,6 @@ def test_info_search_basic(redis_env):
     # We now have one index, so index memory and disk memtable sizes should be > 0,
     # but there should still be no keys/entries on disk.
     redis_env.assertEqual(info_after_create['search_number_of_indexes'], 1)
-    redis_env.assertGreater(
-        info_after_create['search_used_memory_indexes'],
-        info_before['search_used_memory_indexes'],
-    )
 
     # Doc table metrics
     expected_doc_table = with_overrides(expected_doc_table,

@@ -553,6 +553,7 @@ dependencies = [
  "build_utils",
  "cc",
  "document",
+ "query_term",
  "workspace_hack",
 ]
 
@@ -894,6 +895,7 @@ dependencies = [
  "ffi",
  "field",
  "qint",
+ "query_term",
  "redis_reply",
  "serde",
  "smallvec",
@@ -1429,6 +1431,25 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "query_error",
+ "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_term"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_term_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "query_term",
  "workspace_hack",
 ]
 
@@ -1567,6 +1588,7 @@ dependencies = [
  "inverted_index",
  "num-traits 0.2.19",
  "pretty_assertions",
+ "query_term",
  "redis-module",
  "redis_mock",
  "redisearch_rs",
@@ -1592,6 +1614,7 @@ dependencies = [
  "iterators_ffi",
  "module_init_ffi",
  "query_error_ffi",
+ "query_term_ffi",
  "quote 1.0.44",
  "redis-module",
  "result_processor_ffi",

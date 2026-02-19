@@ -20,10 +20,10 @@ use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_TERM_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR, MetricsDiskAPI,
-    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RSQueryTerm,
+    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RSQueryTerm, RSToken,
     RedisModuleCtx, RedisModuleInfoCtx, RedisSearchDisk, RedisSearchDiskAPI,
     RedisSearchDiskIndexSpec, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId,
-    t_fieldMask,
+    t_fieldIndex, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -87,11 +87,14 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             indexSpecRdbSave: Some(index_spec_rdb_save),
             indexSpecRdbLoad: Some(index_spec_rdb_load),
             isAsyncIOSupported: Some(is_async_io_supported),
+            setThrottleCallbacks: Some(set_throttle_callbacks),
         },
         index: IndexDiskAPI {
-            indexDocument: Some(index_spec_index_doc),
+            indexTerm: Some(index_spec_index_term),
+            indexTags: Some(index_spec_index_tag),
             deleteDocument: Some(index_spec_delete_document),
             newTermIterator: Some(index_spec_new_term_iterator),
+            newTagIterator: Some(index_spec_new_tag_iterator),
             newWildcardIterator: Some(index_spec_new_wildcard_iterator),
             markToBeDeleted: Some(index_spec_mark_to_be_deleted),
             runGC: Some(index_spec_run_gc),
@@ -197,6 +200,13 @@ extern "C" fn is_async_io_supported(disk: *mut RedisSearchDisk) -> bool {
         return false;
     };
     disk_ctx.is_async_io_supported()
+}
+
+/// Sets throttle callbacks for vector disk tiered indexes.
+///
+/// Currently a no-op - throttling is not yet implemented for disk indexes.
+extern "C" fn set_throttle_callbacks(_enable: ffi::ThrottleCB, _disable: ffi::ThrottleCB) {
+    debug!("set_throttle_callbacks called (no-op)");
 }
 
 /// Opens an index.
@@ -424,7 +434,7 @@ extern "C" fn index_spec_rdb_load(
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
 /// 2. `term` must point to a valid buffer of at least `term_len` bytes.
-extern "C" fn index_spec_index_doc(
+extern "C" fn index_spec_index_term(
     index: *mut RedisSearchDiskIndexSpec,
     term: *const c_char,
     term_len: usize,
@@ -452,7 +462,7 @@ extern "C" fn index_spec_index_doc(
         return false;
     };
 
-    debug!(term, doc_id, field_mask, "index_spec_index_doc");
+    debug!(term, doc_id, field_mask, "index_spec_index_term");
 
     match index
         .inverted_index()
@@ -467,6 +477,20 @@ extern "C" fn index_spec_index_doc(
             false
         }
     }
+}
+
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+/// 2. `values` must point to a valid array of at least `num_values` pointers.
+unsafe extern "C" fn index_spec_index_tag(
+    _index: *mut RedisSearchDiskIndexSpec,
+    _values: *mut *const c_char,
+    _num_values: usize,
+    _doc_id: t_docId,
+    _field_index: t_fieldIndex,
+) -> bool {
+    debug!("index_spec_index_tag called (no-op)");
+    true
 }
 
 /// Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted in `index`.
@@ -636,11 +660,14 @@ extern "C" fn index_spec_new_term_iterator(
     };
 
     // SAFETY: query_term is guaranteed to be valid by safety point 2.
-    match unsafe {
-        index
-            .inverted_index()
-            .term_iterator(query_term, field_mask, weight)
-    } {
+    // Convert the raw pointer to Option<Box<RSQueryTerm>> for the new API
+    let query_term_box: Box<inverted_index::RSQueryTerm> =
+        unsafe { Box::from_raw(query_term.cast()) };
+
+    match index
+        .inverted_index()
+        .term_iterator(query_term_box, field_mask, weight)
+    {
         Ok(iterator) => RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_TERM_ITERATOR, iterator),
         Err(error) => {
             error!(
@@ -650,6 +677,16 @@ extern "C" fn index_spec_new_term_iterator(
             std::ptr::null_mut()
         }
     }
+}
+
+extern "C" fn index_spec_new_tag_iterator(
+    _index: *mut RedisSearchDiskIndexSpec,
+    _query_tag: *const RSToken,
+    _field_index: t_fieldIndex,
+    _weight: f64,
+) -> *mut QueryIterator {
+    debug!("index_spec_new_tag_iterator called (no-op)");
+    std::ptr::null_mut()
 }
 
 /// Creates a new wildcard iterator for `index`.

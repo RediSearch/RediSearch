@@ -1,5 +1,6 @@
-use ffi::{RSQueryTerm, t_docId, t_fieldMask};
-use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector};
+use ffi::{t_docId, t_fieldMask};
+use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice};
+use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, inverted_index::InvIndIterator};
 use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
@@ -146,32 +147,23 @@ impl InvertedIndex {
     }
 
     /// Returns an iterator over the document IDs for the given term.
-    ///
-    /// # Safety
-    /// The caller must ensure that `query_term` is a valid pointer to an `RSQueryTerm`
-    /// created by `NewQueryTerm` on the C side. The `RSQueryTerm` is owned by the iterator
-    /// and will be freed when the iterator is freed.
-    ///
-    /// # Safety
-    /// `query_term` must be a valid pointer to an `RSQueryTerm` created by `NewQueryTerm`.
-    pub unsafe fn term_iterator(
+    pub fn term_iterator(
         &self,
-        query_term: *mut RSQueryTerm,
+        query_term: Box<RSQueryTerm>,
         field_mask: t_fieldMask,
         weight: f64,
     ) -> Result<
         InvIndIterator<'_, FilterMaskReader<PostingsListReader<'_, Speedb>>>,
         generic_reader::ReaderCreateError,
     > {
-        // SAFETY: query_term is guaranteed valid by the caller.
-        let qt = unsafe { &*query_term };
+        let qt = query_term.as_ref();
         // SAFETY: qt.str_ and qt.len are valid as query_term is guaranteed valid by the caller.
         let term = unsafe { std::slice::from_raw_parts(qt.str_ as *const u8, qt.len) };
         // SAFETY: The caller in lib.rs already validated this is valid UTF-8
         let term_str =
             std::str::from_utf8(term).expect("term should be valid UTF-8, validated by caller");
 
-        let key = InvertedIndexKey {
+        let key: Vec<u8> = InvertedIndexKey {
             prefix: term_str,
             last_doc_id: None,
         }
@@ -184,9 +176,8 @@ impl InvertedIndex {
         let reader = PostingsListReader::new(iterator, term_str.to_string())?;
         let reader = FilterMaskReader::new(field_mask, reader);
 
-        let result =
-            RSIndexResult::term_with_term_ptr(query_term, RSOffsetVector::empty(), 0, 0, 0)
-                .weight(weight);
+        let result = RSIndexResult::with_term(Some(query_term), RSOffsetSlice::empty(), 0, 0, 0)
+            .weight(weight);
 
         let iter = InvIndIterator::new(reader, result, NoOpChecker);
         Ok(iter)

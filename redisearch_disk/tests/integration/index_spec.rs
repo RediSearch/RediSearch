@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use document::DocumentType;
-use ffi::{NewQueryTerm, RSToken, t_docId, t_fieldMask};
+use ffi::{t_docId, t_fieldMask};
+use query_term::RSQueryTerm;
 use redisearch_disk::disk_context::DiskContext;
 use redisearch_disk::index_spec::{IndexSpec, deleted_ids::DeletedIdsStore};
 use rqe_iterators::RQEIterator;
@@ -35,37 +36,18 @@ fn create_test_index(name: &str) -> (TempDir, IndexSpec) {
 
 /// Creates an RSQueryTerm for testing purposes.
 /// The caller does not need to free the term - it will be freed when the iterator is dropped.
-fn create_query_term(term_str: &str) -> *mut ffi::RSQueryTerm {
-    let token = RSToken {
-        str_: term_str.as_ptr() as *mut _,
-        len: term_str.len(),
-        _bitfield_align_1: Default::default(),
-        _bitfield_1: Default::default(),
-        __bindgen_padding_0: Default::default(),
-    };
-    let token_ptr = Box::into_raw(Box::new(token));
-    // SAFETY: token_ptr is a valid pointer to an RSToken
-    let query_term = unsafe { NewQueryTerm(token_ptr as *mut _, 0) };
-    // Now that NewQueryTerm copied tok->str into ret->str,
-    // the temporary token struct is no longer needed.
-    // SAFETY: We just created this box above
-    unsafe {
-        drop(Box::from_raw(token_ptr));
-    }
-    query_term
+fn create_query_term(term_str: &str) -> Box<RSQueryTerm> {
+    RSQueryTerm::new(term_str.as_bytes(), 0, 0)
 }
 
 /// Collects all doc_ids from an inverted index term using the term iterator.
 fn collect_term_doc_ids(index: &IndexSpec, term: &str) -> HashSet<t_docId> {
     let mut doc_ids = HashSet::new();
     let query_term = create_query_term(term);
-    // SAFETY: query_term is a valid pointer created by create_query_term
-    let mut it = unsafe {
-        index
-            .inverted_index()
-            .term_iterator(query_term, FIELD_MASK_ALL, 1.0)
-    }
-    .unwrap();
+    let mut it = index
+        .inverted_index()
+        .term_iterator(query_term, FIELD_MASK_ALL, 1.0)
+        .unwrap();
     while let Ok(Some(result)) = it.read() {
         doc_ids.insert(result.doc_id);
     }
