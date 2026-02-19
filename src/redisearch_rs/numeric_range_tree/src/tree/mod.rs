@@ -15,11 +15,15 @@
 //! The implementation is split into sub-modules by concern:
 //! - [`insert`]: Write path (add, split, balance)
 //! - [`find`]: Read path (range queries)
+//! - [`gc`][]: Maintenance (garbage collection, trimming, compaction)
 
 mod find;
+mod gc;
 mod insert;
 #[cfg(all(feature = "unittest", not(miri)))]
 mod invariants;
+
+pub use gc::{NodeGcDelta, SingleNodeGcResult};
 
 use ffi::t_docId;
 
@@ -52,6 +56,26 @@ pub struct AddResult {
     pub num_ranges_delta: i32,
     /// The net change in the number of leaf nodes.
     /// Splitting a leaf adds one new leaf. Trimming decreases this.
+    pub num_leaves_delta: i32,
+}
+
+/// Result of trimming empty leaves from the tree.
+///
+/// Similar to [`AddResult`] but without `num_records_delta`, since trimming
+/// only removes empty nodes and does not change the number of entries
+/// (entries are removed by GC before trimming).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TrimEmptyLeavesResult {
+    /// The change in the tree's inverted index memory usage, in bytes.
+    /// Positive values indicate growth, negative values indicate shrinkage.
+    pub size_delta: i64,
+    /// Whether the tree structure changed (nodes were removed or rotated).
+    /// When true, the tree's `revision_id` should be incremented to
+    /// invalidate any concurrent iterators.
+    pub changed: bool,
+    /// The net change in the number of ranges (nodes with inverted indexes).
+    pub num_ranges_delta: i32,
+    /// The net change in the number of leaf nodes.
     pub num_leaves_delta: i32,
 }
 
@@ -261,7 +285,7 @@ impl NumericRangeTree {
     }
 
     /// Calculate the total memory usage of the tree, in bytes.
-    pub fn mem_usage(&self) -> usize {
+    pub const fn mem_usage(&self) -> usize {
         std::mem::size_of::<Self>() + self.stats.inverted_indexes_size + self.nodes.mem_usage()
     }
 }
@@ -272,11 +296,11 @@ impl Default for NumericRangeTree {
     }
 }
 
-/// Apply a signed delta to an unsigned value, saturating at bounds instead of wrapping.
+/// Apply a signed delta to an unsigned value, panicking at bounds instead of wrapping.
 const fn apply_signed_delta(value: usize, delta: i64) -> usize {
     if delta < 0 {
-        value.saturating_sub((-delta) as usize)
+        value.checked_sub((-delta) as usize).expect("Underflow!")
     } else {
-        value.saturating_add(delta as usize)
+        value.checked_add(delta as usize).expect("Overflow!")
     }
 }

@@ -631,6 +631,19 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "query_term",
+ "workspace_hack",
+]
+
+[[package]]
+name = "ffi_geiger"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "proc-macro2",
+ "syn 2.0.114",
+ "walkdir",
  "workspace_hack",
 ]
 
@@ -681,6 +694,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf68cef89750956493a66a10f512b9e58d9db21f2a573c079c0bdf1207a54a7"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "generational_slab"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
 ]
 
 [[package]]
@@ -907,6 +927,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "query_term",
  "redis_reply",
  "serde",
  "smallvec",
@@ -924,6 +945,7 @@ dependencies = [
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
+ "query_term",
  "redis-module",
  "redis_mock",
  "workspace_hack",
@@ -1229,6 +1251,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "generational_slab",
  "hyperloglog",
  "insta",
  "inverted_index",
@@ -1239,7 +1262,6 @@ dependencies = [
  "redis_reply",
  "redisearch_rs",
  "rstest",
- "slab",
  "tracing",
  "workspace_hack",
 ]
@@ -1456,6 +1478,25 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "query_error",
+ "strum",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_term"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_term_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "query_term",
  "workspace_hack",
 ]
 
@@ -1621,6 +1662,7 @@ dependencies = [
  "iterators_ffi",
  "module_init_ffi",
  "query_error_ffi",
+ "query_term_ffi",
  "quote 1.0.44",
  "redis-module",
  "result_processor_ffi",
@@ -1711,6 +1753,7 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
+ "c_ffi_utils",
  "document",
  "enumflags2",
  "ffi",
@@ -1732,6 +1775,7 @@ name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_ffi_utils",
  "cbindgen",
  "ffi",
  "libc",
@@ -1772,6 +1816,8 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "query_error",
+ "query_term",
+ "query_term_ffi",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
@@ -1797,6 +1843,7 @@ dependencies = [
  "inverted_index_ffi",
  "iterators_ffi",
  "itertools 0.14.0",
+ "query_term",
  "rand",
  "redis_mock",
  "redisearch_rs",
@@ -2068,12 +2115,6 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
-
-[[package]]
-name = "slab"
-version = "0.4.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slots_tracker"

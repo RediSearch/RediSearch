@@ -24,6 +24,7 @@ build_utils = { path = "../build_utils" }
 criterion.workspace = true
 ffi.workspace = true
 field.workspace = true
+query_term.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }
 iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }

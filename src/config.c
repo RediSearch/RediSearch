@@ -91,6 +91,7 @@ configPair_t __configPairs[] = {
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
+  {"BG_INDEX_SLEEP_DURATION_US",      "search-bg-index-sleep-duration-us"},
   {"ON_OOM",                          "search-on-oom"},
   {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
@@ -931,12 +932,15 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
 CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
+                                 "Default dialect version cannot be higher than ", "%u",
+                                 MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
-  RETURN_STATUS(acrc);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getDefaultDialectVersion) {
@@ -1110,6 +1114,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
@@ -1117,6 +1122,28 @@ CONFIG_SETTER(setIndexerYieldEveryOps) {
 CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
+// BG_INDEX_SLEEP_DURATION_US
+// Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+#define BG_INDEX_SLEEP_DURATION_US_MAX 999999
+CONFIG_SETTER(setBGIndexSleepDurationUS) {
+  unsigned int sleepDurationUS;
+  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
+      BG_INDEX_SLEEP_DURATION_US_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->bgIndexingSleepDurationMicroseconds = sleepDurationUS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBGIndexSleepDurationUS) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingSleepDurationMicroseconds);
 }
 
 // MIN_TRIM_DELAY
@@ -1545,6 +1572,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
+        {.name = "BG_INDEX_SLEEP_DURATION_US",
+         .helpText = "Sleep duration in microseconds during background indexing periodic sleep (max 999999, usleep POSIX limit)",
+         .setValue = setBGIndexSleepDurationUS,
+         .getValue = getBGIndexSleepDurationUS},
         {.name = "ON_OOM",
          .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
@@ -1757,7 +1788,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Not modifiable at runtime");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_OPTION, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;
@@ -2078,6 +2109,16 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bg-index-sleep-duration-us", DEFAULT_BG_INDEX_SLEEP_DURATION_US,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      BG_INDEX_SLEEP_DURATION_US_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.bgIndexingSleepDurationMicroseconds)
+    )
+  )
+
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-_min-trim-delay-ms", DEFAULT_MIN_TRIM_DELAY,
@@ -2242,6 +2283,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.simulateInFlex)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_info-on-zero-indexes", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.infoEmitOnZeroIndexes)
     )
   )
 

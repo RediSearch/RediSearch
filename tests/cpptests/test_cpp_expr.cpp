@@ -244,7 +244,7 @@ TEST_F(ExprTest, testGetFields) {
   RSExpr *root = ExprAST_Parse(hidden, &status);
   HiddenString_Free(hidden, false);
   ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
-  RLookup lk;
+  RLookup lk = RLookup_New();
 
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
@@ -265,15 +265,15 @@ TEST_F(ExprTest, testFunction) {
 
   ctx.assign("banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 }
 
 struct EvalResult {
@@ -312,11 +312,11 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
 }
 
 TEST_F(ExprTest, testPredicate) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(1));
   RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(2));
   QueryError status = QueryError_Default();
@@ -394,9 +394,9 @@ TEST_F(ExprTest, testNull) {
 
 TEST_F(ExprTest, testPropertyFetch) {
   TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
-  RLookup lk;
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(10));
@@ -451,11 +451,11 @@ TEST_F(ExprTest, testEvalFuncCase) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
   RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(10));
 
@@ -472,10 +472,10 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithExists) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(42));
 
   TEvalCtx ctx("case(exists(@foo), 1, 0)");  // @foo exists
@@ -571,10 +571,10 @@ TEST_F(ExprTest, testEvalFuncCaseErrorConditions) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
 
   TEvalCtx ctx("case(1, @foo + 10, @foo / 0)");
@@ -693,7 +693,7 @@ TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
   // Verify the error message mentions the missing property
   const char *err = QueryError_GetUserError(&ctx->status);
   ASSERT_NE(err, nullptr);
-  ASSERT_TRUE(strstr(err, "Property `foo` not loaded nor in pipeline") != nullptr) << "Error should mention the missing property: " << err;
+  ASSERT_TRUE(strstr(err, "SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline: `foo`") != nullptr) << "Error should mention the missing property: " << err;
 
   // Clean up - we own the expression since EvalCtx_EvalExpr sets _own_expr = false
   ExprAST_Free(expr);

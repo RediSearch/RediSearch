@@ -43,10 +43,6 @@ typedef struct {
   const TagIndex *tagIdx; // not const, may reopen on revalidation
 } TagInvIndIterator;
 
-// Returns an iterator for a numeric index, suitable for queries
-QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
-                                              const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax);
-
 // Returns an iterator for a term index, suitable for queries
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight);
@@ -61,12 +57,6 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
 // Returns an iterator for a tag index, suitable for queries
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                           RSQueryTerm *term, double weight);
-
-// Accessors for InvIndIterator and NumericInvIndIterator fields
-IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
-const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it);
-double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it);
-double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it);
 
 #ifdef __cplusplus
 }

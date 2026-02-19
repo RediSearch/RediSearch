@@ -37,6 +37,13 @@
  *         - Internally inserts a result processor (RP) as the downstream processor
  *           of the final execution step (e.g., `RP_INDEX` in SA or `RP_NETWORK` in the
  *           coordinator).
+ *         - **Policy constraints (shard-level queries only):** Requires `ON_TIMEOUT RETURN`
+ *           policy, or `ON_TIMEOUT FAIL` when running without workers (WORKERS=0).
+ *           `ON_TIMEOUT RETURN-STRICT` is never supported. This restriction applies to
+ *           shard-level queries (standalone or cluster shards) because `TIMEOUT_AFTER_N`
+ *           uses in-pipeline timeout simulation. With workers enabled, `ON_TIMEOUT FAIL`
+ *           relies on blocked client timeout instead of in-pipeline checks, making it
+ *           incompatible with `TIMEOUT_AFTER_N`.
  *       - **`INTERNAL_ONLY` (optional)**:
  *         - Only applicable in FT.AGGREGATE cluster mode.
  *         - If specified, the timeout applies solely to internal shard queries,
@@ -76,6 +83,9 @@
  *
  * ### Limitations:
  * - Pause debugging affects at most one query at a time (single debug pause RP at once).
+ * - `TIMEOUT_AFTER_N` policy constraints (shard-level queries only): Requires `ON_TIMEOUT
+ *   RETURN` policy, or `ON_TIMEOUT FAIL` without workers (WORKERS=0). `ON_TIMEOUT
+ *   RETURN-STRICT` is never supported.
  *
  * -----------------------------------------------------------------------------
  *

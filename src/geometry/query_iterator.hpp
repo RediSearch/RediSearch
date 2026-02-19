@@ -26,6 +26,7 @@ struct CPPQueryIterator {
   std::size_t index_;
   const RedisSearchCtx *sctx_;
   const FieldFilterContext filterCtx_;
+  const uint32_t initTimeoutCounter_;  // Value to reset counter to on each read() call
 
   explicit CPPQueryIterator() = delete;
 
@@ -33,10 +34,10 @@ struct CPPQueryIterator {
   template <typename R, typename Proj = std::identity>
     requires std::ranges::input_range<R> &&
                  std::convertible_to<std::ranges::range_reference_t<R>, t_docId>
-  explicit CPPQueryIterator(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, R &&range, std::size_t &alloc, Proj proj = {})
+  explicit CPPQueryIterator(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, R &&range, std::size_t &alloc, uint32_t timeoutCounter = 0, Proj proj = {})
       : base_{init_base()},
         iter_{std::ranges::begin(range), std::ranges::end(range), alloc_type{alloc}},
-        index_{0}, sctx_(sctx), filterCtx_(*filterCtx) {
+        index_{0}, sctx_(sctx), filterCtx_(*filterCtx), initTimeoutCounter_(timeoutCounter) {
     std::ranges::sort(iter_, std::ranges::less{}, proj);
   }
 
