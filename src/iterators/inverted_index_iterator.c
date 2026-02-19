@@ -32,25 +32,6 @@ size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   return IndexReader_NumEstimated(it->reader);
 }
 
-static ValidateStatus NumericCheckAbort(QueryIterator *base) {
-  NumericInvIndIterator *nit = (NumericInvIndIterator *)base;
-  InvIndIterator *it = (InvIndIterator *)base;
-
-  if (!it->sctx) {
-    return VALIDATE_OK;
-  }
-
-  // sctx and rt should always be set, except in some tests.
-  RS_ASSERT(nit->rt);
-  if (nit->rt->revisionId != nit->revisionId) {
-    // The numeric tree was either completely deleted or a node was split or removed.
-    // The cursor is invalidated.
-    return VALIDATE_ABORTED;
-  }
-
-  return VALIDATE_OK;
-}
-
 static ValidateStatus TermCheckAbort(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
   // Skip validation if search context is not set up for term lookup.
@@ -413,31 +394,6 @@ static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, enum IteratorT
   return InitInvIndIterator(it, it_type, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
 }
 
-QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
-                                              const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax) {
-  RS_ASSERT(idx);
-  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
-
-  if (flt) {
-    decoderCtx = (IndexDecoderCtx){.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
-  }
-
-  NumericInvIndIterator *numIt = rm_calloc(1, sizeof(*numIt));
-  // Initialize the iterator first
-  InitInvIndIterator(&numIt->base, INV_IDX_NUMERIC_ITERATOR, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
-
-  if (rt) {
-    numIt->revisionId = rt->revisionId;
-    numIt->rt = rt;
-  }
-
-  numIt->rangeMin = rangeMin;
-  numIt->rangeMax = rangeMax;
-
-  QueryIterator *ret = &numIt->base.base;
-  return ret;
-}
-
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight) {
   FieldFilterContext fieldCtx = {
@@ -515,23 +471,4 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
   record->freq = 1;
 
   return NewInvIndIterator(idx, INV_IDX_MISSING_ITERATOR, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
-}
-
-/******************************* Accessors *******************************/
-
-IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it) {
-  return IndexReader_Flags(it->reader);
-}
-
-const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it) {
-    const InvIndIterator *base = &it->base;
-    return IndexReader_NumericFilter(base->reader);
-}
-
-double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it) {
-  return it->rangeMin;
-}
-
-double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it) {
-  return it->rangeMax;
 }
