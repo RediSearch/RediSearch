@@ -619,7 +619,6 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                const char *key,
                                QueryError *status);
 
-#if defined(ENABLE_ASSERT)
 /**
  * Returns a newly created [`RLookupRow`].
  *
@@ -630,14 +629,6 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RLookupRow RLookupRow_New(const struct RLookup *lookup);
-#endif
-
-#if !defined(ENABLE_ASSERT)
-/**
- * Returns a newly created [`RLookupRow`].
- */
-struct RLookupRow RLookupRow_New(void);
-#endif
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.

@@ -9,9 +9,7 @@
 
 use ffi::RSValue;
 use libc::size_t;
-#[cfg(debug_assertions)]
-use rlookup::OpaqueRLookup;
-use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
+use rlookup::{OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
@@ -27,20 +25,12 @@ use value::RSValueFFI;
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[cfg(debug_assertions)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_New(lookup: *const OpaqueRLookup) -> OpaqueRLookupRow {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
     RLookupRow::new(lookup).into_opaque()
-}
-
-/// Returns a newly created [`RLookupRow`].
-#[cfg(not(debug_assertions))]
-#[unsafe(no_mangle)]
-pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
-    RLookupRow::new().into_opaque()
 }
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
