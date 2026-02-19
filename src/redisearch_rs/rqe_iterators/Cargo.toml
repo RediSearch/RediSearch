@@ -16,6 +16,7 @@ build_utils = { path = "../build_utils" }
 [dependencies]
 ffi.workspace = true
 field.workspace = true
+idf.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
 query_error.workspace = true
@@ -29,6 +30,7 @@ value = { workspace = true, features = ["c_ffi_impl"] }
 workspace_hack.workspace = true
 
 [dev-dependencies]
+approx.workspace = true
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }

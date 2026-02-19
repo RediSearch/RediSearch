@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use approx::assert_abs_diff_eq;
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
@@ -18,13 +19,6 @@ use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Term};
 
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
-
-fn new_term() -> Box<RSQueryTerm> {
-    let mut term = RSQueryTerm::new(b"term", 1, 0);
-    term.set_idf(5.0);
-    term.set_bm25_idf(10.0);
-    term
-}
 
 fn expected_record(
     doc_id: t_docId,
@@ -79,7 +73,7 @@ impl TermBaseTest {
             Term::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                new_term(),
+                RSQueryTerm::new(b"term", 1, 0),
                 1.0,
                 NoOpChecker,
             )
@@ -93,12 +87,20 @@ fn term_read() {
     let test = TermBaseTest::new(100);
     let mut it = test.create_iterator();
 
-    // Read the first record and verify the term and weight are correct.
+    // Read the first record and verify the term, weight, and IDF are correct.
     let record = it.read().unwrap().expect("expected at least one record");
     assert_eq!(record.weight, 1.0);
-    let term = record.as_term().expect("expected term record").query_term();
-    let expected = new_term();
-    assert_eq!(term, Some(&*expected));
+    let term = record
+        .as_term()
+        .expect("expected term record")
+        .query_term()
+        .expect("expected query term");
+
+    // IDF is computed by Term::new() from MockContext's numDocuments (0) and unique_docs (101).
+    // calculate_idf(0, 101) = floor(log2(1 + 1/101)) = floor(~0.014) = 0.0
+    assert_eq!(term.idf(), 0.0);
+    // calculate_idf_bm25(0, 101) — total_docs clamped to term_docs (101).
+    assert_abs_diff_eq!(term.bm25_idf(), 0.004914014802429163);
 
     it.rewind();
     test.test.read(&mut it, test.test.docs_ids_iter());
@@ -121,7 +123,7 @@ fn term_filter() {
         Term::new(
             reader,
             test.test.mock_ctx.sctx(),
-            new_term(),
+            RSQueryTerm::new(b"term", 1, 0),
             1.0,
             NoOpChecker,
         )
@@ -194,7 +196,15 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker) }
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new(b"term", 1, 0),
+                    1.0,
+                    checker,
+                )
+            }
         }
 
         fn create_iterator_wide(
@@ -209,7 +219,15 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker) }
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new(b"term", 1, 0),
+                    1.0,
+                    checker,
+                )
+            }
         }
 
         fn mark_even_ids_expired(&mut self) {
@@ -300,7 +318,15 @@ mod not_miri {
         > {
             let field_mask = self.test.context.text_field_bit();
             let reader = self.test.context.term_inverted_index().reader(field_mask);
-            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, NoOpChecker) }
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new(b"term", 1, 0),
+                    1.0,
+                    NoOpChecker,
+                )
+            }
         }
     }
 

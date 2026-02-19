@@ -57,14 +57,25 @@ where
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
-    /// 2. `context` must remain valid for the lifetime of the iterator.
+    /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
+    /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
     pub unsafe fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
-        term: Box<RSQueryTerm>,
+        mut term: Box<RSQueryTerm>,
         weight: f64,
         expiration_checker: E,
     ) -> Self {
+        // Compute IDF scores on the term.
+        // SAFETY: 1. guarantee context is valid.
+        let context_ref = unsafe { context.as_ref() };
+        // SAFETY: 2. guarantee spec is valid.
+        let spec = unsafe { &*context_ref.spec };
+        let total_docs = spec.stats.scoring.numDocuments;
+        let term_docs = reader.unique_docs() as usize;
+        term.set_idf(idf::calculate_idf(total_docs, term_docs));
+        term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
+
         let result =
             RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
                 .weight(weight);

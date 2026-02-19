@@ -1937,9 +1937,11 @@ dependencies = [
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
+ "approx",
  "build_utils",
  "ffi",
  "field",
+ "idf",
  "inverted_index",
  "libc",
  "pretty_assertions",
