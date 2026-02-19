@@ -18,7 +18,6 @@ use thin_vec::SmallThinVec;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
-#[expect(improper_ctypes, reason = "RSQueryTerm is opaque - accessed via FFI functions only")]
 unsafe extern "C" {
     /// Adds the metrics of a child [`RSYieldableMetric`] to the parent [`RSYieldableMetric`].
     ///
@@ -40,6 +39,7 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The caller must ensure that the `metrics` pointer is either `null` or valid and points to a `*mut RSYieldableMetric`.
+    #[expect(improper_ctypes, reason = "RSQueryTerm is opaque - accessed via FFI functions only")]
     pub unsafe fn ResultMetrics_Reset_func(result: *mut RSIndexResult);
 
     /// Make a complete clone of the metrics array and increment the reference count of each value
