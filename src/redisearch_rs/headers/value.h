@@ -321,6 +321,17 @@ const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
 const char *RSValue_StringPtrLen(const struct RsValue *value, size_t *len_ptr);
 
 /**
+ * Computes a 64-bit FNV-1a hash of an [`RsValue`], using `hval` as the initial offset basis.
+ *
+ * The hashing is recursive for composite types (arrays, maps, references, trios).
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
+uint64_t RSValue_Hash(const struct RsValue *value, uint64_t hval);
+
+/**
  * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
  *
  * The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]
