@@ -179,7 +179,7 @@ TEST_F(AggTest, testGroupBy) {
   auto sumReducer = RDCRSum_New(&sumOptions);
   ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
-  SearchResult res = SearchResult_New();
+  SearchResult res = SearchResult_New_2(&rk_out);
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
 
