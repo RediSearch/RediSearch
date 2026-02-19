@@ -19,10 +19,12 @@
 //! - [`node`]: Node accessors (range, children, etc.)
 //! - [`range`]: NumericRange accessors and HLL functions
 //! - [`inverted_index`]: InvertedIndexNumeric accessors and reader
+//! - [`gc`]: Garbage collection scan and apply functions
 
 #![allow(non_camel_case_types, non_snake_case)]
 
 pub mod debug;
+pub mod gc;
 pub mod iterator;
 pub mod node;
 pub mod range;
@@ -30,9 +32,11 @@ pub mod tree;
 
 // Re-export all public FFI functions from submodules
 pub use debug::*;
+pub use gc::*;
 pub use iterator::*;
 pub use node::*;
 use numeric_range_tree::AddResult;
+use numeric_range_tree::TrimEmptyLeavesResult;
 pub use range::*;
 pub use tree::*;
 
@@ -220,6 +224,30 @@ pub unsafe extern "C" fn NumericRangeTreeFindResult_Free(result: NumericRangeTre
         );
         let _ = Box::from_raw(slice_ptr);
     }
+}
+
+/// Trim empty leaves from the tree (garbage collection).
+///
+/// Removes leaf nodes that have no documents and prunes the tree structure
+/// accordingly.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `t` must point to a valid [`NumericRangeTree`] obtained from
+///   [`NewNumericRangeTree`] and cannot be NULL.
+/// - No iterators should be active on this tree while calling this function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericRangeTree_TrimEmptyLeaves(
+    t: *mut NumericRangeTree,
+) -> TrimEmptyLeavesResult {
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+
+    // SAFETY: Caller is to ensure that `t` is a valid, non-null pointer
+    // to a NumericRangeTree obtained from NewNumericRangeTree.
+    let tree = unsafe { &mut *t };
+
+    tree.trim_empty_leaves()
 }
 
 // ============================================================================
