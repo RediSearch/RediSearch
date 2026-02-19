@@ -11,4 +11,4 @@ pub mod key;
 mod lookup;
 pub mod row;
 
-pub use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
+pub use rlookup::{Cursor, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
