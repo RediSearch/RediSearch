@@ -3880,20 +3880,16 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     SchemaPrefixNode *node = TrieMapResultBuf_GetByIndex(&prefixes, i);
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       StrongRef global = node->index_specs[j];
-      // Clone the StrongRef first to hold a reference during indexing.
-      // This prevents the spec from being freed while we're using it.
-      StrongRef cloned_ref = StrongRef_Clone(global);
-      const IndexSpec *spec = StrongRef_Get(cloned_ref);
+      IndexSpec *spec = StrongRef_Get(global);
       if (spec && !dictFind(specs, spec->specName)) {
         // skip if document type does not match the index type
         // The unsupported type is needed for crdt empty keys (deleted)
         if (type != DocumentType_Unsupported && type != spec->rule->type) {
-          StrongRef_Release(cloned_ref);
           continue;
         }
 
         SpecOpCtx specOp = {
-            .spec_ref = cloned_ref,
+            .spec = spec,
             .op = SpecOp_Add,
         };
         array_append(res->specsOps, specOp);
@@ -3901,9 +3897,6 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         // put the location on the specsOps array so we can get it
         // fast using index name
         entry->v.u64 = array_len(res->specsOps) - 1;
-      } else if (cloned_ref.rm) {
-        // Release the cloned ref if we're not using it (and it's valid)
-        StrongRef_Release(cloned_ref);
       }
     }
   }
@@ -3917,9 +3910,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
       SpecOpCtx *specOp = res->specsOps + i;
-      IndexSpec *spec = StrongRef_Get(specOp->spec_ref);
-      // Skip if spec was invalidated (shouldn't happen if we hold a valid StrongRef)
-      if (!spec || !spec->rule->filter_exp) {
+      IndexSpec *spec = specOp->spec;
+      if (!spec->rule->filter_exp) {
         continue;
       }
 
@@ -3971,13 +3963,6 @@ static bool hashFieldChanged(IndexSpec *spec, RedisModuleString **hashFields) {
 
 void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
   dictRelease(specs->specs);
-  // Release the strong references held by each SpecOpCtx
-  for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    // Only release if the ref is valid (rm is not NULL)
-    if (specs->specsOps[i].spec_ref.rm) {
-      StrongRef_Release(specs->specsOps[i].spec_ref);
-    }
-  }
   array_free(specs->specsOps);
   rm_free(specs);
 }
@@ -3993,24 +3978,13 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    const SpecOpCtx *specOp = specs->specsOps + i;
-    IndexSpec *spec = StrongRef_Get(specOp->spec_ref);
+    SpecOpCtx *specOp = specs->specsOps + i;
 
-    // Skip if spec was invalidated (shouldn't happen if we hold a valid StrongRef)
-    if (!spec) {
-      continue;
-    }
-
-    // skip if document type does not match the index type
-    if (type != spec->rule->type) {
-      continue;
-    }
-
-    if (hashFieldChanged(spec, hashFields)) {
+    if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type);
+        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
       } else {
-        IndexSpec_DeleteDoc(spec, ctx, key);
+        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
       }
     }
   }
@@ -4024,14 +3998,9 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
-    const SpecOpCtx *specOp = specs->specsOps + i;
-    IndexSpec *spec = StrongRef_Get(specOp->spec_ref);
-    // Skip if spec was invalidated (shouldn't happen if we hold a valid StrongRef)
-    if (!spec) {
-      continue;
-    }
-    if (hashFieldChanged(spec, hashFields)) {
-      IndexSpec_DeleteDoc(spec, ctx, key);
+    SpecOpCtx *specOp = specs->specsOps + i;
+    if (hashFieldChanged(specOp->spec, hashFields)) {
+      IndexSpec_DeleteDoc(specOp->spec, ctx, key);
     }
   }
 
@@ -4053,12 +4022,8 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   const char *to_str = RedisModule_StringPtrLen(to_key, &to_len);
 
   for (size_t i = 0; i < array_len(from_specs->specsOps); ++i) {
-    const SpecOpCtx *specOp = from_specs->specsOps + i;
-    IndexSpec *spec = StrongRef_Get(specOp->spec_ref);
-    // Skip if spec was invalidated (shouldn't happen if we hold a valid StrongRef)
-    if (!spec) {
-      continue;
-    }
+    SpecOpCtx *specOp = from_specs->specsOps + i;
+    IndexSpec *spec = specOp->spec;
     if (specOp->op == SpecOp_Del) {
       // the document is not in the index from the first place
       continue;
@@ -4069,13 +4034,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       RedisSearchCtx_LockSpecWrite(&sctx);
       DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
-      // Mark this spec as handled by changing its op to SpecOp_Del.
-      // This avoids the need to use array_del_fast which would:
-      // 1. Leak the StrongRef of the removed element
-      // 2. Invalidate indices stored in the dictionary
       size_t index = entry->v.u64;
-      to_specs->specsOps[index].op = SpecOp_Del;
       dictDelete(to_specs->specs, spec->specName);
+      array_del_fast(to_specs->specsOps, index);
     } else {
       IndexSpec_DeleteDoc(spec, ctx, from_key);
     }
@@ -4083,7 +4044,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
 
   // add to a different index
   for (size_t i = 0; i < array_len(to_specs->specsOps); ++i) {
-    const SpecOpCtx *specOp = to_specs->specsOps + i;
+    SpecOpCtx *specOp = to_specs->specsOps + i;
     if (specOp->op == SpecOp_Del) {
       // not need to index
       // also no need to delete because we know that the document is
@@ -4091,12 +4052,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec *spec = StrongRef_Get(specOp->spec_ref);
-    // Skip if spec was invalidated (shouldn't happen if we hold a valid StrongRef)
-    if (!spec) {
-      continue;
-    }
-    IndexSpec_UpdateDoc(spec, ctx, to_key, type);
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
