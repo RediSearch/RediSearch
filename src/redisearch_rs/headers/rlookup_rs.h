@@ -193,6 +193,33 @@ typedef struct ALIGNED(8) RLookupRow {
   OpaqueRLookupRowSize _0;
 } RLookupRow;
 
+typedef struct KeyList {
+  struct RLookupKey *head;
+  struct RLookupKey *tail;
+  uint32_t rowlen;
+} KeyList;
+
+/**
+ * A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
+ *
+ * This types `Iterator` implementation skips all hidden keys, i.e. the keys
+ * with hidden flags, also including keys that been overridden.
+ *
+ * If you need to obtain the hidden keys use [`Cursor::move_next`].
+ */
+typedef struct RLookupIterator {
+  const struct KeyList *_rlookup;
+  struct RLookupKey *current;
+} RLookupIterator;
+
+/**
+ * A cursor over an [`crate::RLookup`]s key list with editing operations.
+ */
+typedef struct RLookupIteratorMut {
+  struct KeyList *_rlookup;
+  struct RLookupKey *current;
+} RLookupIteratorMut;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -589,6 +616,10 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                IndexSpec *index_spec,
                                const char *key,
                                QueryError *status);
+
+struct RLookupIterator RLookup_Iter(struct RLookup *lookup);
+
+struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
 /**
  * Returns a newly created [`RLookupRow`], which is moved into the caller.

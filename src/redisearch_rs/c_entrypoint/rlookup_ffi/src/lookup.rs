@@ -10,8 +10,8 @@
 use c_ffi_utils::opaque::IntoOpaque;
 use libc::size_t;
 use rlookup::{
-    IndexSpec, IndexSpecCache, OpaqueRLookup, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
-    RLookupOptions, SchemaRule,
+    Cursor, CursorMut, IndexSpec, IndexSpecCache, OpaqueRLookup, RLookup, RLookupKey,
+    RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, SchemaRule,
 };
 use rlookup::{OpaqueRLookupRow, RLookupRow};
 use std::{
@@ -584,6 +584,24 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields<'a>(
     let status = unsafe { status.unwrap().as_mut() };
 
     lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Iter<'list, 'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+) -> Cursor<'list, 'a> {
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    lookup.cursor()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_IterMut<'list, 'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+) -> CursorMut<'list, 'a> {
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    lookup.cursor_mut()
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.

@@ -16,7 +16,7 @@
 #include "util/arr.h"
 
 static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
-    // return key->_next;
+    return key->next;
 }
 
 static inline void RLookupKey_MergeFlags(RLookupKey* key, uint32_t flags) {
@@ -142,15 +142,15 @@ static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t nam
  * last key ways returned and the caller should not call this function anymore.
  */
 inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
-    // const RLookupKey *current = iterator->current;
-    // if (current == NULL) {
-    //     return false;
-    // } else {
-    //     *key = current;
-    //     iterator->current = current->_next;
+    const RLookupKey *current = iterator->current;
+    if (current == NULL) {
+        return false;
+    } else {
+        *key = current;
+        iterator->current = RLookupKey_GetNext(current);
 
-    //     return true;
-    // }
+        return true;
+    }
 }
 
 /**
@@ -160,29 +160,15 @@ inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** k
  * last key ways returned and the caller should not call this function anymore.
  */
 inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key) {
-    // RLookupKey *current = iterator->current;
-    // if (current == NULL) {
-    //     return false;
-    // } else {
-    //     *key = current;
-    //     iterator->current = RLookupKey_GetNext(current);
+    RLookupKey *current = iterator->current;
+    if (current == NULL) {
+        return false;
+    } else {
+        *key = current;
+        iterator->current = RLookupKey_GetNext(current);
 
-    //     return true;
-    // }
-}
-
-/** Returns an immutable iterator over the keys in this RLookup */
-inline RLookupIterator RLookup_Iter(const RLookup* rlookup) {
-    // RLookupIterator iter = { 0 };
-    // iter.current = rlookup->_head;
-    // return iter;
-}
-
-/** Returns an mutable iterator over the keys in this RLookup */
-inline RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup) {
-    // RLookupIteratorMut iter = { 0 };
-    // iter.current = rlookup->_head;
-    // return iter;
+        return true;
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

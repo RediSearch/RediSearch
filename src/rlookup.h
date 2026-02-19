@@ -68,11 +68,6 @@ typedef struct RLookupKey RLookupKey;
         block \
     }
 
-/** An iterator over the keys in an `RLookup` returning immutable pointers. */
-typedef struct RLookupIterator {
-    const struct RLookupKey *current;
-} RLookupIterator;
-
 /**
  * Advances the iterator to the next key places a pointer to it into `key`.
  *
@@ -81,11 +76,6 @@ typedef struct RLookupIterator {
  */
 bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key);
 
-/** A iterator over the keys in an `RLookup` returning mutable pointers. */
-typedef struct RLookupIteratorMut {
-    struct RLookupKey *current;
-} RLookupIteratorMut;
-
 /**
  * Advances the iterator to the next key places a pointer to it into `key`.
  *
@@ -93,12 +83,6 @@ typedef struct RLookupIteratorMut {
  * last key ways returned and the caller should not call this function anymore.
  */
 bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key);
-
-/** Returns an immutable iterator over the keys in this RLookup */
-RLookupIterator RLookup_Iter(const RLookup* rlookup);
-
-/** Returns an mutable iterator over the keys in this RLookup */
-RLookupIteratorMut RLookup_IterMut(const RLookup* rlookup);
 
 // If the key cannot be found, do not mark it as an error, but create it and
 // mark it as F_UNRESOLVED

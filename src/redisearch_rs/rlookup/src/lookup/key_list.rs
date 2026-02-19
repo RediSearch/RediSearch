@@ -32,12 +32,14 @@ pub struct KeyList<'a> {
 /// with hidden flags, also including keys that been overridden.
 ///
 /// If you need to obtain the hidden keys use [`Cursor::move_next`].
+#[repr(C)]
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
 /// A cursor over an [`crate::RLookup`]s key list with editing operations.
+#[repr(C)]
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
