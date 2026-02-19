@@ -9,8 +9,8 @@
 
 use libc::size_t;
 use rlookup::{
-    IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey,
-    RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
+    Cursor, CursorMut, IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup,
+    RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
@@ -583,6 +583,40 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let status = unsafe { status.unwrap().as_mut() };
 
     lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+}
+
+/// Return a cursor over an [`RLookup`]'s key list.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Iter<'list, 'a>(
+    lookup: *const OpaqueRLookup,
+) -> Cursor<'list, 'a> {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+
+    lookup.cursor()
+}
+
+/// Return a cursor over an [`RLookup`]'s key list with editing operations.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_IterMut<'list, 'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+) -> CursorMut<'list, 'a> {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    lookup.cursor_mut()
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.

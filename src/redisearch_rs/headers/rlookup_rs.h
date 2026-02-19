@@ -212,6 +212,33 @@ typedef struct ALIGNED(8) RLookupRow {
   OpaqueRLookupRowSize _0;
 } RLookupRow;
 
+typedef struct KeyList {
+  struct RLookupKey *head;
+  struct RLookupKey *tail;
+  uint32_t rowlen;
+} KeyList;
+
+/**
+ * A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
+ *
+ * This types `Iterator` implementation skips all hidden keys, i.e. the keys
+ * with hidden flags, also including keys that been overridden.
+ *
+ * If you need to obtain the hidden keys use [`Cursor::move_next`].
+ */
+typedef struct Cursor {
+  const struct KeyList *_rlookup;
+  struct RLookupKey *current;
+} Cursor;
+
+/**
+ * A cursor over an [`crate::RLookup`]s key list with editing operations.
+ */
+typedef struct CursorMut {
+  struct KeyList *_rlookup;
+  struct RLookupKey *current;
+} CursorMut;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -619,6 +646,28 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                IndexSpec *index_spec,
                                const char *key,
                                QueryError *status);
+
+/**
+ * Return a cursor over an [`RLookup`]'s key list.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct Cursor RLookup_Iter(const struct RLookup *lookup);
+
+/**
+ * Return a cursor over an [`RLookup`]'s key list with editing operations.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct CursorMut RLookup_IterMut(struct RLookup *lookup);
 
 /**
  * Returns a newly created [`RLookupRow`].
