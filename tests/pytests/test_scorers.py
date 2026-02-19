@@ -298,7 +298,7 @@ def testOptionalAndWildcardScoring(env):
     conn.execute_command('HSET', 'doc1', 'title', 'some text here')
     conn.execute_command('HSET', 'doc2', 'title', 'some text more words here')
 
-    expected_res = [2, 'doc2', '0.7942397139674107', 'doc1', '0.20309241174288714']
+    expected_res = [2, 'doc2', '0.7942396779178669', 'doc1', '0.203092367479523']
 
     # Validate that optional term contributes the scoring only in documents in which it appears.
     res = conn.execute_command('ft.search', 'idx', 'text ~more', 'withscores', 'scorer', 'BM25STD', 'nocontent')
@@ -367,7 +367,7 @@ def _test_expose_score(env, idx):
 
     # MOD-8060 - `SCORER` should propagate to the shards on `FT.AGGREGATE` (cluster mode)
     # Test with default scorer (BM25STD)
-    expected = [1, ['__score', '0.287682102254']]
+    expected = [1, ['__score', '0.287682072452']]
     env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
     # Test with explicit BM25STD scorer
     env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'BM25STD', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
@@ -377,7 +377,7 @@ def _test_expose_score(env, idx):
 
     conn.execute_command('HSET', 'doc2', 'title', 'world')
 
-    doc1_score = 0.287682102254 if env.isCluster() else 0.69314718056
+    doc1_score = 0.287682072452 if env.isCluster() else 0.69314718056
 
     expected = [2, ['__score', str(doc1_score)], ['__score', '0']]
     env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
@@ -840,7 +840,7 @@ def testNormalizedBM25TanhScoreField():
     # Order of results
     env.assertEqual(res[1::2], ['doc3{tag}', 'doc2{tag}', 'doc1{tag}'])
     # Scores
-    expected_scores = [2350.1533, 26.7063, 3.0923]
+    expected_scores = [2350.1525, 26.7063, 3.0923]
     env.assertEqual([round(float(x), 4) for x in res[2::2]], expected_scores)
 
     # Search for the same query and get the scores using the BM25STD.TANH scorer

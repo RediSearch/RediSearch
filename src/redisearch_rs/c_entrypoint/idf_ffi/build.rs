@@ -7,10 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#pragma once
+use build_utils::run_cbindgen;
 
-#include <stddef.h>  // for size_t
-
-double CalculateIDF(size_t totalDocs, size_t termDocs);
-
-double CalculateIDF_BM25(size_t totalDocs, size_t termDocs);
+fn main() {
+    run_cbindgen("../../headers/idf.h").unwrap();
+}

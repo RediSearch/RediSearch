@@ -895,6 +895,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "idf"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "idf_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "idf",
+ "workspace_hack",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1658,6 +1674,7 @@ dependencies = [
  "buffer",
  "build_utils",
  "fnv_ffi",
+ "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "module_init_ffi",
