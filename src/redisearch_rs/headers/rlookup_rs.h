@@ -185,9 +185,9 @@ typedef Size_40 OpaqueRLookupSize;
 #endif
 
 /**
- * An opaque query error which can be passed by value to C.
+ * An opaque lookup which can be passed by value to C.
  *
- * The size and alignment of this struct must match the Rust `QueryError`
+ * The size and alignment of this struct must match the Rust `RLookup`
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookup {
@@ -203,7 +203,7 @@ typedef Size_40 OpaqueRLookupRowSize;
 #endif
 
 /**
- * An lookup row which can be passed by value to C.
+ * An opaque lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`
  * structure exactly.
