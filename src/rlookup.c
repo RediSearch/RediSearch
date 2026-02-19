@@ -726,6 +726,7 @@ RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
         return RSValue_NewParsedNumber(s, len);
       }
       // Note, the pointer is within CallReply; we need to copy
+      RS_ASSERT(len <= UINT32_MAX);
       return RSValue_NewCopiedString(s, len);
     }
 

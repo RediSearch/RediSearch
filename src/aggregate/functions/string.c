@@ -64,6 +64,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
     np[i] = func(p[i]);                                  \
   }                                                      \
   np[sz] = '\0';                                         \
+  RS_ASSERT(sz <= UINT32_MAX);                           \
   RSValue_SetConstString(result, np, sz);                \
   return EXPR_EVAL_OK
 
@@ -107,6 +108,7 @@ static int stringfunc_substr(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   }
 
   char *dup = ExprEval_Strndup(ctx, &str[offset], len);
+  RS_ASSERT(len <= UINT32_MAX);
   RSValue_SetConstString(result, dup, len);
   return EXPR_EVAL_OK;
 }
@@ -233,7 +235,9 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   append_to_string(&out, &out_tail, &out_cap, "\0", 1);
 
   // Don't count the null terminator
-  RSValue_SetString(result, out, out_tail - out - 1);
+  size_t len = out_tail - out - 1;
+  RS_ASSERT(len <= UINT32_MAX);
+  RSValue_SetString(result, out, len);
   return EXPR_EVAL_OK;
 
 error:
@@ -285,6 +289,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue 
       // trim the strip set
       char *s = str_trim(tok, sl, strp, &outlen);
       if (outlen) {
+        RS_ASSERT(outlen <= UINT32_MAX);
         tmp[l++] = RSValue_NewCopiedString(s, outlen);
       }
     }

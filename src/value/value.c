@@ -496,6 +496,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     case RSValueType_RedisString: {
       size_t sz;
       const char *str = RedisModule_StringPtrLen(v->_rstrval, &sz);
+      RS_ASSERT(sz <= UINT32_MAX);
       RSValue_SetConstString(dst, str, sz);
       break;
     }
