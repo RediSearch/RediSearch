@@ -14,7 +14,7 @@ use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 /// Creates and returns a new **owned** [`RsValue`] object of type undefined.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
     SharedRsValue::new(RsValue::Undefined).into_raw().cast_mut()
@@ -23,7 +23,7 @@ pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
 /// Creates and returns a new **owned** [`RsValue`] object of type null.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
     SharedRsValue::new(RsValue::Null).into_raw().cast_mut()
@@ -33,7 +33,7 @@ pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
 /// containing the given numeric value.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
     SharedRsValue::new(RsValue::Number(value))
@@ -46,7 +46,7 @@ pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
 /// Takes ownership of all three arguments.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 ///
 /// # Safety
 ///
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn RSValue_NewTrio(
 /// taking ownership of the given `RedisModule_Alloc`-allocated buffer.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 ///
 /// # Safety
 ///
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut R
 /// borrowing the given string buffer without taking ownership.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 ///
 /// # Safety
 ///
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32)
 /// taking ownership of the given [`RedisModuleString`].
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 ///
 /// # Safety
 ///
@@ -151,7 +151,7 @@ pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> 
 /// The caller retains ownership of `str`.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 ///
 /// # Safety
 ///
