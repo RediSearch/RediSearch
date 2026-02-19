@@ -508,6 +508,7 @@ fn trim_frees_internal_ranges_when_all_empty(#[values(false, true)] compress_flo
 /// - When only the right subtree is empty,
 ///   it is freed and the left child is promoted in place.
 #[rstest]
+#[cfg_attr(miri, ignore = "Skip miri because too slow")]
 fn trim_promotes_left_when_right_empty(#[values(false, true)] compress_floats: bool) {
     let n = DEEP_TREE_ENTRIES;
     let mut tree = build_tree(n, compress_floats, 0);
@@ -535,6 +536,7 @@ fn trim_promotes_left_when_right_empty(#[values(false, true)] compress_floats: b
 /// (left extremes and right extremes are populated), but the structural change
 /// from trimming triggers the balance path.
 #[rstest]
+#[cfg_attr(miri, ignore = "Skip miri because too slow")]
 fn trim_rebalances_surviving_ancestors(#[values(false, true)] compress_floats: bool) {
     let n = DEEP_TREE_ENTRIES;
     let mut tree = build_tree(DEEP_TREE_ENTRIES, compress_floats, 0);
