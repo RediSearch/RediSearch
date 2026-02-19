@@ -122,7 +122,7 @@ impl CompactionCallbacks {
     ///
     /// ```ignore
     /// let guard = callbacks.write_lock();
-    /// guard.update_trie_term("term", 5);
+    /// guard.update_trie_term(b"term", 5);
     /// // Lock is automatically released when `guard` goes out of scope
     /// ```
     pub fn write_lock(&self) -> WriteGuard<'_> {
@@ -144,7 +144,7 @@ impl CompactionCallbacks {
 /// ```ignore
 /// {
 ///     let guard = callbacks.write_lock();
-///     guard.update_trie_term("foo", 5);
+///     guard.update_trie_term(b"foo", 5);
 ///     guard.update_scoring_stats(&delta);
 ///     // Lock automatically released here
 /// }
@@ -170,18 +170,18 @@ impl<'a> WriteGuard<'a> {
     /// This method requires holding the write lock (enforced by requiring `&self`).
     ///
     /// # Arguments
-    /// * `term` - The term string to update
+    /// * `term` - The term as raw bytes (typically UTF-8, but not validated here)
     /// * `doc_count_decrement` - Number of documents to decrement
-    pub fn update_trie_term(&self, term: &str, doc_count_decrement: u64) {
+    pub fn update_trie_term(&self, term: &[u8], doc_count_decrement: u64) {
         if let Some(f) = self.callbacks.update_trie_term {
-            let term_bytes = term.as_bytes();
             // SAFETY: We hold the write lock (enforced by having &self),
             // and caller ensures ctx is valid.
+            // The C side receives raw bytes + length and handles encoding internally.
             unsafe {
                 f(
                     self.callbacks.ctx,
-                    term_bytes.as_ptr() as *const c_char,
-                    term_bytes.len(),
+                    term.as_ptr() as *const c_char,
+                    term.len(),
                     doc_count_decrement as usize,
                 );
             }
