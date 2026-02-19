@@ -1,6 +1,6 @@
 ---
 name: run-python-tests
-description: Run end-to-end Python tests after making changes to verify correctness
+description: Run end-to-end Python tests after making changes to verify correctness. Use this when you want to verify your changes from an end-to-end perspective, after ensuring the build and Rust tests pass.
 ---
 
 # Run Python Tests Skill

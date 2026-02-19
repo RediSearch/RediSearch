@@ -1,6 +1,6 @@
 ---
 name: build
-description: Compile the project to verify changes build successfully
+description: Compile the project to verify changes build successfully. Use this to verify your changes build successfully.
 ---
 
 # Build Skill
