@@ -585,6 +585,24 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Iter<'list, 'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+) -> Cursor<'list, 'a> {
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    lookup.cursor()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_IterMut<'list, 'a>(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+) -> CursorMut<'list, 'a> {
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    lookup.cursor_mut()
+}
+
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
 fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
     if flags.contains(RLookupKeyFlag::NameAlloc) {
