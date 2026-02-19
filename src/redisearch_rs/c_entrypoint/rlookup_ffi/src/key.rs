@@ -71,7 +71,7 @@ pub unsafe extern "C" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.name().as_ptr()
+    key.name
 }
 
 /// Get the length of the name field in bytes.
@@ -86,7 +86,7 @@ pub unsafe extern "C" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.name().count_bytes()
+    key.name_len
 }
 
 /// Get the path of the field.
@@ -101,5 +101,9 @@ pub unsafe extern "C" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
-    key.path().as_ref().unwrap_or(key.name()).as_ptr()
+    if key.path.is_null() {
+        key.name
+    } else {
+        key.path
+    }
 }
