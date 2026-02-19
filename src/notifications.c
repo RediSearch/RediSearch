@@ -509,7 +509,7 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 // Uses stored SST state to determine if disk data should be deleted.
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  bool deleteDiskData = !WasLastRdbSstPersistence();
+  bool deleteDiskData = !WasLastRdbOperationSstPersistent();
   RediSearch_CleanupModule(deleteDiskData);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }

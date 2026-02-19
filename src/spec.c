@@ -73,7 +73,7 @@ bool isFlex = false;
 
 // Track whether the last RDB save was an SST persistence.
 // Used at shutdown to determine if we should delete disk data.
-static bool lastRdbWasSstPersistence = false;
+static bool lastRdbOperationWasSstPersistent = false;
 
 // Default values make no limits.
 size_t memoryLimit = -1;
@@ -102,6 +102,23 @@ static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisM
 
 // Forward declaration for disk validation
 inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
+
+bool WasLastRdbOperationSstPersistent(void) {
+  return lastRdbOperationWasSstPersistent;
+}
+
+/**
+ * Checks if SST persistence is enabled for the given RDB context.
+ * Tracks the state for shutdown cleanup decisions.
+ */
+bool CheckRdbSstPersistence(RedisModuleIO *rdb, const char* prefix) {
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  const bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
+  RedisModule_Log(ctx, "notice", "%s, SST persistence: %s", prefix, useSst ? "true" : "false");
+  // Track SST persistence state for shutdown cleanup decisions
+  lastRdbOperationWasSstPersistent = useSst;
+  return useSst;
+}
 
 //---------------------------------------------------------------------------------------------
 
@@ -3186,7 +3203,7 @@ void Indexes_ScanAndReindex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, bool useSst) {
   // Save the name plus the null terminator
   HiddenString_SaveToRdb(sp->specName, rdb);
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
@@ -3222,10 +3239,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   // RAM-based data-structures to the RDB.
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
-  // Track SST persistence state for shutdown cleanup decisions
-  lastRdbWasSstPersistence = useSst;
   if (sp->diskSpec && useSst) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
@@ -3233,7 +3246,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   }
 }
 
-IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
+IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   size_t len = strlen(rawName);
   HiddenString* specName = NewHiddenString(rawName, len, true);
@@ -3335,7 +3348,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // sst-files, even if this is a duplicate.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
   // On the disk side (RDB is depleted, without updating index fields).
-  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
@@ -3395,9 +3407,9 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
   return REDISMODULE_OK;
 }
 
-static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, QueryError *status) {
+static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   // Load the index spec using the new function
-  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, status);
+  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
   return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
@@ -3536,6 +3548,7 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 }
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
+  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Load");
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return REDISMODULE_ERR;
@@ -3548,7 +3561,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     return REDISMODULE_ERR;
   }
   for (size_t i = 0; i < nIndexes; ++i) {
-    if (IndexSpec_CreateFromRdb(rdb, encver, &status) != REDISMODULE_OK) {
+    if (IndexSpec_CreateFromRdb(rdb, encver, useSst, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -3567,6 +3580,8 @@ cleanup:
 
 void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 
+  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Save");
+
   RedisModule_SaveUnsigned(rdb, dictSize(specDict_g));
 
   dictIterator *iter = dictGetIterator(specDict_g);
@@ -3574,7 +3589,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    IndexSpec_RdbSave(rdb, sp);
+    IndexSpec_RdbSave(rdb, sp, useSst);
   }
 
   dictReleaseIterator(iter);
@@ -3587,6 +3602,7 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
 }
 
 void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
+  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Load Logic");
   if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
     // Legacy index, loaded in order to upgrade from an old version
     return IndexSpec_LegacyRdbLoad(rdb, encver);
@@ -3595,7 +3611,7 @@ void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
     // Even though we don't actually load or save the index spec in the key space, this implementation is useful
     // because it allows us to serialize and deserialize the index spec in a clean way.
     QueryError status = QueryError_Default();
-    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, &status);
+    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
     if (!sp) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
@@ -3667,7 +3683,8 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
-  IndexSpec_RdbSave(rdb, value);
+  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Save Wrapper");
+  IndexSpec_RdbSave(rdb, value, useSst);
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
@@ -4201,8 +4218,4 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
 
 void Indexes_EndLoading() {
   g_isLoading = false;
-}
-
-bool WasLastRdbSstPersistence(void) {
-  return lastRdbWasSstPersistence;
 }
