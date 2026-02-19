@@ -68,10 +68,11 @@ runs:
         echo "Disk space after cleanup:"
         df -h
 
-    # Setup sccache for Rust compilation caching
+    # Setup sccache for Rust and C/C++ compilation caching
     # This action automatically handles GitHub Actions cache for sccache
+    # v0.0.9 includes fixes for cache write failures (fixes mozilla/sccache#2351)
     - name: Run sccache-cache
-      uses: mozilla-actions/sccache-action@v0.0.8
+      uses: mozilla-actions/sccache-action@v0.0.9
 
     # Export sccache environment variables for subsequent steps
     # CARGO_INCREMENTAL=0 is required because incremental compilation is incompatible with sccache
@@ -81,4 +82,3 @@ runs:
         echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
         echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
-
