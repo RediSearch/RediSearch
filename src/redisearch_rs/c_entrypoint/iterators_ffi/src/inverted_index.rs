@@ -12,9 +12,13 @@ use std::ptr::NonNull;
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, IndexReaderCore, NumericFilter,
-    NumericReader, RSIndexResult, t_docId,
+    NumericReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
+    t_docId,
 };
-use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
+use rqe_iterators::{
+    FieldExpirationChecker,
+    inverted_index::{Numeric, Wildcard},
+};
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different numeric reader types to avoid generics in FFI code.
@@ -102,6 +106,99 @@ impl<'index> IndexReader<'index> for NumericIndexReader<'index> {
 }
 
 impl<'index> NumericReader<'index> for NumericIndexReader<'index> {}
+
+/// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
+///
+/// Handles both the standard variable-length encoding ([`DocIdsOnly`]) and the
+/// fixed 4-byte raw encoding ([`RawDocIdsOnly`]).
+enum WildcardIterator<'index> {
+    Encoded(Wildcard<'index, DocIdsOnly>),
+    Raw(Wildcard<'index, RawDocIdsOnly>),
+}
+
+impl WildcardIterator<'_> {
+    /// Get the flags from the underlying reader.
+    fn flags(&self) -> ffi::IndexFlags {
+        match self {
+            WildcardIterator::Encoded(w) => w.reader().flags(),
+            WildcardIterator::Raw(w) => w.reader().flags(),
+        }
+    }
+}
+
+impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        match self {
+            WildcardIterator::Encoded(w) => w.current(),
+            WildcardIterator::Raw(w) => w.current(),
+        }
+    }
+
+    #[inline(always)]
+    fn read(
+        &mut self,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
+        match self {
+            WildcardIterator::Encoded(w) => w.read(),
+            WildcardIterator::Raw(w) => w.read(),
+        }
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
+    {
+        match self {
+            WildcardIterator::Encoded(w) => w.skip_to(doc_id),
+            WildcardIterator::Raw(w) => w.skip_to(doc_id),
+        }
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        match self {
+            WildcardIterator::Encoded(w) => w.rewind(),
+            WildcardIterator::Raw(w) => w.rewind(),
+        }
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        match self {
+            WildcardIterator::Encoded(w) => w.num_estimated(),
+            WildcardIterator::Raw(w) => w.num_estimated(),
+        }
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            WildcardIterator::Encoded(w) => w.last_doc_id(),
+            WildcardIterator::Raw(w) => w.last_doc_id(),
+        }
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        match self {
+            WildcardIterator::Encoded(w) => w.at_eof(),
+            WildcardIterator::Raw(w) => w.at_eof(),
+        }
+    }
+
+    #[inline(always)]
+    fn revalidate(
+        &mut self,
+    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
+        match self {
+            WildcardIterator::Encoded(w) => w.revalidate(),
+            WildcardIterator::Raw(w) => w.revalidate(),
+        }
+    }
+}
 
 /// Enum holding either a numeric or geo iterator variant.
 /// This allows all iterator types to share the same iterator wrapper structure.
@@ -396,7 +493,8 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
-/// 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+/// 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
+/// 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
@@ -418,10 +516,17 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             };
             wrapper.inner.flags()
         }
+        ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
+            // SAFETY: 3. the wildcard iterator is in Rust.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<WildcardIterator<'static>>::ref_from_header_ptr(it.cast())
+            };
+            wrapper.inner.flags()
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 3.
+            // SAFETY: 4.
             let reader_ref = unsafe { &*reader };
             reader_ref.flags()
         }
@@ -505,9 +610,11 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
 /// # Safety
 ///
 /// 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
-/// 2. If `it` is a C iterator, its `reader` field must be a valid non-NULL
+/// 2. If `it` iterator type is `IteratorType_INV_IDX_WILDCARD_ITERATOR`, it has been created
+///    using `NewInvIndIterator_WildcardQuery`.
+/// 3. If `it` is a C iterator, its `reader` field must be a valid non-NULL
 ///    pointer to an `IndexReader`.
-/// 3. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
+/// 4. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
 ///    iterator's underlying index type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
@@ -526,15 +633,97 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
                 "Numeric iterators use revision ID for revalidation, not index swapping"
             );
         }
+        ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
+            // SAFETY: 2. the wildcard iterator is in Rust, created by NewInvIndIterator_WildcardQuery.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<WildcardIterator<'static>>::mut_ref_from_header_ptr(it.cast())
+            };
+            let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
+            // SAFETY: 4. guarantees ii is valid and matching.
+            let ii_ref = unsafe { &*ii };
+            match (&mut wrapper.inner, ii_ref) {
+                (
+                    WildcardIterator::Encoded(wrapper),
+                    inverted_index_ffi::InvertedIndex::DocIdsOnly(ii),
+                ) => {
+                    let mut ii = ii;
+                    wrapper.swap_index(&mut ii);
+                }
+                (
+                    WildcardIterator::Raw(wrapper),
+                    inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii),
+                ) => {
+                    let mut ii = ii;
+                    wrapper.swap_index(&mut ii);
+                }
+                _ => panic!("Mismatched index types for wildcard swap_index"),
+            }
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 2. guarantees reader is valid.
+            // SAFETY: 3. guarantees reader is valid.
             let reader_ref = unsafe { &mut *reader };
             let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
-            // SAFETY: 3. guarantees ii is valid and matching.
+            // SAFETY: 4. guarantees ii is valid and matching.
             let ii_ref = unsafe { &*ii };
             reader_ref.swap_index(ii_ref);
         }
     }
+}
+
+/// Creates a new wildcard inverted index iterator for querying all existing documents.
+///
+/// # Parameters
+///
+/// * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+/// * `sctx` - Pointer to the Redis search context.
+/// * `weight` - Weight to apply to all results.
+///
+/// # Returns
+///
+/// A pointer to a `QueryIterator` that can be used from C code.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+///
+/// 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+/// 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+///    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
+///    comparison.
+/// 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+/// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
+    idx: *const ffi::InvertedIndex,
+    sctx: *const ffi::RedisSearchCtx,
+    weight: f64,
+) -> *mut ffi::QueryIterator {
+    debug_assert!(!idx.is_null(), "idx must not be null");
+
+    // Cast to the FFI wrapper enum which handles type dispatch
+    let idx_ffi: *const inverted_index_ffi::InvertedIndex = idx.cast();
+    // SAFETY: 1. guarantees idx is valid and non-null
+    let ii_ref = unsafe { &*idx_ffi };
+
+    debug_assert!(!sctx.is_null(), "sctx must not be null");
+    // SAFETY: 3. guarantees sctx is valid and non-null
+    let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
+
+    // Create the appropriate wildcard iterator variant based on the encoding type
+    let iterator = match ii_ref {
+        inverted_index_ffi::InvertedIndex::DocIdsOnly(ii) => {
+            WildcardIterator::Encoded(Wildcard::new(ii.reader(), sctx, weight))
+        }
+        inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
+            WildcardIterator::Raw(Wildcard::new(ii.reader(), sctx, weight))
+        }
+        _ => panic!(
+            "Wildcard iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
+            std::mem::discriminant(ii_ref)
+        ),
+    };
+
+    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR, iterator)
 }

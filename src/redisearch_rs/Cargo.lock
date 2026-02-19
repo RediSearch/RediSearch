@@ -1828,6 +1828,7 @@ dependencies = [
  "build_utils",
  "ffi",
  "field",
+ "idf",
  "inverted_index",
  "libc",
  "pretty_assertions",

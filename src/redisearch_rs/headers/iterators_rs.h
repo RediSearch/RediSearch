@@ -102,7 +102,8 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx,
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
  * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
- * 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+ * 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
+ * 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
  *
  * # Returns
  *
@@ -156,12 +157,42 @@ double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it)
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
- * 2. If `it` is a C iterator, its `reader` field must be a valid non-NULL
+ * 2. If `it` iterator type is `IteratorType_INV_IDX_WILDCARD_ITERATOR`, it has been created
+ *    using `NewInvIndIterator_WildcardQuery`.
+ * 3. If `it` is a C iterator, its `reader` field must be a valid non-NULL
  *    pointer to an `IndexReader`.
- * 3. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
+ * 4. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
  *    iterator's underlying index type.
  */
 void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
+
+/**
+ * Creates a new wildcard inverted index iterator for querying all existing documents.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `sctx` - Pointer to the Redis search context.
+ * * `weight` - Weight to apply to all results.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
+ *    comparison.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ */
+QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx,
+                                               const RedisSearchCtx *sctx,
+                                               double weight);
 
 /**
  * Creates a new metric iterator sorted by ID.
