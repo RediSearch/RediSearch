@@ -52,7 +52,7 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
-  const FieldSpec *fs = findFieldInSpecCache(lookup, fieldName);
+  const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, fieldName);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
   }
@@ -262,7 +262,7 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
 
 static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
-  const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
+  const RSValue *fieldValue = RLookupRow_Get(spec->lookupKey, docParams->row);
 
   if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
     return;

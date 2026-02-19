@@ -50,7 +50,7 @@ TEST_F(RLookupTest, testRow) {
   RLookup_WriteKey(fook, &rr, vfoo);
   ASSERT_EQ(2, RSValue_Refcount(vfoo));
 
-  RSValue *vtmp = RLookup_GetItem(fook, &rr);
+  RSValue *vtmp = RLookupRow_Get(fook, &rr);
   ASSERT_EQ(vfoo, vtmp);
   ASSERT_EQ(2, RSValue_Refcount(vfoo));
   ASSERT_EQ(1, rr.ndyn);
@@ -60,12 +60,12 @@ TEST_F(RLookupTest, testRow) {
   ASSERT_EQ(1, RSValue_Refcount(vfoo));
 
   // Get the 'bar' key -- should be NULL
-  ASSERT_TRUE(NULL == RLookup_GetItem(bark, &rr));
+  ASSERT_TRUE(NULL == RLookupRow_Get(bark, &rr));
 
   // Clean up the row
   RLookupRow_Wipe(&rr);
-  vtmp = RLookup_GetItem(fook, &rr);
-  ASSERT_TRUE(NULL == RLookup_GetItem(fook, &rr));
+  vtmp = RLookupRow_Get(fook, &rr);
+  ASSERT_TRUE(NULL == RLookupRow_Get(fook, &rr));
 
   RSValue_DecrRef(vfoo);
   RSValue_DecrRef(vbar);
@@ -123,7 +123,7 @@ void verify_values_by_names(RLookup* lookup, RLookupRow* row,
     RLookupKey* key = RLookup_GetKey_Read(lookup, fieldNames[i], RLOOKUP_F_NOFLAGS);
     EXPECT_TRUE(key != nullptr) << "Field not found: " << fieldNames[i];
 
-    RSValue* value = RLookup_GetItem(key, row);
+    RSValue* value = RLookupRow_Get(key, row);
     EXPECT_TRUE(value != nullptr) << "No value for field: " << fieldNames[i];
 
     double actualValue;
@@ -139,7 +139,7 @@ void verify_fields_empty(RLookup* lookup, RLookupRow* row, const std::vector<con
     RLookupKey* key = RLookup_GetKey_Read(lookup, fieldName, RLOOKUP_F_NOFLAGS);
     EXPECT_TRUE(key != nullptr) << "Field not found: " << fieldName;
 
-    RSValue* value = RLookup_GetItem(key, row);
+    RSValue* value = RLookupRow_Get(key, row);
     EXPECT_EQ(nullptr, value) << "Field should be empty: " << fieldName;
   }
 }
@@ -345,12 +345,12 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
   // Verify shared ownership (same pointers in both source and destination)
   RLookupKey *dest_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *dest_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
-  ASSERT_EQ(original_ptr1, RLookup_GetItem(dest_key1, &destRow));
-  ASSERT_EQ(original_ptr2, RLookup_GetItem(dest_key2, &destRow));
+  ASSERT_EQ(original_ptr1, RLookupRow_Get(dest_key1, &destRow));
+  ASSERT_EQ(original_ptr2, RLookupRow_Get(dest_key2, &destRow));
 
   // Verify source row still contains the values (shared ownership, not moved)
-  ASSERT_EQ(original_ptr1, RLookup_GetItem(srcKeys.keys[0], &srcRow));
-  ASSERT_EQ(original_ptr2, RLookup_GetItem(srcKeys.keys[1], &srcRow));
+  ASSERT_EQ(original_ptr1, RLookupRow_Get(srcKeys.keys[0], &srcRow));
+  ASSERT_EQ(original_ptr2, RLookupRow_Get(srcKeys.keys[1], &srcRow));
 
   // Verify refcounts increased due to sharing (now referenced by both rows)
   ASSERT_EQ(3, RSValue_Refcount(original_ptr1));  // 1 original + 1 source row + 1 dest row
@@ -431,7 +431,7 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   // Verify shared ownership (same pointers) - need to check individual values
   std::vector<RLookupKey*> dest_keys = {dest_key1, dest_key2, dest_key3};
   for (int i = 0; i < 3; i++) {
-    RSValue *dest_val = RLookup_GetItem(dest_keys[i], &destRow);
+    RSValue *dest_val = RLookupRow_Get(dest_keys[i], &destRow);
     ASSERT_EQ(values[i], dest_val) << "dest_vals[" << i << "] should point to values[" << i << "]";
   }
 
@@ -553,7 +553,7 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
   // Verify field2 contains src2 data (last write wins)
   RLookupKey *dest_field2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_field2);
-  RSValue *field2_val = RLookup_GetItem(dest_field2, &destRow);
+  RSValue *field2_val = RLookupRow_Get(dest_field2, &destRow);
   ASSERT_TRUE(field2_val);
 
   // Verify it's the same pointer (shared ownership, not copy)
@@ -642,9 +642,9 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   RLookupKey *d_key3 = RLookup_GetKey_Read(&dest, "field3", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(d_key1 && d_key2 && d_key3);
 
-  RSValue *dest_val1 = RLookup_GetItem(d_key1, &destRow);
-  RSValue *dest_val2 = RLookup_GetItem(d_key2, &destRow);
-  RSValue *dest_val3 = RLookup_GetItem(d_key3, &destRow);
+  RSValue *dest_val1 = RLookupRow_Get(d_key1, &destRow);
+  RSValue *dest_val2 = RLookupRow_Get(d_key2, &destRow);
+  RSValue *dest_val3 = RLookupRow_Get(d_key3, &destRow);
   ASSERT_TRUE(dest_val1 && dest_val2 && dest_val3);
 
   // Verify pointers are from src2 (shared ownership, same pointers)
@@ -740,9 +740,9 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
   RLookupKey *dest_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   RLookupKey *dest_key3 = RLookup_GetKey_Read(&dest, "field3", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_key1 && dest_key2 && dest_key3);
-  ASSERT_EQ(values[0], RLookup_GetItem(dest_key1, &destRow));
-  ASSERT_EQ(values[1], RLookup_GetItem(dest_key2, &destRow));
-  ASSERT_EQ(values[2], RLookup_GetItem(dest_key3, &destRow));
+  ASSERT_EQ(values[0], RLookupRow_Get(dest_key1, &destRow));
+  ASSERT_EQ(values[1], RLookupRow_Get(dest_key2, &destRow));
+  ASSERT_EQ(values[2], RLookupRow_Get(dest_key3, &destRow));
 
   // Cleanup
   cleanup_values(values);
