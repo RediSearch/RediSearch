@@ -167,7 +167,7 @@ inline void RSValue_SetNumber(RSValue *v, double n) {
   v->_numval = n;
 }
 
-inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
+inline void RSValue_SetString(RSValue *v, char *str, uint32_t len) {
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = str;
@@ -175,7 +175,7 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
 }
 
 
-inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
+inline void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len) {
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = (char *)str;
@@ -236,7 +236,7 @@ RSValue *RSValue_NullStatic() {
   return &RS_NULL;
 }
 
-RSValue *RSValue_NewCopiedString(const char *s, size_t n) {
+RSValue *RSValue_NewCopiedString(const char *s, uint32_t n) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
   char *cp = rm_malloc(n + 1);
   cp[n] = 0;

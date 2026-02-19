@@ -458,7 +458,7 @@ void RSValue_SetNull(struct RsValue *value);
  *
  * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
-void RSValue_SetString(struct RsValue *value, char *str, size_t len);
+void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
 
 /**
  * Converts an [`RsValue`] to a string type in-place, borrowing the given string buffer
@@ -482,7 +482,7 @@ void RSValue_SetString(struct RsValue *value, char *str, size_t len);
  *
  * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
-void RSValue_SetConstString(struct RsValue *value, const char *str, size_t len);
+void RSValue_SetConstString(struct RsValue *value, const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated `RsValue` by parsing a string as a number.

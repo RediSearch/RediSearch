@@ -110,8 +110,10 @@ impl RSValueTrait for RSValueFFI {
     }
 
     fn create_string(str: Vec<u8>) -> Self {
+        let len = str.len();
+        assert!(len <= u32::MAX as usize);
         // Safety: RSValue_NewString receives a valid C string pointer (1) and length
-        let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), str.len()) };
+        let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), len as u32) };
 
         Self(NonNull::new(value).expect("RSValue_NewCopiedString returned a null pointer"))
     }

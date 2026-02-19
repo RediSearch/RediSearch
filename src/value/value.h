@@ -140,7 +140,7 @@ RSValue *RSValue_NullStatic();
  * @param dst The length of the string to copy
  * @return A pointer to a heap-allocated RSValue owning the copied string
  */
-RSValue *RSValue_NewCopiedString(const char *s, size_t dst);
+RSValue *RSValue_NewCopiedString(const char *s, uint32_t dst);
 
 /**
  * Creates a heap-allocated RSValue by parsing a string as a number.
@@ -281,8 +281,8 @@ double RSValue_Number_Get(const RSValue *v);
 void RSValue_SetNumber(RSValue *v, double n);
 
 // String getters/setters
-void RSValue_SetString(RSValue *v, char *str, size_t len);
-void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
+void RSValue_SetString(RSValue *v, char *str, uint32_t len);
+void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len);
 
 /**
  * Get the string value and length from an RSValue.
