@@ -39,7 +39,7 @@ impl RedisString {
     }
 
     /// Returns the string data pointer and length.
-    pub fn as_ptr_len(&self) -> (*const c_char, u32) {
+    pub fn as_ptr_len(&self) -> (*const c_char, usize) {
         // SAFETY: Accessing a global function pointer initialized during module load.
         let rm_str_ptr_len =
             unsafe { RedisModule_StringPtrLen }.expect("Redis module not initialized");
@@ -51,7 +51,7 @@ impl RedisString {
         // SAFETY: `rm_str_ptr_len` initialized `len`.
         let len = unsafe { len.assume_init() };
 
-        (ptr, len as u32)
+        (ptr, len)
     }
 
     /// Gets the string data as a byte slice.
@@ -59,7 +59,7 @@ impl RedisString {
         let (ptr, len) = self.as_ptr_len();
         // SAFETY: `ptr` points to valid memory of `len` bytes, as guaranteed by
         // `RedisModule_StringPtrLen`.
-        unsafe { std::slice::from_raw_parts(ptr as _, len as usize) }
+        unsafe { std::slice::from_raw_parts(ptr as _, len) }
     }
 }
 
