@@ -17,7 +17,7 @@ use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 /// ownership taking `RSValue_` methods, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
-    SharedRsValue::new(RsValue::Undefined).into_raw() as *mut _
+    SharedRsValue::new(RsValue::Undefined).into_raw().cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type null.
@@ -26,7 +26,7 @@ pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
 /// ownership taking `RSValue_` methods, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
-    SharedRsValue::new(RsValue::Null).into_raw() as *mut _
+    SharedRsValue::new(RsValue::Null).into_raw().cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type number
@@ -36,7 +36,9 @@ pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
 /// ownership taking `RSValue_` methods, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
-    SharedRsValue::new(RsValue::Number(value)).into_raw() as *mut _
+    SharedRsValue::new(RsValue::Number(value))
+        .into_raw()
+        .cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
@@ -68,7 +70,8 @@ pub unsafe extern "C" fn RSValue_NewTrio(
         shared_middle,
         shared_right,
     )))
-    .into_raw() as *mut _
+    .into_raw()
+    .cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type string,
@@ -92,7 +95,7 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut R
 
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
-    shared_value.into_raw() as *mut _
+    shared_value.into_raw().cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type string,
@@ -116,7 +119,7 @@ pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32)
 
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
-    shared_value.into_raw() as *mut _
+    shared_value.into_raw().cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type string,
@@ -139,7 +142,7 @@ pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> 
 
     let value = RsValue::RedisString(redis_string);
     let shared_value = SharedRsValue::new(value);
-    shared_value.into_raw() as *mut _
+    shared_value.into_raw().cast_mut()
 }
 
 /// Creates and returns a new **owned** [`RsValue`] object of type string,
@@ -168,5 +171,5 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     let string = RsString::cstring(cstring);
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
-    shared_value.into_raw() as *mut _
+    shared_value.into_raw().cast_mut()
 }
