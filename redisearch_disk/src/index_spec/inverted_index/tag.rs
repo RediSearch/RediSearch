@@ -5,6 +5,7 @@ use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
 };
 use std::mem::size_of;
+use std::ops::Deref;
 
 use super::{
     DeletedIdsStore, InvertedIndexKey, TagPostingsListReader, block_traits, generic_index,
@@ -12,7 +13,6 @@ use super::{
 };
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
-use crate::metrics::CompactionMetrics;
 
 pub mod archive;
 pub mod block;
@@ -91,6 +91,14 @@ pub struct TagInvertedIndex {
     inner: generic_index::GenericInvertedIndex<TagIndexConfig>,
 }
 
+impl Deref for TagInvertedIndex {
+    type Target = generic_index::GenericInvertedIndex<TagIndexConfig>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 impl TagInvertedIndex {
     /// Creates a new tag inverted index with the given Speedb database.
     pub fn new(database: SpeedbMultithreadedDatabase) -> Self {
@@ -134,15 +142,5 @@ impl TagInvertedIndex {
         let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), NoOpChecker);
 
         Ok(iter)
-    }
-
-    /// Triggers a full compaction on the tags column family.
-    pub fn compact_full(&self) {
-        self.inner.compact_full();
-    }
-
-    /// Returns cumulative compaction metrics for the tags column family.
-    pub fn get_compaction_metrics(&self) -> CompactionMetrics {
-        self.inner.get_compaction_metrics()
     }
 }

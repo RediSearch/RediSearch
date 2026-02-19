@@ -5,6 +5,7 @@ use speedb::{
     BlockBasedOptions, ColumnFamilyDescriptor, Options as SpeedbDbOptions, SliceTransform,
 };
 use std::mem::size_of;
+use std::ops::Deref;
 
 use super::{
     DeletedIdsStore, InvertedIndexKey, PostingsListReader, block_traits, generic_index,
@@ -12,7 +13,6 @@ use super::{
 };
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
-use crate::metrics::CompactionMetrics;
 
 pub mod archive;
 pub mod block;
@@ -91,6 +91,14 @@ impl block_traits::IndexConfig for TermIndexConfig {
 pub struct InvertedIndex {
     /// The generic inverted index implementation
     inner: generic_index::GenericInvertedIndex<TermIndexConfig>,
+}
+
+impl Deref for InvertedIndex {
+    type Target = generic_index::GenericInvertedIndex<TermIndexConfig>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl InvertedIndex {
@@ -188,14 +196,5 @@ impl InvertedIndex {
     pub fn collect_metrics(&self) -> crate::metrics::ColumnFamilyMetrics {
         let cf = self.inner.cf_handle();
         crate::metrics::ColumnFamilyMetrics::collect(self.inner.database(), &cf)
-    }
-
-    /// Triggers a full compaction on the fulltext column family.
-    pub fn compact_full(&self) {
-        self.inner.compact_full();
-    }
-
-    pub fn get_compaction_metrics(&self) -> CompactionMetrics {
-        self.inner.get_compaction_metrics()
     }
 }
