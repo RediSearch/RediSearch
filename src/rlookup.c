@@ -19,14 +19,6 @@ static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
     return key->next;
 }
 
-static inline void RLookupKey_MergeFlags(RLookupKey* key, uint32_t flags) {
-    // key->_flags |= flags;
-}
-
-static inline void RLookupKey_SetPath(RLookupKey* key, const char * path) {
-    // key->_path = path;
-}
-
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   // RLookupKey *ret = rm_calloc(1, sizeof(*ret));
