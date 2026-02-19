@@ -190,7 +190,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      return RSValue_NewString(summarized, docLen);
+      return RSValue_NewStringWithoutNulTerminator(summarized, docLen);
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
@@ -244,7 +244,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);
-  return RSValue_NewString(hlText, hlLen);
+  return RSValue_NewStringWithoutNulTerminator(hlText, hlLen);
 }
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {

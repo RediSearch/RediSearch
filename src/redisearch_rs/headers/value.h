@@ -163,6 +163,24 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
 
 /**
  * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ *
+ * # Safety
+ *
+ * 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
+ * 2. `str` must be [valid] for reads of `len` bytes.
+ * 3. `str` **must not** be used or freed after this function is called, as this function
+ *    takes ownership of the allocation.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RsValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type string,
  * borrowing the given string buffer without taking ownership.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -283,8 +301,28 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  * # Panic
  *
  * Panics if the value is not a `String` type.
+ * Panics (in debug mode) if the string data might not be nul-terminated.
  */
 const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
+
+/**
+ * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
+ * length to `lenp`.
+ *
+ * The returned pointer borrows from the [`RsValue`] and must not outlive it.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if the value is not a `String` type.
+ */
+const char *RSValue_String_GetTrusted(const struct RsValue *value, uint32_t *lenp);
 
 /**
  * Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
