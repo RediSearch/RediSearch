@@ -136,11 +136,6 @@ impl RSQueryTerm {
         self.id
     }
 
-    /// Get the token flags.
-    pub const fn flags(&self) -> RSTokenFlags {
-        self.flags
-    }
-
     /// Get the term string length in bytes (excluding null terminator).
     pub const fn len(&self) -> usize {
         self.len
@@ -191,10 +186,10 @@ impl PartialEq for RSQueryTerm {
         let other_str = other.as_bytes().unwrap_or(&[]);
 
         self_str == other_str
-            && self.idf() == other.idf()
-            && self.bm25_idf() == other.bm25_idf()
-            && self.id() == other.id()
-            && self.flags() == other.flags()
+            && self.idf == other.idf
+            && self.bm25_idf == other.bm25_idf
+            && self.id == other.id
+            && self.flags == other.flags
     }
 }
 
