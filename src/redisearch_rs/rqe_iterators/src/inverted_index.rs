@@ -11,7 +11,7 @@
 
 use std::{f64, ptr::NonNull};
 
-use ffi::{NumericRangeTree, RedisSearchCtx, t_docId};
+use ffi::{NumericRangeTree, RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
     RSOffsetSlice, TermReader, opaque::OpaqueEncoding,
@@ -527,7 +527,8 @@ where
         expiration_checker: E,
     ) -> Self {
         let result =
-            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, 0, 1).weight(weight);
+            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
+                .weight(weight);
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
             context,
