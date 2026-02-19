@@ -824,8 +824,8 @@ DEBUG_COMMAND(GCForceInvoke) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (sp->diskCtx.spec) {
-    SearchDisk_RunGC(sp->diskCtx.spec, &sp->diskCtx.compactionCallbacks);
+  if (sp->diskSpec) {
+    SearchDisk_RunGC(sp->diskSpec, sp);
     RedisModule_ReplyWithSimpleString(ctx, "DONE");
     return REDISMODULE_OK;
   } else if (sp->gc) {
@@ -2344,8 +2344,8 @@ DEBUG_COMMAND(GetMaxDocId) {
   GET_SEARCH_CTX(argv[2])
 
   t_docId maxDocId;
-  if (sctx->spec->diskCtx.spec) {
-    maxDocId = SearchDisk_GetMaxDocId(sctx->spec->diskCtx.spec);
+  if (sctx->spec->diskSpec) {
+    maxDocId = SearchDisk_GetMaxDocId(sctx->spec->diskSpec);
   } else {
     maxDocId = DocTable_GetMaxDocId(&sctx->spec->docs);
   }
@@ -2365,9 +2365,9 @@ DEBUG_COMMAND(DumpDeletedIds) {
   }
   GET_SEARCH_CTX(argv[2])
 
-  if (sctx->spec->diskCtx.spec) {
+  if (sctx->spec->diskSpec) {
     // Disk-based index
-    uint64_t count = SearchDisk_GetDeletedIdsCount(sctx->spec->diskCtx.spec);
+    uint64_t count = SearchDisk_GetDeletedIdsCount(sctx->spec->diskSpec);
 
     if (count == 0) {
       RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
@@ -2384,7 +2384,7 @@ DEBUG_COMMAND(DumpDeletedIds) {
       // This command is for debugging only, so it is acceptable if some IDs are
       // missed or added between these calls. `count` is treated as a hard upper
       // bound on the number of IDs written into `buffer`.
-      size_t actual_count = SearchDisk_GetDeletedIds(sctx->spec->diskCtx.spec, buffer, count);
+      size_t actual_count = SearchDisk_GetDeletedIds(sctx->spec->diskSpec, buffer, count);
       if (actual_count > count) {
         // Clamp to buffer capacity to avoid reading beyond the allocated array
         actual_count = count;

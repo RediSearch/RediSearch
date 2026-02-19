@@ -103,9 +103,9 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, const SearchDisk_CompactionCallbacks *callbacks) {
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index);
-    disk->index.runGC(index, callbacks);
+    disk->index.runGC(index, spec);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {
@@ -235,61 +235,4 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);
-}
-
-// =============================================================================
-// Compaction Callbacks Implementation (Phase 3c)
-// =============================================================================
-
-// Acquire IndexSpec write lock
-static void SearchDisk_AcquireWriteLock(void* ctx) {
-  IndexSpec* sp = (IndexSpec*)ctx;
-  pthread_rwlock_wrlock(&sp->rwlock);
-}
-
-// Release IndexSpec write lock
-static void SearchDisk_ReleaseWriteLock(void* ctx) {
-  IndexSpec* sp = (IndexSpec*)ctx;
-  pthread_rwlock_unlock(&sp->rwlock);
-}
-
-// Update a term's document count in the Serving Trie
-// Note: term is NOT null-terminated; term_len specifies the length
-static void SearchDisk_UpdateTrieTerm(void* ctx, const char* term, size_t term_len,
-                                       size_t doc_count_decrement) {
-  IndexSpec* sp = (IndexSpec*)ctx;
-  if (!sp->terms || doc_count_decrement == 0) {
-    return;
-  }
-  // Decrement the numDocs count for this term in the trie
-  // If numDocs reaches 0, the node will be deleted
-  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
-  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
-}
-
-// Update IndexScoringStats based on compaction delta
-// Note: num_docs and totalDocsLen are updated at delete time, NOT by GC.
-// GC only updates numTerms (when terms become completely empty).
-static void SearchDisk_UpdateScoringStats(void* ctx,
-                                           const SearchDisk_ScoringStatsDelta* delta) {
-  IndexSpec* sp = (IndexSpec*)ctx;
-  if (!delta || delta->num_terms_removed == 0) {
-    return;
-  }
-
-  // Decrement numTerms (clamp to 0 to avoid underflow)
-  RS_ASSERT(delta->num_terms_removed <= sp->stats.scoring.numTerms);
-  sp->stats.scoring.numTerms -= delta->num_terms_removed;
-}
-
-// Factory function to create a populated CompactionCallbacks struct
-SearchDisk_CompactionCallbacks SearchDisk_CreateCompactionCallbacks(IndexSpec* sp) {
-  SearchDisk_CompactionCallbacks callbacks = {
-    .acquire_write_lock = SearchDisk_AcquireWriteLock,
-    .release_write_lock = SearchDisk_ReleaseWriteLock,
-    .update_trie_term = SearchDisk_UpdateTrieTerm,
-    .update_scoring_stats = SearchDisk_UpdateScoringStats,
-    .ctx = sp,
-  };
-  return callbacks;
 }

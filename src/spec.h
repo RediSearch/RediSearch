@@ -362,8 +362,8 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
-  // Disk index context (handle + compaction callbacks, always used together)
-  DiskIndexContext diskCtx;
+  // Disk index handle (NULL for memory-only indexes)
+  RedisSearchDiskIndexSpec *diskSpec;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -762,6 +762,41 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
+
+// =============================================================================
+// Compaction FFI Functions (called by Rust during GC)
+// =============================================================================
+
+/**
+ * @brief Acquire the IndexSpec write lock
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_AcquireWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Release the IndexSpec write lock
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Update a term's document count in the Serving Trie
+ *
+ * @param sp Pointer to the IndexSpec
+ * @param term Pointer to term string (NOT null-terminated)
+ * @param term_len Length of term in bytes
+ * @param doc_count_decrement Number of documents to decrement from the term's count
+ */
+void IndexSpec_UpdateTrieTerm(IndexSpec* sp, const char* term, size_t term_len,
+                               size_t doc_count_decrement);
+
+/**
+ * @brief Update IndexScoringStats based on the number of terms removed
+ *
+ * @param sp Pointer to the IndexSpec
+ * @param num_terms_removed Number of terms that became empty during compaction
+ */
+void IndexSpec_UpdateScoringStats(IndexSpec* sp, uint64_t num_terms_removed);
 
 #ifdef __cplusplus
 }

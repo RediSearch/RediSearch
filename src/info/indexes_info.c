@@ -79,8 +79,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
 
     // Collect disk metrics if disk API is enabled.
     // This stores metrics internally and returns the index's disk memory contribution.
-    if (sp->diskCtx.spec) {
-      info.total_mem += SearchDisk_CollectIndexMetrics(sp->diskCtx.spec);
+    if (sp->diskSpec) {
+      info.total_mem += SearchDisk_CollectIndexMetrics(sp->diskSpec);
     }
 
     size_t total_index_mem = info.total_mem - prev_total_mem;
