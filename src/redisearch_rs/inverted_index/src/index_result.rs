@@ -39,6 +39,10 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The caller must ensure that the `metrics` pointer is either `null` or valid and points to a `*mut RSYieldableMetric`.
+    #[expect(
+        improper_ctypes,
+        reason = "RSQueryTerm is opaque - accessed via FFI functions only"
+    )]
     pub unsafe fn ResultMetrics_Reset_func(result: *mut RSIndexResult);
 
     /// Make a complete clone of the metrics array and increment the reference count of each value

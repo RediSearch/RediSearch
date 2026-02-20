@@ -348,8 +348,8 @@ mod tests {
         let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let term = || {
             let mut t = RSQueryTerm::new(b"term", 1, 0);
-            t.idf = 5.0;
-            t.bm25_idf = 10.0;
+            t.set_idf(5.0);
+            t.set_bm25_idf(10.0);
             Some(t)
         };
 

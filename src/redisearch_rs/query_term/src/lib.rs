@@ -33,39 +33,36 @@ pub type RSTokenFlags = u32;
 ///
 /// # Memory layout
 ///
-/// This struct is `#[repr(C)]` so that C code can access its fields directly.
+/// All fields are private and accessed via type-safe methods and FFI functions.
+/// C code accesses fields via FFI accessor functions, not direct struct access.
 /// cbindgen:field-names=[str, len, idf, id, flags, bm25_idf]
-#[repr(C)]
 pub struct RSQueryTerm {
     /// The term string, always NULL-terminated.
-    pub str_: *mut c_char,
+    str_: *mut c_char,
     /// The term length in bytes.
     ///
     /// It doesn't count the null terminator.
-    pub len: usize,
+    len: usize,
     /// Inverse document frequency of the term in the index.
     ///
     /// See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>.
-    pub idf: f64,
+    idf: f64,
     /// Each term in the query gets an incremental id.
-    pub id: i32,
+    id: i32,
     /// Flags given by the engine or by the query expander.
-    pub flags: RSTokenFlags,
+    flags: RSTokenFlags,
     /// Inverse document frequency for BM25 scoring.
-    pub bm25_idf: f64,
+    bm25_idf: f64,
 }
 
 impl fmt::Debug for RSQueryTerm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let term_str = if self.str_.is_null() {
-            "<null>"
-        } else {
-            // SAFETY: `str_` is not null (just checked) and `len` is guaranteed
-            // to be a valid length for the data pointer.
-            let slice = unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) };
+        let term_str = if let Some(bytes) = self.as_bytes() {
             // SAFETY: term strings originate from user queries and are treated
             // as valid UTF-8 throughout the C codebase.
-            unsafe { std::str::from_utf8_unchecked(slice) }
+            unsafe { std::str::from_utf8_unchecked(bytes) }
+        } else {
+            "<null>"
         };
 
         f.debug_struct("RSQueryTerm")
@@ -97,6 +94,78 @@ impl RSQueryTerm {
             bm25_idf: 0.0,
         })
     }
+
+    /// Create a new [`RSQueryTerm`] with a null string pointer.
+    ///
+    /// This is used when creating terms from tokens that have null string pointers.
+    pub fn new_null_str(id: i32, flags: RSTokenFlags) -> Box<Self> {
+        Box::new(Self {
+            str_: std::ptr::null_mut(),
+            len: 0,
+            idf: 1.0,
+            id,
+            flags,
+            bm25_idf: 0.0,
+        })
+    }
+
+    /// Get the inverse document frequency (IDF) for TF-IDF scoring.
+    pub const fn idf(&self) -> f64 {
+        self.idf
+    }
+
+    /// Set the inverse document frequency (IDF) for TF-IDF scoring.
+    pub const fn set_idf(&mut self, value: f64) {
+        self.idf = value;
+    }
+
+    /// Get the BM25 IDF value for BM25 scoring.
+    pub const fn bm25_idf(&self) -> f64 {
+        self.bm25_idf
+    }
+
+    /// Set the BM25 IDF value for BM25 scoring.
+    pub const fn set_bm25_idf(&mut self, value: f64) {
+        self.bm25_idf = value;
+    }
+
+    /// Get the term ID.
+    ///
+    /// Each term in the query gets an incremental ID assigned during parsing.
+    pub const fn id(&self) -> i32 {
+        self.id
+    }
+
+    /// Get the term string length in bytes (excluding null terminator).
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Check if the term string is empty (null pointer or zero length).
+    pub const fn is_empty(&self) -> bool {
+        self.str_.is_null() || self.len == 0
+    }
+
+    /// Get the raw string pointer (for FFI compatibility).
+    ///
+    /// # Safety
+    ///
+    /// Returned pointer is valid for the lifetime of this term and is null-terminated.
+    pub const fn str_ptr(&self) -> *const c_char {
+        self.str_ as *const c_char
+    }
+
+    /// Get the term as a byte slice, if the string pointer is non-null.
+    ///
+    /// Does NOT assume valid UTF-8.
+    pub const fn as_bytes(&self) -> Option<&[u8]> {
+        if self.str_.is_null() {
+            None
+        } else {
+            // SAFETY: `str_` is valid for `len` bytes when non-null
+            Some(unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) })
+        }
+    }
 }
 
 impl Drop for RSQueryTerm {
@@ -113,18 +182,8 @@ impl Drop for RSQueryTerm {
 impl PartialEq for RSQueryTerm {
     fn eq(&self, other: &Self) -> bool {
         // Compare string contents, not pointer addresses.
-        let self_str = if self.str_.is_null() {
-            &[]
-        } else {
-            // SAFETY: `str_` is not null and `len` is a valid length for the data pointer.
-            unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) }
-        };
-        let other_str = if other.str_.is_null() {
-            &[]
-        } else {
-            // SAFETY: `str_` is not null and `len` is a valid length for the data pointer.
-            unsafe { std::slice::from_raw_parts(other.str_ as *const u8, other.len) }
-        };
+        let self_str = self.as_bytes().unwrap_or(&[]);
+        let other_str = other.as_bytes().unwrap_or(&[]);
 
         self_str == other_str
             && self.idf == other.idf
@@ -161,14 +220,7 @@ mod tests {
 
     #[test]
     fn debug_null_str() {
-        let term = RSQueryTerm {
-            str_: std::ptr::null_mut(),
-            len: 0,
-            idf: 0.0,
-            id: 0,
-            flags: 0,
-            bm25_idf: 0.0,
-        };
+        let term = RSQueryTerm::new_null_str(0, 0);
         let debug = format!("{term:?}");
         assert!(debug.contains("<null>"));
     }
@@ -178,7 +230,7 @@ mod tests {
         let a = RSQueryTerm::new(b"hello", 1, 0);
         let b = RSQueryTerm::new(b"hello", 1, 0);
         // Different allocations, same content.
-        assert_ne!(a.str_, b.str_);
+        assert_ne!(a.str_ptr(), b.str_ptr());
         assert_eq!(*a, *b);
     }
 

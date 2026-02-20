@@ -12,3 +12,4 @@ parse_deps = true
 include = ["query_term"]
 
 [export]
+include = ["RSTokenFlags"]

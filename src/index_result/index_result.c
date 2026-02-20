@@ -151,7 +151,7 @@ void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t c
     {
       RSQueryTerm *term = IndexResult_QueryTermRef(r);
       if (term) {
-        const char *s = term->str;
+        const char *s = QueryTerm_GetStr(term);
         // make sure we have a term string and it's not an expansion
         if (s) {
           arr[(*len)++] = term;

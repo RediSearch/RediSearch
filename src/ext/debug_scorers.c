@@ -32,7 +32,7 @@
 static double sumIdfRecursive(const RSIndexResult *r) {
   if (r->data.tag == RSResultData_Term) {
     RSQueryTerm *term = IndexResult_QueryTermRef(r);
-    return term ? term->idf : 0;
+    return term ? QueryTerm_GetIDF(term) : 0;
   }
   if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     double sum = 0;
@@ -50,7 +50,7 @@ static double sumIdfRecursive(const RSIndexResult *r) {
 static double sumBm25IdfRecursive(const RSIndexResult *r) {
   if (r->data.tag == RSResultData_Term) {
     RSQueryTerm *term = IndexResult_QueryTermRef(r);
-    return term ? term->bm25_idf : 0;
+    return term ? QueryTerm_GetBM25_IDF(term) : 0;
   }
   if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     double sum = 0;

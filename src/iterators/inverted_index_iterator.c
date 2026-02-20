@@ -42,7 +42,9 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
   // sctx and term should always be set, except in some tests.
   RS_ASSERT(term);
-  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, term->len, false, NULL);
+  size_t len;
+  const char *str = QueryTerm_GetStrAndLen(term, &len);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, str, len, false, NULL);
   if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
@@ -60,7 +62,9 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   }
   size_t sz;
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
-  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, term->str, term->len, false, &sz);
+  size_t len;
+  const char *str = QueryTerm_GetStrAndLen(term, &len);
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, str, len, false, &sz);
   if (idx == TRIEMAP_NOTFOUND || !IndexReader_IsIndex(it->base.reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
@@ -401,8 +405,9 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
-    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    QueryTerm_SetIDFs(term,
+                      CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)),
+                      CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -427,8 +432,9 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
-    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    QueryTerm_SetIDFs(term,
+                      CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)),
+                      CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
