@@ -77,7 +77,7 @@ void *cbWrapper(void *args) {
     }
 
     // run ForkGC
-    gc->callbacks.periodicCallback(fgc);
+    gc->callbacks.periodicCallback(fgc, false);
   }
   return NULL;
 }
@@ -93,7 +93,7 @@ class FGCTest : public ::testing::Test {
   void SetUp() override {
     Initialize_KeyspaceNotifications();
     ism = createSpec(ctx);
-    RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();
   }
