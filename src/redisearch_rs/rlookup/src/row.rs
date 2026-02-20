@@ -368,7 +368,7 @@ pub mod opaque {
     use c_ffi_utils::opaque::Size;
     use value::RSValueFFI;
 
-    /// An lookup row which can be passed by value to C.
+    /// An opaque lookup row which can be passed by value to C.
     ///
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.

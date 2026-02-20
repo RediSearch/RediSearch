@@ -70,7 +70,7 @@ pub(crate) struct BlockGcScanResult {
 }
 
 /// Information about the result of applying a garbage collection scan to the index
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 #[repr(C)]
 pub struct GcApplyInfo {
     /// The number of bytes that were freed
@@ -212,8 +212,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 .unwrap_or(false);
             if remove_stale_delta {
                 deltas.pop();
-                info.ignored_last_block = true;
             }
+            info.ignored_last_block = true;
         }
 
         // There is no point in moving everything to a new vector if there are no deltas

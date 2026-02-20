@@ -15,6 +15,7 @@
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
@@ -34,6 +35,7 @@
 #include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
+#include "query_error.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -615,11 +617,17 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!tagIndex) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    goto end;
+  }
+
+  // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (tagIndex->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
@@ -692,7 +700,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
     // Field was not initialized yet
     if (!idx) {
@@ -821,7 +829,8 @@ DEBUG_COMMAND(GCForceInvoke) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (sp->diskSpec) {
@@ -848,7 +857,8 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -865,7 +875,8 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   // Make sure there is no pending timer
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
@@ -885,7 +896,8 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   if (sp->gc->timerID) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
@@ -947,7 +959,8 @@ DEBUG_COMMAND(ttl) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -977,7 +990,8 @@ DEBUG_COMMAND(ttlPause) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -1013,7 +1027,8 @@ DEBUG_COMMAND(ttlExpire) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -1052,7 +1067,8 @@ DEBUG_COMMAND(setMonitorExpiration) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   MonitorExpirationOptions options = {0};
@@ -1161,11 +1177,17 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!idx) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    goto end;
+  }
+
+  // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (idx->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
@@ -1743,7 +1765,8 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!sp->scanner) {
@@ -1871,7 +1894,8 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!sp->scanner) {

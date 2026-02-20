@@ -88,7 +88,9 @@ static bool spellCheckReplySanity_resp2(MRReply *reply, uint64_t *totalDocNum, Q
   int type = MRReply_Type(reply);
 
   if (type == MR_REPLY_ERROR) {
-    QueryError_SetError(qerr, QUERY_ERROR_CODE_GENERIC, MRReply_String(reply, NULL));
+    // Shard reply already contains the prefixed error string — set directly.
+    QueryError_SetCode(qerr, QUERY_ERROR_CODE_GENERIC);
+    QueryError_SetDetail(qerr, MRReply_String(reply, NULL));
     return false;
   }
 
@@ -114,7 +116,9 @@ static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, Q
   int type = MRReply_Type(reply);
 
   if (type == MR_REPLY_ERROR) {
-    QueryError_SetError(qerr, QUERY_ERROR_CODE_GENERIC, MRReply_String(reply, NULL));
+    // Shard reply already contains the prefixed error string — set directly.
+    QueryError_SetCode(qerr, QUERY_ERROR_CODE_GENERIC);
+    QueryError_SetDetail(qerr, MRReply_String(reply, NULL));
     return false;
   }
 

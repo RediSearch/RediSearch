@@ -88,6 +88,18 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache = spcache;
     }
 
+    pub fn disable_options(&mut self, options: RLookupOptions) {
+        self.options &= !options;
+    }
+
+    pub fn enable_options(&mut self, options: RLookupOptions) {
+        self.options |= options;
+    }
+
+    pub const fn has_index_spec_cache(&self) -> bool {
+        self.index_spec_cache.is_some()
+    }
+
     pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
         self.index_spec_cache
             .as_ref()
@@ -384,7 +396,7 @@ impl<'a> RLookup<'a> {
     }
 
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
-    pub(crate) const fn get_row_len(&self) -> u32 {
+    pub const fn get_row_len(&self) -> u32 {
         self.keys.rowlen
     }
 
@@ -492,9 +504,9 @@ pub mod opaque {
     #[cfg(not(debug_assertions))]
     type OpaqueRLookupSize = Size<40>;
 
-    /// An opaque query error which can be passed by value to C.
+    /// An opaque lookup which can be passed by value to C.
     ///
-    /// The size and alignment of this struct must match the Rust `QueryError`
+    /// The size and alignment of this struct must match the Rust `RLookup`
     /// structure exactly.
     #[repr(C, align(8))]
     pub struct OpaqueRLookup(OpaqueRLookupSize);

@@ -2017,7 +2017,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  */
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
-  RLookupRow translated = {0};
+  RLookupRow translated = RLookupRow_New();
   RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
       self->lookupCtx->sourceLookups[upstreamIndex], &translated,
       self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);

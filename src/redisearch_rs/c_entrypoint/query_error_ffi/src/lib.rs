@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::CStr;
-use std::ffi::c_char;
+use std::ffi::{CStr, CString, c_char};
 
 use query_error::{QueryError, opaque::OpaqueQueryError};
 
@@ -45,7 +44,7 @@ pub unsafe extern "C" fn QueryError_HasError(query_error: *const OpaqueQueryErro
     unsafe { !QueryError_IsOk(query_error) }
 }
 
-/// Returns a human-readable string representing the provided [`QueryErrorCode`].
+/// Returns the full default error string for a [`QueryErrorCode`] (prefix + message).
 ///
 /// This function should always return without a panic for any value provided.
 /// It is unique among the `QueryError_*` API as the only function which allows
@@ -59,11 +58,59 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
     code.to_c_str().as_ptr()
 }
 
+/// Returns only the error prefix string for a [`QueryErrorCode`] (e.g. `"SEARCH_TIMEOUT: "`).
+///
+/// Returns an empty string for `Ok` and `"Unknown status code"` for invalid codes.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryError_StrerrorPrefix(maybe_code: u8) -> *const c_char {
+    let Some(code) = QueryErrorCode::from_repr(maybe_code) else {
+        return c"Unknown status code".as_ptr();
+    };
+
+    code.prefix_c_str().as_ptr()
+}
+
+/// Returns only the default message for a [`QueryErrorCode`] (without the prefix).
+///
+/// Returns `"Unknown status code"` for invalid codes.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryError_StrerrorDefaultMessage(maybe_code: u8) -> *const c_char {
+    let Some(code) = QueryErrorCode::from_repr(maybe_code) else {
+        return c"Unknown status code".as_ptr();
+    };
+
+    code.default_message_c_str().as_ptr()
+}
+
+/// Returns a human-readable string representing the provided [`QueryWarningCode`].
+///
+/// This function should always return without a panic for any value provided.
+/// It is unique among the `QueryWarning_*` API as the only function which allows
+/// an invalid [`QueryWarningCode`] to be provided.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryWarning_Strwarning(maybe_code: u8) -> *const c_char {
+    let Some(code) = QueryWarningCode::from_repr(maybe_code) else {
+        return c"Unknown warning code".as_ptr();
+    };
+
+    code.to_c_str().as_ptr()
+}
+
+/// Returns the maximum valid numeric value for [`QueryErrorCode`].
+///
+/// This is intended for C/C++ tests/tools that want to iterate over all codes without
+/// hardcoding the current "last" variant.
+#[unsafe(no_mangle)]
+pub const extern "C" fn QueryError_CodeMaxValue() -> u8 {
+    query_error::query_error_code_max_value()
+}
+
 /// Returns a [`QueryErrorCode`] given an error message.
 ///
-/// This only supports the query error codes [`QueryErrorCode::TimedOut`] and
-/// [`QueryErrorCode::OutOfMemory`]. If another message is provided,
-/// [`QueryErrorCode::Generic`] is returned.
+/// This only supports the query error codes [`QueryErrorCode::TimedOut`],
+/// [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
+/// If another message is provided, [`QueryErrorCode::Generic`] is returned.
+///
 ///
 /// # Safety
 ///
@@ -90,6 +137,11 @@ pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -
 
 /// Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
 ///
+/// The public message is stored as-is (for obfuscated display).
+/// The private message is stored with the error code prefix prepended
+/// (e.g. `"SEARCH_TIMEOUT: "` + message), so that Redis error stats
+/// can track errors by their unique prefix.
+///
 /// This does not mutate `query_error` if it already has an error set.
 ///
 /// # Panics
@@ -111,14 +163,21 @@ pub unsafe extern "C" fn QueryError_SetError(
         unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
     let code = QueryErrorCode::from_repr(code).expect("invalid query error code");
 
-    let message = if message.is_null() {
-        None
+    if message.is_null() {
+        query_error.set_code_and_message(code, None);
     } else {
         // Safety: see safety requirement above.
-        Some(unsafe { CStr::from_ptr(message) }.to_owned())
-    };
+        let msg = unsafe { CStr::from_ptr(message) };
+        let public_message = msg.to_owned();
 
-    query_error.set_code_and_message(code, message);
+        // Prepend the error prefix to form the private message.
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let msg_str = msg.to_str().unwrap_or("");
+        let prefixed = format!("{prefix}{msg_str}");
+        let private_message = CString::new(prefixed).unwrap_or_else(|_| public_message.clone());
+
+        query_error.set_code_and_messages(code, Some(public_message), Some(private_message));
+    };
 }
 
 /// Sets the [`QueryErrorCode`] for a [`QueryError`].
