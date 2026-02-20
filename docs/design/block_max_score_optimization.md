@@ -134,6 +134,109 @@ See [Deriving Block Max Score for Each Scoring Function](#deriving-block-max-sco
 
 **Storage overhead:** 10 bytes per block (2 + 4 + 4)
 
+**Estimated extra space per text field inverted index** (assuming ~100 documents per block):
+
+Each block has a fixed overhead of ~48 bytes (`IndexBlock::STACK_SIZE`) plus a variable-size buffer (~800-1600 bytes for ~100 entries in a Full encoding). The 10 bytes of scoring metadata represents ~0.6-1.25% overhead per block.
+
+| Documents | Blocks | Baseline Block Overhead | Extra Storage | % Increase |
+|-----------|--------|-------------------------|---------------|------------|
+| 100K      | ~1,000 | ~48 KB                  | ~10 KB        | ~21%       |
+| 1M        | ~10,000 | ~480 KB                | ~100 KB       | ~21%       |
+| 10M       | ~100,000 | ~4.8 MB               | ~1 MB         | ~21%       |
+| 100M      | ~1,000,000 | ~48 MB              | ~10 MB        | ~21%       |
+
+> **Note:** This overhead applies only to **text field** inverted indices. See [Index Type Applicability](#index-type-applicability) for details on which index types benefit from this optimization.
+
+### Index Type Applicability
+
+Not all inverted index types benefit from block-max score optimization. The scoring metadata (`max_freq`, `min_doc_len`, `max_doc_score`) is designed for **TF-based scoring functions** like BM25 and TF-IDF.
+
+| Index Type | Encoding | Block-Max Score Benefit | Reason |
+|------------|----------|-------------------------|--------|
+| **Text fields** | Full, FreqsFields, FreqsOnly, etc. | ✅ **Full benefit** | Stores term frequency; TF-based scoring applies |
+| **Tag fields** | DocIdsOnly | ❌ **No benefit** | No TF data stored; tags are binary matches |
+| **Numeric fields** | Numeric, NumericFloatCompression | ❌ **No benefit** | Stores numeric values, not term frequencies |
+
+#### Current State: Unified IndexBlock
+
+Currently, all inverted index types share the same `IndexBlock` structure, which includes the scoring metadata fields. This means:
+
+- **Tag and Numeric indices waste 10 bytes per block** on unused metadata
+- The `max_freq == 0` sentinel indicates metadata is not tracked (e.g., for `DocIdsOnly` encoding)
+- Block-max score computation returns `f64::MAX` for these blocks, disabling skipping
+
+#### Optional Feature: Balancing Speedup vs. Memory Usage
+
+Even for text fields, storing scoring metadata could be made **optional** via a configuration flag or index creation option. This allows users to choose their preferred trade-off:
+
+| Configuration | Memory Overhead | Query Performance |
+|---------------|-----------------|-------------------|
+| **Enabled** (default) | +10 bytes/block (~21% increase) | Faster top-K queries via block skipping |
+| **Disabled** | No overhead | Standard iteration (no skipping) |
+
+**Use cases for disabling:**
+- Memory-constrained environments where every byte counts
+- Workloads dominated by non-scored queries (e.g., filtering, aggregations)
+- Indexes with very few documents where skipping provides minimal benefit
+
+This could be implemented as:
+- A global configuration option (e.g., `FT.CONFIG SET BLOCK_MAX_SCORE_ENABLED`) (hard to change for existing indexes)
+- A per-index option at creation time (e.g., `FT.CREATE ... NOBLOCK_MAX_SCORE`)
+
+> **Note:** The [Alternative Storage Strategies](#alternative-storage-strategies) section describes other approaches (pre-computed scores, TF/DocLen pairs) with different memory vs. performance trade-offs. Once there is a decision to invest in this feature, these alternatives should be benchmarked to determine which strategy provides the best balance for different workloads.
+
+#### Future Work: Type-Specific IndexBlock via Traits
+
+A cleaner design would use Rust's trait system to define type-specific block structures:
+
+```rust
+// Base trait for all index blocks
+trait IndexBlockBase {
+    fn first_doc_id(&self) -> t_docId;
+    fn last_doc_id(&self) -> t_docId;
+    fn num_entries(&self) -> u16;
+    fn buffer(&self) -> &[u8];
+}
+
+// Extended trait for blocks that support scoring metadata
+trait ScoringMetadata: IndexBlockBase {
+    fn max_freq(&self) -> u32;
+    fn min_doc_len(&self) -> u32;
+    fn max_doc_score(&self) -> f32;
+}
+
+// Text field blocks implement both traits
+struct TextIndexBlock {
+    first_doc_id: t_docId,
+    last_doc_id: t_docId,
+    num_entries: u16,
+    max_freq: u32,
+    max_doc_score: f32,
+    min_doc_len: u32,
+    buffer: Vec<u8>,
+}
+
+// Tag/Numeric blocks only implement the base trait (no scoring overhead)
+struct MinimalIndexBlock {
+    first_doc_id: t_docId,
+    last_doc_id: t_docId,
+    num_entries: u16,
+    buffer: Vec<u8>,
+}
+```
+
+**Benefits of this approach:**
+- **Memory efficiency**: Tag and Numeric indices save 10 bytes per block
+- **Type safety**: Compile-time enforcement of which operations are valid
+- **Extensibility**: Easy to add new metadata for specific index types
+
+**Implementation considerations:**
+- Requires updating the `InvertedIndex<E>` generic to be parameterized by block type
+- May require associated types in the `Encoder` trait
+- RDB serialization/deserialization needs to handle different block types
+
+> **TODO:** Create a tracking issue for implementing type-specific `IndexBlock` structures.
+
 ### Alternative Storage Strategies
 
 The approach described above (storing `max_freq`, `min_doc_len`, `max_doc_score`) is one of several strategies used in the industry. This section discusses two alternative approaches that could be considered for future enhancements.
@@ -241,14 +344,24 @@ Each pair represents an actual document, so the bound is tighter.
 
 #### Comparison of Approaches
 
-| Aspect | Current Proposal | Pre-computed Scores | (TF, DocLen) Pairs |
-|--------|------------------|---------------------|---------------------|
-| **Storage per block** | 10 bytes | 4 bytes | 10-28 bytes |
-| **Query-time computation** | Moderate | None | Moderate |
-| **Bound tightness** | Loose (upper bound) | Exact | Tight (upper bound) |
-| **Scoring flexibility** | High | None | High |
-| **Reindex on scorer change** | No | Yes | No |
-| **Implementation complexity** | Low | Low | Medium |
+Each strategy offers a different trade-off between memory usage, implementation complexity, and query performance. The table below summarizes these trade-offs:
+
+| Aspect | No Optimization | Current Proposal | Pre-computed Scores | (TF, DocLen) Pairs |
+|--------|-----------------|------------------|---------------------|---------------------|
+| **Memory per block** | 0 bytes | 10 bytes | 4 bytes | 10-28 bytes |
+| **Write complexity** | None | Low (track min/max) | Medium (compute score) | High (pair pruning) |
+| **Read complexity** | None | Low (compute bound) | None (direct compare) | Medium (evaluate pairs) |
+| **Read speedup** | None (baseline) | Moderate | High | High |
+| **Bound tightness** | N/A | Loose (upper bound) | Exact | Tight (upper bound) |
+| **Scoring flexibility** | N/A | High | None | High |
+| **Reindex on scorer change** | N/A | No | Yes | No |
+
+**Legend:**
+- **Write complexity**: Additional work during document indexing
+- **Read complexity**: Additional work during query execution to compute/compare block scores
+- **Read speedup**: Expected improvement in top-K query performance due to block skipping
+
+> **Note:** These trade-offs should be validated with benchmarks on representative workloads before committing to a specific strategy. The optimal choice may vary depending on index size, query patterns, and memory constraints.
 
 #### Recommendation
 
