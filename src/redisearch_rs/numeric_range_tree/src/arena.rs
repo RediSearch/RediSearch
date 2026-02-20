@@ -15,41 +15,35 @@
 
 use std::ops::{Index, IndexMut};
 
-use slab::Slab;
+use generational_slab::{Key, Slab};
 
 use crate::NumericRangeNode;
 
 /// Index into the node arena.
 ///
-/// Wraps a `slab::Slab` key. This is a lightweight handle (single `u32`)
+/// Wraps a [`generational_slab::Key`]. This is a lightweight handle
 /// that is stable across mutations to other slots in the slab.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct NodeIndex(u32);
+pub struct NodeIndex(Key);
 
 impl NodeIndex {
-    /// Convert to a `usize` key for indexing into a [`slab::Slab`].
-    const fn key(self) -> usize {
-        self.0 as usize
+    /// Return the underlying [`Key`] for indexing into a [`generational_slab::Slab`].
+    pub const fn key(self) -> Key {
+        self.0
     }
 }
 
-impl From<u32> for NodeIndex {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-
-impl From<NodeIndex> for u32 {
-    fn from(idx: NodeIndex) -> Self {
-        idx.0
+impl From<Key> for NodeIndex {
+    fn from(key: Key) -> Self {
+        Self(key)
     }
 }
 
 /// Arena storage for [`NumericRangeNode`]s.
 ///
 /// This is a newtype wrapper around [`Slab<NumericRangeNode>`] that provides
-/// type-safe indexing via [`NodeIndex`] instead of raw `usize`.
+/// type-safe indexing via [`NodeIndex`] instead of raw [`Key`].
 #[derive(Debug)]
 pub(crate) struct NodeArena {
     nodes: Slab<NumericRangeNode>,
@@ -66,8 +60,7 @@ impl NodeArena {
     /// This is not to be confused with the current _capacity_
     /// of the arena, i.e. the size of the underlying currently-allocated
     /// slab.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
-    pub fn len(&self) -> u32 {
+    pub const fn len(&self) -> u32 {
         // Safe to truncate because `Self::insert` ensures that the arena
         // never grows beyond `u32::MAX`.
         self.nodes.len() as u32
@@ -77,26 +70,25 @@ impl NodeArena {
     ///
     /// This is the maximum number of nodes that can be stored in the arena
     /// without reallocating.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
-    pub fn capacity(&self) -> u32 {
+    pub const fn capacity(&self) -> u32 {
         // Safe to truncate because `Self::insert` ensures that the arena
         // never grows beyond `u32::MAX`.
         self.nodes.capacity() as u32
+    }
+
+    /// Get a mutable reference to a node in the arena, if it exists.
+    pub fn get_mut(&mut self, idx: NodeIndex) -> Option<&mut NumericRangeNode> {
+        self.nodes.get_mut(idx.key())
     }
 
     /// Insert a node into the arena, returning its index.
     ///
     /// # Panics
     ///
-    /// Debug-asserts that the resulting key fits in `u32`.
+    /// Panics if the slab exceeds its maximum capacity (`u32::MAX` entries).
     pub fn insert(&mut self, node: NumericRangeNode) -> NodeIndex {
         let key = self.nodes.insert(node);
-        assert!(
-            key <= u32::MAX as usize,
-            "Tried to store more than {} nodes in the arena",
-            u32::MAX
-        );
-        NodeIndex(key as u32)
+        NodeIndex(key)
     }
 
     /// Remove a node from the arena, returning it.
@@ -104,7 +96,6 @@ impl NodeArena {
     /// # Panics
     ///
     /// Panics if the index is invalid.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub fn remove(&mut self, idx: NodeIndex) -> NumericRangeNode {
         self.nodes.remove(idx.key())
     }
@@ -117,35 +108,33 @@ impl NodeArena {
         expect(dead_code, reason = "used by invariant checks in unittest feature")
     )]
     pub fn iter(&self) -> impl Iterator<Item = (NodeIndex, &NumericRangeNode)> {
-        self.nodes
-            .iter()
-            .map(|(key, node)| (NodeIndex(key as u32), node))
+        self.nodes.iter().map(|(key, node)| (NodeIndex(key), node))
     }
 
     /// Iterate over all nodes in the arena mutably.
     ///
     /// Yields `(NodeIndex, &mut NumericRangeNode)` pairs.
-    #[expect(dead_code, reason = "part of complete arena API, needed for future GC")]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (NodeIndex, &mut NumericRangeNode)> {
         self.nodes
             .iter_mut()
-            .map(|(key, node)| (NodeIndex(key as u32), node))
+            .map(|(key, node)| (NodeIndex(key), node))
     }
 
     /// Get the memory usage of the arena, in bytes.
-    pub fn mem_usage(&self) -> usize {
-        // This is the way `slab::Slab` stores, internally, entries.
-        // The type isn't exposed via its public API, but add it here
-        // as a reference to allow the compiler to give us an accurate
-        // memory usage estimate.
-        // Future versions of `slab` may change this, but for now,
-        // this is the best we can do.
-        #[expect(dead_code)]
-        enum Entry<T> {
-            Vacant(usize),
-            Occupied(T),
-        }
-        self.nodes.capacity() * std::mem::size_of::<Entry<NumericRangeNode>>()
+    pub const fn mem_usage(&self) -> usize {
+        self.nodes.mem_usage()
+    }
+
+    /// Compact the arena, moving nodes to fill gaps.
+    ///
+    /// The callback is called for each moved node with `(from_idx, to_idx)`.
+    /// Return `true` from the callback to proceed with the move.
+    pub fn compact(
+        &mut self,
+        mut callback: impl FnMut(&mut NumericRangeNode, NodeIndex, NodeIndex) -> bool,
+    ) {
+        self.nodes
+            .compact(|node, from, to| callback(node, from.into(), to.into()))
     }
 }
 

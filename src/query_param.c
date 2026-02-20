@@ -208,7 +208,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -216,7 +216,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
 
     case PARAM_SIZE:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }

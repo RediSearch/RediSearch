@@ -363,6 +363,26 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     }
 }
 
+pub mod opaque {
+    use super::RLookupRow;
+    use c_ffi_utils::opaque::Size;
+    use value::RSValueFFI;
+
+    /// An opaque lookup row which can be passed by value to C.
+    ///
+    /// The size and alignment of this struct must match the Rust `RLookupRow`
+    /// structure exactly.
+    #[repr(C, align(8))]
+    pub struct OpaqueRLookupRow(OpaqueRLookupRowSize);
+
+    #[cfg(debug_assertions)]
+    type OpaqueRLookupRowSize = Size<48>;
+    #[cfg(not(debug_assertions))]
+    type OpaqueRLookupRowSize = Size<40>;
+
+    c_ffi_utils::opaque!(RLookupRow<'_, RSValueFFI>, OpaqueRLookupRow);
+}
+
 #[cfg(test)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {

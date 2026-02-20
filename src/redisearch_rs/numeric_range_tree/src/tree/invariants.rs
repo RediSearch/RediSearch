@@ -13,7 +13,10 @@
 //! after every mutation (`add`, `trim_empty_leaves`) to catch structural
 //! violations early.
 
-use super::{AddResult, NumericRangeTree, TreeStats, apply_signed_delta};
+use inverted_index::{IndexReader, NumericFilter, RSIndexResult};
+
+use super::{AddResult, NumericRangeTree, TreeStats, TrimEmptyLeavesResult, apply_signed_delta};
+use crate::NumericRange;
 use crate::NumericRangeNode;
 use crate::arena::NodeIndex;
 
@@ -90,6 +93,55 @@ impl NumericRangeTree {
         );
     }
 
+    /// Verify that the deltas in a [`TrimEmptyLeavesResult`] are consistent with the stats change.
+    ///
+    /// Similar to [`check_delta_invariants`](Self::check_delta_invariants) but
+    /// does not check `num_records_delta` (trim only removes empty nodes, so
+    /// the total record count is unchanged).
+    pub(crate) fn check_trim_delta_invariants(
+        &self,
+        before: TreeStats,
+        revision_id_before: u32,
+        result: &TrimEmptyLeavesResult,
+    ) {
+        assert_eq!(
+            apply_signed_delta(before.num_ranges, result.num_ranges_delta as i64),
+            self.stats.num_ranges,
+            "num_ranges mismatch: before={}, delta={}, after={}",
+            before.num_ranges,
+            result.num_ranges_delta,
+            self.stats.num_ranges,
+        );
+        assert_eq!(
+            apply_signed_delta(before.num_leaves, result.num_leaves_delta as i64),
+            self.stats.num_leaves,
+            "num_leaves mismatch: before={}, delta={}, after={}",
+            before.num_leaves,
+            result.num_leaves_delta,
+            self.stats.num_leaves,
+        );
+        assert_eq!(
+            apply_signed_delta(before.inverted_indexes_size, result.size_delta),
+            self.stats.inverted_indexes_size,
+            "inverted_indexes_size mismatch: before={}, delta={}, after={}",
+            before.inverted_indexes_size,
+            result.size_delta,
+            self.stats.inverted_indexes_size,
+        );
+
+        // revision_id / changed
+        let expected_revision_id = if result.changed {
+            revision_id_before.wrapping_add(1)
+        } else {
+            revision_id_before
+        };
+        assert_eq!(
+            expected_revision_id, self.revision_id,
+            "revision_id mismatch: before={revision_id_before}, changed={}, after={}",
+            result.changed, self.revision_id,
+        );
+    }
+
     /// Walk the slab and independently compute all [`TreeStats`] fields.
     ///
     /// This is the ground-truth calculation used by [`check_memoized_stats`](Self::check_memoized_stats)
@@ -147,6 +199,92 @@ impl NumericRangeTree {
             "empty_leaves: memoized={}, computed={}",
             self.stats.empty_leaves, computed.empty_leaves,
         );
+    }
+
+    /// Verify invariants of the ranges returned by `find`.
+    ///
+    /// Checks three properties:
+    /// 1. **Filter overlap** — every returned range overlaps the query filter.
+    /// 2. **Ordering** — consecutive ranges are strictly ordered (ascending or
+    ///    descending based on the filter's `ascending` flag). This transitively
+    ///    implies pairwise non-overlap.
+    /// 3. **Limit sufficiency** — when `limit > 0` and the tree contained
+    ///    enough matching documents (`total >= offset + limit`), the returned
+    ///    ranges must collectively hold at least `limit` documents.
+    pub(crate) fn check_find_invariants(
+        ranges: &[&NumericRange],
+        filter: &NumericFilter,
+        total: usize,
+    ) {
+        // Every returned range must overlap the filter.
+        for (i, range) in ranges.iter().enumerate() {
+            assert!(
+                range.overlaps(filter.min, filter.max),
+                "find invariant violated: ranges[{i}] [{}, {}] does not overlap filter [{}, {}]",
+                range.min_val(),
+                range.max_val(),
+                filter.min,
+                filter.max,
+            );
+        }
+
+        // Ordering and disjointedness.
+        // Strict ordering on consecutive pairs (max < next_min, or min > next_max)
+        // transitively implies pairwise non-overlap for all pairs.
+        for window in ranges.windows(2) {
+            if filter.ascending {
+                assert!(
+                    window[0].max_val() < window[1].min_val(),
+                    "find invariant violated: ascending order broken: [{}, {}] not before [{}, {}]",
+                    window[0].min_val(),
+                    window[0].max_val(),
+                    window[1].min_val(),
+                    window[1].max_val(),
+                );
+            } else {
+                assert!(
+                    window[0].min_val() > window[1].max_val(),
+                    "find invariant violated: descending order broken: [{}, {}] not after [{}, {}]",
+                    window[0].min_val(),
+                    window[0].max_val(),
+                    window[1].min_val(),
+                    window[1].max_val(),
+                );
+            }
+        }
+
+        // Limit sufficiency: if limit > 0 and we had enough matching documents
+        // (total >= offset + limit), the returned ranges must contain at least
+        // `limit` documents whose values fall within the filter bounds.
+        if filter.limit > 0 {
+            let target = filter.offset.saturating_add(filter.limit);
+            if total >= target {
+                let mut docs: usize = 0;
+                for range in ranges {
+                    if range.contained_in(filter.min, filter.max) {
+                        docs += range.num_docs() as usize;
+                    } else {
+                        let mut reader = range.reader();
+                        let mut result = RSIndexResult::numeric(0.0);
+                        while reader.next_record(&mut result).unwrap_or(false) {
+                            // SAFETY: The entries in a NumericRange always contain
+                            // numeric data—they are created via `RSIndexResult::numeric`.
+                            let value = unsafe { result.as_numeric_unchecked() };
+                            if filter.value_in_range(value) {
+                                docs += 1;
+                            }
+                        }
+                    }
+                }
+                assert!(
+                    docs >= filter.limit,
+                    "find invariant violated: limit={} but returned ranges contain only \
+                     {docs} in-bounds docs (total={total}, offset={})",
+                    filter.limit,
+                    filter.offset,
+                );
+            }
+        }
     }
 
     /// Verify all structural invariants of the tree.

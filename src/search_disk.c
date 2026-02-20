@@ -9,13 +9,17 @@
 
 #include "search_disk.h"
 #include "config.h"
-#include "index_result/query_term/query_term.h"
+#include "redismodule-rlec.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
 static bool asyncIOEnabled = true;
+
+// Throttle callbacks for vector disk tiered indexes
+static int VecSim_EnableThrottle(void);
+static int VecSim_DisableThrottle(void);
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
@@ -41,16 +45,18 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
+  // Set throttle callbacks for vector disk tiered indexes
+  RS_ASSERT(disk->basic.setThrottleCallbacks);
+  disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
+
+
   disk_db = disk->basic.open(ctx);
-  if (disk_db) {
-    disk->basic.startGCThreadPool();
-  }
+
   return disk_db != NULL;
 }
 
 void SearchDisk_Close() {
   if (disk && disk_db) {
-    disk->basic.stopGCThreadPool();
     disk->basic.close(disk_db);
     disk_db = NULL;
   }
@@ -83,9 +89,14 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 }
 
 // Index API wrappers
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
     RS_ASSERT(disk && index);
-    return disk->index.indexDocument(index, term, termLen, docId, fieldMask, freq);
+    return disk->index.indexTerm(index, term, termLen, docId, fieldMask, freq);
+}
+
+bool SearchDisk_IndexTags(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index);
+    return disk->index.indexTags(index, values, numValues, docId, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
@@ -100,9 +111,19 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     return it;
 }
 
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
+    RS_ASSERT(disk && index && tok);
+    return disk->index.newTagIterator(index, tok, fieldIndex, weight);
+}
+
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
     RS_ASSERT(disk && index);
     return disk->index.newWildcardIterator(index, weight);
+}
+
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk && index);
+    disk->index.runGC(index);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {
@@ -222,6 +243,24 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     // to avoid silent memory leaks from partially implemented API
     RS_ASSERT(!vecIndex || disk->vector.freeVectorIndex);
     disk->vector.freeVectorIndex(vecIndex);
+}
+
+// Throttle callback wrappers for VecSim
+static int VecSim_EnableThrottle(void) {
+  RS_ASSERT(RedisModule_EnablePostponeClients);
+  return RedisModule_EnablePostponeClients();  // Always returns OK
+}
+
+static int VecSim_DisableThrottle(void) {
+  RS_ASSERT(RedisModule_DisablePostponeClients);
+  int ret = RedisModule_DisablePostponeClients();
+  if (ret == REDISMODULE_ERR) {
+      // This indicates a bug: disable called without matching enable
+      RedisModule_Log(RSDummyContext, "warning",
+          "VecSim_DisableThrottle: no matching enable call");
+  }
+
+  return ret;
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {

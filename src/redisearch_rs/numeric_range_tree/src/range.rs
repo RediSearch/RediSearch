@@ -15,7 +15,7 @@
 
 use ffi::t_docId;
 use hyperloglog::{HyperLogLog6, WyHasher};
-use inverted_index::RSIndexResult;
+use inverted_index::{IndexReader as _, RSIndexResult};
 
 use crate::index::{NumericIndex, NumericIndexReader};
 
@@ -23,7 +23,7 @@ use crate::index::{NumericIndex, NumericIndexReader};
 ///
 /// See the [crate-level documentation](crate#cardinality-estimation) for details
 /// on precision, error rate, and memory usage.
-pub type Hll = HyperLogLog6<WyHasher>;
+pub type Hll = HyperLogLog6<[u8; 8], WyHasher>;
 
 /// A numeric range is a leaf-level storage unit in the numeric range tree.
 ///
@@ -65,7 +65,7 @@ pub struct NumericRange {
 /// representation) rather than the numeric value — see
 /// [`NumericRange::update_cardinality`] for rationale.
 fn update_cardinality(hll: &mut Hll, value: f64) {
-    hll.add(value.to_ne_bytes());
+    hll.add(&value.to_ne_bytes());
 }
 
 impl NumericRange {
@@ -134,6 +134,16 @@ impl NumericRange {
         self.hll.count()
     }
 
+    /// Returns true if this range is completely contained within [min, max].
+    pub const fn contained_in(&self, min: f64, max: f64) -> bool {
+        self.min_val >= min && self.max_val <= max
+    }
+
+    /// Returns true if this range overlaps with [min, max].
+    pub const fn overlaps(&self, min: f64, max: f64) -> bool {
+        !(min > self.max_val || max < self.min_val)
+    }
+
     /// Get the minimum value in this range.
     pub const fn min_val(&self) -> f64 {
         self.min_val
@@ -179,6 +189,60 @@ impl NumericRange {
     /// Get a reference to the HyperLogLog.
     pub const fn hll(&self) -> &Hll {
         &self.hll
+    }
+
+    /// Reset the HLL cardinality after garbage collection.
+    ///
+    /// This sets the HLL registers from GC scan results and re-adds entries
+    /// from blocks that were added since the fork.
+    ///
+    /// # Arguments
+    ///
+    /// * `ignored_last_block` - Whether the last block was ignored during GC scan (from `GcApplyInfo`)
+    /// * `blocks_since_fork` - Number of new blocks added since the fork
+    /// * `registers_with_last_block` - HLL registers including the last block's cardinality
+    /// * `registers_without_last_block` - HLL registers excluding the last block's cardinality
+    pub(crate) fn reset_cardinality_after_gc(
+        &mut self,
+        ignored_last_block: bool,
+        blocks_since_fork: usize,
+        registers_with_last_block: &[u8; Hll::size()],
+        registers_without_last_block: &[u8; Hll::size()],
+    ) {
+        let mut blocks_to_rescan = blocks_since_fork;
+
+        if ignored_last_block {
+            self.hll.set_registers(*registers_without_last_block);
+            blocks_to_rescan += 1; // The last block was ignored, so re-add it too
+        } else {
+            self.hll.set_registers(*registers_with_last_block);
+            if blocks_to_rescan == 0 {
+                return; // No new blocks since fork, we're done
+            }
+        }
+
+        // Get the starting point for HLL update - iterate entries added since fork
+        let num_blocks = self.entries.num_blocks();
+        debug_assert!(
+            blocks_to_rescan <= num_blocks,
+            "The number of blocks should never decrease in between two GC runs, \
+            therefore the number of blocks to rescan can never be greater than the current number of blocks"
+        );
+        let start_idx = num_blocks - blocks_to_rescan;
+        let Some(start_id) = self.entries.block_first_id(start_idx) else {
+            return;
+        };
+
+        // Iterate entries added since fork and update the cardinality estimation
+        // via HLL.
+        let mut reader = self.entries.reader();
+        reader.skip_to(start_id);
+        let mut result = RSIndexResult::numeric(0.0);
+        while reader.next_record(&mut result).unwrap_or(false) {
+            // SAFETY: We know the result contains numeric data
+            let value = unsafe { result.as_numeric_unchecked() };
+            update_cardinality(&mut self.hll, value);
+        }
     }
 }
 

@@ -18,7 +18,7 @@ def testAddErrors(env):
         con.execute_command('ft.add', 'idx', 'doc1', '42')
     with env.assertResponseError(contained="No field list found"):
         con.execute_command('ft.add', 'idx', 'doc1', '1.0')
-    with env.assertResponseError(contained="Unknown index name"):
+    with env.assertResponseError(contained="SEARCH_INDEX_NOT_FOUND Index not found: fake_idx"):
         con.execute_command('ft.add', 'fake_idx', 'doc1', '1.0', 'fields', 'foo', 'bar')
 
 def testConditionalUpdate(env):
@@ -200,8 +200,8 @@ def testGet(env):
     env.expect('ft.mget', 'idx').error().contains("wrong number of arguments")
     env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments")
 
-    env.expect('ft.get fake_idx foo').error().contains("Unknown Index name")
-    env.expect('ft.mget fake_idx foo').error().contains("no such index")
+    env.expect('ft.get fake_idx foo').error().contains("SEARCH_INDEX_NOT_FOUND")
+    env.expect('ft.mget fake_idx foo').error().contains("SEARCH_INDEX_NOT_FOUND")
 
     for i in range(100):
         env.expect('ft.add', 'idx', f"doc{i}", 1.0, 'fields',
@@ -213,7 +213,7 @@ def testGet(env):
         env.assertEqual(set(['foo', 'hello world', 'bar', 'wat wat']), set(res))
         env.assertIsNone(env.cmd(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
-    env.expect('ft.get', 'no_idx', 'doc0').error().contains("Unknown Index name")
+    env.expect('ft.get', 'no_idx', 'doc0').error().contains("SEARCH_INDEX_NOT_FOUND")
 
     rr = env.cmd(
         'ft.mget', 'idx', *(f"doc{i}" for i in range(100)))
@@ -362,8 +362,8 @@ def testDropIndex(env):
     env.expect('FT.DROPINDEX').error().contains("wrong number of arguments")
     env.expect('FT.DROPINDEX', 'idx', 'dd', '666').error().contains("wrong number of arguments")
     # validate optional argument
-    env.expect('FT.DROPINDEX', 'idx', 'DE').error().contains("Unknown argument")
-    env.expect('FT.DROP', 'idx', 'Invalid').error().contains("Unknown argument")
+    env.expect('FT.DROPINDEX', 'idx', 'DE').error().contains("SEARCH_ARG_UNRECOGNIZED Unknown argument")
+    env.expect('FT.DROP', 'idx', 'Invalid').error().contains("SEARCH_ARG_UNRECOGNIZED Unknown argument")
 
     docs_count = 100
     for i in range(docs_count):
@@ -2605,7 +2605,7 @@ def testAlias(env):
 
     # check that aliasing one alias to another returns an error. This will
     # end up being confusing
-    env.expect('ft.aliasAdd', 'alias3', 'myIndex').error()
+    env.expect('ft.aliasAdd', 'alias3', 'myIndex').error().contains('SEARCH_INDEX_NOT_FOUND Unknown index name (or name is an alias itself)')
 
     # check that deleting the alias works as expected
     env.expect('ft.aliasDel', 'myIndex').noError()
@@ -2998,7 +2998,7 @@ def testLimitBadArgument(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo1').equal('OK')
     env.expect('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', 'foo2').equal('OK')
     env.expect('ft.search', 'idx', '*', 'LIMIT', '1').error()
-    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '1', '0').error().equal('The `offset` of the LIMIT must be 0 when `num` is 0')
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '1', '0').error().equal('SEARCH_LIMIT_OVER The `offset` of the LIMIT must be 0 when `num` is 0')
 
 @skip(cluster=True)
 def testOnTimeoutBadArgument(env):
@@ -3362,7 +3362,7 @@ def testErrorOnOpperation(env):
     ).error()
 
     if not env.isCluster():
-        env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a').error().contains('not loaded nor in pipeline')
+        env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'APPLY', '!@test', 'as', 'a').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
 
 def testSortkeyUnsortable(env):
@@ -3630,11 +3630,11 @@ def testFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
@@ -3703,11 +3703,11 @@ def testSortedFieldsCaseSensetive(env):
 
     # make sure aggregation apply are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('not loaded nor in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@n==1.0').equal([1, ['n', '1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('not loaded nor in pipeline')
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
@@ -4069,7 +4069,7 @@ def test_RED_86036(env):
         env.cmd('hset', f"doc{i}", 't', 'foo')
     res = env.cmd('FT.PROFILE', 'idx', 'search', 'query', '*', 'INKEYS', '2', 'doc0', 'doc999')
     res = res[1][1][0][11] # get the list iterator profile
-    env.assertEqual(res[1], 'ID-LIST')
+    env.assertEqual(res[1], 'ID-LIST-SORTED')
     env.assertLess(res[5], 3)
 
 def test_MOD_4290(env):
@@ -4091,7 +4091,7 @@ def test_missing_schema(env):
     # make sure the index successfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
-    env.expect('FT.SEARCH', 'idx2', '*').error().equal('No such index idx2')
+    env.expect('FT.SEARCH', 'idx2', '*').error().contains('SEARCH_INDEX_NOT_FOUND Index not found: idx2')
 
 
 @skip(cluster=False) # this test is only relevant on cluster

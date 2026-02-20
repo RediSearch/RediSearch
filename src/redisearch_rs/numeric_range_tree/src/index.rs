@@ -15,6 +15,7 @@
 use ffi::IndexFlags_Index_StoreNumeric;
 use inverted_index::{
     EntriesTrackingIndex, IndexReader, IndexReaderCore, RSIndexResult,
+    debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
 
@@ -103,6 +104,54 @@ impl NumericIndex {
             NumericIndex::Compressed(idx) => idx.memory_usage(),
         }
     }
+
+    /// Get the summary of this index.
+    pub fn summary(&self) -> Summary {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.summary(),
+            NumericIndex::Compressed(idx) => idx.summary(),
+        }
+    }
+
+    /// Get the first document ID in a specific block.
+    ///
+    /// Returns `None` if the block index is out of bounds.
+    pub(crate) fn block_first_id(&self, block_idx: usize) -> Option<ffi::t_docId> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
+            NumericIndex::Compressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
+        }
+    }
+
+    /// Apply garbage collection deltas to this index.
+    ///
+    /// Consumes the `delta` and returns information about what changed.
+    pub fn apply_gc(&mut self, delta: inverted_index::GcScanDelta) -> inverted_index::GcApplyInfo {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.apply_gc(delta),
+            NumericIndex::Compressed(idx) => idx.apply_gc(delta),
+        }
+    }
+
+    /// Scan the index for blocks that can be garbage collected.
+    ///
+    /// The `doc_exist` callback returns `true` if the document still exists.
+    /// Returns `Ok(Some(delta))` if GC is needed, `Ok(None)` otherwise.
+    pub fn scan_gc(
+        &self,
+        doc_exist: impl Fn(ffi::t_docId) -> bool,
+    ) -> std::io::Result<Option<inverted_index::GcScanDelta>> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.scan_gc(
+                doc_exist,
+                None::<fn(&inverted_index::RSIndexResult<'_>, &inverted_index::IndexBlock)>,
+            ),
+            NumericIndex::Compressed(idx) => idx.scan_gc(
+                doc_exist,
+                None::<fn(&inverted_index::RSIndexResult<'_>, &inverted_index::IndexBlock)>,
+            ),
+        }
+    }
 }
 
 /// Iterate over the entries stored in a numeric index.
@@ -180,6 +229,27 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
         match self {
             Self::Uncompressed(r) => r.refresh_buffer_pointers(),
             Self::Compressed(r) => r.refresh_buffer_pointers(),
+        }
+    }
+
+    fn current_block_max_score(
+        &self,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> f64 {
+        match self {
+            Self::Uncompressed(r) => r.current_block_max_score(scorer),
+            Self::Compressed(r) => r.current_block_max_score(scorer),
+        }
+    }
+
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> bool {
+        match self {
+            Self::Uncompressed(r) => r.advance_to_next_promising_block(min_score, scorer),
+            Self::Compressed(r) => r.advance_to_next_promising_block(min_score, scorer),
         }
     }
 }

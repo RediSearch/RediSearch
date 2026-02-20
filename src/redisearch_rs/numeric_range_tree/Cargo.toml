@@ -24,11 +24,13 @@ build_utils = { path = "../build_utils" }
 ffi.workspace = true
 hyperloglog.workspace = true
 inverted_index.workspace = true
-slab.workspace = true
+redis_reply.workspace = true
+generational_slab.workspace = true
 tracing.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+insta = { workspace = true, features = ["filters"] }
 numeric_range_tree = { path = ".", features = ["unittest"] }
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }

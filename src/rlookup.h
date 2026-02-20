@@ -101,6 +101,9 @@ typedef struct RLookup {
   IndexSpecCache *_spcache;
 } RLookup;
 
+/** Returns a new RLookup struct. Will forward the call to Rust once RLookup is migrated. */
+static inline RLookup RLookup_New(void) { return (RLookup){0}; }
+
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
     const RLookupKey* key; \
@@ -192,6 +195,9 @@ typedef struct {
    */
   size_t ndyn;
 } RLookupRow;
+
+/** Returns a new RLookupRow struct. Will forward the call to Rust once RLookupRow is migrated. */
+static inline RLookupRow RLookupRow_New(void) { return (RLookupRow){0}; }
 
 static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
 static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}

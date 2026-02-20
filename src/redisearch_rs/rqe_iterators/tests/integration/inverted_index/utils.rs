@@ -118,6 +118,11 @@ impl MockContext {
     pub(crate) fn numeric_range_tree(&self) -> ptr::NonNull<NumericRangeTree> {
         ptr::NonNull::new(self.numeric_range_tree).expect("NumericRangeTree should not be null")
     }
+
+    /// Get the search context from the TestContext.
+    pub(crate) fn sctx(&self) -> ptr::NonNull<ffi::RedisSearchCtx> {
+        ptr::NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
+    }
 }
 
 /// Test basic read and skip_to functionality for a given iterator.
@@ -411,7 +416,8 @@ pub(super) mod not_miri {
         pub(crate) fn numeric_inverted_index(
             &self,
         ) -> &mut inverted_index::InvertedIndex<inverted_index::numeric::Numeric> {
-            self.context.numeric_inverted_index().as_numeric()
+            use inverted_index::{numeric::Numeric, opaque::OpaqueEncoding};
+            Numeric::from_mut_opaque(self.context.numeric_inverted_index()).inner_mut()
         }
 
         /// Get the term inverted index from the TestContext (non-wide).
@@ -559,6 +565,7 @@ pub(super) mod not_miri {
     pub enum RevalidateIndexType {
         Numeric,
         Term,
+        Wildcard,
     }
 
     /// Test the revalidation of the iterator.
@@ -591,6 +598,7 @@ pub(super) mod not_miri {
                         | IndexFlags_Index_StoreByteOffsets;
                     TestContext::term(flags, doc_ids.iter().map(|id| expected_record(*id)), false)
                 }
+                RevalidateIndexType::Wildcard => TestContext::wildcard(doc_ids.iter().copied()),
             };
 
             Self {

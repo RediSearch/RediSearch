@@ -99,6 +99,33 @@ impl<'index> IndexReader<'index> for NumericIndexReader<'index> {
             NumericIndexReader::Compressed(reader) => reader.refresh_buffer_pointers(),
         }
     }
+
+    #[inline(always)]
+    fn current_block_max_score(
+        &self,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> f64 {
+        match self {
+            NumericIndexReader::Uncompressed(reader) => reader.current_block_max_score(scorer),
+            NumericIndexReader::Compressed(reader) => reader.current_block_max_score(scorer),
+        }
+    }
+
+    #[inline(always)]
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> bool {
+        match self {
+            NumericIndexReader::Uncompressed(reader) => {
+                reader.advance_to_next_promising_block(min_score, scorer)
+            }
+            NumericIndexReader::Compressed(reader) => {
+                reader.advance_to_next_promising_block(min_score, scorer)
+            }
+        }
+    }
 }
 
 impl<'index> NumericReader<'index> for NumericIndexReader<'index> {}
@@ -128,7 +155,7 @@ enum IteratorVariant<'index> {
 
 /// Wrapper around the actual Numeric iterator.
 /// Needed as we need to keep the `filter` pointer around so it can be returned in
-/// [`NumericInvIndIterator_Rs_GetNumericFilter`].
+/// [`NumericInvIndIterator_GetNumericFilter`].
 struct NumericIterator<'index> {
     /// The user numeric filter, or None if no filter was provided.
     filter: Option<NonNull<NumericFilter>>,
@@ -281,7 +308,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
 /// 8. If `rt` is not NULL, it must be a valid pointer to a `NumericRangeTree` and must
 ///    remain valid for the lifetime of the returned iterator.
 /// 9. `range_min` is smaller or equal to `range_max`.
-pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
+pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
     field_ctx: *const FieldFilterContext,
@@ -395,14 +422,14 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery_Rs(
 /// # Safety
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
-/// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery_Rs`.
+/// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
 /// 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
 /// The flags of the `IndexReader`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvIndIterator_Rs_GetReaderFlags(
+pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
     it: *const ffi::InvIndIterator,
 ) -> ffi::IndexFlags {
     debug_assert!(!it.is_null());
@@ -432,13 +459,13 @@ pub unsafe extern "C" fn InvIndIterator_Rs_GetReaderFlags(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+/// 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery`.
 ///
 /// # Returns
 ///
 /// A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_Rs_GetNumericFilter(
+pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
     it: *const ffi::NumericInvIndIterator,
 ) -> *const ffi::NumericFilter {
     debug_assert!(!it.is_null());
@@ -461,13 +488,13 @@ pub unsafe extern "C" fn NumericInvIndIterator_Rs_GetNumericFilter(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
 ///
 /// # Returns
 ///
 /// The minimum range value from the filter, or negative infinity if no filter was provided.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_Rs_GetProfileRangeMin(
+pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
     it: *const ffi::NumericInvIndIterator,
 ) -> f64 {
     debug_assert!(!it.is_null());
@@ -482,13 +509,13 @@ pub unsafe extern "C" fn NumericInvIndIterator_Rs_GetProfileRangeMin(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
 ///
 /// # Returns
 ///
 /// The maximum range value from the filter, or positive infinity if no filter was provided.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_Rs_GetProfileRangeMax(
+pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
     it: *const ffi::NumericInvIndIterator,
 ) -> f64 {
     debug_assert!(!it.is_null());
@@ -520,13 +547,21 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
     // SAFETY: 1.
     let it_ref = unsafe { &*it };
 
-    // TODO: check for Rust iterators once we swap the implementation
-    // C iterator
-    let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-    // SAFETY: 2. guarantees reader is valid.
-    let reader_ref = unsafe { &mut *reader };
-    let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
-    // SAFETY: 3. guarantees ii is valid and matching.
-    let ii_ref = unsafe { &*ii };
-    reader_ref.swap_index(ii_ref);
+    match it_ref.base.type_ {
+        ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
+            unimplemented!(
+                "Numeric iterators use revision ID for revalidation, not index swapping"
+            );
+        }
+        _ => {
+            // C iterator
+            let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
+            // SAFETY: 2. guarantees reader is valid.
+            let reader_ref = unsafe { &mut *reader };
+            let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
+            // SAFETY: 3. guarantees ii is valid and matching.
+            let ii_ref = unsafe { &*ii };
+            reader_ref.swap_index(ii_ref);
+        }
+    }
 }

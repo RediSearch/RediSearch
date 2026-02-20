@@ -103,8 +103,14 @@ impl BlockScorer {
 
     /// TF-IDF: (TF / DocLen) × IDF × DocScore
     fn compute_tfidf(block: &IndexBlock, idf: f64) -> f64 {
+        // Empty block has no documents to contribute
+        if block.num_entries() == 0 {
+            return 0.0;
+        }
+
+        // Block with entries but no metadata (e.g., DocIdsOnly encoding) - can't skip
         if !block.has_scoring_metadata() {
-            return f64::MAX; // No skipping possible
+            return f64::MAX;
         }
 
         let tf = block.max_freq() as f64;
@@ -121,6 +127,12 @@ impl BlockScorer {
 
     /// BM25: IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × docLen/avgDocLen)) × DocScore
     fn compute_bm25(block: &IndexBlock, idf: f64, avg_doc_len: f64, k1: f64, b: f64) -> f64 {
+        // Empty block has no documents to contribute
+        if block.num_entries() == 0 {
+            return 0.0;
+        }
+
+        // Block with entries but no metadata - can't skip
         if !block.has_scoring_metadata() {
             return f64::MAX;
         }
@@ -146,7 +158,13 @@ impl BlockScorer {
     }
 
     /// DocScore: just returns max_doc_score
-    const fn compute_docscore(block: &IndexBlock) -> f64 {
+    fn compute_docscore(block: &IndexBlock) -> f64 {
+        // Empty block has no documents to contribute
+        if block.num_entries() == 0 {
+            return 0.0;
+        }
+
+        // Block with entries but no metadata - can't skip
         if !block.has_scoring_metadata() {
             return f64::MAX;
         }

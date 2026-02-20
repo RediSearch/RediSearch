@@ -157,7 +157,7 @@ def testWKTIngestError(env):
   conn.execute_command('JSON.SET', 'p7', '$', '{"geom": "POLYGON((1 1, 1 100, 1 1))", "name": "Milhouse"}')
   env.assertContains("Error indexing geoshape: invalid geometry: Geometry has too few points", get_last_error())
   # Spike
-  conn.execute_command('JSON.SET', 'p8', '$', '{"geom": "POLYGON((1 1, 1 200, 1 100, 100 1, 1 1))", "name": "Marge"}')
+  conn.execute_command('JSON.SET', 'p8', '$', '{"geom": "POLYGON((1 1, 1 200, 1 100, 100 1, 1 1))", "name": "Marge"}')  # codespell:ignore
   env.assertContains("Error indexing geoshape: invalid geometry: Geometry has spikes", get_last_error())
   # Self-intersection
   conn.execute_command('JSON.SET', 'p9', '$', '{"geom": "POLYGON((1 1, 1 100, 50 50, 50 -50, 1 150, 100 50, 1 1))", "name": "Lisa"}')
@@ -179,7 +179,7 @@ def testWKTIngestError(env):
   # Redundant coordinate
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((1 1, 1 100 100 100, 100 1, 1 1))", "name": "Seymour"}')
   # Missing comma separator
-  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')
+  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((1 1 1 100, 100 100, 100 1, 1 1))", "name": "Ned"}')  # codespell:ignore
   # Duplicate points - we remove duplicates with bg::correct
   conn.execute_command('JSON.SET', 'p13', '$', '{"geom": "POLYGON((1 1, 1 100, 100 100, 100 1, 100 1, 1 1))", "name": "Selma"}')
   # Hourglass
@@ -211,8 +211,8 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON(0 0, 0 150, 150 150, 150 0, 0 0))', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLIGON((0 0, a 150, 150 150, 150 0, 0 0))', 'NOCONTENT', 'DIALECT', 3).error()
   # Bad/missing param
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))]', 'NOCONTENT', 'DIALECT', 3).error().contains('SEARCH_PARAM_NOT_FOUND Parameter not found')
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('SEARCH_PARAM_NOT_FOUND Parameter not found')
 
 def testSimpleUpdate(env):
   ''' Test updating geometries '''

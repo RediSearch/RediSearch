@@ -10,57 +10,18 @@
 pub use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK, t_fieldIndex,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
 };
 use ffi::{IteratorStatus, RedisModule_Alloc, RedisModule_Free, ValidateStatus};
-use inverted_index::{NumericFilter, RSIndexResult, t_docId};
-use std::{
-    ffi::c_void,
-    ptr::{self, NonNull},
-};
+use inverted_index::{RSIndexResult, t_docId};
+use query_term::RSQueryTerm;
+use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
 pub struct QueryIterator(*mut ffi::QueryIterator);
 
 impl QueryIterator {
-    #[inline(always)]
-    pub unsafe fn new_numeric(
-        ii: *mut ffi::InvertedIndex,
-        sctx: Option<NonNull<ffi::RedisSearchCtx>>,
-        index: Option<t_fieldIndex>,
-        filter: Option<&NumericFilter>,
-    ) -> Self {
-        let sctx = sctx
-            .map(|sctx| sctx.as_ptr().cast())
-            .unwrap_or(ptr::null_mut());
-        let index = index.unwrap_or(ffi::RS_INVALID_FIELD_INDEX);
-        let field_ctx = ffi::FieldFilterContext {
-            field: ffi::FieldMaskOrIndex {
-                __bindgen_anon_1: ffi::FieldMaskOrIndex__bindgen_ty_1 {
-                    index_tag: 0, // FieldMaskOrIndex_Index = 0
-                    index,
-                },
-            },
-            predicate: ffi::FieldExpirationPredicate_FIELD_EXPIRATION_PREDICATE_DEFAULT,
-        };
-        let flt = filter
-            .map(|filter| filter as *const NumericFilter as *const _)
-            .unwrap_or_default();
-
-        Self(unsafe {
-            ffi::NewInvIndIterator_NumericQuery(
-                ii,
-                sctx,
-                &field_ctx,
-                flt,
-                ptr::null(),
-                0.0,
-                f64::MAX,
-            )
-        })
-    }
-
     #[inline(always)]
     pub fn new_optional_full_child_wildcard(max_id: u64, weight: f64) -> Self {
         let child = iterators_ffi::wildcard::NewWildcardIterator_NonOptimized(max_id, 1f64)
@@ -334,12 +295,12 @@ impl InvertedIndex {
         doc_id: u64,
         freq: u32,
         field_mask: u32,
-        term_ptr: *mut ::ffi::RSQueryTerm,
+        term: Option<Box<RSQueryTerm>>,
         offsets: &[u8],
     ) {
-        let record = RSIndexResult::term_with_term_ptr(
-            term_ptr,
-            inverted_index::RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+        let record = RSIndexResult::with_term(
+            term,
+            inverted_index::RSOffsetSlice::from_slice(offsets),
             doc_id,
             field_mask as u128,
             freq,
@@ -350,11 +311,6 @@ impl InvertedIndex {
                 &record as *const _ as *mut _,
             );
         }
-    }
-
-    #[inline(always)]
-    pub fn iterator_numeric(&self, filter: Option<&NumericFilter>) -> QueryIterator {
-        unsafe { QueryIterator::new_numeric(self.0, None, None, filter) }
     }
 
     #[inline(always)]
@@ -370,129 +326,15 @@ impl Drop for InvertedIndex {
     }
 }
 
-/// A builder for creating `QueryTerm` instances.
-///
-/// Use [`QueryTermBuilder::allocate`] to create a new instance
-/// on the heap.
-#[allow(unused)]
-pub(crate) struct QueryTermBuilder<'a> {
-    pub(crate) token: &'a str,
-    pub(crate) idf: f64,
-    pub(crate) id: i32,
-    pub(crate) flags: u32,
-    pub(crate) bm25_idf: f64,
-}
-
-impl<'a> QueryTermBuilder<'a> {
-    /// Creates a new instance of `RSQueryTerm` on the heap.
-    /// It returns a raw pointer to the allocated `RSQueryTerm`.
-    ///
-    /// The caller is responsible for freeing the allocated memory
-    /// using [`Term_Free`](ffi::Term_Free).
-    #[allow(unused)]
-    pub(crate) fn allocate(self) -> *mut ffi::RSQueryTerm {
-        let Self {
-            token,
-            idf,
-            id,
-            flags,
-            bm25_idf,
-        } = self;
-        let token = ffi::RSToken {
-            str_: token.as_ptr() as *mut _,
-            len: token.len(),
-            _bitfield_align_1: Default::default(),
-            _bitfield_1: Default::default(),
-            __bindgen_padding_0: Default::default(),
-        };
-        let token_ptr = Box::into_raw(Box::new(token));
-        let query_term = unsafe { ffi::NewQueryTerm(token_ptr as *mut _, id) };
-
-        // Now that NewQueryTerm copied tok->str into ret->str,
-        // the temporary token struct is no longer needed.
-        unsafe {
-            drop(Box::from_raw(token_ptr));
-        }
-
-        // Patch the fields we can't set via the constructor
-        unsafe { (*query_term).idf = idf };
-        unsafe { (*query_term).bm25_idf = bm25_idf };
-        unsafe { (*query_term).flags = flags };
-
-        query_term
-    }
-}
-
 #[cfg(test)]
 // `miri` can't handle FFI.
 #[cfg(not(miri))]
 mod tests {
     use super::*;
     use ffi::{
-        IndexFlags_Index_StoreNumeric, IteratorStatus_ITERATOR_EOF,
-        IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK, ValidateStatus_VALIDATE_OK,
+        IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
+        ValidateStatus_VALIDATE_OK,
     };
-
-    #[test]
-    fn numeric_iterator_full() {
-        let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
-        ii.write_numeric_entry(1, 1.0);
-        ii.write_numeric_entry(10, 10.0);
-        ii.write_numeric_entry(100, 100.0);
-
-        let it = unsafe { QueryIterator::new_numeric(ii.0, None, None, None) };
-        assert_eq!(it.num_estimated(), 3);
-
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-        assert!(it.at_eof());
-
-        it.rewind();
-        assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
-
-        it.rewind();
-        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
-
-        it.free();
-    }
-
-    #[test]
-    fn numeric_iterator_filter() {
-        let ii = InvertedIndex::new(IndexFlags_Index_StoreNumeric);
-        for i in 1..=10 {
-            ii.write_numeric_entry(i, i as f64);
-        }
-
-        let filter = NumericFilter {
-            min: 2.0,
-            max: 5.0,
-            min_inclusive: true,
-            max_inclusive: false,
-            ..Default::default()
-        };
-
-        let it = unsafe { QueryIterator::new_numeric(ii.0, None, None, Some(&filter)) };
-
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.current().unwrap().doc_id, 2);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.current().unwrap().doc_id, 3);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.current().unwrap().doc_id, 4);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-
-        it.rewind();
-        assert_eq!(it.skip_to(2), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.skip_to(5), IteratorStatus_ITERATOR_EOF);
-
-        it.rewind();
-        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
-
-        it.free();
-    }
 
     #[test]
     fn term_full_iterator() {
@@ -504,16 +346,11 @@ mod tests {
         );
 
         let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        const TEST_STR: &str = "term";
         let term = || {
-            QueryTermBuilder {
-                token: TEST_STR,
-                idf: 5.0,
-                id: 1,
-                flags: 0,
-                bm25_idf: 10.0,
-            }
-            .allocate()
+            let mut t = RSQueryTerm::new(b"term", 1, 0);
+            t.idf = 5.0;
+            t.bm25_idf = 10.0;
+            Some(t)
         };
 
         ii.write_term_entry(1, 1, 1, term(), &offsets);

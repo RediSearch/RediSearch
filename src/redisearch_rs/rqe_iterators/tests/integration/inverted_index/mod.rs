@@ -12,3 +12,4 @@ mod numeric;
 #[cfg(not(miri))]
 mod term;
 mod utils;
+mod wildcard;

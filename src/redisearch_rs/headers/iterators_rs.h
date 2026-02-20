@@ -39,7 +39,7 @@ QueryIterator *NewEmptyIterator(void);
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
-QueryIterator *NewSortedIdListIterator(const t_docId *ids, uint64_t num, double weight);
+QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
  * Creates a new iterator over a list of unsorted document IDs.
@@ -51,7 +51,7 @@ QueryIterator *NewSortedIdListIterator(const t_docId *ids, uint64_t num, double 
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
  */
-QueryIterator *NewUnsortedIdListIterator(const t_docId *ids, uint64_t num, double weight);
+QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
  * Creates a new numeric inverted index iterator for querying numeric fields.
@@ -87,13 +87,13 @@ QueryIterator *NewUnsortedIdListIterator(const t_docId *ids, uint64_t num, doubl
  *    remain valid for the lifetime of the returned iterator.
  * 9. `range_min` is smaller or equal to `range_max`.
  */
-QueryIterator *NewInvIndIterator_NumericQuery_Rs(const InvertedIndex *idx,
-                                                 const RedisSearchCtx *sctx,
-                                                 const FieldFilterContext *field_ctx,
-                                                 const NumericFilter *flt,
-                                                 const NumericRangeTree *rt,
-                                                 double range_min,
-                                                 double range_max);
+QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx,
+                                              const RedisSearchCtx *sctx,
+                                              const FieldFilterContext *field_ctx,
+                                              const NumericFilter *flt,
+                                              const NumericRangeTree *rt,
+                                              double range_min,
+                                              double range_max);
 
 /**
  * Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
@@ -101,53 +101,53 @@ QueryIterator *NewInvIndIterator_NumericQuery_Rs(const InvertedIndex *idx,
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
- * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery_Rs`.
+ * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
  * 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
  *
  * # Returns
  *
  * The flags of the `IndexReader`.
  */
-IndexFlags InvIndIterator_Rs_GetReaderFlags(const InvIndIterator *it);
+IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
 
 /**
  * Gets the numeric filter from a numeric inverted index iterator.
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+ * 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery`.
  *
  * # Returns
  *
  * A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
  */
-const NumericFilter *NumericInvIndIterator_Rs_GetNumericFilter(const NumericInvIndIterator *it);
+const NumericFilter *NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it);
 
 /**
  * Gets the minimum range value for profiling a numeric iterator.
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+ * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
  *
  * # Returns
  *
  * The minimum range value from the filter, or negative infinity if no filter was provided.
  */
-double NumericInvIndIterator_Rs_GetProfileRangeMin(const NumericInvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it);
 
 /**
  * Gets the maximum range value for profiling a numeric iterator.
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery_Rs`.
+ * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
  *
  * # Returns
  *
  * The maximum range value from the filter, or positive infinity if no filter was provided.
  */
-double NumericInvIndIterator_Rs_GetProfileRangeMax(const NumericInvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it);
 
 /**
  * Swap the inverted index of an inverted index iterator. This is only used by C tests
@@ -175,8 +175,8 @@ void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
  */
-QueryIterator *NewMetricIteratorSortedById(const t_docId *ids,
-                                           const double *metric_list,
+QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
+                                           double *metric_list,
                                            uintptr_t num,
                                            enum MetricType type_);
 
@@ -191,8 +191,8 @@ QueryIterator *NewMetricIteratorSortedById(const t_docId *ids,
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
  */
-QueryIterator *NewMetricIteratorSortedByScore(const t_docId *ids,
-                                              const double *metric_list,
+QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids,
+                                              double *metric_list,
                                               uintptr_t num,
                                               enum MetricType type_);
 

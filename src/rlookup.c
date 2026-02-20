@@ -484,7 +484,9 @@ void RLookupRow_Reset(RLookupRow *r) {
   RLookupRow_Wipe(r);
   if (r->dyn) {
     array_free(r->dyn);
+    r->dyn = NULL;
   }
+  RS_LOG_ASSERT(r->ndyn == 0, "ndyn should be 0 after reset");
 }
 
 void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
@@ -511,7 +513,7 @@ void RLookup_Cleanup(RLookup *lk) {
   IndexSpecCache_Decref(lk->_spcache);
 
   lk->_head = lk->_tail = NULL;
-  memset(lk, 0xff, sizeof(*lk));
+  memset(lk, 0, sizeof(*lk));
 }
 
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
@@ -583,10 +585,10 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       RedisJSONPtr value_ptr = japi->allocJson();
 
-      RSValueMap map = RSValueMap_AllocUninit(len);
+      RSValueMapBuilder *map = RSValue_NewMapBuilder(len);
       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
         value = *value_ptr;
-        RSValueMap_SetEntry(&map, i, RSValue_NewRedisString(keyName),
+        RSValue_MapBuilderSetEntry(map, i, RSValue_NewRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeJson(value_ptr);
@@ -594,15 +596,15 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       japi->freeKeyValuesIter(iter);
       RS_ASSERT(i == len);
 
-      ret = RSValue_NewMap(map);
+      ret = RSValue_NewMapFromBuilder(map);
     } else {
-      ret = RSValue_NewMap(RSValueMap_AllocUninit(0));
+      ret = RSValue_NewMapFromBuilder(RSValue_NewMapBuilder(0));
     }
   } else if (type == JSONType_Array) {
     // Array
     japi->getLen(json, &len);
     if (len) {
-      RSValue **arr = RSValue_AllocateArray(len);
+      RSValue **arr = RSValue_NewArrayBuilder(len);
       RedisJSONPtr value_ptr = japi->allocJson();
       for (size_t i = 0; i < len; ++i) {
         japi->getAt(json, i, value_ptr);
@@ -610,10 +612,11 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
         arr[i] = jsonValToValueExpanded(ctx, value);
       }
       japi->freeJson(value_ptr);
-      ret = RSValue_NewArray(arr, len);
+      ret = RSValue_NewArrayFromBuilder(arr, len);
     } else {
       // Empty array
-      ret = RSValue_NewArray(NULL, 0);
+      RSValue **arr = RSValue_NewArrayBuilder(0);
+      ret = RSValue_NewArrayFromBuilder(arr, 0);
     }
   } else {
     // Scalar
@@ -632,14 +635,15 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
   if (len) {
     japi->resetIter(iter);
     RedisJSON json;
-    RSValue **arr = RSValue_AllocateArray(len);
+    RSValue **arr = RSValue_NewArrayBuilder(len);
     for (size_t i = 0; (json = japi->next(iter)); ++i) {
       arr[i] = jsonValToValueExpanded(ctx, json);
     }
-    ret = RSValue_NewArray(arr, len);
+    ret = RSValue_NewArrayFromBuilder(arr, len);
   } else {
     // Empty array
-    ret = RSValue_NewArray(NULL, 0);
+    RSValue **arr = RSValue_NewArrayBuilder(0);
+    ret = RSValue_NewArrayFromBuilder(arr, 0);
   }
   return ret;
 }

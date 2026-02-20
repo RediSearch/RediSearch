@@ -19,14 +19,14 @@
 //! # Example
 //!
 //! ```
-//! use hyperloglog::{HyperLogLog10, CFnvHasher};
+//! use hyperloglog::HyperLogLog10;
 //!
 //! // Create an instance with 10-bit precision (1024 registers, ~3.2% error)
-//! let mut hll: HyperLogLog10<CFnvHasher> = HyperLogLog10::new();
-//! hll.add(b"hello");
-//! hll.add(b"world");
+//! let mut hll = HyperLogLog10::<u32>::new();
+//! hll.add(&1);
+//! hll.add(&2);
 //! let count = hll.count();
-//! hll.add(b"hello"); // duplicate, won't increase count
+//! hll.add(&1); // duplicate, won't increase count
 //! assert_eq!(count, hll.count());
 //!
 //! // Estimated cardinality should be close to 2
@@ -67,6 +67,9 @@ pub struct InvalidBufferLength<const EXPECTED: usize> {
 ///
 /// # Type Parameters
 ///
+/// - `T`: The type of items added to the estimator. Only used at the type level
+///   to enforce that all items added to a single HLL instance share the same type,
+///   similar to `HashSet<T>`.
 /// - `BITS`: The number of bits used for register indexing (4..=10).
 ///   Higher values give more accuracy but use more memory.
 /// - `SIZE`: The number of registers, must equal `1 << BITS`.
@@ -98,14 +101,21 @@ pub struct InvalidBufferLength<const EXPECTED: usize> {
 /// The expected relative error is approximately `1.04 / sqrt(2^BITS)`:
 /// - `BITS=6`: ~13% error
 /// - `BITS=10`: ~3.3% error
-pub struct HyperLogLog<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default = CFnvHasher>
-{
+pub struct HyperLogLog<
+    T,
+    const BITS: u8,
+    const SIZE: usize,
+    H: hash32::Hasher + Default = CFnvHasher,
+> {
     cached_card: Cell<Option<usize>>,
     registers: [u8; SIZE],
     _hasher: PhantomData<H>,
+    _item: PhantomData<T>,
 }
 
-impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog<BITS, SIZE, H> {
+impl<T, const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default>
+    HyperLogLog<T, BITS, SIZE, H>
+{
     /// Compile-time assertion that BITS is in the valid range.
     /// We use 10 as the upper bound since it'd be counter-productive to have a struct on the stack
     /// that's bigger than 1KB.
@@ -129,6 +139,7 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
             cached_card: Cell::new(Some(0)),
             registers: [0u8; SIZE],
             _hasher: PhantomData,
+            _item: PhantomData,
         }
     }
 
@@ -147,15 +158,16 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
             cached_card: Cell::new(None),
             registers,
             _hasher: PhantomData,
+            _item: PhantomData,
         }
     }
 
     /// Adds an element by hashing it.
     ///
     /// The element is hashed using the configured hasher type `H`.
-    pub fn add<E>(&mut self, data: E)
+    pub fn add(&mut self, data: &T)
     where
-        E: std::hash::Hash,
+        T: std::hash::Hash,
     {
         let mut hasher = H::default();
         data.hash(&mut hasher);
@@ -313,8 +325,8 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> HyperLogLog
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> TryFrom<&[u8]>
-    for HyperLogLog<BITS, SIZE, H>
+impl<T, const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> TryFrom<&[u8]>
+    for HyperLogLog<T, BITS, SIZE, H>
 {
     type Error = InvalidBufferLength<SIZE>;
 
@@ -325,30 +337,31 @@ impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> TryFrom<&[u
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Default
-    for HyperLogLog<BITS, SIZE, H>
+impl<T, const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Default
+    for HyperLogLog<T, BITS, SIZE, H>
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-// Manual `Clone` implementation to avoid an unnecessary `Clone` bound on the
-// generic hasher type parameter, `H`.
-impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Clone
-    for HyperLogLog<BITS, SIZE, H>
+// Manual `Clone` implementation to avoid unnecessary `Clone` bounds on the
+// generic type parameters `T` and `H`.
+impl<T, const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> Clone
+    for HyperLogLog<T, BITS, SIZE, H>
 {
     fn clone(&self) -> Self {
         Self {
             cached_card: self.cached_card.clone(),
             registers: self.registers,
             _hasher: PhantomData,
+            _item: PhantomData,
         }
     }
 }
 
-impl<const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> std::fmt::Debug
-    for HyperLogLog<BITS, SIZE, H>
+impl<T, const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default> std::fmt::Debug
+    for HyperLogLog<T, BITS, SIZE, H>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HyperLogLog")
@@ -380,25 +393,25 @@ const fn alpha(bits: u8, size: usize) -> f64 {
 // Type aliases for common configurations
 
 /// HyperLogLog with 4-bit precision (16 registers, ~26% error).
-pub type HyperLogLog4<H = CFnvHasher> = HyperLogLog<4, 16, H>;
+pub type HyperLogLog4<T, H = CFnvHasher> = HyperLogLog<T, 4, 16, H>;
 
 /// HyperLogLog with 5-bit precision (32 registers, ~18% error).
-pub type HyperLogLog5<H = CFnvHasher> = HyperLogLog<5, 32, H>;
+pub type HyperLogLog5<T, H = CFnvHasher> = HyperLogLog<T, 5, 32, H>;
 
 /// HyperLogLog with 6-bit precision (64 registers, ~13% error).
-pub type HyperLogLog6<H = CFnvHasher> = HyperLogLog<6, 64, H>;
+pub type HyperLogLog6<T, H = CFnvHasher> = HyperLogLog<T, 6, 64, H>;
 
 /// HyperLogLog with 7-bit precision (128 registers, ~9.2% error).
-pub type HyperLogLog7<H = CFnvHasher> = HyperLogLog<7, 128, H>;
+pub type HyperLogLog7<T, H = CFnvHasher> = HyperLogLog<T, 7, 128, H>;
 
 /// HyperLogLog with 8-bit precision (256 registers, ~6.5% error).
-pub type HyperLogLog8<H = CFnvHasher> = HyperLogLog<8, 256, H>;
+pub type HyperLogLog8<T, H = CFnvHasher> = HyperLogLog<T, 8, 256, H>;
 
 /// HyperLogLog with 9-bit precision (512 registers, ~4.6% error).
-pub type HyperLogLog9<H = CFnvHasher> = HyperLogLog<9, 512, H>;
+pub type HyperLogLog9<T, H = CFnvHasher> = HyperLogLog<T, 9, 512, H>;
 
 /// HyperLogLog with 10-bit precision (1024 registers, ~3.3% error).
-pub type HyperLogLog10<H = CFnvHasher> = HyperLogLog<10, 1024, H>;
+pub type HyperLogLog10<T, H = CFnvHasher> = HyperLogLog<T, 10, 1024, H>;
 
 #[cfg(test)]
 mod tests {

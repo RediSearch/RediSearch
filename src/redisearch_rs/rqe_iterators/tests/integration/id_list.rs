@@ -10,7 +10,7 @@
 use inverted_index::RSResultKind;
 use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome,
-    id_list::{SortedIdList, UnsortedIdList},
+    id_list::{IdListSorted, IdListUnsorted},
 };
 
 static CASES: &[&[u64]] = &[
@@ -29,7 +29,7 @@ static CASES: &[&[u64]] = &[
 
 #[test]
 fn empty_initialization_works() {
-    let mut i = SortedIdList::new(vec![]);
+    let mut i = IdListSorted::new(vec![]);
 
     let result = i.current().unwrap();
     assert_eq!(0, result.doc_id);
@@ -38,41 +38,38 @@ fn empty_initialization_works() {
     assert!(i.at_eof());
 }
 
-#[cfg(not(feature = "disable_sort_checks_in_idlist"))]
 #[test]
 #[should_panic(expected = "IDs must be sorted and unique")]
 fn unsorted_initialization_of_sorted_variant_panics() {
-    let _ = SortedIdList::new(vec![5, 3, 1, 4, 2]);
+    let _ = IdListSorted::new(vec![5, 3, 1, 4, 2]);
 }
 
 #[test]
 fn unsorted_initialization_of_unsorted_variant_works() {
-    let mut it = UnsortedIdList::new(vec![5, 3, 1, 4, 2]);
+    let mut it = IdListUnsorted::new(vec![5, 3, 1, 4, 2]);
 
     let result = it.current().unwrap();
     assert_eq!(0, result.doc_id);
     assert_eq!(RSResultKind::Virtual, result.kind());
 }
 
-#[cfg(not(feature = "disable_sort_checks_in_idlist"))]
 #[test]
 #[should_panic(expected = "Can't skip when working with unsorted document ids")]
 fn unsorted_variant_cannot_skip() {
-    let mut i = UnsortedIdList::new(vec![5, 3, 1, 4, 2]);
+    let mut i = IdListUnsorted::new(vec![5, 3, 1, 4, 2]);
     let _ = i.skip_to(3);
 }
 
-#[cfg(not(feature = "disable_sort_checks_in_idlist"))]
 #[test]
 #[should_panic(expected = "IDs must be sorted and unique")]
 fn duplicate_initialization() {
-    let _ = SortedIdList::new(vec![1, 2, 2, 3, 4]);
+    let _ = IdListSorted::new(vec![1, 2, 2, 3, 4]);
 }
 
 #[test]
 fn read() {
     for (i, case) in CASES.into_iter().copied().enumerate() {
-        let mut it = SortedIdList::new(case.to_vec());
+        let mut it = IdListSorted::new(case.to_vec());
 
         assert_eq!(
             it.num_estimated(),
@@ -109,7 +106,7 @@ fn read() {
 #[cfg(not(miri))] // Take too long with Miri, causing CI to timeout
 fn skip_to() {
     for (ci, &case) in CASES.iter().enumerate() {
-        let mut it = SortedIdList::new(case.to_vec());
+        let mut it = IdListSorted::new(case.to_vec());
 
         // Read first element
         let first_res = it.read();
@@ -203,7 +200,7 @@ fn skip_to() {
 #[test]
 fn skip_between_any_pair() {
     for (ci, &case) in CASES.iter().filter(|&&case| case.len() >= 2).enumerate() {
-        let mut it = SortedIdList::new(case.to_vec());
+        let mut it = IdListSorted::new(case.to_vec());
 
         for from_idx in 0..case.len() - 1 {
             for to_idx in from_idx + 1..case.len() {
@@ -266,7 +263,7 @@ fn skip_between_any_pair() {
 
 #[test]
 fn revalidate() {
-    let mut it = SortedIdList::new(vec![1, 2, 3]);
+    let mut it = IdListSorted::new(vec![1, 2, 3]);
     assert_eq!(
         it.revalidate().expect("revalidate failed"),
         RQEValidateStatus::Ok

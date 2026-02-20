@@ -143,6 +143,7 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
       INCR_BY(queries_errors->syntax, toAdd);
       break;
     case QUERY_ERROR_CODE_PARSE_ARGS:
+    case QUERY_ERROR_CODE_ARG_UNRECOGNIZED:
       INCR_BY(queries_errors->arguments, toAdd);
       break;
     case QUERY_ERROR_CODE_TIMED_OUT:

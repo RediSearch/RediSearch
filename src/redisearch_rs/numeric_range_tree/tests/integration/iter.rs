@@ -9,7 +9,7 @@
 
 //! Tests for NumericRangeTreeIterator.
 
-use numeric_range_tree::{NumericRangeTree, PreOrderDfsIterator};
+use numeric_range_tree::{NumericRangeTree, ReversePreOrderDfsIterator};
 use rstest::rstest;
 
 use super::helpers::{SPLIT_TRIGGER, build_tree};
@@ -17,7 +17,7 @@ use super::helpers::{SPLIT_TRIGGER, build_tree};
 #[test]
 fn test_iterator_single_node() {
     let tree = NumericRangeTree::new(false);
-    let mut iter = PreOrderDfsIterator::new(&tree);
+    let mut iter = ReversePreOrderDfsIterator::new(&tree);
 
     // Should yield exactly one node (the root leaf)
     assert!(iter.next().is_some());
@@ -27,7 +27,7 @@ fn test_iterator_single_node() {
 #[test]
 fn test_iterator_empty_after_exhaustion() {
     let tree = NumericRangeTree::new(false);
-    let mut iter = PreOrderDfsIterator::new(&tree);
+    let mut iter = ReversePreOrderDfsIterator::new(&tree);
 
     // Exhaust the iterator
     while iter.next().is_some() {}
@@ -40,7 +40,7 @@ fn test_iterator_empty_after_exhaustion() {
 #[test]
 fn test_iterator_visits_all_leaves() {
     let tree = NumericRangeTree::new(false);
-    let iter = PreOrderDfsIterator::new(&tree);
+    let iter = ReversePreOrderDfsIterator::new(&tree);
 
     let leaf_count = iter.filter(|node| node.is_leaf()).count();
     assert_eq!(leaf_count, tree.num_leaves());
@@ -49,7 +49,7 @@ fn test_iterator_visits_all_leaves() {
 #[test]
 fn test_from_node_single_leaf() {
     let tree = NumericRangeTree::new(false);
-    let mut iter = PreOrderDfsIterator::from_node(&tree, tree.root_index());
+    let mut iter = tree.iter();
 
     // Should yield exactly one node
     let first = iter.next();
@@ -62,12 +62,8 @@ fn test_from_node_single_leaf() {
 fn test_from_node_with_children() {
     // Build a tree that has split (internal root + children)
     let tree = build_tree(SPLIT_TRIGGER, false, 0);
-
-    let iter = PreOrderDfsIterator::from_node(&tree, tree.root_index());
-
     // Should visit at least 3 nodes (root + 2 children)
-    let count = iter.count();
-    assert!(count >= 3);
+    assert!(tree.iter().count() >= 3);
 }
 
 #[test]
@@ -75,8 +71,7 @@ fn test_iterator_traverses_multi_level_tree() {
     // Build a tree with enough entries to create multiple levels
     let tree = build_tree(100, false, 0);
 
-    let iter = PreOrderDfsIterator::from_node(&tree, tree.root_index());
-    let nodes: Vec<_> = iter.collect();
+    let nodes: Vec<_> = tree.iter().collect();
 
     // Should visit multiple nodes
     assert!(nodes.len() >= 5);
@@ -94,8 +89,7 @@ fn test_iterator_traverses_multi_level_tree() {
 fn test_iterator_counts_internal_and_leaf_nodes() {
     // Build tree with enough entries to have mixed internal and leaf nodes
     let tree = build_tree(SPLIT_TRIGGER, false, 0);
-
-    let iter = PreOrderDfsIterator::from_node(&tree, tree.root_index());
+    let iter = tree.iter();
 
     let mut internal_count = 0;
     let mut leaf_count = 0;

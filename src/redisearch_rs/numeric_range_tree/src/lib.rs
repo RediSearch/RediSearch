@@ -68,6 +68,7 @@
 //! to detect modifications and abort gracefully.
 
 mod arena;
+pub mod debug;
 mod index;
 mod iter;
 mod node;
@@ -77,8 +78,11 @@ mod unique_id;
 
 pub use arena::NodeIndex;
 pub use index::{NumericIndex, NumericIndexReader};
-pub use iter::PreOrderDfsIterator;
+pub use inverted_index::NumericFilter;
+pub use iter::ReversePreOrderDfsIterator;
 pub use node::{InternalNode, LeafNode, NumericRangeNode};
 pub use range::NumericRange;
-pub use tree::{AddResult, NumericRangeTree};
+pub use tree::{
+    AddResult, NodeGcDelta, NumericRangeTree, SingleNodeGcResult, TrimEmptyLeavesResult,
+};
 pub use unique_id::TreeUniqueId;

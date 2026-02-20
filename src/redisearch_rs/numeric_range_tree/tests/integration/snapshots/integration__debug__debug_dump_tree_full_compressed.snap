@@ -1,0 +1,82 @@
+---
+source: numeric_range_tree/tests/integration/debug.rs
+assertion_line: 237
+expression: reply
+---
+{
+  "numRanges": 1,
+  "numEntries": 10,
+  "lastDocId": 10,
+  "revisionId": 0,
+  "uniqueId": "[redacted]",
+  "emptyLeaves": 0,
+  "root": {
+    "range": [
+      "minVal",
+      1,
+      "maxVal",
+      10,
+      "invertedIndexSize [bytes]",
+      122,
+      "card",
+      10,
+      "entries",
+      [
+        "numDocs",
+        10,
+        "numEntries",
+        10,
+        "lastId",
+        10,
+        "size",
+        1,
+        "blocks_efficiency (numEntries/size)",
+        10,
+        "values",
+        [
+          "value",
+          1,
+          "docId",
+          1,
+          "value",
+          2,
+          "docId",
+          2,
+          "value",
+          3,
+          "docId",
+          3,
+          "value",
+          4,
+          "docId",
+          4,
+          "value",
+          5,
+          "docId",
+          5,
+          "value",
+          6,
+          "docId",
+          6,
+          "value",
+          7,
+          "docId",
+          7,
+          "value",
+          8,
+          "docId",
+          8,
+          "value",
+          9,
+          "docId",
+          9,
+          "value",
+          10,
+          "docId",
+          10
+        ]
+      ]
+    ]
+  },
+  "Tree stats": {"Average memory efficiency (numEntries/size)/numRanges": 10}
+}
