@@ -47,6 +47,7 @@ struct IndexesScanner;
 #define SPEC_TEXT_STR "TEXT"
 #define SPEC_VECTOR_STR "VECTOR"
 #define SPEC_NUMERIC_STR "NUMERIC"
+#define SPEC_SPARSE_VECTOR_STR "SPARSEVECTOR"
 
 #define SPEC_NOOFFSETS_STR "NOOFFSETS"
 #define SPEC_NOFIELDS_STR "NOFIELDS"
@@ -191,7 +192,9 @@ typedef enum {
 
   Index_HasGeometry = 0x40000,
 
-  Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+  Index_HasSparseVec = 0x80000,  // Index has at least one sparse vector field
+
+  Index_HasNonEmpty = 0x100000,  // Index has at least one field that does not indexes empty values
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
