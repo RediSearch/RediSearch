@@ -548,6 +548,11 @@ size_t RLookup_GetLength(const struct RLookup *lookup,
 uint32_t RLookup_GetRowLen(const struct RLookup *lookup);
 
 /**
+ * Returns a newly created [`RLookup`].
+ */
+struct RLookup RLookup_New(void);
+
+/**
  * Initialize the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
@@ -613,6 +618,17 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                IndexSpec *index_spec,
                                const char *key,
                                QueryError *status);
+
+/**
+ * Returns a newly created [`RLookupRow`].
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct RLookupRow RLookupRow_New(const struct RLookup *lookup);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.

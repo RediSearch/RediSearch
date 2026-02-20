@@ -469,6 +469,12 @@ pub unsafe extern "C" fn RLookup_GetRowLen(lookup: *const OpaqueRLookup) -> u32 
     lookup.get_row_len()
 }
 
+/// Returns a newly created [`RLookup`].
+#[unsafe(no_mangle)]
+pub extern "C" fn RLookup_New() -> OpaqueRLookup {
+    RLookup::new().into_opaque()
+}
+
 /// Initialize the lookup. If cache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
