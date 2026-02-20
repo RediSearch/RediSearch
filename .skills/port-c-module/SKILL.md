@@ -1,6 +1,6 @@
 ---
 name: port-c-module
-description: Guide for porting a C module to Rust
+description: Guide for porting a C module to Rust. Use this when starting to port a C module to Rust.
 disable-model-invocation: true
 ---
 

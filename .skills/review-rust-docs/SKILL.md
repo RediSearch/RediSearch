@@ -1,6 +1,6 @@
 ---
 name: review-rust-docs
-description: Review the documentation of a Rust crate to ensure it meets our requirements and standards.
+description: Review the documentation of a Rust crate to ensure it meets our requirements and standards. Use this when you have done changes to Rust code.
 ---
 
 # Review Rust Docs

@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Run full verification before committing or creating a PR
+description: Run full verification before committing or creating a PR. Use this when you want to create a PR.
 ---
 
 # Verify Skill

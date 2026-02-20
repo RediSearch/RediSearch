@@ -1,6 +1,6 @@
 ---
 name: check-rust-coverage
-description: Check which Rust lines are not covered by Rust tests.
+description: Check which Rust lines are not covered by Rust tests. Use this when you developed new Rust code and want to ensure it is tested.
 ---
 
 # Check Rust Coverage
@@ -14,7 +14,7 @@ Determine which Rust lines are not covered by Rust tests.
 If a path doesn't include `src/`, assume it to be in the `src/redisearch_rs` directory. E.g. `numeric_range_tree` becomes `src/redisearch_rs/numeric_range_tree`.
 If a path points to a directory, consider all Rust crates in that directory.
 
-## Instructions 
+## Instructions
 
 Run
 
