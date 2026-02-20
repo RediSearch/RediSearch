@@ -978,9 +978,28 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
-  // Debug log the memory ratio
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
-  RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f", used_memory_ratio);
+  // Check if we are a slave/replica
+  bool isSlave = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SLAVE;
+
+  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+  size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+  size_t memory_limit;
+
+  if (isSlave) {
+    // On slaves, only consider max_process_mem (enterprise limit)
+    // because maxmemory eviction doesn't happen on replicas
+    memory_limit = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL);
+  } else {
+    // On master, use MIN of maxmemory and max_process_mem (non-zero values)
+    size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+    size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL);
+    // MIN_NOT_0: if both are non-zero, take MIN; otherwise take the non-zero one
+    memory_limit = (maxmemory && max_process_mem) ? MIN(maxmemory, max_process_mem) : MAX(maxmemory, max_process_mem);
+  }
+  RedisModule_FreeServerInfo(ctx, info);
+
+  float used_memory_ratio = memory_limit ? (float)used_memory / (float)memory_limit : 0;
+  RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f (isSlave: %d)", used_memory_ratio, isSlave);
 
   return used_memory_ratio > 1;
 }
