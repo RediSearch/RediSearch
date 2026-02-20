@@ -587,6 +587,11 @@ pub enum QueryWarningCode {
     OutOfMemoryCoord,
     UnavailableSlots,
     AsmInaccurateResults,
+    // FT.HYBRID specific warning codes (with subquery source identification)
+    TimedOutSearch,
+    TimedOutVsim,
+    ReachedMaxPrefixExpansionsSearch,
+    ReachedMaxPrefixExpansionsVsim,
 }
 
 impl QueryWarningCode {
@@ -607,6 +612,15 @@ impl QueryWarningCode {
             Self::UnavailableSlots => c"Query requires unavailable slots",
             Self::AsmInaccurateResults => {
                 c"Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
+            }
+            // FT.HYBRID specific warnings with subquery source
+            Self::TimedOutSearch => c"Timeout limit was reached (SEARCH)",
+            Self::TimedOutVsim => c"Timeout limit was reached (VSIM)",
+            Self::ReachedMaxPrefixExpansionsSearch => {
+                c"Max prefix expansions limit was reached (SEARCH)"
+            }
+            Self::ReachedMaxPrefixExpansionsVsim => {
+                c"Max prefix expansions limit was reached (VSIM)"
             }
         }
     }

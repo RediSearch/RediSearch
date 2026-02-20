@@ -199,6 +199,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
   QueryError_ClearError(err);
+  HybridRequest_ClearErrors(hreq);
 }
 
 static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
@@ -244,7 +245,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     // If an error occurred, or a timeout in strict mode - return a simple error
     QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
-    HybridRequest_ClearErrors(hreq);
     if (ShouldReplyWithError(QueryError_GetCode(&err), hreq->reqConfig.timeoutPolicy, false)) {
       // Track errors in global statistics
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&err), 1, COORD_ERR_WARN);
@@ -400,7 +400,7 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
     return REDISMODULE_OK;
 }
 
-static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors) {
+static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors, const HybridRequest *hreq) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
@@ -417,8 +417,23 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
     }
-    // Add warnings array
+    // Add warnings array with warnings from subqueries (using QueryWarningCode enum for string representation)
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
+    for (size_t i = 0; i < hreq->nrequests; ++i) {
+      const QueryError* err = &hreq->errors[i];
+      const bool isSearch = (i == 0);
+      const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+      // Check for timeout warning
+      if (subQueryReturnCode == RS_RESULT_TIMEDOUT) {
+        QueryWarningCode code = isSearch ? QUERY_WARNING_CODE_TIMED_OUT_SEARCH : QUERY_WARNING_CODE_TIMED_OUT_VSIM;
+        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(code));
+      }
+      // Check for max prefix expansions warning
+      if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
+        QueryWarningCode code = isSearch ? QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH : QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM;
+        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(code));
+      }
+    }
     RedisModule_Reply_ArrayEnd(reply); // ~warnings
 
     RedisModule_Reply_MapEnd(reply);
@@ -483,7 +498,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         return REDISMODULE_ERR;
       }
     }
-    replyWithCursors(replyCtx, cursors);
+    replyWithCursors(replyCtx, cursors, req);
     array_free(cursors);
     return REDISMODULE_OK;
 }
