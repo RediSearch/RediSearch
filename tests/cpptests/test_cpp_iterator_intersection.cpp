@@ -185,7 +185,8 @@ public:
     QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * terms.size());
     for (size_t i = 0; i < terms.size(); i++) {
       ASSERT_NE(invertedIndexes.find(terms[i]), invertedIndexes.end()) << "Term " << terms[i] << " not found in inverted indexes";
-      children[i] = NewInvIndIterator_TermQuery(invertedIndexes[terms[i]], sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NULL, 1.0);
+      RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+      children[i] = NewInvIndIterator_TermQuery(invertedIndexes[terms[i]], sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NewQueryTerm(&tok, 1), 1.0);
     }
     ii_base = NewIntersectionIterator(children, terms.size(), max_slop, in_order, 1.0);
   }
