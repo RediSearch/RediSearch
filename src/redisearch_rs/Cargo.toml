@@ -40,6 +40,7 @@ members = [
     "varint_bencher",
     "wildcard",
     "workspace_hack",
+    "idf",
 ]
 
 resolver = "3"
@@ -92,6 +93,7 @@ field = { path = "./field" }
 fnv = { path = "./fnv" }
 generational_slab = { path = "./generational_slab" }
 hyperloglog = { path = "./hyperloglog" }
+idf = { path = "./idf" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 redis_reply = { path = "./redis_reply" }

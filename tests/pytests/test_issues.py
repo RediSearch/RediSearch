@@ -197,7 +197,7 @@ def test_issue1988(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
-    score = '0.28768210225410284'
+    score = '0.28768207245178085'
     env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'WITHSCORES').equal([1, 'doc1', score, ['t', 'foo']])
     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY' , 't').equal([1, 'doc1', ['t', 'foo']])
