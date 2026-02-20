@@ -13,6 +13,7 @@
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
+#include <string.h>
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -83,7 +84,9 @@ static void threadHandleCommand(void *p) {
 
   RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
 
-  RedisModule_UnblockClient(ctx->bc, NULL);
+  void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
+
+  RedisModule_UnblockClient(ctx->bc, privdata);
   rm_free(ctx->argv);
   rm_free(p);
 }
@@ -116,7 +119,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   // If timeoutMS is not 0, timeout callback must be set
   RS_ASSERT(handlerCtx->bcCtx.timeoutMS == 0 || handlerCtx->bcCtx.callback != NULL);
 
-  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, handlerCtx->bcCtx.callback, NULL, handlerCtx->bcCtx.timeoutMS);
+  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, handlerCtx->bcCtx.callback, handlerCtx->bcCtx.free_privdata, handlerCtx->bcCtx.timeoutMS);
 
   if (handlerCtx->bcCtx.privdata) {
     RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);

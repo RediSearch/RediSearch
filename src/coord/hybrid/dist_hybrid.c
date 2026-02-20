@@ -760,13 +760,21 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     // Try to claim reply ownership. If we get it, we can safely write to the reply.
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
-    if (!CoordRequestCtx_TryClaimReply(reqCtx)) {
+    // Check that we can claim the reply. If not, the timeout callback owns the reply and we should not write to it.
+    // If we can't claim the reply, we should just clear the error and return.
+    // If hreq is NULL, we don't have a request to claim. This can happen if the cleanup was called before the request was created.
+
+    if (hreq && !CoordRequestCtx_TryClaimReply(reqCtx)) {
         // Timeout callback owns reply - just clear the error
         QueryError_ClearError(status);
-        return;
+        goto cleanup;
     }
 
-    RS_ASSERT(QueryError_HasError(status));
+    if (!QueryError_HasError(status)) {
+        // No error - just cleanup
+        // This can happen if during request creation we realized the query timed out, and the timeout callback already replied.
+        goto cleanup;
+    }
 
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
@@ -774,6 +782,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     RedisModule_EndReply(reply);
     CoordRequestCtx_MarkReplied(reqCtx);
 
+cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
@@ -789,7 +798,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    QueryError status = {0};
+    QueryError status = QueryError_Default();
 
     // CMD, index, expr, args...
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
@@ -810,8 +819,20 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+    // Lock before creating request to prevent race with timeout callback
+    CoordRequestCtx_LockSetRequest(reqCtx);
+
+    // Check if already timed out
+    if (CoordRequestCtx_TimedOut(reqCtx)) {
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
+    }
+
+    // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
     CoordRequestCtx_SetRequest(reqCtx, hreq);
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
@@ -846,8 +867,29 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
   }
 
+  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
+
+  // Lock to coordinate with request creation in the background thread.
+  // If the request was not yet created, it won't be - background thread will see the timeout flag.
+  // If the request was already created, we can safely try to claim reply ownership.
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+
+  if(!CoordRequestCtx_HasRequest(CoordReqCtx)) {
+    // Request not created yet
+    // In this case no need to claim reply ownership - just reply with timeout error
+    // Background thread will notice the timeout and abort execution.
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    CoordRequestCtx_MarkReplied(CoordReqCtx);
+    CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+    return REDISMODULE_OK;
+  }
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   if (CoordRequestCtx_TryClaimReply(CoordReqCtx)) {
     // We claimed it - reply with timeout error

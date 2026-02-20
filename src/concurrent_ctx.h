@@ -52,7 +52,7 @@ typedef struct ConcurrentSearchBlockClientCtx {
   RedisModuleCmdFunc callback;            // Callback for timeout
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
   void *privdata;                         // Private data for the blocked client
-  void (*free_privdata)(void*);           // Callback to free private data
+  void (*free_privdata)(RedisModuleCtx*, void*);           // Callback to free private data
 } ConcurrentSearchBlockClientCtx;
 
 typedef struct ConcurrentSearchHandlerCtx {
@@ -64,6 +64,11 @@ typedef struct ConcurrentSearchHandlerCtx {
   struct CoordRequestCtx *reqCtx;     // Coordinator request context (for timeout handling)
   ConcurrentSearchBlockClientCtx bcCtx; // Context for blocking client
 } ConcurrentSearchHandlerCtx;
+
+// Initialize a ConcurrentSearchHandlerCtx to zero
+static inline void ConcurrentSearchHandlerCtx_Init(ConcurrentSearchHandlerCtx *ctx) {
+  memset(ctx, 0, sizeof(*ctx));
+}
 
 #define CMDCTX_KEEP_RCTX 0x01
 

@@ -81,6 +81,7 @@
 #include "asm_state_machine.h"
 #include "search_disk_utils.h"
 #include "config.h"
+#include "coord/coord_request_ctx.h"
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // for usleep in coordinator reduce pause
 #endif
@@ -3611,11 +3612,11 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref),
-    .bcCtx = {0}
-  };
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
+  handlerCtx.coordStartTime = coordInitialTime;
+  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3626,6 +3627,11 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
+
+static void DistHybridFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
+}
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Capture start time for coordinator dispatch time tracking
@@ -3682,19 +3688,21 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
 
-  ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref),
-    .numShards = NumShards,  // Capture NumShards from main thread for thread-safe access
-    .reqCtx = reqCtx,
-    .bcCtx = {0}
-  };
+
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
+  handlerCtx.coordStartTime = coordInitialTime;
+  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
+  handlerCtx.reqCtx = reqCtx;
+
+  handlerCtx.bcCtx.privdata = reqCtx;
+  handlerCtx.bcCtx.free_privdata = DistHybridFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
     handlerCtx.bcCtx.callback = DistHybridTimeoutFailClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    handlerCtx.bcCtx.privdata = reqCtx;
-    handlerCtx.bcCtx.free_privdata = CoordRequestCtx_Free;
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -3717,7 +3725,9 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {0};
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
   handlerCtx.spec_ref = (WeakRef){0};
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -4307,7 +4317,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Set MRCtx as privdata for the blocked client
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
 
-  SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
+  SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   sCmdCtx->handlerCtx.isProfile = isProfile;

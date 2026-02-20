@@ -8,6 +8,8 @@
 
 #include "aggregate/aggregate.h"
 #include "hybrid/hybrid_request.h"
+#include <stdatomic.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +32,8 @@ typedef struct CoordRequestCtx {
     AREQ *areq;
     HybridRequest *hreq;
   };
+  _Atomic(bool) timedOut;       // Coordinator-level timeout flag
+  pthread_mutex_t setReqLock;   // Lock for request creation/setting
 } CoordRequestCtx;
 
 /**
@@ -42,11 +46,19 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type);
  * Free the CoordRequestCtx and decrement the request's refcount.
  * Takes void* to be compatible with free_privdata callback signature.
  */
-void CoordRequestCtx_Free(void *ctx);
+void CoordRequestCtx_Free(CoordRequestCtx *ctx);
+
+/**
+ * Lock for request creation. Must be held while creating and setting the request.
+ * Background thread: lock -> check timedOut -> create request -> set request -> unlock
+ * Timeout callback: lock -> set timedOut -> check HasRequest -> unlock -> handle
+ */
+void CoordRequestCtx_LockSetRequest(CoordRequestCtx *ctx);
+void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx);
 
 /**
  * Set the request pointer and take shared ownership.
- * Called by background thread after creating the request.
+ * Called by background thread after creating the request, while holding the lock.
  *
  * This function increments the request's refcount, establishing shared ownership
  * between the background thread (which created the request) and the CoordRequestCtx
@@ -55,26 +67,20 @@ void CoordRequestCtx_Free(void *ctx);
 void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req);
 
 /**
- * Check if the request has timed out.
+ * Check if the request pointer has been set.
  */
-static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    return ctx->hreq ? HybridRequest_TimedOut(ctx->hreq) : false;
-  } else {
-    return ctx->areq ? AREQ_TimedOut(ctx->areq) : false;
-  }
-}
+bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx);
 
 /**
- * Set the timeout flag on the request.
+ * Check if the coordinator request has timed out.
  */
-static inline void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);
-  } else {
-    if (ctx->areq) AREQ_SetTimedOut(ctx->areq);
-  }
-}
+bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
+
+/**
+ * Set the timeout flag on the coordinator request context.
+ * Also propagates to the underlying request if set.
+ */
+void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 
 /**
  * Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
