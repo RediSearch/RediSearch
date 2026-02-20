@@ -467,8 +467,8 @@ fn read_using_the_first_block_id_as_the_base() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
-            ..Default::default()
-        }];
+        ..Default::default()
+    }];
     let ii = InvertedIndex::<FirstBlockIdDummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
     let mut result = RSIndexResult::default();

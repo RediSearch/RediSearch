@@ -101,7 +101,8 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
         min_score: f64,
         scorer: &crate::block_max_score::BlockScorer,
     ) -> bool {
-        self.inner.advance_to_next_promising_block(min_score, scorer)
+        self.inner
+            .advance_to_next_promising_block(min_score, scorer)
     }
 }
 

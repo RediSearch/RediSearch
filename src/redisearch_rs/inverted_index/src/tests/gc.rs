@@ -31,8 +31,8 @@ fn index_block_repair_delete() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
-                ..Default::default()
-            };
+        ..Default::default()
+    };
 
     fn cb(doc_id: t_docId) -> bool {
         ![10, 11].contains(&doc_id)
@@ -62,8 +62,8 @@ fn index_block_repair_unchanged() {
         num_entries: 2,
         first_doc_id: 10,
         last_doc_id: 11,
-                ..Default::default()
-            };
+        ..Default::default()
+    };
 
     fn cb(_doc_id: t_docId) -> bool {
         true
@@ -88,8 +88,8 @@ fn index_block_repair_some_deletions() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
-                ..Default::default()
-            };
+        ..Default::default()
+    };
 
     fn cb(doc_id: t_docId) -> bool {
         [11].contains(&doc_id)
@@ -199,8 +199,8 @@ fn index_block_repair_delta_too_big() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 42,
-                ..Default::default()
-            };
+        ..Default::default()
+    };
 
     fn cb(doc_id: t_docId) -> bool {
         ![41].contains(&doc_id)
@@ -271,29 +271,29 @@ fn ii_scan_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
     ];
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -327,8 +327,8 @@ fn ii_scan_gc() {
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
-                ..Default::default()
-            }],
+                            ..Default::default()
+                        }],
                         n_unique_docs_removed: 1
                     },
                 },
@@ -346,15 +346,15 @@ fn ii_scan_gc_no_change() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
@@ -383,29 +383,29 @@ fn ii_apply_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40, 71, 72),
             num_entries: 3,
             first_doc_id: 40,
             last_doc_id: 72,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
@@ -435,8 +435,8 @@ fn ii_apply_gc() {
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                ..Default::default()
-            }],
+                    ..Default::default()
+                }],
                 n_unique_docs_removed: 2,
             },
         },
@@ -449,15 +449,15 @@ fn ii_apply_gc() {
                         num_entries: 1,
                         first_doc_id: 40,
                         last_doc_id: 40,
-                ..Default::default()
-            },
+                        ..Default::default()
+                    },
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 72),
                         num_entries: 1,
                         first_doc_id: 72,
                         last_doc_id: 72,
-                ..Default::default()
-            },
+                        ..Default::default()
+                    },
                 ],
                 n_unique_docs_removed: 1,
             },
@@ -545,15 +545,15 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
     ];
 
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -582,8 +582,8 @@ fn ii_apply_gc_last_block_updated() {
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                ..Default::default()
-            }],
+                    ..Default::default()
+                }],
                 n_unique_docs_removed: 2,
             },
         },
@@ -619,8 +619,8 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-                ..Default::default()
-            },]
+            ..Default::default()
+        },]
     );
     assert_eq!(
         apply_info,
@@ -649,15 +649,15 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-                ..Default::default()
-            },
+            ..Default::default()
+        },
     ];
 
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -700,8 +700,8 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-                ..Default::default()
-            }]
+            ..Default::default()
+        }]
     );
 }
 
@@ -769,8 +769,8 @@ fn ii_apply_gc_entries_tracking_index() {
                     num_entries: 2,
                     first_doc_id: 15,
                     last_doc_id: 15,
-                ..Default::default()
-            }],
+                    ..Default::default()
+                }],
                 n_unique_docs_removed: 1,
             },
         }],
@@ -802,8 +802,8 @@ fn ii_apply_gc_entries_tracking_index() {
             num_entries: 2,
             first_doc_id: 15,
             last_doc_id: 15,
-                ..Default::default()
-            },]
+            ..Default::default()
+        },]
     );
     assert_eq!(
         apply_info,
