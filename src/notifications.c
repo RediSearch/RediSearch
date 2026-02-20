@@ -19,6 +19,7 @@
 #include "asm_state_machine.h"
 #include "src/coord/rmr/redis_cluster.h"
 #include "cursor.h"
+#include "search_disk.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -504,9 +505,20 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 }
 
 
+// Production shutdown handler - for disk persistence environments.
+// Uses stored SST state to determine if disk data should be deleted.
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  bool deleteDiskData = !WasLastRdbOperationSstPersistent();
+  RediSearch_CleanupModule(deleteDiskData);
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
+}
+
+// Sanitizer shutdown handler - for sanitizer/valgrind environments.
+// Full cleanup with no disk data deletion.
+void SanitizerShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
+  RediSearch_SanitizerCleanupModule();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
@@ -571,9 +583,12 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   }
 
   if (getenv("RS_GLOBAL_DTORS")) {
-    // clear resources when the server exits
-    // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    // Sanitizer mode - full cleanup with no disk data deletion
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown (sanitizer mode)");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, SanitizerShutdownEvent);
+  } else {
+    // Production 
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown (production mode)");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
   }
 
