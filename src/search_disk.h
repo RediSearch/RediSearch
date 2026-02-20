@@ -91,9 +91,11 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
  * @param docId Document ID to index
  * @param fieldMask Field mask indicating which fields are present
  * @param freq Frequency of the term in the document
+ * @param offsets Pointer to varint-encoded term offset data (can be NULL)
+ * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
 /**
  * @brief Index multiple tag values for a document
@@ -142,9 +144,10 @@ void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
  * @param weight Weight for the term (used in scoring)
  * @param idf Inverse document frequency for the term
  * @param bm25_idf BM25 inverse document frequency for the term
+ * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf, bool needsOffsets);
 
 /**
  * @brief Create a tag IndexIterator for a specific tag value

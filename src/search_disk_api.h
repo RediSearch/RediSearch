@@ -88,9 +88,11 @@ typedef struct IndexDiskAPI {
    * @param docId Document ID to index
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param freq Frequency of the term in the document
+   * @param offsets Pointer to varint-encoded term offset data (can be NULL)
+   * @param offsetsLen Length of the offsets data in bytes
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -127,9 +129,10 @@ typedef struct IndexDiskAPI {
    * @param term Pointer to the query term (contains term string, idf, bm25_idf)
    * @param fieldMask Field mask indicating which fields are present in the document
    * @param weight Weight for the iterator (used in scoring)
+   * @param needsOffsets Whether the query needs term offset data (for scoring or phrase matching)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight, bool needsOffsets);
 
   /**
    * @brief Creates a new iterator for a tag index
