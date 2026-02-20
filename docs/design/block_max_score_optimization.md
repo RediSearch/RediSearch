@@ -355,11 +355,13 @@ Each strategy offers a different trade-off between memory usage, implementation 
 | **Bound tightness** | N/A | Loose (upper bound) | Exact | Tight (upper bound) |
 | **Scoring flexibility** | N/A | High | None | High |
 | **Reindex on scorer change** | N/A | No | Yes | No |
+| **GC update complexity** | None | Medium (need DocTable) | High (recompute scores) | High (need DocTable + rebuild pairs) |
 
 **Legend:**
 - **Write complexity**: Additional work during document indexing
 - **Read complexity**: Additional work during query execution to compute/compare block scores
 - **Read speedup**: Expected improvement in top-K query performance due to block skipping
+- **GC update complexity**: Work needed to maintain metadata when GC rebuilds blocks after document deletion
 
 > **Note:** These trade-offs should be validated with benchmarks on representative workloads before committing to a specific strategy. The optimal choice may vary depending on index size, query patterns, and memory constraints.
 
@@ -527,6 +529,135 @@ fn block_max_score_docscore(block: &IndexBlock) -> f64 {
 | Custom scorers | Unknown formula, cannot compute upper bound |
 
 For unsupported scorers, block skipping is disabled and all blocks are processed normally.
+
+#### Metadata Updates During Garbage Collection
+
+When documents are deleted, the Garbage Collection (GC) process repairs blocks by removing entries for deleted documents and rebuilding affected blocks. This impacts block scoring metadata in two ways:
+
+**1. Block Deletion**: When all documents in a block are deleted, the entire block is removed. No metadata update is needed.
+
+**2. Block Replacement**: When some documents in a block are deleted, the block is rebuilt with only the surviving entries. The scoring metadata must be recomputed for the new block(s).
+
+**Important Context: Fork GC Architecture**
+
+RediSearch uses a fork-based GC model:
+- **Child process (fork)**: Scans indexes and computes GC deltas (`scan_gc`). Has read-only access to the entire memory snapshot, including DocTable.
+- **Parent process (main)**: Applies the GC deltas (`apply_gc`). Modifies the actual index structures.
+
+This architecture is favorable for metadata updates because:
+- The child process can freely access DocTable during the scan phase (read-only, no locking needed)
+- Metadata can be computed in the child and serialized with the GC delta
+- The parent just applies pre-computed blocks with correct metadata
+
+Each storage strategy has different requirements for GC metadata updates:
+
+---
+
+##### Current Proposal: Raw Components (max_freq, min_doc_len, max_doc_score)
+
+**Challenge**: The GC `repair` method only has access to `RSIndexResult` (which contains `freq`), but NOT `doc_len` and `doc_score` which are stored in the DocTable.
+
+```rust
+// Current GC implementation
+while /* iterate entries */ {
+    if doc_exist(result.doc_id) {
+        tmp_inverted_index.add_record(&result)?;  // Only tracks max_freq
+    }
+}
+```
+
+**Solution Options**:
+
+| Option | Description | Pros | Cons |
+|--------|-------------|------|------|
+| **A. Pass metadata via callback** | Caller provides `doc_len` and `doc_score` for each surviving doc | Accurate metadata; no extra lookups | Requires API changes to `repair()` |
+| **B. Conservative defaults** | Use `min_doc_len = 1`, `max_doc_score = f32::MAX` | Simple; no API changes | Disables block skipping for repaired blocks |
+| **C. Recompute on apply** | After GC apply, iterate affected blocks to fix metadata | Decouples GC scan from metadata | Requires DocTable access in `apply_gc()` |
+| **D. Lazy recomputation** | Mark blocks as "metadata stale"; recompute on first query | Defers work; no immediate cost | Complexity; stale flag overhead |
+
+**Recommended (Option A)**: Extend the repair callback to provide document metadata:
+
+```rust
+pub fn repair<'index, E>(
+    &'index self,
+    doc_exist: impl Fn(t_docId) -> bool,
+    doc_metadata: impl Fn(t_docId) -> Option<(u32, f32)>,  // (doc_len, doc_score)
+    // ...
+) -> std::io::Result<Option<RepairType>> {
+    if let Some((doc_len, doc_score)) = doc_metadata(result.doc_id) {
+        tmp_inverted_index.add_record_with_metadata(&result, doc_len, doc_score)?;
+    }
+}
+```
+
+---
+
+##### Alternative 1: Pre-computed Impact Scores
+
+**Challenge**: The pre-computed `max_score` was calculated at index time using specific scorer parameters. During GC, we must recompute the score for each surviving entry.
+
+**Requirements**:
+- Access to DocTable for `doc_len` and `doc_score`
+- Access to scoring function and its parameters (k1, b, avg_doc_len for BM25)
+- Recompute actual scores, not just track min/max
+
+```rust
+// GC with pre-computed scores
+while /* iterate entries */ {
+    if doc_exist(result.doc_id) {
+        let (doc_len, doc_score) = doc_metadata(result.doc_id);
+        let entry_score = scorer.compute(result.freq, doc_len, doc_score, idf);
+        block.precomputed_max_score = block.precomputed_max_score.max(entry_score);
+        tmp_inverted_index.add_record(&result)?;
+    }
+}
+```
+
+**Additional Complexity**:
+- Requires scorer instance with correct parameters during GC
+- IDF may have changed if total doc count changed (needs recalculation)
+- If `avg_doc_len` changed (for BM25), all scores become stale
+- Score staleness: even blocks not touched by GC may have stale scores due to global parameter changes
+
+---
+
+##### Alternative 2: (TF, DocLen) Pairs
+
+**Challenge**: Must rebuild the set of dominant (tf, doc_len) pairs from surviving entries.
+
+**Requirements**:
+- Access to DocTable for `doc_len` of each surviving entry
+- Rebuild the pruned pair set using dominance analysis
+
+```rust
+// GC with (TF, DocLen) pairs
+let mut pairs: Vec<(u32, u32)> = Vec::new();
+
+while /* iterate entries */ {
+    if doc_exist(result.doc_id) {
+        let doc_len = doc_metadata(result.doc_id).doc_len;
+        pairs.push((result.freq, doc_len));
+        tmp_inverted_index.add_record(&result)?;
+    }
+}
+
+// Prune dominated pairs
+block.max_impact_pairs = prune_dominated_pairs(pairs);
+```
+
+**Additional Complexity**:
+- Requires DocTable access (same as Current Proposal)
+- Algorithmic complexity for pair dominance pruning
+- Must track `max_doc_score` separately (same as Current Proposal)
+
+---
+
+##### Fallback Behavior
+
+If metadata cannot be recomputed (e.g., legacy code paths), blocks should use conservative values that disable skipping:
+- `max_freq = 0` → signals "metadata not available"
+- `has_scoring_metadata()` returns `false`
+- `block_max_score()` returns `f64::MAX` → block is never skipped
 
 ### Block-Skipping in Iterators
 
