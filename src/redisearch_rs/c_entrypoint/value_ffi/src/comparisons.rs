@@ -3,7 +3,7 @@ use query_error::{QueryError, QueryErrorCode};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use std::{cmp::Ordering, ffi::c_int};
-use value::{RsValue, shared::SharedRsValue};
+use value::{RsValue, SharedRsValue};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Cmp(
@@ -25,7 +25,7 @@ pub unsafe extern "C" fn RSValue_Cmp(
             // SAFETY: Number conversion failed and status was provided.
             let query_error = unsafe { status.as_mut().unwrap() };
             let message = c"Error converting string".to_owned();
-            query_error.set_code_and_message(QueryErrorCode::NotNumeric, Some(message));
+            query_error.set_code_and_message(QueryErrorCode::NumericValueInvalid, Some(message));
             // even though we're returning 'equal', the query error code is likely checked for a possible error.
             0
         }
@@ -138,15 +138,13 @@ fn compare_number_to_string(
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
     // first try to convert the slice to a number for comparison
-    if let Some(other_number) = crate::util::rsvalue_str_to_float(slice) {
+    if let Some(other_number) = value::util::str_to_float(slice) {
         number
             .partial_cmp(&other_number)
             .ok_or(CompareError::NaNNumber)
     // else only if num_to_str_cmp_fallback is enabled, convert the number to a slice for comparison
     } else if num_to_str_cmp_fallback {
-        Ok(crate::util::rsvalue_num_to_str(number)
-            .as_bytes()
-            .cmp(slice))
+        Ok(value::util::num_to_string(number).as_bytes().cmp(slice))
     } else {
         Err(CompareError::NoNumberToStringFallback)
     }
