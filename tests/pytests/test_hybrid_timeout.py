@@ -153,7 +153,7 @@ def test_maxprefixexpansions_warning_search_only():
     # the warning
     conn.execute_command('HSET', '{tag}:run1', 'description', 'running')
     conn.execute_command('HSET', '{tag}:run2', 'description', 'runo')
-    run_command_on_all_shards(env, f'{config_cmd()} SET MAXPREFIXEXPANSIONS 1')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1)
 
     # Only SEARCH returns results, VSIM returns empty
     response = env.cmd(
@@ -173,7 +173,7 @@ def test_maxprefixexpansions_warning_vsim_only():
     # the warning
     conn.execute_command('HSET', '{tag}:run1', 'description', 'running')
     conn.execute_command('HSET', '{tag}:run2', 'description', 'runo')
-    run_command_on_all_shards(env, f'{config_cmd()} SET MAXPREFIXEXPANSIONS 1')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1)
 
     # Only VSIM returns results, SEARCH returns empty
     response = env.cmd(
@@ -193,7 +193,7 @@ def test_maxprefixexpansions_warning_both_components():
     # the warning
     conn.execute_command('HSET', '{tag}:run1', 'description', 'running')
     conn.execute_command('HSET', '{tag}:run2', 'description', 'runo')
-    run_command_on_all_shards(env, f'{config_cmd()} SET MAXPREFIXEXPANSIONS 1')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1)
 
     # Both SEARCH and VSIM return results
     response = env.cmd(
