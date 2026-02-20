@@ -38,20 +38,14 @@ pub struct Not<'index, I> {
     ///
     /// Uses an amortized check to minimize overhead in hot paths. The timeout
     /// is absolute for the iterator's lifetime and does not reset upon rewinding.
-    timeout_ctx: TimeoutContext,
+    timeout_ctx: Option<TimeoutContext>,
 }
 
 impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    pub fn new(
-        child: I,
-        max_doc_id: t_docId,
-        weight: f64,
-        timeout: Duration,
-        skip_timeout_checks: bool,
-    ) -> Self {
+    pub fn new(child: I, max_doc_id: t_docId, weight: f64, timeout: Option<Duration>) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
@@ -63,7 +57,7 @@ where
             // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
             // the internal counter goes up. When it reaches this `limit` of 5_000 it will
             // reset that counter and do the actual (OS) expensive timeout check.
-            timeout_ctx: TimeoutContext::new(timeout, 5_000, skip_timeout_checks),
+            timeout_ctx: timeout.map(|timeout| TimeoutContext::new(timeout, 5_000)),
         }
     }
 
@@ -71,14 +65,48 @@ where
     /// we also mark this iterator as EOF.
     ///
     /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
+    ///
+    /// In case no timeout is enforced it will just return `Ok(())`.
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        let result = self.timeout_ctx.check_timeout();
+        let Some(result) = self.timeout_ctx.as_mut().map(|ctx| ctx.check_timeout()) else {
+            return Ok(());
+        };
         if matches!(result, Err(RQEIteratorError::TimedOut)) {
             // NOTE: this is not done for optimized version of NOT iterator in C
             self.forced_eof = true;
         }
         result
+    }
+
+    /// Wrapper around [`TimeoutContext::reset_timeout`] to reset the timeout counter.
+    /// In case no timeout is enforced it will just return `Ok(())`.
+    #[inline(always)]
+    const fn reset_timeout(&mut self) {
+        if let Some(ctx) = self.timeout_ctx.as_mut() {
+            ctx.reset_counter();
+        }
+    }
+
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Not`] iterator.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    /// Set the child of this [`Not`] iterator.
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = MaybeEmpty::new(new_child);
+    }
+
+    /// Unset the child of this [`Not`] iterator (make it `None`).
+    pub fn unset_child(&mut self) {
+        self.child = MaybeEmpty::new_empty();
+    }
+
+    /// Take the child of this [`Not`] iterator if it exists.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
     }
 }
 
@@ -97,23 +125,24 @@ where
         while !self.at_eof() {
             self.result.doc_id += 1;
 
-            // 1. Sync child if we've moved past its last known position
+            // Sync child if we've moved past its last known position
             let child_at_eof = if self.result.doc_id > self.child.last_doc_id() {
                 self.child.read()?.is_none()
             } else {
                 false
             };
 
-            // 2. Unified Checkpoint: Exactly one check per iteration.
-            // This occurs AFTER the child.read() and before we decide to return.
-            self.check_timeout()?;
-
-            // 3. Comparison Logic
+            // Comparison Logic
             // If child is EOF, or we haven't reached the child's position,
             // or the child skipped past us, this document is a valid result.
             if child_at_eof || self.result.doc_id != self.child.last_doc_id() {
+                self.reset_timeout();
                 return Ok(Some(&mut self.result));
             }
+
+            // Unified Checkpoint: Exactly one check per iteration.
+            // This occurs AFTER the child.read() and before we decide to return.
+            self.check_timeout()?;
 
             // Otherwise: doc_id == child.last_doc_id(), so we skip and loop again.
         }

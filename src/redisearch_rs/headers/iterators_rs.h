@@ -229,6 +229,50 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
 enum MetricType GetMetricType(QueryIterator *header);
 
 /**
+ * Creates a new not iterator.
+ *
+ * # Safety
+ *
+ * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child` must not be aliased.
+ */
+QueryIterator *NewNotIteratorNonOptimized(QueryIterator *child,
+                                          t_docId max_doc_id,
+                                          double weight,
+                                          timespec timeout,
+                                          bool skip_timeout_checks);
+
+/**
+ * Get the child pointer of the not (non-optimized) iterator or NULL
+ * in case there is no child.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ */
+const QueryIterator *GetNotIteratorNonOptimizedChild(const QueryIterator *header);
+
+/**
+ * Take ownership over the child of the not (non-optimized) iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ */
+QueryIterator *TakeNotIteratorNonOptimizedChild(QueryIterator *header);
+
+/**
+ * Set (or overwrite) the child iterator of the not (non-optimized) iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
+ */
+void SetNotIteratorNonOptimizedChild(QueryIterator *header,
+                                     QueryIterator *child);
+
+/**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);

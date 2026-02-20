@@ -23,7 +23,6 @@ pub struct TimeoutContext {
     /// The number of times `check_timeout` has been called since the last clock check.
     counter: u32,
     /// The threshold at which a real clock check is performed (the amortized frequency).
-    /// When set to `u32::MAX`, timeout checks are effectively skipped.
     limit: u32,
 }
 
@@ -33,16 +32,12 @@ impl TimeoutContext {
     /// The `limit` determines the granularity of the check. A higher limit
     /// improves performance but increases the potential delay between the
     /// actual timeout and when it is detected.
-    ///
-    /// If `skip_timeout_checks` is `true`, `limit` is set to `u32::MAX` to effectively
-    /// skip timeout checks (the counter will never reach the limit in practice).
     #[inline(always)]
-    pub fn new(duration: Duration, limit: u32, skip_timeout_checks: bool) -> Self {
+    pub fn new(duration: Duration, limit: u32) -> Self {
         Self {
             deadline: Instant::now() + duration,
             counter: 0,
-            // Use u32::MAX to effectively skip timeout checks
-            limit: if skip_timeout_checks { u32::MAX } else { limit },
+            limit,
         }
     }
 
@@ -61,5 +56,11 @@ impl TimeoutContext {
         }
 
         Ok(())
+    }
+
+    /// Reset the internal counter.
+    #[inline(always)]
+    pub const fn reset_counter(&mut self) {
+        self.counter = 0;
     }
 }

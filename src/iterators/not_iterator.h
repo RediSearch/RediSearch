@@ -10,20 +10,11 @@
 #pragma once
 
 #include "iterator_api.h"
-#include "util/timeout.h"
 #include "query_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct {
-  QueryIterator base;         // base index iterator
-  QueryIterator *wcii;        // wildcard index iterator
-  QueryIterator *child;       // child index iterator
-  t_docId maxDocId;
-  TimeoutCtx timeoutCtx;
-} NotIterator;
 
 /**
 * @param it - The iterator to negate
@@ -37,6 +28,17 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
 // Constructor used for benchmarking (easy to inject MockIterators)
 // timeoutCounter: initial counter value (use REDISEARCH_UNINITIALIZED to skip timeout checks)
 QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout, uint32_t timeoutCounter);
+
+QueryIterator const *GetNotIteratorChild(QueryIterator *const it);
+void SetNotIteratorChild(QueryIterator *it, QueryIterator* child);
+QueryIterator *TakeNotIteratorChild(QueryIterator *it);
+
+// Setter used only for cpp unit tests of NOT iterator.
+// Should be removed once we port+swap the optimized version of NOT iterator.
+void _SetNotIteratorOptimizedWildcard(QueryIterator *it, QueryIterator* wcii);
+// Getter used only for cpp unit tests of NOT iterator.
+// Should be removed once we port+swap the optimized version of NOT iterator.
+QueryIterator const *_GetNotIteratorOptimizedWildcard(QueryIterator *it);
 
 #ifdef __cplusplus
 }

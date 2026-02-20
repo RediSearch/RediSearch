@@ -980,6 +980,7 @@ dependencies = [
  "field",
  "inverted_index",
  "inverted_index_ffi",
+ "libc",
  "rqe_iterators",
  "rqe_iterators_interop",
  "workspace_hack",
