@@ -9,11 +9,9 @@ extern "C" {
 }
 
 #include "gtest/gtest.h"
-#include "iterator_util.h"
 #include <vector>
 #include "index_utils.h"
 
-#include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "src/index_result.h"
 #include "src/tag_index.h"
@@ -24,240 +22,8 @@ extern "C" {
 #include "src/redis_index.h"
 }
 
-class IndexIteratorTest : public ::testing::TestWithParam<bool> {
-protected:
-    static constexpr size_t n_docs = 2.45 * 1000;
-    std::array<t_docId, n_docs> resultSet;
-    InvertedIndex *idx;
-    QueryIterator *it_base;
-    MockQueryEvalCtx q_mock;
-
-    void SetUp() override {
-        // Generate a set of document IDs for testing
-        for (size_t i = 0; i < n_docs; ++i) {
-            resultSet[i] = 2 * i + 1; // Document IDs start from 1
-        }
-
-        bool withExpiration = GetParam();
-
-        if (withExpiration) {
-            // Initialize the TTL table with some expiration data. Results should not be expired so the test passes as expected.
-            for (size_t i = 0; i < n_docs; ++i) {
-                q_mock.TTL_Add(resultSet[i]);
-            }
-        }
-
-        SetTermsInvIndex();
-        it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, nullptr, 1.0);
-    }
-    void TearDown() override {
-        it_base->Free(it_base);
-        InvertedIndex_Free(idx);
-    }
-
-private:
-    void SetTermsInvIndex() {
-        // This function should populate the InvertedIndex with terms
-        size_t memsize;
-        idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &memsize);
-        for (size_t i = 0; i < n_docs; ++i) {
-            ForwardIndexEntry h = {0};
-            h.docId = resultSet[i];
-            h.fieldMask = i + 1;
-            h.freq = i + 1;
-            h.term = "term";
-            h.len = 4; // Length of the term "term"
-
-            h.vw = NewVarintVectorWriter(8);
-            VVW_Write(h.vw, i); // Just writing the index as a value
-            InvertedIndex_WriteForwardIndexEntry(idx, &h);
-            VVW_Free(h.vw);
-        }
-    }
-};
-
-INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Bool());
-
-
-TEST_P(IndexIteratorTest, Read) {
-    InvIndIterator *it = (InvIndIterator *)it_base;
-    IteratorStatus rc;
-
-    // Test reading until EOF
-    size_t i = 0;
-    while ((rc = it_base->Read(it_base)) == ITERATOR_OK) {
-        ASSERT_EQ(it->base.current->docId, resultSet[i]);
-        ASSERT_EQ(it->base.lastDocId, resultSet[i]);
-        ASSERT_FALSE(it->base.atEOF);
-        i++;
-    }
-    ASSERT_EQ(rc, ITERATOR_EOF);
-    ASSERT_TRUE(it->base.atEOF);
-    ASSERT_EQ(it_base->Read(it_base), ITERATOR_EOF); // Reading after EOF should return EOF
-    ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
-    ASSERT_EQ(it_base->NumEstimated(it_base), resultSet.size());
-    ASSERT_EQ(it_base->NumEstimated(it_base), InvertedIndex_NumDocs(idx));
-}
-
-TEST_P(IndexIteratorTest, SkipTo) {
-    InvIndIterator *it = (InvIndIterator *)it_base;
-    IteratorStatus rc;
-    // Test skipping to any id between 1 and the last id
-    t_docId i = 1;
-    for (t_docId id : resultSet) {
-        while (i < id) {
-            it_base->Rewind(it_base);
-            rc = it_base->SkipTo(it_base, i);
-            ASSERT_EQ(rc, ITERATOR_NOTFOUND);
-            ASSERT_EQ(it->base.lastDocId, id);
-            ASSERT_EQ(it->base.current->docId, id);
-            i++;
-        }
-        it_base->Rewind(it_base);
-        rc = it_base->SkipTo(it_base, id);
-        ASSERT_EQ(rc, ITERATOR_OK);
-        ASSERT_EQ(it->base.lastDocId, id);
-        ASSERT_EQ(it->base.current->docId, id);
-        i++;
-    }
-    // Test reading after skipping to the last id
-    ASSERT_EQ(it_base->Read(it_base), ITERATOR_EOF);
-    ASSERT_EQ(it_base->SkipTo(it_base, it_base->lastDocId + 1), ITERATOR_EOF);
-    ASSERT_TRUE(it->base.atEOF);
-
-    it_base->Rewind(it_base);
-    ASSERT_EQ(it->base.lastDocId, 0);
-    ASSERT_FALSE(it->base.atEOF);
-    // Test skipping to all ids that exist
-    for (t_docId id : resultSet) {
-        rc = it_base->SkipTo(it_base, id);
-        ASSERT_EQ(rc, ITERATOR_OK);
-        ASSERT_EQ(it->base.lastDocId, id);
-        ASSERT_EQ(it->base.current->docId, id);
-    }
-
-    // Test skipping to an id that exceeds the last id
-    it_base->Rewind(it_base);
-    ASSERT_EQ(it->base.lastDocId, 0);
-    ASSERT_FALSE(it->base.atEOF);
-    rc = it_base->SkipTo(it_base, resultSet.back() + 1);
-    ASSERT_EQ(rc, ITERATOR_EOF);
-    ASSERT_EQ(it->base.lastDocId, 0); // we just rewound
-    ASSERT_TRUE(it->base.atEOF);
-}
-
-class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> {
-  protected:
-      static constexpr size_t n_docs = 1000;
-      InvertedIndex *idx;
-      QueryIterator *it_base;
-      MockQueryEvalCtx q_mock;
-
-      void SetUp() override {
-          IndexFlags flags = GetParam();
-
-          size_t dummy;
-          idx = NewInvertedIndex(flags, &dummy);
-
-          t_fieldIndex fieldIndex = 0b101010; // 42
-          t_fieldMask fieldMask = fieldIndex;
-          if (flags & Index_WideSchema) {
-              fieldMask |= fieldMask << 64; // Wide field mask for wide schema
-          }
-
-          // Add docs to the index
-          RSIndexResult res = {
-              .fieldMask = fieldMask,
-              .data = {.term_tag = RSResultData_Term},
-          };
-
-          for (size_t i = 1; i <= n_docs; ++i) {
-              res.docId = i;
-              InvertedIndex_WriteEntryGeneric(idx, &res);
-              InvertedIndex_WriteEntryGeneric(idx, &res); // Second write will fail if multi-value is not supported
-          }
-
-          // Make every even document ID field expired
-          for (size_t i = 2; i <= n_docs; i += 2) {
-              q_mock.TTL_Add(i, fieldMask, {1, 1}); // Already expired
-          }
-          // Set up the mock current time
-          q_mock.sctx.time.current = {100, 100};
-
-          // Create the iterator based on the flags
-          it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask}, nullptr, 1.0);
-      }
-
-      void TearDown() override {
-          it_base->Free(it_base);
-          InvertedIndex_Free(idx);
-      }
-  };
-
-  INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTestExpiration, ::testing::Values(
-      Index_DocIdsOnly,                                                                       // Single field
-      Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets,                      // field-mask, with seeker
-      Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema    // wide field-mask
-  ));
-
-  TEST_P(IndexIteratorTestExpiration, Read) {
-      InvIndIterator *it = (InvIndIterator *)it_base;
-      IteratorStatus rc;
-
-      // Test reading until EOF - expect only odd document IDs
-      size_t i = 0;
-      while ((rc = it_base->Read(it_base)) == ITERATOR_OK) {
-          ASSERT_EQ(it->base.current->docId, 2*i + 1);
-          ASSERT_EQ(it->base.lastDocId, 2*i + 1);
-          ASSERT_FALSE(it->base.atEOF);
-          i++;
-      }
-      ASSERT_EQ(rc, ITERATOR_EOF);
-      ASSERT_TRUE(it->base.atEOF);
-      ASSERT_EQ(it_base->Read(it_base), ITERATOR_EOF); // Reading after EOF should return EOF
-      ASSERT_EQ(i, n_docs / 2 + (n_docs % 2)) << "Expected to read half of the documents (odd IDs only)";
-  }
-
-  TEST_P(IndexIteratorTestExpiration, SkipTo) {
-      InvIndIterator *it = (InvIndIterator *)it_base;
-      IteratorStatus rc;
-
-      // Test skipping to various document IDs
-      it_base->Rewind(it_base);
-
-      // Skip to odd IDs should work
-      for (t_docId id = 1; id <= n_docs; id += 2) {
-          rc = it_base->SkipTo(it_base, id);
-          ASSERT_EQ(rc, ITERATOR_OK);
-          ASSERT_EQ(it->base.current->docId, id);
-          ASSERT_EQ(it->base.lastDocId, id);
-      }
-
-      // Test skipping to even IDs - should skip to next odd ID
-      it_base->Rewind(it_base);
-      for (t_docId id = 2; id <= n_docs; id += 2) {
-          rc = it_base->SkipTo(it_base, id);
-          if (id + 1 <= n_docs) {
-              ASSERT_EQ(rc, ITERATOR_NOTFOUND);
-              ASSERT_EQ(it->base.current->docId, id + 1);
-              ASSERT_EQ(it->base.lastDocId, id + 1);
-          } else {
-              ASSERT_EQ(rc, ITERATOR_EOF);
-              ASSERT_TRUE(it->base.atEOF);
-          }
-      }
-
-      // Test skipping to ID beyond range
-      it_base->Rewind(it_base);
-      rc = it_base->SkipTo(it_base, n_docs + 1);
-      ASSERT_EQ(rc, ITERATOR_EOF);
-      ASSERT_TRUE(it->base.atEOF);
-  }
-
 typedef enum RevalidateIndexType {
-    REVALIDATE_INDEX_TYPE_TERM_QUERY,
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
     REVALIDATE_INDEX_TYPE_MISSING_QUERY,
 } RevalidateIndexType;
 
@@ -297,12 +63,11 @@ protected:
     QueryIterator *iterator;
 
     // For different index types
-    InvertedIndex *termIdx;
+    InvertedIndex *missingIdx;
     TagIndex *tagIdx;
     InvertedIndex *tagInvIdx;
 
     // Query terms for Query-type iterators
-    RSQueryTerm *queryTerm;
     RSQueryTerm *tagQueryTerm;
 
     void SetUp() override {
@@ -313,10 +78,9 @@ protected:
         spec = nullptr;
         sctx = nullptr;
         iterator = nullptr;
-        termIdx = nullptr;
+        missingIdx = nullptr;
         tagIdx = nullptr;
         tagInvIdx = nullptr;
-        queryTerm = nullptr;
         tagQueryTerm = nullptr;
 
         // Generate a set of document IDs for testing
@@ -326,17 +90,11 @@ protected:
 
         // Create the appropriate index based on the parameter
         switch (GetParam()) {
-            case REVALIDATE_INDEX_TYPE_TERM_QUERY:
-                SetupTermIndex();
-                break;
             case REVALIDATE_INDEX_TYPE_TAG_QUERY:
                 SetupTagIndex();
                 break;
-            case REVALIDATE_INDEX_TYPE_WILDCARD_QUERY:
-                SetupWildcardIndex();     // Wildcard query version
-                break;
             case REVALIDATE_INDEX_TYPE_MISSING_QUERY:
-                SetupMissingIndex();      // Missing query version
+                SetupMissingIndex();
                 break;
             default:
                 FAIL() << "Unknown index type: " << GetParam();
@@ -351,8 +109,7 @@ protected:
             iterator = nullptr;
         }
 
-        // Clear query term pointers (they were freed by the iterator)
-        queryTerm = nullptr;
+        // Clear query term pointer (it was freed by the iterator)
         tagQueryTerm = nullptr;
 
         // Free search context
@@ -371,7 +128,7 @@ protected:
         }
 
         // Clear pointers (don't free directly as they may have been freed by iterator or spec)
-        termIdx = nullptr;
+        missingIdx = nullptr;
         tagIdx = nullptr;
         tagInvIdx = nullptr;
 
@@ -379,50 +136,6 @@ protected:
     }
 
 private:
-    void SetupTermIndex() {
-        // Create IndexSpec for TEXT field
-        const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = QueryError_Default();
-        StrongRef ref = IndexSpec_ParseC("term_idx", args, sizeof(args) / sizeof(const char *), &err);
-        spec = (IndexSpec *)StrongRef_Get(ref);
-        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-        ASSERT_TRUE(spec);
-
-        // Add the spec to the global dictionary so it can be found by name
-        Spec_AddToDict(spec->own_ref.rm);
-
-        // Create RedisSearchCtx
-        sctx = NewSearchCtxC(ctx, "term_idx", false);
-        ASSERT_TRUE(sctx != nullptr);
-
-        // Get the term inverted index from the spec using Redis_OpenInvertedIndex
-        // This will create the index and add it to the spec's keysDict properly
-        bool isNew;
-        termIdx = Redis_OpenInvertedIndex(sctx, "term", strlen("term"), 1, &isNew);
-        ASSERT_TRUE(termIdx != nullptr);
-
-        // Populate with term data
-        for (size_t i = 0; i < n_docs; ++i) {
-            ForwardIndexEntry h = {0};
-            h.docId = resultSet[i];
-            h.fieldMask = i + 1;
-            h.freq = i + 1;
-            h.term = "term";
-            h.len = 4; // Length of "term"
-
-            h.vw = NewVarintVectorWriter(8);
-            VVW_Write(h.vw, i); // Just writing the index as a value
-            InvertedIndex_WriteForwardIndexEntry(termIdx, &h);
-            VVW_Free(h.vw);
-        }
-
-        // Query version with proper context and term data
-        RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
-        queryTerm = NewQueryTerm(&tok, 1);
-        FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-        iterator = NewInvIndIterator_TermQuery(termIdx, sctx, fieldMaskOrIndex, queryTerm, 1.0);
-    }
-
     void SetupTagIndex() {
         // Create IndexSpec for TAG field
         const char *args[] = {"SCHEMA", "tag_field", "TAG"};
@@ -462,36 +175,6 @@ private:
         iterator = NewInvIndIterator_TagQuery(tagInvIdx, tagIdx, sctx, tagFieldMaskOrIndex, tagQueryTerm, 1.0);
     }
 
-    void SetupWildcardIndex() {
-        // Create IndexSpec for TEXT field (wildcard uses existingDocs index)
-        const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = QueryError_Default();
-        StrongRef ref = IndexSpec_ParseC("wildcard_idx", args, sizeof(args) / sizeof(const char *), &err);
-        spec = (IndexSpec *)StrongRef_Get(ref);
-        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-        ASSERT_TRUE(spec);
-
-        // Add the spec to the global dictionary so it can be found by name
-        Spec_AddToDict(spec->own_ref.rm);
-
-        // Create RedisSearchCtx
-        sctx = NewSearchCtxC(ctx, "wildcard_idx", false);
-        ASSERT_TRUE(sctx != nullptr);
-
-        // Create the existingDocs index that wildcard iterator expects
-        size_t memsize;
-        spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &memsize);
-
-        // Populate with document data for wildcard matching
-        for (size_t i = 0; i < n_docs; ++i) {
-            RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(spec->existingDocs, &rec);
-        }
-
-        // Create wildcard iterator using the existingDocs index
-        iterator = NewInvIndIterator_WildcardQuery(spec->existingDocs, sctx, 1.0);
-    }
-
     void SetupMissingIndex() {
         // Create IndexSpec for TEXT field (missing uses any field type)
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
@@ -514,12 +197,12 @@ private:
 
         // Create a missing field index for the field
         size_t memsize;
-        termIdx = NewInvertedIndex(Index_DocIdsOnly, &memsize);
+        missingIdx = NewInvertedIndex(Index_DocIdsOnly, &memsize);
 
         // Populate with some data (for missing iterator, the content represents what's missing)
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(termIdx, &rec);
+            InvertedIndex_WriteEntryGeneric(missingIdx, &rec);
         }
 
         // For test purposes, we'll add the missing index to the missingFieldDict
@@ -528,24 +211,16 @@ private:
         RS_ASSERT(spec->missingFieldDict != nullptr);
 
         // Use dictAdd which should be available, and check its return value
-        int rc = dictAdd(spec->missingFieldDict, (void*)fs->fieldName, termIdx);
+        int rc = dictAdd(spec->missingFieldDict, (void*)fs->fieldName, missingIdx);
         ASSERT_EQ(rc, DICT_OK) << "dictAdd failed: key already exists or other error";
 
         // Create missing iterator
-        iterator = NewInvIndIterator_MissingQuery(termIdx, sctx, fs->index);
+        iterator = NewInvIndIterator_MissingQuery(missingIdx, sctx, fs->index);
     }
 
 public:
-    bool IsTermIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY;
-    }
-
     bool IsTagIterator() const {
         return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY;
-    }
-
-    bool IsWildcardIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_WILDCARD_QUERY;
     }
 
     bool IsMissingIterator() const {
@@ -553,17 +228,13 @@ public:
     }
 
     bool IsQueryIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_WILDCARD_QUERY ||
+        return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY ||
                GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
     }
 };
 
 INSTANTIATE_TEST_SUITE_P(InvIndIteratorRevalidate, InvIndIteratorRevalidateTest, ::testing::Values(
-    REVALIDATE_INDEX_TYPE_TERM_QUERY,
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
     REVALIDATE_INDEX_TYPE_MISSING_QUERY
 ));
 
@@ -622,8 +293,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
         // be returned by the lookup functions. This simulates the case where the
         // index was garbage collected and recreated.
 
-        if (IsTermIterator() || IsTagIterator() || IsWildcardIterator() || IsMissingIterator()) {
-            // For term and tag iterators, we can simulate index disappearance by
+        if (IsTagIterator() || IsMissingIterator()) {
+            // For tag and missing iterators, we can simulate index disappearance by
             // setting the iterator's idx pointer to a different value than what
             // the lookup would return. This simulates the GC scenario.
             InvIndIterator *invIt = (InvIndIterator *)iterator;

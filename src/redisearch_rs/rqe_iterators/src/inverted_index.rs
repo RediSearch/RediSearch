@@ -9,13 +9,14 @@
 
 //! Supporting types for [`Numeric`] and [`Term`].
 
-use std::{f64, ptr::NonNull};
+use std::ptr::NonNull;
 
-use ffi::{NumericRangeTree, RedisSearchCtx, t_docId};
+use ffi::{NumericRangeTree, RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
-    TermReader, opaque::OpaqueEncoding,
+    RSOffsetSlice, TermReader, opaque::OpaqueEncoding,
 };
+use query_term::RSQueryTerm;
 
 use crate::expiration_checker::{ExpirationChecker, NoOpChecker};
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -491,6 +492,7 @@ where
 /// * `E` - The expiration checker type used to check for expired documents.
 pub struct Term<'index, R, E = NoOpChecker> {
     it: InvIndIterator<'index, R, E>,
+    context: NonNull<RedisSearchCtx>,
 }
 
 impl<'index, R, E> Term<'index, R, E>
@@ -503,12 +505,117 @@ where
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`inverted_index::FilterMaskReader`].
     ///
+    /// `term` is the query term that brought up this iterator. It is stored
+    /// in the result and persists across all reads.
+    ///
+    /// `weight` is the scoring weight applied to the result record. It is
+    /// typically derived from the query node and used by the scoring function
+    /// to scale the relevance of results from this iterator.
+    ///
     /// `expiration_checker` is used to check for expired documents when reading from the inverted index.
-    pub fn new(reader: R, expiration_checker: E) -> Self {
-        let result = RSIndexResult::term();
+    ///
+    /// # Safety
+    ///
+    /// 1. `context` must point to a valid [`RedisSearchCtx`].
+    /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
+    /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
+    pub fn new(
+        reader: R,
+        context: NonNull<RedisSearchCtx>,
+        mut term: Box<RSQueryTerm>,
+        weight: f64,
+        expiration_checker: E,
+    ) -> Self {
+        // Compute IDF scores on the term.
+        // SAFETY: 1. guarantee context is valid.
+        let context_ref = unsafe { context.as_ref() };
+        // SAFETY: 2. guarantee spec is valid.
+        let spec = unsafe { &*context_ref.spec };
+        let total_docs = spec.stats.scoring.numDocuments;
+        let term_docs = reader.unique_docs() as usize;
+        term.idf = idf::calculate_idf(total_docs, term_docs);
+        term.bm25_idf = idf::calculate_idf_bm25(total_docs, term_docs);
+
+        let result =
+            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
+                .weight(weight);
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
+            context,
         }
+    }
+
+    /// Get a reference to the underlying reader.
+    pub const fn reader(&self) -> &R {
+        &self.it.reader
+    }
+
+    /// Get a mutable reference to the underlying reader.
+    ///
+    /// Used by the FFI layer to perform index swaps for revalidation testing.
+    pub const fn reader_mut(&mut self) -> &mut R {
+        &mut self.it.reader
+    }
+
+    /// Check if the iterator should abort revalidation.
+    ///
+    /// The term's inverted index may have been garbage-collected and
+    /// replaced with a new allocation. If the index pointer returned by
+    /// [`ffi::Redis_OpenInvertedIndex`] no longer matches the reader's
+    /// stored index, the iterator must [abort](RQEValidateStatus::Aborted).
+    fn should_abort(&self) -> bool {
+        // SAFETY: 1. and 3. guarantee `context` is valid for the iterator's lifetime.
+        let sctx_ref = unsafe { self.context.as_ref() };
+        // SAFETY: 2. and 3. guarantee `spec` is a valid, non-null pointer for the iterator's lifetime.
+        let spec = unsafe { &*sctx_ref.spec };
+
+        // Skip validation if the spec has no keysDict.
+        // This happens in tests that don't set up a full spec.
+        if spec.keysDict.is_null() {
+            return false;
+        }
+
+        let term = self
+            .it
+            .result
+            .as_term()
+            .expect("Term iterator should always have a term result")
+            .query_term()
+            .expect("Term iterator should always have a query term");
+
+        // SAFETY: `context` is a valid `RedisSearchCtx` (1.) and `term.str_`
+        // is a valid C string with length `term.len`.
+        let idx = unsafe {
+            ffi::Redis_OpenInvertedIndex(
+                self.context.as_ptr(),
+                term.str_,
+                term.len,
+                false,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if idx.is_null() {
+            // The inverted index was collected entirely by GC.
+            return true;
+        }
+
+        // SAFETY: `Redis_OpenInvertedIndex` returned a non-null pointer to a
+        // valid opaque `InvertedIndex`.
+        let opaque = unsafe { &*idx.cast::<inverted_index::opaque::InvertedIndex>() };
+        !self.it.reader.is_same_opaque_index(opaque)
+    }
+}
+
+#[cfg(feature = "unittest")]
+impl<'index, Enc: DecodedBy, E>
+    Term<'index, inverted_index::FilterMaskReader<IndexReaderCore<'index, Enc>>, E>
+{
+    /// Swap the underlying inverted index of the reader.
+    ///
+    /// Used by tests to trigger [revalidation](RQEIterator::revalidate).
+    pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<Enc>) {
+        self.it.reader.swap_index(index);
     }
 }
 
@@ -557,6 +664,10 @@ where
 
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if self.should_abort() {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
         self.it.revalidate()
     }
 }
@@ -648,6 +759,13 @@ where
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader
+    }
+
+    /// Swap the underlying inverted index of the reader.
+    ///
+    /// Used by C tests to trigger [revalidation](RQEIterator::revalidate).
+    pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<E>) {
+        self.it.reader.swap_index(index);
     }
 }
 

@@ -8,7 +8,10 @@
 */
 
 use super::{IndexReader, IndexReaderCore, TermReader};
-use crate::{DecodedBy, Decoder, InvertedIndex, RSIndexResult, TermDecoder};
+use crate::{
+    DecodedBy, Decoder, HasInnerIndex, InvertedIndex, RSIndexResult, TermDecoder,
+    opaque::OpaqueEncoding,
+};
 use ffi::{IndexFlags, t_docId, t_fieldMask};
 
 /// A reader that filters out records that do not match a given field mask. It is used to
@@ -118,7 +121,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader
 }
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder + TermDecoder> TermReader<'index>
-    for FilterMaskReader<IndexReaderCore<'index, E>>
+impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+    TermReader<'index> for FilterMaskReader<IndexReaderCore<'index, E>>
+where
+    E::Storage: HasInnerIndex<E>,
 {
+    fn is_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
+        self.inner.is_same_opaque_index(opaque)
+    }
 }
