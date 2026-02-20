@@ -93,6 +93,248 @@ Consider a top-10 query where the 10th-best document so far has score 5.0 (our t
 
 This is why storing **per-term, per-block** metadata is valuable: it allows fine-grained skipping decisions even when the final score depends on multiple terms.
 
+### Iterator Types and Scoring Contribution
+
+A query tree in RediSearch consists of various iterator types, each with a specific role in scoring. Understanding how each iterator contributes to the final score is essential for designing the block-max optimization correctly.
+
+#### Iterator Type Summary
+
+| Iterator Type | Scoring Contribution | Block-Max Optimization Applicability |
+|---------------|---------------------|--------------------------------------|
+| **Term** | Provides TF, field mask, offsets → TF-IDF/BM25 scoring | ✅ **Primary target** |
+| **Numeric** | Provides numeric values for filtering/sorting | ❌ No TF-based scoring |
+| **Tag** | Binary match (present/absent) | ❌ No TF data stored |
+| **Union** | Aggregates children's scores (sum) | ✅ Can leverage children's block-max |
+| **Intersection** | Aggregates children's scores (sum) | ✅ Can leverage children's block-max |
+| **Optional** | Weighted contribution when matched | ⚠️ Partial (virtual hits have no contribution) |
+| **Not** | Yields virtual results (negation) | ❌ No scoring contribution |
+| **Hybrid** | Combines vector distance with text scores | ⚠️ Vector scoring is separate |
+| **Wildcard** | Matches all existing documents | ❌ No TF data |
+| **IdList** | Explicit document ID list | ❌ No TF data |
+| **Metric** | Vector distance/similarity scores | ❌ Different scoring model |
+| **Profile** | Transparent wrapper for profiling | N/A (delegates to child) |
+| **Optimus** | Optimizer for SORTBY numeric | ⚠️ Special case |
+
+#### Detailed Analysis by Iterator Type
+
+##### Term Iterator (`INV_IDX_TERM_ITERATOR`)
+
+The Term iterator is the **primary beneficiary** of block-max score optimization.
+
+**Scoring contribution:**
+- Reads term frequency (TF) from the inverted index
+- Contributes to TF-IDF: `(TF / DocLen) × IDF × DocScore`
+- Contributes to BM25: `IDF × ((TF × (k₁ + 1)) / (TF + k₁ × (1 - b + b × DocLen/avgDocLen))) × DocScore`
+
+**Block-max optimization:**
+- Store `max_freq`, `min_doc_len`, `max_doc_score` per block
+- Compute upper bound using the scorer's formula
+- Skip blocks where `BlockMaxScore < threshold`
+
+```
+Block skipping condition: BlockMaxScore(term, block) < currentMinScore
+```
+
+##### Numeric Iterator (`INV_IDX_NUMERIC_ITERATOR`)
+
+**Scoring contribution:**
+- Stores numeric values, not term frequencies
+- Used for range queries (`@price:[100 200]`) and SORTBY
+- Does **not** contribute to text-relevance scoring
+
+**Block-max optimization:**
+- Not applicable for TF-based scoring
+- Could theoretically support value-based skipping for SORTBY queries (future work)
+- Returns `f64::MAX` for block-max score (never skip based on score)
+
+##### Tag Iterator (`INV_IDX_TAG_ITERATOR`)
+
+**Scoring contribution:**
+- Binary match semantics (document has tag or doesn't)
+- No term frequency stored (DocIdsOnly encoding)
+- Does **not** contribute to TF-based scoring
+
+**Block-max optimization:**
+- Not applicable—no TF metadata to track
+- Returns `f64::MAX` for block-max score (never skip based on score)
+
+##### Union Iterator (`UNION_ITERATOR`)
+
+The Union iterator implements OR semantics and **aggregates scores from all matching children**.
+
+**Scoring contribution:**
+- Final score = Σ (child contributions for matching terms)
+- Maintains an `RSAggregateResult` that collects child results
+- Each child's score is weighted and summed
+
+**Block-max optimization:**
+- Can compute an upper bound by summing children's block-max scores:
+  ```
+  UnionBlockMaxScore = Σ max(child_i.BlockMaxScore)
+  ```
+- However, this requires coordination across children's current block positions
+- **Implementation approach:** Track cumulative upper bounds as children advance
+
+**Example:**
+```
+Query: redis | database | cache
+Children's current block max scores: [0.5, 0.8, 0.3]
+Union upper bound = 0.5 + 0.8 + 0.3 = 1.6
+If threshold = 2.0, can skip this combination of blocks
+```
+
+##### Intersection Iterator (`INTERSECT_ITERATOR`)
+
+The Intersection iterator implements AND semantics and **aggregates scores from all matching children**.
+
+**Scoring contribution:**
+- Only documents matching ALL children are returned
+- Final score = Σ (child contributions)
+- Each child must contribute a score for the document
+
+**Block-max optimization:**
+- Similar to Union: sum of children's block-max scores gives upper bound
+- But Intersection has an additional optimization opportunity:
+  - Since ALL children must match, we can skip ahead more aggressively
+  - If the *sum* of all children's best possible contributions is below threshold, skip
+
+**Implementation approach:**
+```
+IntersectionBlockMaxScore = Σ child_i.BlockMaxScore(current_block)
+If IntersectionBlockMaxScore < threshold:
+    Advance to next block combination where bound might exceed threshold
+```
+
+##### Optional Iterator (`OPTIONAL_ITERATOR`)
+
+The Optional iterator implements the `~` operator—documents get a boost if they match, but don't require it.
+
+**Scoring contribution:**
+- **Real hit:** Child matched → child's score × weight is added
+- **Virtual hit:** Child didn't match → contributes 0 (or minimal weight)
+- Uses the `weight` parameter to scale contribution
+
+**Block-max optimization:**
+- For real hits: child's block-max optimization applies
+- For virtual hits: no contribution to skip
+- **Complication:** Cannot know in advance which documents will be real vs. virtual hits
+- **Conservative approach:** Assume all could be real hits; use child's block-max as upper bound
+
+```
+OptionalBlockMaxScore = child.BlockMaxScore × weight
+// But only contributes when child actually matches
+```
+
+##### Not Iterator (`NOT_ITERATOR`)
+
+The Not iterator implements negation—returns documents that do NOT match the child.
+
+**Scoring contribution:**
+- Yields **virtual results** with zero term contribution
+- Sets `freq = 0` on the virtual result
+- Does not contribute to TF-based scoring (negative terms don't boost scores)
+- May have a weight, but it doesn't affect document ranking positively
+
+**Block-max optimization:**
+- Not applicable—negated terms don't contribute scores to optimize
+- The iterator's job is exclusion, not scoring
+- Parent iterators treat NOT children as filters, not score contributors
+
+##### Hybrid Iterator (`HYBRID_ITERATOR`)
+
+The Hybrid iterator combines vector similarity search with text filtering.
+
+**Scoring contribution:**
+- **Vector component:** Distance/similarity score from KNN search
+- **Text component:** Scores from the text filter (child iterator)
+- Final ranking typically uses vector score; text is for filtering
+
+**Block-max optimization:**
+- Text child: block-max applies for the filtering stage
+- Vector scores: computed separately via VecSim, not using block metadata
+- **Limited applicability:** Vector distances don't use TF-IDF/BM25 formulas
+
+##### Wildcard Iterator (`WILDCARD_ITERATOR` / `INV_IDX_WILDCARD_ITERATOR`)
+
+**Scoring contribution:**
+- Matches all existing documents (or a range of doc IDs)
+- No term frequency—every document is a "match"
+- Returns virtual results with minimal contribution
+
+**Block-max optimization:**
+- Not applicable—no meaningful score variation to exploit
+- Returns `f64::MAX` for block-max (all blocks potentially needed)
+
+##### IdList Iterator (`ID_LIST_SORTED_ITERATOR` / `ID_LIST_UNSORTED_ITERATOR`)
+
+**Scoring contribution:**
+- Iterates over an explicit list of document IDs
+- Used for GEO queries, explicit ID filters, etc.
+- No term frequency or scoring metadata
+
+**Block-max optimization:**
+- Not applicable—no TF data to compute bounds from
+- Returns `f64::MAX` for block-max score
+
+##### Metric Iterator (`METRIC_SORTED_BY_ID_ITERATOR` / `METRIC_SORTED_BY_SCORE_ITERATOR`)
+
+**Scoring contribution:**
+- Carries vector distance/similarity scores
+- Provides metric values (e.g., cosine similarity, L2 distance)
+- Different scoring model than TF-IDF/BM25
+
+**Block-max optimization:**
+- Not applicable for TF-based optimization
+- Could theoretically support metric-based skipping (e.g., skip if best distance > threshold)
+- Future work: metric-aware block skipping
+
+#### Block-Max Optimization Across Query Tree
+
+For complex queries with multiple iterator types, the optimization propagates through the tree:
+
+```
+Query: (@title:redis @body:database) | ~@tags:{cache} -@status:{archived}
+
+Tree structure:
+  Union (quickExit=false)
+  ├── Intersection
+  │   ├── Term("title:redis")     ← block-max applies ✅
+  │   └── Term("body:database")   ← block-max applies ✅
+  ├── Optional
+  │   └── Tag("tags:cache")       ← no TF data ❌
+  └── Not
+      └── Tag("status:archived")  ← no scoring contribution ❌
+
+Optimization opportunities:
+1. Term iterators can skip low-scoring blocks
+2. Intersection can compute combined upper bound from both Term children
+3. Union can sum upper bounds from Intersection + Optional paths
+4. Optional/Not children don't contribute TF-based bounds
+```
+
+**Score computation at Union:**
+```
+MaxPossibleScore = Intersection.BlockMaxScore + Optional.weight × Tag.BlockMaxScore
+                 = (Term₁.BMS + Term₂.BMS) + weight × 0  // Tag has no TF
+                 = Term₁.BMS + Term₂.BMS
+```
+
+#### Threshold Propagation (Core Requirement)
+
+For block-max optimization to work, the current `minScore` threshold must be passed down the iterator tree so children can make skipping decisions. This is implemented via the `read_with_min_score` API:
+
+- **Top-level caller** (e.g., result processor) maintains the current minimum score from the top-K heap
+- **Composite iterators** (Union, Intersection) propagate the threshold to children when calling `read_with_min_score`
+- **Leaf iterators** (Term) use the threshold to skip blocks where `BlockMaxScore < threshold`
+
+This is not an optional optimization—without threshold propagation, child iterators have no information to make skipping decisions.
+
+#### Future Enhancements
+
+1. **Metric-aware skipping:** For Metric iterators, skip results where best possible metric value can't improve ranking
+2. **Numeric range optimization:** For Numeric iterators with SORTBY, skip blocks outside the value range of interest
+3. **Compound block tracking:** For Union/Intersection, maintain coordinated block positions to enable joint skipping decisions
+
 ## Proposed Design
 
 ### New Block Metadata
