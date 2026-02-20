@@ -13,6 +13,7 @@ mod geo;
 mod numeric;
 
 use crate::RSIndexResult;
+use crate::block_max_score::BlockScorer;
 use ffi::{IndexFlags, t_docId, t_fieldMask};
 
 pub use self::core::*;
@@ -57,6 +58,14 @@ pub trait IndexReader<'index> {
 
     /// Refresh buffer pointers in case blocks were reallocated without GC changes
     fn refresh_buffer_pointers(&mut self);
+
+    /// Get the maximum possible score for any document in the current block.
+    /// Uses the provided scorer to compute the score based on block metadata.
+    fn current_block_max_score(&self, scorer: &BlockScorer) -> f64;
+
+    /// Advance to the next block whose max score is >= min_score.
+    /// Returns true if such a block was found, false if end of index was reached.
+    fn advance_to_next_promising_block(&mut self, min_score: f64, scorer: &BlockScorer) -> bool;
 }
 
 /// Marker trait for readers producing numeric values.

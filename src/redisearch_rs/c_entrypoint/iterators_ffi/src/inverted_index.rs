@@ -99,6 +99,33 @@ impl<'index> IndexReader<'index> for NumericIndexReader<'index> {
             NumericIndexReader::Compressed(reader) => reader.refresh_buffer_pointers(),
         }
     }
+
+    #[inline(always)]
+    fn current_block_max_score(
+        &self,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> f64 {
+        match self {
+            NumericIndexReader::Uncompressed(reader) => reader.current_block_max_score(scorer),
+            NumericIndexReader::Compressed(reader) => reader.current_block_max_score(scorer),
+        }
+    }
+
+    #[inline(always)]
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> bool {
+        match self {
+            NumericIndexReader::Uncompressed(reader) => {
+                reader.advance_to_next_promising_block(min_score, scorer)
+            }
+            NumericIndexReader::Compressed(reader) => {
+                reader.advance_to_next_promising_block(min_score, scorer)
+            }
+        }
+    }
 }
 
 impl<'index> NumericReader<'index> for NumericIndexReader<'index> {}

@@ -946,6 +946,7 @@ dependencies = [
  "inverted_index",
  "itertools 0.14.0",
  "query_term",
+ "rand",
  "redis-module",
  "redis_mock",
  "workspace_hack",

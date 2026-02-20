@@ -12,6 +12,7 @@
 use std::{f64, ptr::NonNull};
 
 use ffi::{NumericRangeTree, RedisSearchCtx, t_docId};
+use inverted_index::block_max_score::BlockScorer;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
     TermReader, opaque::OpaqueEncoding,
@@ -316,6 +317,31 @@ where
 
         Ok(res)
     }
+
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.at_eos {
+            return Ok(None);
+        }
+
+        // Check if current block's max score is below threshold
+        // If so, skip to the next promising block
+        if self.reader.current_block_max_score(scorer) < min_score
+            && !self
+                .reader
+                .advance_to_next_promising_block(min_score, scorer)
+        {
+            self.at_eos = true;
+            return Ok(None);
+        }
+
+        // Now read using the normal read implementation
+        // Note: We use the read_impl function pointer to handle expiration/multi-value logic
+        (self.read_impl)(self)
+    }
 }
 
 /// An iterator over numeric inverted index entries.
@@ -478,6 +504,15 @@ where
 
         self.it.revalidate()
     }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
+    }
 }
 
 /// An iterator over term inverted index entries.
@@ -558,6 +593,15 @@ where
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
     }
 }
 

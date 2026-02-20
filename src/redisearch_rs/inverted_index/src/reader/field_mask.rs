@@ -91,6 +91,19 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     fn refresh_buffer_pointers(&mut self) {
         self.inner.refresh_buffer_pointers();
     }
+
+    fn current_block_max_score(&self, scorer: &crate::block_max_score::BlockScorer) -> f64 {
+        self.inner.current_block_max_score(scorer)
+    }
+
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &crate::block_max_score::BlockScorer,
+    ) -> bool {
+        self.inner
+            .advance_to_next_promising_block(min_score, scorer)
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReaderCore<'index, E>> {

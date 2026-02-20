@@ -166,6 +166,31 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             self.current_buffer.set_position(position);
         }
     }
+
+    fn current_block_max_score(&self, scorer: &crate::block_max_score::BlockScorer) -> f64 {
+        if self.current_block_idx >= self.ii.blocks.len() {
+            return 0.0;
+        }
+        let block = &self.ii.blocks[self.current_block_idx];
+        scorer.block_max_score(block)
+    }
+
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &crate::block_max_score::BlockScorer,
+    ) -> bool {
+        // Advance through blocks until we find one with max_score >= min_score
+        while self.current_block_idx + 1 < self.ii.blocks.len() {
+            self.set_current_block(self.current_block_idx + 1);
+            let block = &self.ii.blocks[self.current_block_idx];
+            if scorer.block_max_score(block) >= min_score {
+                return true;
+            }
+        }
+        // No more blocks with sufficient score
+        false
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
@@ -206,6 +231,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
     /// Get the internal index of the reader. This is only used by some C tests.
     pub const fn internal_index(&self) -> &InvertedIndex<E> {
         self.ii
+    }
+
+    /// Get the current block index. Used for benchmarking and debugging.
+    pub const fn current_block_index(&self) -> usize {
+        self.current_block_idx
     }
 
     /// Set the current active block to the given index

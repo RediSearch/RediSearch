@@ -231,4 +231,25 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
             Self::Compressed(r) => r.refresh_buffer_pointers(),
         }
     }
+
+    fn current_block_max_score(
+        &self,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> f64 {
+        match self {
+            Self::Uncompressed(r) => r.current_block_max_score(scorer),
+            Self::Compressed(r) => r.current_block_max_score(scorer),
+        }
+    }
+
+    fn advance_to_next_promising_block(
+        &mut self,
+        min_score: f64,
+        scorer: &inverted_index::block_max_score::BlockScorer,
+    ) -> bool {
+        match self {
+            Self::Uncompressed(r) => r.advance_to_next_promising_block(min_score, scorer),
+            Self::Compressed(r) => r.advance_to_next_promising_block(min_score, scorer),
+        }
+    }
 }
