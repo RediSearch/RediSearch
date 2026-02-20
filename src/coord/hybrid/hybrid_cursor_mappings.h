@@ -50,7 +50,7 @@ typedef struct HybridRequest HybridRequest;
  * @param vsimMappings Empty array to populate with vector similarity cursor mappings
  * @param status QueryError pointer to store warning/error information
  * @param oomPolicy OOM policy to determine error handling behavior
- * @param hreq HybridRequest pointer to store warnings for each subquery (can be NULL)
+ * @param hreq HybridRequest pointer to store warnings for each subquery
  * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
  */
 bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, HybridRequest *hreq);

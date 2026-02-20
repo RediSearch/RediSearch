@@ -426,12 +426,12 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       // Check for timeout warning
       if (subQueryReturnCode == RS_RESULT_TIMEDOUT) {
         QueryWarningCode code = isSearch ? QUERY_WARNING_CODE_TIMED_OUT_SEARCH : QUERY_WARNING_CODE_TIMED_OUT_VSIM;
-        RedisModule_Reply_SimpleString(reply, QueryWarning_Strerror(code));
+        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(code));
       }
       // Check for max prefix expansions warning
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
         QueryWarningCode code = isSearch ? QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_SEARCH : QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS_VSIM;
-        RedisModule_Reply_SimpleString(reply, QueryWarning_Strerror(code));
+        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(code));
       }
     }
     RedisModule_Reply_ArrayEnd(reply); // ~warnings

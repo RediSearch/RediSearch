@@ -195,15 +195,6 @@ bool QueryError_HasError(const struct QueryError *query_error);
 const char *QueryError_Strerror(uint8_t maybe_code);
 
 /**
- * Returns a human-readable string representing the provided [`QueryWarningCode`].
- *
- * This function should always return without a panic for any value provided.
- * It is unique among the `QueryWarningCode_*` API as the only function which allows
- * an invalid [`QueryWarningCode`] to be provided.
- */
-const char *QueryWarning_Strerror(uint8_t maybe_code);
-
-/**
  * Returns only the error prefix string for a [`QueryErrorCode`] (e.g. `"SEARCH_TIMEOUT: "`).
  *
  * Returns an empty string for `Ok` and `"Unknown status code"` for invalid codes.
