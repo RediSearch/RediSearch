@@ -14,6 +14,7 @@
 #include "thpool/thpool.h"
 #include "util/references.h"
 #include "rs_wall_clock.h"
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
