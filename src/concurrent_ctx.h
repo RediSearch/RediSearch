@@ -50,6 +50,7 @@ typedef struct ConcurrentSearchHandlerCtx {
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   WeakRef spec_ref;                   // Weak reference to the index spec
   bool isProfile;                     // Whether this is an FT.PROFILE command
+  size_t numShards;                   // Number of shards in the cluster (captured from main thread)
 } ConcurrentSearchHandlerCtx;
 
 #define CMDCTX_KEEP_RCTX 0x01
@@ -72,6 +73,9 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(struct ConcurrentCmdCtx *cctx);
 
 // Returns the coordinator start time held in the context.
 rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(struct ConcurrentCmdCtx *cctx);
+
+// Returns the number of shards captured from the main thread.
+size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
