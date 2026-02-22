@@ -1,5 +1,5 @@
 use ffi::{Obfuscate_Number, Obfuscate_Text};
-use ffi::{sds, sdscat, sdscatfmt, sdscatlen, sdscatprintf};
+use ffi::{sds, sdscat, sdscatlen};
 use value::RsValue;
 
 #[unsafe(no_mangle)]
@@ -19,7 +19,9 @@ fn dump_sds(value: &RsValue, mut s: sds, obfuscate: bool) -> sds {
                 // SAFETY: `Obfuscate_Number` returns a valid static C string.
                 unsafe { sdscat(s, Obfuscate_Number(*num)) }
             } else {
-                num_to_sds(s, *num)
+                let mut buf = [0; 32];
+                let n = value::util::num_to_str(*num, &mut buf).unwrap();
+                unsafe { sdscatlen(s, buf.as_ptr().cast(), n) }
             }
         }
         RsValue::String(str) => {
@@ -82,16 +84,5 @@ fn dump_sds(value: &RsValue, mut s: sds, obfuscate: bool) -> sds {
         }
         RsValue::Ref(ref_value) => dump_sds(ref_value.value(), s, obfuscate),
         RsValue::Trio(trio) => dump_sds(trio.left().value(), s, obfuscate),
-    }
-}
-
-fn num_to_sds(s: sds, num: f64) -> sds {
-    let ll = num as i64;
-    if ll as f64 == num {
-        // SAFETY: `sdscatfmt` with `%I` expects a 64-bit signed integer.
-        unsafe { sdscatfmt(s, c"%I".as_ptr(), ll) }
-    } else {
-        // SAFETY: `sdscatprintf` with `%.12g` expects a double.
-        unsafe { sdscatprintf(s, c"%.12g".as_ptr(), num) }
     }
 }
