@@ -38,7 +38,7 @@ def get_expected(env, query, query_type: str = 'FT.SEARCH', protocol=2):
 def query_shards(env, query, shards, expected, query_type: str = 'FT.SEARCH'):
     if query_type == 'FT.HYBRID':
         return query_shards_hybrid(env, query, shards, expected)
-    elif query_type == 'FT.AGGREGATE':
+    elif query_type == 'FT.AGGREGATE' or query_type == 'FT.AGGREGATE.KNN':
         return query_shards_ft_aggregate(env, query, shards, expected)
     elif query_type == 'FT.AGGREGATE.WITHCURSOR':
         return query_shards_ft_aggregate_withcursor(env, query, shards, expected)
@@ -476,6 +476,15 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
     elif query_type == 'FT.AGGREGATE.WITHCURSOR':
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n', 'WITHCURSOR', 'COUNT', 10)
+    elif query_type == 'FT.AGGREGATE.KNN':
+        # FT.AGGREGATE with KNN - more complex query with APPLY and LOAD to test if the race condition affects it too
+        query_vector = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32).tobytes()
+        query = ('FT.AGGREGATE', 'idx', f'@n:[69 1420]=>[KNN {n_docs} @vector $BLOB]',
+                'LOAD', 4, '@n', '@text', '@__vector_score', '@tag',
+                'APPLY', '@n * 2', 'AS', 'n_doubled',
+                'APPLY', '@__vector_score + 1', 'AS', 'score_plus_one',
+                'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs,
+                'PARAMS', 2, 'BLOB', query_vector)
     elif query_type == 'FT.HYBRID':
         # Create a 10-dimensional query vector for hybrid search
         random_words_to_query = " ".join(random.sample(RANDOM_WORDS, min(3, len(RANDOM_WORDS))))
@@ -556,16 +565,12 @@ def test_ft_aggregate_withcursor_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID')
@@ -601,16 +606,24 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_knn_import_slot_range_parallel_updates():
+    """FT.AGGREGATE with KNN - tests if the race condition affects complex aggregate queries"""
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.AGGREGATE.KNN', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_knn_import_slot_range_parallel_updates_BG():
+    """FT.AGGREGATE with KNN in background mode - tests if the race condition affects complex aggregate queries"""
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.AGGREGATE.KNN', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
@@ -645,16 +658,12 @@ def test_ft_aggregate_withcursor_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.HYBRID')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.HYBRID')
@@ -734,16 +743,12 @@ def test_add_shard_and_migrate_aggregate_withcursor_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.HYBRID')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.HYBRID')
