@@ -82,7 +82,6 @@
 #include "asm_state_machine.h"
 #include "search_disk_utils.h"
 #include "config.h"
-#include "coord/coord_request_ctx.h"
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // for usleep in coordinator reduce pause
 #endif

@@ -13,7 +13,6 @@
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
-#include <string.h>
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -50,6 +49,7 @@ typedef struct ConcurrentCmdCtx {
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
+  rs_wall_clock_ms_t queryTimeout;    // Query timeout in milliseconds
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -111,6 +111,10 @@ RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(ConcurrentCmdCtx *cc
   return cctx->bc;
 }
 
+rs_wall_clock_ms_t ConcurrentCmdCtx_GetQueryTimeout(ConcurrentCmdCtx *cctx) {
+  return cctx->queryTimeout;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
@@ -129,6 +133,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   cmdCtx->spec_ref = handlerCtx->spec_ref;
   cmdCtx->coordStartTime = handlerCtx->coordStartTime;
   cmdCtx->numShards = handlerCtx->numShards;
+  cmdCtx->queryTimeout = handlerCtx->bcCtx.timeoutMS;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;

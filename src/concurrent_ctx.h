@@ -14,6 +14,7 @@
 #include "thpool/thpool.h"
 #include "util/references.h"
 #include "rs_wall_clock.h"
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -96,6 +97,9 @@ size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
 
 // Returns the blocked client held in the context.
 RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmdCtx *cctx);
+
+// Returns the query timeout held in the context.
+rs_wall_clock_ms_t ConcurrentCmdCtx_GetQueryTimeout(struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,

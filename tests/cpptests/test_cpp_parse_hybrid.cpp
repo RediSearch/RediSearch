@@ -195,8 +195,11 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
 
-TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
-  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+TEST_F(ParseHybridTest, testTimeoutIsNoOp) {
+  // TIMEOUT is parsed in the main thread to support blocked client timeout.
+  // The parser recognizes TIMEOUT but ignores it (no-op). This test verifies:
+  // 1. TIMEOUT argument is recognized and doesn't cause "unexpected argument" error
+  // 2. TIMEOUT value doesn't affect the subrequests (uses global default instead)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "TIMEOUT", "240");
 
   parseCommand(args);
@@ -204,9 +207,10 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // Verify default scoring type is RRF
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
-  // Verify timeout is set correctly
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 240);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 240);
+  // TIMEOUT is a no-op in the parser - subrequests use global default (500ms)
+  // The actual timeout is set by main thread before background parsing
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 500);
 
   // Verify dialect is set correctly
   ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
