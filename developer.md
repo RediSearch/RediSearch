@@ -4,14 +4,14 @@
 
 Clone RediSearch with all its git submodule dependencies:
 
-```bash
+```sh
 git clone --recursive https://github.com/RediSearch/RediSearch.git
 cd RediSearch
 ```
 
 If you already cloned without `--recursive`, initialize the submodules:
 
-```bash
+```sh
 git submodule update --init --recursive
 ```
 
@@ -30,7 +30,7 @@ Building and testing RediSearch requires the following dependencies:
 
 Install all required build tools using the provided scripts:
 
-```bash
+```sh
 cd .install
 ./install_script.sh
 cd ..
@@ -44,13 +44,13 @@ Extra dependencies not yet installed through the install script is `nextest`.
 
 If you have `cargo-binstall` available, install it with:
 
-```bash
+```sh
 cargo binstall cargo-nextest --secure
 ```
 
 Or:
 
-```bash
+```sh
 cargo install cargo-nextest --locked
 ```
 
@@ -62,7 +62,7 @@ A dev container based on `ubuntu:latest` is available with all dependencies pre-
 
 If you prefer Nix, skip the install scripts and start a development environment:
 
-```bash
+```sh
 nix develop github:chesedo/redisearch-nix-env
 ```
 
@@ -70,7 +70,7 @@ This also builds Redis from source and includes Python test dependencies.
 
 To run the coverage tests, you’ll need nightly Rust. You can get that here
 
-```bash
+```sh
 nix develop github:chesedo/redisearch-nix-env#nightly
 ```
 
@@ -78,7 +78,7 @@ nix develop github:chesedo/redisearch-nix-env#nightly
 
 RediSearch requires `redis-server` in your PATH. We recommend building Redis from source since RediSearch `master` often requires unreleased features:
 
-```bash
+```sh
 git clone https://github.com/redis/redis.git
 cd redis
 make
@@ -92,31 +92,31 @@ RediSearch has two main CLIs at the moment the (old, legacy) `MAKEFILE` and the 
 
 Do a regular build (with release optimizations):
 
-```bash
+```sh
 ./build.sh
 ```
 
 Build in debug mode:
 
-```bash
+```sh
 ./build.sh DEBUG
 ```
 
 Force a fresh rebuild (useful after switching branches):
 
-```bash
+```sh
 ./build.sh FORCE
 ```
 
 Build including test binaries:
 
-```bash
+```sh
 ./build.sh TESTS
 ```
 
 Build flags can also be combined, e.g:
 
-```bash
+```sh
 ./build.sh TESTS FORCE
 ```
 
@@ -131,7 +131,7 @@ bin/<target>-<release|debug>/search-community/redisearch.so
 
 Build and run C/C++ unit tests:
 
-```bash
+```sh
 ./build.sh RUN_UNIT_TESTS
 ```
 
@@ -139,13 +139,13 @@ Build and run C/C++ unit tests:
 
 Build and run Rust tests:
 
-```bash
+```sh
 ./build.sh RUN_RUST_TESTS
 ```
 
 For Rust coverage tests, install the nightly toolchain first:
 
-```bash
+```sh
 rustup toolchain install nightly \
     --allow-downgrade \
     --component llvm-tools-preview \
@@ -166,7 +166,7 @@ cargo +nightly miri setup
 
 Install `uv` (a fast Python package manager):
 
-```bash
+```sh
 # macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
@@ -176,14 +176,14 @@ pip install uv
 
 Create and activate a virtual environment:
 
-```bash
+```sh
 uv venv --seed
 source .venv/bin/activate
 ```
 
 Install test dependencies:
 
-```bash
+```sh
 uv sync --locked --all-packages
 ```
 
@@ -191,7 +191,7 @@ uv sync --locked --all-packages
 
 With the virtual environment activated:
 
-```bash
+```sh
 # Run all Python tests
 ./build.sh RUN_PYTEST
 
@@ -206,13 +206,13 @@ With the virtual environment activated:
 
 Some tests require RedisJSON. To skip them:
 
-```bash
+```sh
 ./build.sh RUN_PYTEST REJSON=0
 ```
 
 Or specify a path to an existing RedisJSON module:
 
-```bash
+```sh
 ./build.sh RUN_PYTEST REJSON_PATH=/path/to/redisjson.so
 ```
 
@@ -220,7 +220,7 @@ Or specify a path to an existing RedisJSON module:
 
 To build and run all tests (unit, Rust, and integration):
 
-```bash
+```sh
 ./build.sh RUN_TESTS
 ```
 
@@ -228,7 +228,7 @@ To build and run all tests (unit, Rust, and integration):
 
 Currently address sanitizer is supported (Linux only). To run the tests with address sanitizer you can use the following command:
 
-```bash
+```sh
 ./build.sh RUN_TESTS SAN=address
 ```
 
@@ -244,7 +244,7 @@ C++ Unit tests use the [Google Test Framework](https://github.com/google/googlet
 
 Run a specific C++ test:
 
-```bash
+```sh
 bin/<your target>-<release or debug>/search-community/tests/cpptests/rstest --gtest_filter <test name>
 ```
 
@@ -267,7 +267,7 @@ To start the external redis-server instance:
 
 2. Start redis using this configuration under lldb/gdb:
    
-   ```bash
+   ```sh
    lldb redis-server redis.conf
    # or
    gdb redis-server redis.conf
@@ -277,13 +277,13 @@ To start the external redis-server instance:
 
 4. Run the integration tests:
    
-   ```bash
+   ```sh
    ./build.sh RUN_PYTEST EXT=1 TEST=<name of the test>
    ```
 
 ## Benchmarking RediSearch
 
-```bash
+```sh
 PATH=$PATH:~/GitHub/RediSearch/bench_tools redisbench-admin run-local \
     --module_path ~/GitHub/RediSearch/bin/macos-aarch64-debug/search-community/redisearch.so \
     --required-module search \
