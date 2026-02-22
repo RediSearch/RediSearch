@@ -38,6 +38,22 @@ cd ..
 
 This uses your system's native package manager (apt, yum, homebrew, etc.).
 
+#### nextest
+
+Extra dependencies not yet installed through the install script is `nextest`.
+
+If you have `cargo-binstall` available, install it with:
+
+```bash
+cargo binstall cargo-nextest --secure
+```
+
+Or:
+
+```bash
+cargo install cargo-nextest --locked
+```
+
 ### Alternative: Dev Container
 
 A dev container based on `ubuntu:latest` is available with all dependencies pre-installed. Open the repository in VS Code with the Dev Containers extension, and it will set up the environment automatically.
