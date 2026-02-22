@@ -88,7 +88,7 @@ cd ..
 
 ## Building the Project
 
-RediSearch has two main CLIs at the moment the (old, legacy) `MAKEFILE` and the new preferred `build.sh` file. You will sometimes see the redis team share commands using old CLI for particular things that the new CLI might not be capable of yet. We will however only use the new CLI in this guide.
+RediSearch has two main CLIs at the moment the (old, legacy) `MAKEFILE` and the new preferred `build.sh` file. (The old `MAKEFILE` invokes `./build.sh` for all its actions)
 
 Do a regular build (with release optimizations):
 
