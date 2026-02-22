@@ -90,18 +90,34 @@ cd ..
 
 RediSearch has two main CLIs at the moment the (old, legacy) `MAKEFILE` and the new preferred `build.sh` file. You will sometimes see the redis team share commands using old CLI for particular things that the new CLI might not be capable of yet. We will however only use the new CLI in this guide.
 
+Do a regular build (with release optimizations):
+
 ```bash
-# Build with release optimizations
 ./build.sh
+```
 
-# Build in debug mode
+Build in debug mode:
+
+```bash
 ./build.sh DEBUG
+```
 
-# Force a fresh rebuild (useful after switching branches)
+Force a fresh rebuild (useful after switching branches):
+
+```bash
 ./build.sh FORCE
+```
 
-# Build including test binaries
+Build including test binaries:
+
+```bash
 ./build.sh TESTS
+```
+
+Build flags can also be combined, e.g:
+
+```bash
+./build.sh TESTS FORCE
 ```
 
 The compiled module is located at:
