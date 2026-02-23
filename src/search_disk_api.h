@@ -158,9 +158,9 @@ typedef struct IndexDiskAPI {
    * to update in-memory structures via FFI calls to the provided C IndexSpec.
    *
    * @param index Pointer to the disk index
-   * @param c_index_spec Opaque pointer to the C IndexSpec (used for FFI callbacks)
+   * @param user_data Opaque pointer to the C IndexSpec (used for FFI callbacks)
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index, void *spec);
+  void (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

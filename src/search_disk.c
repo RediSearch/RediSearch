@@ -123,9 +123,9 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *user_data) {
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index);
-    disk->index.runGC(index, user_data);
+    disk->index.runGC(index, spec);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {

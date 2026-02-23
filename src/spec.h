@@ -788,8 +788,8 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
  * @param term_len Length of term in bytes
  * @param doc_count_decrement Number of documents to decrement from the term's count
  */
-void IndexSpec_UpdateTrieTerm(IndexSpec* sp, const char* term, size_t term_len,
-                               size_t doc_count_decrement);
+void IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+                                      size_t doc_count_decrement);
 
 /**
  * @brief Update IndexScoringStats based on the number of terms removed
@@ -797,7 +797,7 @@ void IndexSpec_UpdateTrieTerm(IndexSpec* sp, const char* term, size_t term_len,
  * @param sp Pointer to the IndexSpec
  * @param num_terms_removed Number of terms that became empty during compaction
  */
-void IndexSpec_UpdateScoringStats(IndexSpec* sp, uint64_t num_terms_removed);
+void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed);
 
 #ifdef __cplusplus
 }
