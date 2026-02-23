@@ -93,7 +93,7 @@ impl<'a> KeyList<'a> {
         self.rowlen += 1;
 
         #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push after");
+        self.assert_valid("KeyList::push_after");
 
         // Safety: we have allocated the memory above, this pointer is safe to dereference.
         let key = unsafe { ptr.as_mut() };
@@ -168,22 +168,22 @@ impl<'a> KeyList<'a> {
         let Some(head) = self.head else {
             assert!(
                 self.tail.is_none(),
-                "{ctx}if the linked list's head is null, the tail must also be null"
+                "{ctx} - if the linked list's head is null, the tail must also be null"
             );
             assert_eq!(
                 self.rowlen, 0,
-                "{ctx}if a linked list's head is null, its length must be 0"
+                "{ctx} - if a linked list's head is null, its length must be 0"
             );
             return;
         };
 
         assert_ne!(
             self.rowlen, 0,
-            "{ctx}if a linked list's head is not null, its length must be greater than 0"
+            "{ctx} - if a linked list's head is not null, its length must be greater than 0"
         );
         assert_ne!(
             self.tail, None,
-            "{ctx}if the linked list has a head, it must also have a tail"
+            "{ctx} - if the linked list has a head, it must also have a tail"
         );
 
         let tail = self.tail.unwrap();
@@ -198,12 +198,12 @@ impl<'a> KeyList<'a> {
             assert_eq!(
                 NonNull::from(&head.next),
                 NonNull::from(&tail.next),
-                "{ctx}if the head and tail nodes are the same, their links must be the same"
+                "{ctx} - if the head and tail nodes are the same, their links must be the same"
             );
             assert_eq!(
                 head.next(),
                 None,
-                "{ctx}if the linked list has only one node, it must not be linked"
+                "{ctx} - if the linked list has only one node, it must not be linked"
             );
             return;
         }
@@ -221,7 +221,7 @@ impl<'a> KeyList<'a> {
 
         assert!(
             self.rowlen <= actual_len,
-            "{ctx}linked list's rowlen was greater than its actual length"
+            "{ctx} - linked list's rowlen was greater than its actual length"
         );
     }
 }
