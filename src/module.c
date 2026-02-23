@@ -1806,6 +1806,10 @@ void RediSearch_CleanupModule(bool deleteDiskData) {
 // Sanitizer cleanup - All phases.
 // Calls production cleanup then frees global structures.
 void RediSearch_SanitizerCleanupModule(void) {
+  if (!RS_Initialized) {
+    return;
+  }
+
   // Phases 1-3: Production cleanup (never delete disk data in sanitizer)
   RediSearch_CleanupModule(false);
 
