@@ -516,10 +516,7 @@ mod tests {
     use crate::mock::{array_free, array_new};
 
     use std::{ffi::CString, mem::MaybeUninit};
-    use std::{
-        ffi::c_char,
-        ptr::self,
-    };
+    use std::{ffi::c_char, ptr};
 
     use enumflags2::make_bitflags;
     use pretty_assertions::assert_eq;
