@@ -83,7 +83,7 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 // Index API wrappers
 
 /**
- * @brief Index a document in the disk database
+ * @brief Index a term for fulltext search
  *
  * @param index Pointer to the index
  * @param term Term to associate the document with
@@ -93,7 +93,19 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
  * @param freq Frequency of the term in the document
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+
+/**
+ * @brief Index multiple tag values for a document
+ *
+ * @param index Pointer to the index
+ * @param values Array of tag values to associate the document with
+ * @param numValues Number of tag values in the array
+ * @param docId Document ID to index
+ * @param fieldIndex Field index for the tag field
+ * @return true if successful, false otherwise
+ */
+bool SearchDisk_IndexTags(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -110,11 +122,13 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @brief Run a GC compaction cycle on the disk index
  *
  * Synchronously runs a full compaction on the inverted index column family,
- * removing entries for deleted documents.
+ * removing entries for deleted documents. Applies the compaction delta to
+ * update in-memory structures via FFI calls to the provided C IndexSpec.
  *
- * @param index Pointer to the index
+ * @param index Pointer to the disk index
+ * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -133,6 +147,20 @@ void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
  * @return Pointer to the IndexIterator, or NULL on error
  */
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+
+/**
+ * @brief Create a tag IndexIterator for a specific tag value
+ *
+ * This function creates a tag IndexIterator that wraps the disk API and can be used
+ * in RediSearch query execution pipelines.
+ *
+ * @param index Pointer to the index
+ * @param tok Pointer to the token (contains tag value string)
+ * @param fieldIndex Field index for the tag field
+ * @param weight Weight for the term (used in scoring)
+ * @return Pointer to the IndexIterator, or NULL on error
+ */
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
 
 /**
  * @brief Create an IndexIterator for all the existing documents

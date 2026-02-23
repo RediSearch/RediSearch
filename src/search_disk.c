@@ -9,6 +9,8 @@
 
 #include "search_disk.h"
 #include "config.h"
+#include "spec.h"
+#include "trie/trie_type.h"
 #include "redismodule-rlec.h"
 
 RedisSearchDiskAPI *disk = NULL;
@@ -89,9 +91,14 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 }
 
 // Index API wrappers
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
     RS_ASSERT(disk && index);
-    return disk->index.indexDocument(index, term, termLen, docId, fieldMask, freq);
+    return disk->index.indexTerm(index, term, termLen, docId, fieldMask, freq);
+}
+
+bool SearchDisk_IndexTags(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index);
+    return disk->index.indexTags(index, values, numValues, docId, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
@@ -106,14 +113,19 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     return it;
 }
 
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
+    RS_ASSERT(disk && index && tok);
+    return disk->index.newTagIterator(index, tok, fieldIndex, weight);
+}
+
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
     RS_ASSERT(disk && index);
     return disk->index.newWildcardIterator(index, weight);
 }
 
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk && index);
-    disk->index.runGC(index);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
+    RS_ASSERT(disk && index && spec);
+    disk->index.runGC(index, spec);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {

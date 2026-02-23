@@ -27,8 +27,10 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
   rm_vasprintf(&formatted, fmt, ap);
   va_end(ap);
 
+  const char *prefix = QueryError_StrerrorPrefix(code);
+
   char *detail = NULL;
-  rm_asprintf(&detail, "%s%s", message, formatted);
+  rm_asprintf(&detail, "%s%s%s", prefix, message, formatted);
   rm_free(formatted);
 
   QueryError_SetError(status, code, message);
@@ -72,6 +74,6 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   }
 
-  QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%.*s` at position %lu for %s",
+  QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%.*s` at position %lu for %s",
                          (int)n, s, ac->offset, name);
 }

@@ -95,7 +95,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   double n1, n2;
   if (!RSValue_ToNumber(l, &n1) || !RSValue_ToNumber(r, &n2)) {
 
-    QueryError_SetError(eval->err, QUERY_ERROR_CODE_NOT_NUMERIC, NULL);
+    QueryError_SetError(eval->err, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
@@ -284,8 +284,10 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
     case RSExpr_Property:
       expr->property.lookupObj = RLookup_GetKey_Read(lookup, expr->property.key, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in pipeline",
-                               expr->property.key);
+        QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
+                                      "Property not loaded nor in pipeline",
+                                      ": `%s`",
+                                      expr->property.key);
         return EXPR_EVAL_ERR;
       }
       break;
@@ -328,7 +330,7 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
 EvalCtx *EvalCtx_Create() {
   EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
 
-  RLookup _lk = {0};
+  RLookup _lk = RLookup_New();
   r->lk = _lk;
   QueryError _status = QueryError_Default();
   r->status = _status;

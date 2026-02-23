@@ -700,7 +700,6 @@ dependencies = [
 name = "generational_slab"
 version = "0.0.1"
 dependencies = [
- "serde",
  "workspace_hack",
 ]
 
@@ -1268,6 +1267,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "numeric_range_tree_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "ffi",
+ "generational_slab",
+ "hyperloglog",
+ "inverted_index",
+ "inverted_index_ffi",
+ "numeric_range_tree",
+ "redis-module",
+ "redis_mock",
+ "tracing",
+ "workspace_hack",
+]
+
+[[package]]
 name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1479,6 +1496,7 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "query_error",
+ "strum",
  "workspace_hack",
 ]
 
@@ -2935,6 +2953,7 @@ dependencies = [
  "quote 1.0.44",
  "rand",
  "rand_chacha",
+ "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",

@@ -45,23 +45,23 @@ static RSValue *MRReply_ToValue(MRReply *r) {
       size_t n = MRReply_Length(r);
       RS_LOG_ASSERT(n % 2 == 0, "map of odd length");
       size_t map_len = n / 2;
-      RSValueMap map = RSValueMap_AllocUninit(map_len);
+      RSValueMapBuilder *map = RSValue_NewMapBuilder(map_len);
       for (size_t i = 0; i < map_len; i++) {
         MRReply *e_k = MRReply_ArrayElement(r, i * 2);
         RS_LOG_ASSERT(MRReply_Type(e_k) == MR_REPLY_STRING, "non-string map key");
         MRReply *e_v = MRReply_ArrayElement(r, (i * 2) + 1);
-        RSValueMap_SetEntry(&map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
+        RSValue_MapBuilderSetEntry(map, i,  MRReply_ToValue(e_k), MRReply_ToValue(e_v));
       }
-      v = RSValue_NewMap(map);
+      v = RSValue_NewMapFromBuilder(map);
       break;
     }
     case MR_REPLY_ARRAY: {
       size_t n = MRReply_Length(r);
-      RSValue **arr = RSValue_AllocateArray(n);
+      RSValue **arr = RSValue_NewArrayBuilder(n);
       for (size_t i = 0; i < n; ++i) {
         arr[i] = MRReply_ToValue(MRReply_ArrayElement(r, i));
       }
-      v = RSValue_NewArray(arr, n);
+      v = RSValue_NewArrayFromBuilder(arr, n);
       break;
     }
     case MR_REPLY_NIL:
@@ -238,7 +238,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
     for (size_t i = 0; i < num_warnings; i++) {
       const char *warning_str = MRReply_String(MRReply_ArrayElement(warning, i), NULL);
       // Set an error to be later picked up and sent as a warning
-      if (!strcmp(warning_str, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT))) {
+      if (!strcmp(warning_str, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))) {
         timed_out = true;
       } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
         QueryError_SetReachedMaxPrefixExpansionsWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
@@ -554,8 +554,10 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
           errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
           ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq -> reqConfig.timeoutPolicy == TimeoutPolicy_Fail) ||
           ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq -> reqConfig.oomPolicy == OomPolicy_Fail)) {
-        // We need to pass the reply string as the error message, since the error code might be generic
-        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, errCode,  MRReply_String(nc->current.root, NULL));
+        // The shard reply already contains the prefixed error string — set it directly
+        // without re-prefixing via QueryError_SetError.
+        QueryError_SetCode(AREQ_QueryProcessingCtx(nc->areq)->err, errCode);
+        QueryError_SetDetail(AREQ_QueryProcessingCtx(nc->areq)->err, MRReply_String(nc->current.root, NULL));
         return RS_RESULT_ERROR;
       } else {
         // Handle shards returning error unexpectedly
