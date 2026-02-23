@@ -221,18 +221,18 @@ typedef struct KeyList {
 /**
  * A cursor over an [`RLookup`]'s key list.
  */
-typedef struct Cursor {
+typedef struct RLookupIterator {
   const struct KeyList *_rlookup;
   struct RLookupKey *current;
-} Cursor;
+} RLookupIterator;
 
 /**
  * A cursor over an [`RLookup`]'s key list with editing operations.
  */
-typedef struct CursorMut {
+typedef struct RLookupIteratorMut {
   struct KeyList *_rlookup;
   struct RLookupKey *current;
-} CursorMut;
+} RLookupIteratorMut;
 
 #ifdef __cplusplus
 extern "C" {
@@ -651,7 +651,7 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct Cursor RLookup_Iter(const struct RLookup *lookup);
+struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
 
 /**
  * Return a cursor over an [`RLookup`]'s key list with editing operations.
@@ -662,7 +662,7 @@ struct Cursor RLookup_Iter(const struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct CursorMut RLookup_IterMut(struct RLookup *lookup);
+struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
 /**
  * Returns a newly created [`RLookupRow`].

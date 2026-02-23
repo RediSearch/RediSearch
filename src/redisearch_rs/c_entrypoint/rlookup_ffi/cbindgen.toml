@@ -28,6 +28,8 @@ include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
 exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId", "SchemaRule"]
 
 [export.rename]
+"Cursor" = "RLookupIterator"
+"CursorMut" = "RLookupIteratorMut"
 "OpaqueRLookup" = "RLookup"
 "OpaqueRLookupRow" = "RLookupRow"
 "RLookupHeader" = "RLookup"
