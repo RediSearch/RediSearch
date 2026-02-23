@@ -348,7 +348,7 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
   if (!ptr) {
     return REDIS_ERR;
   }
-  MRConnPool *pool = dictGetVal(ptr);
+  const MRConnPool *pool = dictGetVal(ptr);
   MRConnPool_Disconnect(pool);
   dictFreeUnlinkedEntry(m->map, ptr);
   return REDIS_OK;

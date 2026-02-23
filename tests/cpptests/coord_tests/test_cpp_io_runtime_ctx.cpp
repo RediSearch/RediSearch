@@ -18,7 +18,9 @@
 #include "common.h"
 #include <unistd.h>
 #include <atomic>
+#include <array>
 #include <initializer_list>
+#include <span>
 
 // Test callback for queue operations
 static void testCallback(void *privdata) {
@@ -64,19 +66,20 @@ protected:
   }
 };
 
-static RedisModuleSlotRangeArray *createSlotRangeArray(size_t numRanges, uint16_t ranges[][2]) {
-  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * numRanges;
-  RedisModuleSlotRangeArray *array = (RedisModuleSlotRangeArray *)rm_malloc(total_size);
-  array->num_ranges = numRanges;
-  for (size_t i = 0; i < numRanges; i++) {
+static RedisModuleSlotRangeArray *createSlotRangeArray(std::span<const std::array<uint16_t, 2>> ranges) {
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * ranges.size();
+  auto array = (RedisModuleSlotRangeArray *)rm_malloc(total_size);
+  array->num_ranges = ranges.size();
+  for (size_t i = 0; i < ranges.size(); i++) {
     array->ranges[i].start = ranges[i][0];
     array->ranges[i].end = ranges[i][1];
   }
   return array;
 }
 
-static MRClusterTopology *getTopology(size_t numNodes, const char **hosts) {
-  MRClusterTopology *topo = (MRClusterTopology *)rm_malloc(sizeof(*topo));
+static MRClusterTopology *getTopology(std::span<const char *const> hosts) {
+  size_t numNodes = hosts.size();
+  auto topo = (MRClusterTopology *)rm_new(MRClusterTopology);
   topo->numShards = numNodes;
   topo->capShards = numNodes;
   topo->shards = (MRClusterShard *)rm_calloc(numNodes, sizeof(MRClusterShard));
@@ -89,9 +92,10 @@ static MRClusterTopology *getTopology(size_t numNodes, const char **hosts) {
       return nullptr;
     }
     node->id = rm_strdup(hosts[i]);
-    uint16_t ranges[][2] = {{(uint16_t)(i * slots_per_node),
-                             (uint16_t)((i + 1) * slots_per_node - 1)}};
-    topo->shards[i].slotRanges = createSlotRangeArray(1, ranges);
+    std::array<std::array<uint16_t, 2>, 1> ranges = {{
+        {(uint16_t)(i * slots_per_node), (uint16_t)((i + 1) * slots_per_node - 1)},
+    }};
+    topo->shards[i].slotRanges = createSlotRangeArray(ranges);
   }
 
   return topo;
@@ -381,8 +385,8 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, UpdateNodesAddRemove) {
-  const char *hosts_v1[] = {"localhost:6379", "localhost:6389", "localhost:6399"};
-  MRClusterTopology *topo_v1 = getTopology(3, hosts_v1);
+  std::array<const char *, 3> hosts_v1 = {"localhost:6379", "localhost:6389", "localhost:6399"};
+  MRClusterTopology *topo_v1 = getTopology(hosts_v1);
   ASSERT_NE(topo_v1, nullptr);
 
   IORuntimeCtx *io = IORuntimeCtx_Create(2, topo_v1, 11, true);
@@ -391,21 +395,22 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesAddRemove) {
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
   assertConnMapContains(io, {"localhost:6379", "localhost:6389", "localhost:6399"});
 
-  const char *hosts_v2[] = {"localhost:6379", "localhost:6399", "localhost:6409"};
-  MRClusterTopology *topo_v2 = getTopology(3, hosts_v2);
+  std::array<const char *, 3> hosts_v2 = {"localhost:6379", "localhost:6399", "localhost:6409"};
+  MRClusterTopology *topo_v2 = getTopology(hosts_v2);
   ASSERT_NE(topo_v2, nullptr);
   replaceTopologyAndUpdateNodes(io, topo_v2);
 
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
-  assertConnMapContains(io, {"localhost:6379", "localhost:6399", "localhost:6409"}, {"localhost:6389"});
+  assertConnMapContains(io, {"localhost:6379", "localhost:6399", "localhost:6409"},
+                         {"localhost:6389"});
 
   startAndShutdownRuntime(io);
   IORuntimeCtx_Free(io);
 }
 
 TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
-  const char *hosts_v1[] = {"localhost:6379", "localhost:6389", "localhost:6399"};
-  MRClusterTopology *topo_v1 = getTopology(3, hosts_v1);
+  std::array<const char *, 3> hosts_v1 = {"localhost:6379", "localhost:6389", "localhost:6399"};
+  MRClusterTopology *topo_v1 = getTopology(hosts_v1);
   ASSERT_NE(topo_v1, nullptr);
 
   IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 12, true);
@@ -413,15 +418,16 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
   assertConnMapContains(io, {"localhost:6379", "localhost:6389", "localhost:6399"});
 
-  const char *hosts_v2[] = {"localhost:6379", "localhost:6399"};
-  MRClusterTopology *topo_v2 = getTopology(2, hosts_v2);
+  std::array<const char *, 2> hosts_v2 = {"localhost:6379", "localhost:6399"};
+  MRClusterTopology *topo_v2 = getTopology(hosts_v2);
   ASSERT_NE(topo_v2, nullptr);
   replaceTopologyAndUpdateNodes(io, topo_v2);
   ASSERT_EQ(dictSize(io->conn_mgr.map), 2);
-  assertConnMapContains(io, {"localhost:6379", "localhost:6399"}, {"localhost:6389"});
+  assertConnMapContains(io, {"localhost:6379", "localhost:6399"},
+                         {"localhost:6389"});
 
-  const char *hosts_v3[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
-  MRClusterTopology *topo_v3 = getTopology(4, hosts_v3);
+  std::array<const char *, 4> hosts_v3 = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
+  MRClusterTopology *topo_v3 = getTopology(hosts_v3);
   ASSERT_NE(topo_v3, nullptr);
   replaceTopologyAndUpdateNodes(io, topo_v3);
   ASSERT_EQ(dictSize(io->conn_mgr.map), 4);
