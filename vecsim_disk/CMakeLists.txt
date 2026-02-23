@@ -52,13 +52,12 @@ endif()
 # =============================================================================
 # Unit Tests (optional, enabled via BUILD_TESTS from parent CMakeLists.txt)
 # =============================================================================
-# Note: BUILD_TESTS is controlled by the top-level CMakeLists.txt to ensure
-# consistent class layout (ABI) with VectorSimilarity. Don't redefine it here.
+# BUILD_TESTS macro is defined only for vecsim_disk targets (not globally).
+# This enables test helper methods in HNSWDiskIndex without affecting VectorSimilarity.
+# VectorSimilarity is compiled WITHOUT BUILD_TESTS to avoid needing the serializer library.
 
 if(BUILD_TESTS)
-    # CRITICAL: Define BUILD_TESTS macro to match VectorSimilarity ABI.
-    # VecSimTieredIndex has conditional members (#ifdef BUILD_TESTS) that affect class layout.
-    # Both libraries MUST have the same BUILD_TESTS setting to avoid ODR violations/segfaults.
+    # Define BUILD_TESTS macro for vecsim_disk library to enable test helper methods
     target_compile_definitions(vecsim_disk PUBLIC BUILD_TESTS)
 
     # Add test helpers include path so hnsw_disk.h can find hnsw_disk_test_helpers.h

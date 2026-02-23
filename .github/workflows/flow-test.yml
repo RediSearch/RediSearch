@@ -1,0 +1,60 @@
+name: Test on Platforms
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform to test on. Use "all" to test on all platforms'
+        type: string
+        default: all
+      architecture:
+        description: 'Architecture to test on. Use "all" to test on all architectures'
+        type: string
+        default: all
+
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:noble
+          - ubuntu:jammy
+          - ubuntu:focal
+          - rockylinux:8
+          - rockylinux:9
+          - amazonlinux:2
+          - mariner:2
+          - azurelinux:3
+        description: 'Platform to test on. Use "all" to test on all platforms'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to test on. Use "all" to test on all architectures'
+        default: all
+
+jobs:
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      # Default to 'all' when triggered by push (inputs is empty)
+      platform: ${{ inputs.platform || 'all' }}
+      architecture: ${{ inputs.architecture || 'all' }}
+
+  test-matrix:
+    name: Test ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
+    strategy:
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+      fail-fast: true
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+

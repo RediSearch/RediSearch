@@ -35,9 +35,6 @@ on:
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
-  AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-  AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -103,7 +100,23 @@ jobs:
           CONTAINER="${{ needs.get-config.outputs.container }}"
           [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
 
-      - name: Generate GitHub App token
+      # Checkout with token (handles node20 and non-node20 platforms)
+      # Note: Cannot use local composite action here because repo isn't checked out yet
+      - name: Check if node20 is supported
+        id: node20
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          for platform in amazonlinux:2; do
+            if [[ "$CONTAINER" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+
+      # Node20 path: use standard actions
+      - name: Generate GitHub App token (node20)
+        if: steps.node20.outputs.supported == 'true'
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
@@ -116,17 +129,74 @@ jobs:
             rust-speedb
             speedb-ent
             redismodule-rs
-      - name: checkout
+
+      - name: Checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
           token: ${{ steps.app-token.outputs.token }}
-      # Configure Git/Cargo to authenticate with private repos using the app token
-      - name: Configure Git for private Cargo dependencies
+
+      # Non-node20 path: bash-based token generation (for amazonlinux:2)
+      - name: Generate GitHub App token (bash)
+        if: steps.node20.outputs.supported == 'false'
+        id: app-token-bash
+        env:
+          GH_APP_ID: ${{ vars.GH_CI_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_CI_PRIVATE_KEY }}
+        run: |
+          # Fetch the script from the repo (not checked out yet)
+          curl -s -H "Authorization: token ${{ github.token }}" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/${{ env.REF }}/scripts/generate-github-app-token.sh" \
+            -o /tmp/generate-github-app-token.sh
+          chmod +x /tmp/generate-github-app-token.sh
+          # Run script - it outputs ::add-mask:: and writes token to GITHUB_OUTPUT
+          /tmp/generate-github-app-token.sh
+
+      - name: Checkout (bash)
+        if: steps.node20.outputs.supported == 'false'
+        env:
+          TOKEN: ${{ steps.app-token-bash.outputs.token }}
+          REF: ${{ env.REF }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          # Configure git to use token for all github.com URLs (both HTTPS and SSH)
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "git@github.com:"
+
+          # Clone and checkout
+          git clone "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+          git checkout "${REF}"
+
+          # Initialize submodules with token
+          git submodule update --init --recursive
+
+      # Set unified token output for later steps
+      - name: Set token output
+        id: checkout
+        run: |
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+          else
+            echo "token=${{ steps.app-token-bash.outputs.token }}" >> $GITHUB_OUTPUT
+          fi
+
+      # Configure Git/Cargo to authenticate with private repos (redismodule-rs)
+      - name: Configure Cargo auth for private dependencies
         uses: ./.github/actions/configure-cargo-auth
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.checkout.outputs.token }}
+
+      # Remove openssl symlink on amazonlinux:2 before RediSearch install script
+      # We install openssl11 and create the symlink in setup_script, but RediSearch's
+      # amazon_linux_2.sh also tries to create the same symlink with 'ln -s' (no -f),
+      # which fails if the symlink already exists
+      - name: Prepare for RediSearch setup (amazonlinux:2)
+        if: needs.get-config.outputs.container == 'amazonlinux:2'
+        run: rm -f /usr/bin/openssl
+
       - name: Setup
         working-directory: deps/RediSearch/.install
         env:
@@ -147,12 +217,26 @@ jobs:
         run: ${{ format(env.SETUP_RETRY_LOOP, 'uv pip install -q -r .install/build_package_requirments.txt') }}
 
       # Get Redis
-      - name: Get Redis
+      - name: Get Redis (node20)
+        if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
           repository: redis/redis
           ref: ${{ inputs.redis-ref }}
           path: redis
+      - name: Get Redis (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: |
+          REPO_URL="https://github.com/redis/redis.git"
+          DEST_DIR="redis"
+
+          # Clone the repository
+          git clone $REPO_URL $DEST_DIR
+          cd $DEST_DIR
+
+          # Checkout the REF
+          git fetch origin ${{ inputs.redis-ref }}
+          git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install
@@ -194,11 +278,35 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
-      - name: Configure AWS Credentials Using Role
+      - name: Configure AWS Credentials Using Role (node20)
+        if: steps.node20.outputs.supported == 'true'
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+
+      - name: Configure AWS Credentials Using Role (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: |
+          # Get GitHub OIDC token and assume AWS role
+          OIDC_TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+          CREDS=$(aws sts assume-role-with-web-identity \
+            --role-arn "${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}" \
+            --role-session-name "github-actions" \
+            --web-identity-token "$OIDC_TOKEN" \
+            --region "${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}")
+          # Extract credentials
+          ACCESS_KEY=$(echo "$CREDS" | jq -r '.Credentials.AccessKeyId')
+          SECRET_KEY=$(echo "$CREDS" | jq -r '.Credentials.SecretAccessKey')
+          SESSION_TOKEN=$(echo "$CREDS" | jq -r '.Credentials.SessionToken')
+          # Mask sensitive values before writing to GITHUB_ENV
+          echo "::add-mask::$SECRET_KEY"
+          echo "::add-mask::$SESSION_TOKEN"
+          echo "AWS_ACCESS_KEY_ID=$ACCESS_KEY" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$SECRET_KEY" >> $GITHUB_ENV
+          echo "AWS_SESSION_TOKEN=$SESSION_TOKEN" >> $GITHUB_ENV
+          echo "AWS_REGION=${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}" >> $GITHUB_ENV
 
       - name: Upload Artifacts
         env:

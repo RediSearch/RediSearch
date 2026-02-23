@@ -12,13 +12,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tests:
-    uses: ./.github/workflows/task-test.yml
+  test-all-platforms:
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
+    with:
+      platform: all
+      architecture: all
 
   pr-validation:
     needs:
-      - tests
+      - test-all-platforms
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:

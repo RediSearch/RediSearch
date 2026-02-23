@@ -12,9 +12,19 @@ runs:
     - name: Configure Git and Cargo for private dependencies
       shell: bash
       run: |
-        # Use environment variable to avoid persisting token in ~/.gitconfig on self-hosted runners
-        echo "GIT_CONFIG_COUNT=1" >> "$GITHUB_ENV"
-        echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${{ inputs.token }}@github.com/redislabsdev/.insteadOf" >> "$GITHUB_ENV"
-        echo "GIT_CONFIG_VALUE_0=https://github.com/redislabsdev/" >> "$GITHUB_ENV"
+        # Remove any existing token-based URL rewrites for redislabsdev
+        # This ensures token refresh works correctly (old expired tokens are removed)
+        # Note: || true at end handles case when no entries exist (grep returns 1)
+        git config --global --get-regexp '^url\.https://x-access-token:' 2>/dev/null | \
+          grep 'github\.com/redislabsdev/' | \
+          cut -d' ' -f1 | \
+          while read key; do
+            git config --global --unset "$key" 2>/dev/null || true
+          done || true
+
+        # Rewrite GitHub URLs to use token auth for private repos (e.g., redismodule-rs)
+        git config --global url."https://x-access-token:${{ inputs.token }}@github.com/redislabsdev/".insteadOf "https://github.com/redislabsdev/"
+
+        # Cargo must use git CLI for the config rewrite to take effect
         echo "CARGO_NET_GIT_FETCH_WITH_CLI=true" >> "$GITHUB_ENV"
 

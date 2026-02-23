@@ -9,6 +9,16 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Print compiler information for CI debugging
+message(STATUS "=== Compiler Information ===")
+message(STATUS "C compiler:   ${CMAKE_C_COMPILER}")
+message(STATUS "C compiler ID: ${CMAKE_C_COMPILER_ID}")
+message(STATUS "C compiler version: ${CMAKE_C_COMPILER_VERSION}")
+message(STATUS "CXX compiler: ${CMAKE_CXX_COMPILER}")
+message(STATUS "CXX compiler ID: ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "CXX compiler version: ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "==============================")
+
 # Detect and configure compiler cache (sccache or ccache)
 # This speeds up rebuilds by caching compilation results
 find_program(SCCACHE_PROGRAM sccache)
@@ -104,21 +114,17 @@ set(COORD_TYPE "oss")
 # for redisearch to register its commands correctly.
 set(REDISEARCH_BUILD_SHARED OFF)
 
-# Master build tests option - controls whether test instrumentation is compiled.
-# When ON, both VectorSimilarity and vecsim_disk are compiled with BUILD_TESTS macro,
-# which adds test helper members to classes. This affects ABI/class layout, so both
-# libraries MUST have the same setting to avoid ODR violations.
+# Master build tests option - controls whether vecsim_disk tests are built.
+# This does NOT define BUILD_TESTS macro globally - that would affect VectorSimilarity
+# and require building the serializer library (which we want to avoid).
 # Default ON for development; set to OFF for production/library builds.
-option(BUILD_TESTS "Build with test instrumentation (affects class layout)" ON)
+option(BUILD_TESTS "Build vecsim_disk tests" ON)
 
-if(BUILD_TESTS)
-    # Enable VectorSimilarity tests so that BUILD_TESTS macro is defined.
-    # This ensures consistent class layout between VectorSimilarity and vecsim_disk
-    # (both have BUILD_TESTS conditional members that affect ODR).
-    set(VECSIM_BUILD_TESTS ON CACHE BOOL "Build vecsim tests" FORCE)
-else()
-    set(VECSIM_BUILD_TESTS OFF CACHE BOOL "Build vecsim tests" FORCE)
-endif()
+# Don't build VectorSimilarity tests/benchmarks - we don't run them, and they add
+# significant build time (googletest, google_benchmark fetch + compile).
+# Also don't define BUILD_TESTS macro for VectorSimilarity - that would make HNSWIndex
+# inherit from HNSWSerializer, requiring the serializer library to be built.
+set(VECSIM_BUILD_TESTS OFF CACHE BOOL "Build vecsim tests" FORCE)
 
 # Include RediSearch - this creates a static library named 'redisearch'
 add_subdirectory(deps/RediSearch)

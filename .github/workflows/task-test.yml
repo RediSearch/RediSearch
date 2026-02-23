@@ -2,19 +2,77 @@ name: Test
 
 on:
   workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, rockylinux:9)'
+        type: string
+        default: 'ubuntu:noble'
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        default: 'x86_64'
+
+# Cache version: Bump this to invalidate all Redis caches when:
+# - Build dependencies change (liburing, zlib, etc.)
+# - Compiler or toolchain changes
+# - SpeedB build configuration changes in Redis Flex
+# - Any change that affects Redis Flex binary compatibility
+env:
+  REDIS_CACHE_VERSION: v4
 
 jobs:
+  # Get configuration for this specific platform and architecture
+  get-config:
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
   ci:
-    name: Test on Ubuntu with Redis-Flex
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    needs: get-config
+    name: Test ${{ needs.get-config.outputs.name }}
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    # Container options:
+    # --user root: Run as root for package installation
+    # --security-opt seccomp=unconfined: Allow io_uring syscalls for async IO tests
+    #   (Docker's default seccomp profile blocks io_uring, see moby/moby#47532)
+    # -v mounts: Mount host directories for disk space cleanup
+    container: ${{
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root --security-opt seccomp=unconfined -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            needs.get-config.outputs.container,
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+        )
+      || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     permissions:
       contents: read
     steps:
-      # Generate repo App token
-      - name: Generate GitHub App token
+      - name: Setup container dependencies
+        if: ${{ needs.get-config.outputs.setup_script }}
+        run: ${{ needs.get-config.outputs.setup_script }}
+
+      - name: Post-setup
+        if: ${{ needs.get-config.outputs.post_setup_script }}
+        run: ${{ needs.get-config.outputs.post_setup_script }}
+
+      - name: Check if node20 is supported
+        id: node20
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          for platform in amazonlinux:2; do
+            if [[ "$CONTAINER" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+
+      - name: Generate GitHub App token (node20)
+        if: steps.node20.outputs.supported == 'true'
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
@@ -28,65 +86,337 @@ jobs:
             speedb-ent
             redismodule-rs
 
-      # Full checkout, with the above token for private repos (and current)
-      - name: Checkout repository (with submodules)
+      - name: Checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 1
           token: ${{ steps.app-token.outputs.token }}
 
-      # Setup build environment (dependencies, disk space, sccache, cargo auth)
-      - name: Setup build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          install-mode: sudo
-          github-token: ${{ steps.app-token.outputs.token }}
+      - name: Generate GitHub App token (bash)
+        if: steps.node20.outputs.supported == 'false'
+        id: app-token-bash
+        env:
+          GH_APP_ID: ${{ vars.GH_CI_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_CI_PRIVATE_KEY }}
+        run: |
+          # Fetch the script from the repo (not checked out yet)
+          curl -s -H "Authorization: token ${{ github.token }}" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/scripts/generate-github-app-token.sh" \
+            -o /tmp/generate-github-app-token.sh
+          chmod +x /tmp/generate-github-app-token.sh
+          # Run script - it outputs ::add-mask:: and writes token to GITHUB_OUTPUT
+          /tmp/generate-github-app-token.sh
 
-      # Install Python test dependencies early
+      - name: Checkout (bash)
+        if: steps.node20.outputs.supported == 'false'
+        env:
+          TOKEN: ${{ steps.app-token-bash.outputs.token }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          # Configure git to use token for all github.com URLs (both HTTPS and SSH)
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "git@github.com:"
+
+          # Clone and checkout (shallow)
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout "${GITHUB_SHA}"
+
+          # Initialize submodules with token (shallow)
+          git submodule update --init --recursive --depth 1
+
+      - name: Set token output
+        id: checkout
+        run: |
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+          else
+            echo "token=${{ steps.app-token-bash.outputs.token }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure Cargo auth for private dependencies
+        uses: ./.github/actions/configure-cargo-auth
+        with:
+          token: ${{ steps.checkout.outputs.token }}
+
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+
+      # Remove openssl symlink on amazonlinux:2 before RediSearch install script
+      # We install openssl11 and create the symlink in setup_script, but RediSearch's
+      # amazon_linux_2.sh also tries to create the same symlink with 'ln -s' (no -f),
+      # which fails if the symlink already exists
+      - name: Prepare for RediSearch setup (amazonlinux:2)
+        if: needs.get-config.outputs.container == 'amazonlinux:2'
+        run: rm -f /usr/bin/openssl
+
+      - name: Setup
+        working-directory: deps/RediSearch/.install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+
+      - name: Setup tests dependencies
+        working-directory: deps/RediSearch
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+
+      # Install Redis Flex build dependencies (platform-specific)
+      # Both are REQUIRED - installation failures will fail the workflow
+      # - zlib: Required for Redis Flex (ccomp.c connection compression feature)
+      # - liburing: Required for SpeedB async API
+      - name: Install Redis Flex dependencies
+        run: |
+          PLATFORM="${{ inputs.platform }}"
+          MODE="${{ steps.mode.outputs.mode }}"
+
+          # Install zlib (platform-specific)
+          case "$PLATFORM" in
+            ubuntu:*|debian:*)
+              $MODE apt-get install -y zlib1g-dev
+              ;;
+            rockylinux:*|amazonlinux:2023)
+              $MODE dnf install -y zlib-devel
+              ;;
+            amazonlinux:2)
+              $MODE yum install -y zlib-devel
+              ;;
+            azurelinux:*|mariner:*)
+              $MODE tdnf install -y zlib-devel
+              ;;
+            alpine:*)
+              $MODE apk add zlib-dev
+              ;;
+            *)
+              echo "Unknown platform: $PLATFORM, attempting apt for zlib"
+              $MODE apt-get install -y zlib1g-dev
+              ;;
+          esac
+
+          # Install liburing (use package manager if available, otherwise build from source)
+          case "$PLATFORM" in
+            ubuntu:focal|rockylinux:*|azurelinux:*|amazonlinux:2|mariner:*)
+              # These platforms need liburing built from source:
+              # - ubuntu:focal: not in official repos
+              # - rockylinux: repo versions too old, fail io_uring_queue_init() at runtime
+              # - azurelinux/mariner: RHEL-based, same issue
+              # - amazonlinux:2: not in repos
+              $MODE scripts/install-liburing.sh
+              ;;
+            ubuntu:*|debian:*)
+              $MODE apt-get install -y liburing-dev
+              ;;
+            amazonlinux:2023)
+              $MODE dnf install -y liburing-devel
+              ;;
+            alpine:*)
+              $MODE apk add liburing-dev
+              ;;
+            *)
+              echo "Unknown platform: $PLATFORM, attempting to build liburing from source"
+              $MODE scripts/install-liburing.sh
+              ;;
+          esac
+
       - name: Install Python test dependencies
         working-directory: flow-tests
         run: |
           python3 -m pip install --break-system-packages -e .
 
-      # Setup Redis (checkout, build, cache)
-      - name: Setup Redis
-        uses: ./.github/actions/setup-redis
+      - name: Free Disk Space (container)
+        if: ${{ needs.get-config.outputs.container }}
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "Disk space after cleanup:"
+          df -h
+      - name: Free Disk Space (non-container)
+        if: ${{ !needs.get-config.outputs.container }}
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af 2>/dev/null || true
+          echo "Disk space after cleanup:"
+          df -h
+
+      - name: Run sccache-cache
+        if: ${{ !contains(fromJSON('["amazonlinux:2", "mariner:2"]'), needs.get-config.outputs.container) }}
+        uses: mozilla-actions/sccache-action@v0.0.8
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+
+      - name: Checkout Redis (node20)
+        if: steps.node20.outputs.supported == 'true'
+        id: checkout-redis
+        uses: actions/checkout@v4
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          install-mode: sudo
-          checkout-path: Redis
+          repository: redislabsdev/Redis
+          path: Redis
+          token: ${{ steps.checkout.outputs.token }}
+          fetch-depth: 1
+          ref: RediSearchDisk
+          submodules: recursive
 
-      # Build the module
+      - name: Checkout Redis (bash)
+        if: steps.node20.outputs.supported == 'false'
+        env:
+          TOKEN: ${{ steps.checkout.outputs.token }}
+        run: |
+          REPO_URL="https://x-access-token:${TOKEN}@github.com/redislabsdev/Redis.git"
+          DEST_DIR="Redis"
+          git clone --depth 1 --branch RediSearchDisk --recurse-submodules $REPO_URL $DEST_DIR
+
+      - name: Restore Cached Redis Installation
+        if: steps.node20.outputs.supported == 'true'
+        id: cache-redis
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/redis-cache
+          key: Redis-${{ env.REDIS_CACHE_VERSION }}-${{ inputs.platform }}-${{ inputs.architecture }}-${{ steps.checkout-redis.outputs.commit }}
+
+      - name: Install cached Redis binaries
+        if: steps.node20.outputs.supported == 'true' && steps.cache-redis.outputs.cache-hit == 'true'
+        run: |
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-server /usr/local/bin/
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/redis-cli /usr/local/bin/
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/bs_speedb.so /usr/local/lib/
+          ${{ steps.mode.outputs.mode }} cp ~/redis-cache/libspeedb.so.2 /usr/local/lib/
+          ${{ steps.mode.outputs.mode }} chmod +x /usr/local/bin/redis-server /usr/local/bin/redis-cli
+
+      - name: Build Redis (install)
+        if: steps.node20.outputs.supported == 'false' || steps.cache-redis.outputs.cache-hit != 'true'
+        working-directory: Redis
+        run: |
+          # Build Redis with speedb support (V=1 for verbose output to diagnose failures)
+          ${{ steps.mode.outputs.mode }} make V=1 install -j$(nproc) \
+            BUILD_TLS=yes \
+            SANITIZER=${{ env.SAN }} 2>&1 | tee /tmp/redis-build.log || {
+              echo "=== Redis build failed ==="
+              echo "=== Last 100 lines of build log ==="
+              tail -100 /tmp/redis-build.log
+              exit 1
+            }
+          # Copy bs_speedb.so to /usr/local/lib for runtime use
+          ${{ steps.mode.outputs.mode }} cp src/bs_speedb.so /usr/local/lib/
+          ${{ steps.mode.outputs.mode }} cp src/libspeedb.so.2 /usr/local/lib/
+          # Copy binaries to cache directory for saving (only on node20 platforms)
+          if [ "${{ steps.node20.outputs.supported }}" == "true" ]; then
+            mkdir -p ~/redis-cache
+            cp /usr/local/bin/redis-server ~/redis-cache/
+            cp /usr/local/bin/redis-cli ~/redis-cache/
+            cp /usr/local/lib/bs_speedb.so ~/redis-cache/
+            cp /usr/local/lib/libspeedb.so.2 ~/redis-cache/
+          fi
+
+      - name: Cache Redis (save)
+        if: steps.node20.outputs.supported == 'true' && steps.cache-redis.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.cache-redis.outputs.cache-primary-key }}
+          path: ~/redis-cache
+
+      # Refresh GitHub App token before build
+      # GitHub App installation tokens expire after 1 hour. When Redis cache misses,
+      # the Redis build can take 30-60+ minutes, causing the original token to expire
+      # before Cargo runs. Regenerate the token here to ensure a fresh 1-hour window.
+      - name: Refresh GitHub App token (node20)
+        if: steps.node20.outputs.supported == 'true'
+        id: refresh-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_CI_APP_ID }}
+          private-key: ${{ secrets.GH_CI_PRIVATE_KEY }}
+          owner: redislabsdev
+          repositories: |
+            Redis
+            RediSearchEnterprise
+            rust-speedb
+            speedb-ent
+            redismodule-rs
+
+      - name: Refresh Cargo auth (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: ./.github/actions/configure-cargo-auth
+        with:
+          token: ${{ steps.refresh-token.outputs.token }}
+
+      - name: Refresh GitHub App token (bash)
+        if: steps.node20.outputs.supported == 'false'
+        id: refresh-token-bash
+        env:
+          GH_APP_ID: ${{ vars.GH_CI_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_CI_PRIVATE_KEY }}
+        run: |
+          # Run script - it outputs ::add-mask:: and writes token to GITHUB_OUTPUT
+          scripts/generate-github-app-token.sh
+          # Read token from GITHUB_OUTPUT (set by the script)
+          TOKEN=$(grep '^token=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)
+          # Remove old token-based URL rewrites before adding new one
+          # (old tokens may be expired, and git picks the first matching entry)
+          # Note: || true at end handles case when no entries exist (grep returns 1)
+          git config --global --get-regexp '^url\.https://x-access-token:' 2>/dev/null | \
+            grep 'github\.com/redislabsdev/' | \
+            cut -d' ' -f1 | \
+            while read key; do
+              git config --global --unset "$key" 2>/dev/null || true
+            done || true
+          git config --global url."https://x-access-token:${TOKEN}@github.com/redislabsdev/".insteadOf "https://github.com/redislabsdev/"
+
       - name: Build
-        run: PROFILE=Debug ./build.sh build
+        run: |
+          echo "Using gcc=$(gcc --version | head -1)"
+          PROFILE=Debug ./build.sh build
 
-      # Run Rust unit tests
       - name: Test (Rust unit tests)
         run: PROFILE=Debug ./build.sh test
 
-      # Run C++ unit tests
       - name: Test (C++ unit tests)
         run: PROFILE=Debug ./build.sh test-vecsim
 
-      # Run integration tests with RLTest
-      # Set LD_LIBRARY_PATH so Redis can find libspeedb.so.2
       - name: Test (Integration tests with RLTest)
+        timeout-minutes: 60
         working-directory: flow-tests
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/speedb-build:${{ env.LD_LIBRARY_PATH }}
         run: |
           python3 runtests.py --module ../build/redisearch.so --redis-lib-path /usr/local/lib --parallel
 
-      # Show sccache statistics
       - name: Show sccache stats
-        if: always()
+        if: ${{ always() && !contains(fromJSON('["amazonlinux:2", "mariner:2"]'), needs.get-config.outputs.container) }}
         run: sccache --show-stats
 
-      # Upload test logs if tests fail
-      - name: Upload test logs
+      - name: Prepare artifact name
         if: failure()
+        id: artifact-name
+        run: |
+          PLATFORM="${{ inputs.platform }}"
+          ARCH="${{ inputs.architecture }}"
+          # Replace colon with dash
+          SAFE_PLATFORM="${PLATFORM//:/-}"
+          echo "name=test-logs-${SAFE_PLATFORM}-${ARCH}" >> $GITHUB_OUTPUT
+
+      - name: Upload test logs (node20)
+        if: failure() && steps.node20.outputs.supported == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs
+          name: ${{ steps.artifact-name.outputs.name }}
           path: flow-tests/logs/
           retention-days: 7
+
+      - name: Upload test logs (node20 not supported)
+        if: failure() && steps.node20.outputs.supported == 'false'
+        run: echo "Artifact upload not available on this platform (node20 not supported)"

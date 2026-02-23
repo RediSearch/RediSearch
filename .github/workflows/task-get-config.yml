@@ -173,12 +173,12 @@ jobs:
               "amazonlinux:2": {
                   "x86_64": {
                       'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
+                      'setup_script': 'yum install -y tar gzip git jq openssl11 curl && ln -sf /usr/bin/openssl11 /usr/bin/openssl',
                       'name': 'Amazon Linux 2 x86_64'
                   },
                   "aarch64": {
                       'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
+                      'setup_script': 'yum install -y tar gzip git jq openssl11 curl && ln -sf /usr/bin/openssl11 /usr/bin/openssl',
                       'name': 'Amazon Linux 2 ARM64'
                   }
               },
