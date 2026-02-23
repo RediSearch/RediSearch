@@ -204,23 +204,16 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 typedef struct {
-  struct HLL majority_card;     // Holds the majority cardinality of all the blocks we've seen so far
-  struct HLL last_block_card;   // Holds the cardinality of the last block we've seen
-  const IndexBlock *last_block; // The last block we've seen, to know when to merge the cardinalities
+  struct HLL majority_card;         // Cardinality of all blocks except the last
+  struct HLL last_block_card;       // Cardinality of the last block only
+  const IndexBlock *actual_last_block; // Pre-computed pointer to the real last block
 } numCbCtx;
 
 static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg) {
   numCbCtx *ctx = arg;
-
-  if (ctx->last_block != blk) {
-    // We are in a new block, merge the last block's cardinality into the majority, and clear the last block
-    hll_merge(&ctx->majority_card, &ctx->last_block_card);
-    hll_clear(&ctx->last_block_card);
-    ctx->last_block = blk;
-  }
-  // Add the current record to the last block's cardinality
   double value = IndexResult_NumValue(r);
-  hll_add(&ctx->last_block_card, &value, sizeof(value));
+  struct HLL *target = (blk == ctx->actual_last_block) ? &ctx->last_block_card : &ctx->majority_card;
+  hll_add(target, &value, sizeof(value));
 }
 
 typedef struct {
@@ -293,11 +286,14 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       if (!currNode->range) {
         continue;
       }
-      nctx.last_block = NULL;
+      InvertedIndex *idx = currNode->range->entries;
+      uintptr_t numBlocks = InvertedIndex_NumBlocks(idx);
+      if (numBlocks == 0) {
+        continue;
+      }
       hll_clear(&nctx.majority_card);
       hll_clear(&nctx.last_block_card);
-
-      InvertedIndex *idx = currNode->range->entries;
+      nctx.actual_last_block = InvertedIndex_BlockRef(idx, numBlocks - 1);
       header.curPtr = currNode;
 
       CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
@@ -311,8 +307,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       );
 
       if (repaired) {
-        // Instead of sending the majority cardinality and the last block's cardinality, we now
-        // merge the majority cardinality into the last block's cardinality, and send its registers
+        // Merge the majority cardinality into the last block's cardinality, and send its registers
         // as the cardinality WITH the last block's cardinality, and then send the majority registers
         // as the cardinality WITHOUT the last block's cardinality. This way, the main process can
         // choose which registers to use without having to merge them itself.

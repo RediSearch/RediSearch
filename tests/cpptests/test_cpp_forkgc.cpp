@@ -870,12 +870,8 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rt->root->range));
 }
 
-// Demonstrates the HLL cardinality bug when the last block is fully emptied during GC.
-// The C code's `countRemain` callback tracks block transitions by pointer comparison,
-// but is only called for surviving documents. When the last block is fully emptied,
-// the callback never fires for it, so `last_block_card` holds the penultimate block's
-// data. This causes `registers_without_last_block` to lose the penultimate block's
-// cardinality when `ignored_last_block = true`.
+// Regression test for MOD-14147, an HLL cardinality bug that occurs when the last block
+// is fully emptied during GC.
 TEST_F(FGCTestNumeric, testHllCardinalityWhenLastBlockFullyEmptied) {
   constexpr size_t docs_per_block = 100;
   constexpr size_t first_split_card = 16; // from `numeric_index.c`
@@ -911,7 +907,8 @@ TEST_F(FGCTestNumeric, testHllCardinalityWhenLastBlockFullyEmptied) {
 
   // Step 3: Add a post-fork entry to trigger `ignored_last_block`.
   // This writes to block 2 (still has capacity), changing its `num_entries`.
-  // When the parent applies, this mismatch causes `ignored_last_block = true`.
+  // When the parent applies, this mismatch causes `ignored_last_block = true`,
+  // thus preserving the last block.
   this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, "4.0");
 
   // Step 4: Apply and assert.
@@ -919,7 +916,5 @@ TEST_F(FGCTestNumeric, testHllCardinalityWhenLastBlockFullyEmptied) {
 
   ASSERT_TRUE(rt->root->range);
   // Correct cardinality is 4 (values 1.0, 2.0, 3.0, 4.0).
-  // With the bug, cardinality would be 3 (value 2.0 from block 1 is incorrectly
-  // excluded from `registers_without_last_block`).
   EXPECT_EQ(4u, NumericRange_GetCardinality(rt->root->range));
 }
