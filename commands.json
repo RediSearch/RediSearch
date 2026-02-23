@@ -2073,7 +2073,7 @@
                     "type": "double",
                     "token": "SHARD_K_RATIO",
                     "optional": true,
-                    "since": "8.6.1"
+                    "since": "8.4.7"
                   },
                   {
                     "name": "yield_score_as",
