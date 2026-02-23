@@ -111,7 +111,7 @@ static void closeTimer(MRConn *conn) {
 }
 
 /*
-* This is called when the IORuntime is being shut down. This is called from the uv thread.
+* This is called from the uv thread.
 */
 static void MRConn_Disconnect(MRConn *conn) {
   CONN_LOG(conn, "Disconnecting connection");
@@ -410,14 +410,11 @@ static void signalCallback(uv_timer_t *tm) {
     return;  // Nothing to do here!
   }
 
-  redisAsyncContext *ac = conn->conn;
-
   if (conn->state == MRConn_Freeing) {
     CONN_LOG(conn, "Freeing connection");
+
+    redisAsyncContext *ac = detachFromConn(conn, false);
     if (ac) {
-      ac->data = NULL;
-      conn->conn = NULL;
-      conn->protocol = 0;
       redisAsyncDisconnect(ac);
     }
     freeConn(conn);
@@ -483,7 +480,6 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
 
 activate_timer:
   if (conn->timer && !uv_is_active(conn->timer)) {
-    uv_timer_t *tm = conn->timer;
     uv_timer_start(conn->timer, signalCallback, nextTimeout, 0);
   }
 }
