@@ -219,12 +219,7 @@ typedef struct KeyList {
 } KeyList;
 
 /**
- * A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
- *
- * This types `Iterator` implementation skips all hidden keys, i.e. the keys
- * with hidden flags, also including keys that been overridden.
- *
- * If you need to obtain the hidden keys use [`Cursor::move_next`].
+ * A cursor over an [`RLookup`]'s key list.
  */
 typedef struct Cursor {
   const struct KeyList *_rlookup;
@@ -232,7 +227,7 @@ typedef struct Cursor {
 } Cursor;
 
 /**
- * A cursor over an [`crate::RLookup`]s key list with editing operations.
+ * A cursor over an [`RLookup`]'s key list with editing operations.
  */
 typedef struct CursorMut {
   struct KeyList *_rlookup;
