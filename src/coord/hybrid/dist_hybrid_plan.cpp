@@ -94,7 +94,7 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
 
     RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
     // Init lookup since we dont call buildQueryPart
-    RLookup_Init(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
+    RLookup_SetCache(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
 
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) {
