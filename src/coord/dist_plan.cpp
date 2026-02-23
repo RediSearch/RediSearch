@@ -398,7 +398,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             goto error;
           }
           RLookup filter_keys = RLookup_New();
-          RLookup_Init(&filter_keys, NULL);
           RLookup_EnableOptions(&filter_keys, RLOOKUP_OPT_UNRESOLVED_OK);
           ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
           if (QueryError_HasError(status)) {

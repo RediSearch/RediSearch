@@ -15,13 +15,11 @@ class RLookupTest : public ::testing::Test {};
 
 TEST_F(RLookupTest, testInit) {
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   RLookup_Cleanup(&lk);
 }
 
 TEST_F(RLookupTest, testFlags) {
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   RLookupKey *fook = RLookup_GetKey_Read(&lk, "foo", RLOOKUP_F_NOFLAGS);
   ASSERT_EQ(NULL, fook);
   // Try with M_WRITE
@@ -39,7 +37,6 @@ TEST_F(RLookupTest, testFlags) {
 
 TEST_F(RLookupTest, testRow) {
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = RLookupRow_New();
@@ -155,8 +152,6 @@ void cleanup_values(const std::vector<RSValue*>& values) {
 // Tests basic key addition from source to destination lookup
 TEST_F(RLookupTest, testAddKeysFromBasic) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create keys in source
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
@@ -182,8 +177,6 @@ TEST_F(RLookupTest, testAddKeysFromBasic) {
 // Tests that adding keys from empty source doesn't change destination
 TEST_F(RLookupTest, testAddKeysFromEmptySource) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create keys in destination
   TestKeySet destKeys = init_keys(&dest, {"existing1", "existing2"});
@@ -209,8 +202,6 @@ TEST_F(RLookupTest, testAddKeysFromEmptySource) {
 // Tests key name conflicts with default behavior (first wins)
 TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create keys in source: "field1", "field2", "field3"
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
@@ -245,8 +236,6 @@ TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
 // Tests key name conflicts with override behavior
 TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create keys in source: "field1", "field2", "field3"
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
@@ -285,10 +274,6 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
 // Tests sequential additions from multiple sources with conflict resolution
 TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
   RLookup src1 = RLookup_New(), src2 = RLookup_New(), src3 = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&src1, NULL);
-  RLookup_Init(&src2, NULL);
-  RLookup_Init(&src3, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create overlapping keys in different sources
   TestKeySet src1Keys = init_keys(&src1, {"field1", "field2", "field3"});
@@ -320,8 +305,6 @@ TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
 // Tests basic field writing between lookup rows
 TEST_F(RLookupTest, testWriteFieldsBasic) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Setup: create source keys and add to destination
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2"});
@@ -367,8 +350,6 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
 // Tests field writing when source row has no data
 TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create keys in source
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2"});
@@ -395,8 +376,6 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
 // Tests field writing between schemas with different internal indices
 TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create source keys in specific order
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
@@ -447,9 +426,6 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
 // Tests RLookupRow_WriteFieldsFrom with distinct field sets from each source
 TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
   RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&src1, NULL);
-  RLookup_Init(&src2, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create distinct field sets: src1["field1", "field2"], src2["field3", "field4"]
   TestKeySet src1Keys = init_keys(&src1, {"field1", "field2"});
@@ -488,9 +464,6 @@ TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
 // Tests RLookupRow_WriteFieldsFrom with overlapping field names (last write wins)
 TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
   RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&src1, NULL);
-  RLookup_Init(&src2, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create overlapping field sets: src1["field1", "field2", "field3"], src2["field2", "field4", "field5"]
   RLookupKey *s1_key1 = RLookup_GetKey_Write(&src1, "field1", RLOOKUP_F_NOFLAGS);
@@ -578,9 +551,6 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
 // Tests RLookupRow_WriteFieldsFrom with identical field sets (last write wins)
 TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&src1, NULL);
-  RLookup_Init(&src2, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Both sources have identical field names: ["field1", "field2", "field3"]
   RLookupKey *s1_key1 = RLookup_GetKey_Write(&src1, "field1", RLOOKUP_F_NOFLAGS);
@@ -669,9 +639,6 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
 // Tests hybrid search where one source has no data
 TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
   RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&src1, NULL);
-  RLookup_Init(&src2, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create field sets: src1["field1", "field2"], src2["field3", "field4"]
   TestKeySet src1Keys = init_keys(&src1, {"field1", "field2"});
@@ -711,8 +678,6 @@ TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
 // Tests createMissingKeys=true: keys are created in destination on demand
 TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create keys in source but NOT in destination
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
@@ -755,8 +720,6 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeys) {
 // Tests createMissingKeys=true with partial overlap: some keys exist, some created
 TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
   RLookup source = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&source, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create keys in source
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
@@ -792,9 +755,6 @@ TEST_F(RLookupTest, testWriteFieldsCreateMissingKeysPartialOverlap) {
 // Tests F_HIDDEN flag handling: preservation and override behavior
 TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   RLookup src1 = RLookup_New(), src2 = RLookup_New(), dest = RLookup_New();
-  RLookup_Init(&src1, NULL);
-  RLookup_Init(&src2, NULL);
-  RLookup_Init(&dest, NULL);
 
   // Create key in src1 with F_HIDDEN flag
   RLookupKey *src1_key = RLookup_GetKey_Write(&src1, "test_field", RLOOKUP_F_HIDDEN);
