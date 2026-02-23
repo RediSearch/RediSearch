@@ -124,7 +124,7 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
 }
 
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
-    RS_ASSERT(disk && index);
+    RS_ASSERT(disk && index && spec);
     disk->index.runGC(index, spec);
 }
 
