@@ -78,7 +78,7 @@ impl<'a> RLookup<'a> {
         }
     }
 
-    pub fn init(&mut self, spcache: Option<IndexSpecCache>) {
+    pub fn set_cache(&mut self, spcache: Option<IndexSpecCache>) {
         // C-CODE: used memset to zero initialize,
         // We behave the same way in release, but add a debug assert to catch misuses.
         if self.index_spec_cache.is_some() {

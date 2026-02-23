@@ -564,7 +564,7 @@ struct RLookup RLookup_New(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
+void RLookup_SetCache(struct RLookup *lookup, struct IndexSpecCache *spcache);
 
 /**
  * Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
