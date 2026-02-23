@@ -47,6 +47,7 @@ typedef struct ConcurrentCmdCtx {
   int argc;
   int options;
   WeakRef spec_ref;
+  size_t numShards;                   // Number of shards in the cluster (captured from main thread)
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -94,14 +95,19 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
+size_t ConcurrentCmdCtx_GetNumShards(const ConcurrentCmdCtx *cctx) {
+  return cctx->numShards;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                          WeakRef spec_ref) {
+                                          ConcurrentSearchHandlerCtx *handlerCtx) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
   cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   cmdCtx->argc = argc;
-  cmdCtx->spec_ref = spec_ref;
+  cmdCtx->spec_ref = handlerCtx->spec_ref;
+  cmdCtx->numShards = handlerCtx->numShards;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
 
   RS_AutoMemory(cmdCtx->ctx);
