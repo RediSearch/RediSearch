@@ -4213,7 +4213,7 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
 
 // Update a term's document count in the Serving Trie
 // Note: term is NOT null-terminated; term_len specifies the length
-void IndexSpec_UpdateTrieTerm(IndexSpec* sp, const char* term, size_t term_len,
+IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
                                size_t doc_count_decrement) {
   if (!sp->terms || doc_count_decrement == 0) {
     return;
@@ -4227,7 +4227,7 @@ void IndexSpec_UpdateTrieTerm(IndexSpec* sp, const char* term, size_t term_len,
 // Update IndexScoringStats based on compaction delta
 // Note: num_docs and totalDocsLen are updated at delete time, NOT by GC.
 // GC only updates numTerms (when terms become completely empty).
-void IndexSpec_UpdateScoringStats(IndexSpec* sp, uint64_t num_terms_removed) {
+void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed) {
   if (num_terms_removed == 0) {
     return;
   }
