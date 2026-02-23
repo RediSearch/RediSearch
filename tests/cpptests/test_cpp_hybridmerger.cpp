@@ -173,15 +173,13 @@ HybridLookupContext* CreateDummyLookupContext(size_t numUpstreams) {
 
   // Create dummy RLookup for each upstream
   for (size_t i = 0; i < numUpstreams; i++) {
-    RLookup *dummyLookup = (RLookup*)rm_calloc(1, sizeof(RLookup));
+    RLookup *dummyLookup = &RLookup_New();
     array_append(lookupCtx->sourceLookups, dummyLookup);
   }
 
   // Create dummy tail lookup
-  RLookup *tailLookup = (RLookup*)rm_calloc(1, sizeof(RLookup));
-  if (tailLookup) {
-    lookupCtx->tailLookup = tailLookup;
-  }
+  RLookup *tailLookup = &RLookup_New();
+  lookupCtx->tailLookup = tailLookup;
 
   return lookupCtx;
 }
