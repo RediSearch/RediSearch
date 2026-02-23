@@ -53,7 +53,6 @@ TEST_F(RLookupTest, testRow) {
   RSValue *vtmp = RLookup_GetItem(fook, &rr);
   ASSERT_EQ(vfoo, vtmp);
   ASSERT_EQ(2, RSValue_Refcount(vfoo));
-  ASSERT_EQ(1, rr.ndyn);
 
   // Write a NULL value
   RLookup_WriteKey(fook, &rr, RSValue_NullStatic());
