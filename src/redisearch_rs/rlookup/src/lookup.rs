@@ -518,7 +518,7 @@ mod tests {
     use std::{ffi::CString, mem::MaybeUninit};
     use std::{
         ffi::c_char,
-        ptr::{self, NonNull},
+        ptr::self,
     };
 
     use enumflags2::make_bitflags;
