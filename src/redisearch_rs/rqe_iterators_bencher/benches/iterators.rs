@@ -63,6 +63,11 @@ fn benchmark_inverted_index_numeric(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_inverted_index_wildcard(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::WildcardBencher::default();
+    bencher.bench(c);
+}
+
 /*
 fn benchmark_inverted_index_term(c: &mut Criterion) {
     // Run bench with each decoder producing term results.
@@ -151,6 +156,7 @@ criterion_group!(
     benchmark_intersection,
     benchmark_optional,
     benchmark_inverted_index_numeric,
+    benchmark_inverted_index_wildcard,
     //benchmark_inverted_index_term,
 );
 

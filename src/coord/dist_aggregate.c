@@ -408,7 +408,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
     }
   } else {
     sendChunk(r, reply, UINT64_MAX);
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
   }
   return REDISMODULE_OK;
 }
@@ -423,7 +423,7 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
     IndexSpecRef_Release(*strong_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
-  if (r) AREQ_Free(r);
+  if (r) AREQ_DecrRef(r);
   RedisModule_EndReply(reply);
   return;
 }

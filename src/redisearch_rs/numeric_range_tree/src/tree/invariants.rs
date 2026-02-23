@@ -15,7 +15,7 @@
 
 use inverted_index::{IndexReader, NumericFilter, RSIndexResult};
 
-use super::{AddResult, NumericRangeTree, TreeStats, apply_signed_delta};
+use super::{AddResult, NumericRangeTree, TreeStats, TrimEmptyLeavesResult, apply_signed_delta};
 use crate::NumericRange;
 use crate::NumericRangeNode;
 use crate::arena::NodeIndex;
@@ -90,6 +90,55 @@ impl NumericRangeTree {
             expected_total_records, actual_total_records,
             "total_records mismatch: before={total_records_before}, delta={}, actual={actual_total_records}",
             result.num_records_delta,
+        );
+    }
+
+    /// Verify that the deltas in a [`TrimEmptyLeavesResult`] are consistent with the stats change.
+    ///
+    /// Similar to [`check_delta_invariants`](Self::check_delta_invariants) but
+    /// does not check `num_records_delta` (trim only removes empty nodes, so
+    /// the total record count is unchanged).
+    pub(crate) fn check_trim_delta_invariants(
+        &self,
+        before: TreeStats,
+        revision_id_before: u32,
+        result: &TrimEmptyLeavesResult,
+    ) {
+        assert_eq!(
+            apply_signed_delta(before.num_ranges, result.num_ranges_delta as i64),
+            self.stats.num_ranges,
+            "num_ranges mismatch: before={}, delta={}, after={}",
+            before.num_ranges,
+            result.num_ranges_delta,
+            self.stats.num_ranges,
+        );
+        assert_eq!(
+            apply_signed_delta(before.num_leaves, result.num_leaves_delta as i64),
+            self.stats.num_leaves,
+            "num_leaves mismatch: before={}, delta={}, after={}",
+            before.num_leaves,
+            result.num_leaves_delta,
+            self.stats.num_leaves,
+        );
+        assert_eq!(
+            apply_signed_delta(before.inverted_indexes_size, result.size_delta),
+            self.stats.inverted_indexes_size,
+            "inverted_indexes_size mismatch: before={}, delta={}, after={}",
+            before.inverted_indexes_size,
+            result.size_delta,
+            self.stats.inverted_indexes_size,
+        );
+
+        // revision_id / changed
+        let expected_revision_id = if result.changed {
+            revision_id_before.wrapping_add(1)
+        } else {
+            revision_id_before
+        };
+        assert_eq!(
+            expected_revision_id, self.revision_id,
+            "revision_id mismatch: before={revision_id_before}, changed={}, after={}",
+            result.changed, self.revision_id,
         );
     }
 

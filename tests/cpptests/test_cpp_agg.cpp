@@ -92,7 +92,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&res);
-  AREQ_Free(rr);
+  AREQ_DecrRef(rr);
   IndexSpec_Free(spec);
   args.clear();
   aggArgs.clear();
@@ -139,7 +139,7 @@ class ReducerOptionsCXX : public ReducerOptions {
 TEST_F(AggTest, testGroupBy) {
   QueryProcessingCtx qitr = {0};
   RPMock ctx;
-  RLookup rk_in = {0};
+  RLookup rk_in = RLookup_New();
   const char *values[] = {"foo", "bar", "baz", "foo"};
   ctx.values = values;
   ctx.numvals = sizeof(values) / sizeof(values[0]);
@@ -163,7 +163,7 @@ TEST_F(AggTest, testGroupBy) {
 
   QITR_PushRP(&qitr, &ctx);
 
-  RLookup rk_out = {0};
+  RLookup rk_out = RLookup_New();
   RLookupKey *v_out = RLookup_GetKey_Write(&rk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
@@ -207,8 +207,8 @@ class ArrayGenerator : public ResultProcessor {
 TEST_F(AggTest, testGroupSplit) {
   QueryProcessingCtx qitr = {0};
   ArrayGenerator gen;
-  RLookup lk_in = {0};
-  RLookup lk_out = {0};
+  RLookup lk_in = RLookup_New();
+  RLookup lk_out = RLookup_New();
   gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
@@ -229,11 +229,11 @@ TEST_F(AggTest, testGroupSplit) {
     SearchResult_SetDocId(res, ++p->counter);
     uint32_t sz = p->values.size();
     char **strs = (char **)&p->values[0];
-    RSValue **arr = RSValue_AllocateArray(sz);
+    RSValue **arr = RSValue_NewArrayBuilder(sz);
     for (uint32_t i = 0; i < sz; i++) {
       arr[i] = RSValue_NewConstString(strs[i], strlen(strs[i]));
     }
-    RSValue *array = RSValue_NewArray(arr, sz);
+    RSValue *array = RSValue_NewArrayFromBuilder(arr, sz);
     RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res), array);
     //* res = * p->res;
     return RS_RESULT_OK;
@@ -309,7 +309,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);
-    AREQ_Free(rr);
+    AREQ_DecrRef(rr);
     return res;
   };
 

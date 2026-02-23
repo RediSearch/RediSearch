@@ -7,11 +7,8 @@
    Memcheck:Leak
    match-leak-kinds: possible
    fun:malloc
-   fun:alloc
-   fun:alloc_impl
-   fun:allocate
-   fun:{closure#0}<std::thread::Inner>
-   fun:allocate_for_layout<core::mem::maybe_uninit::MaybeUninit<std::thread::Inner>, alloc::sync::{impl#14}::new_uninit::{closure_env#0}<std::thread::Inner>, fn(*mut u8) -> *mut alloc::sync::ArcInner<core::mem::maybe_uninit::MaybeUninit<std::thread::Inner>>>
+   ...
+   fun:*std*thread*Thread*new*
 }
 
 {

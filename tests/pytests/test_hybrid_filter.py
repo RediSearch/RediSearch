@@ -150,7 +150,7 @@ def test_hybrid_policy_errors():
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', '$BLOB',
         'FILTER', '5', '@category:{"vegetable"}', "POLICY", "ADHOC", "BATCH_SIZE", "100",
-        'PARAMS', '2', 'BLOB', query_vector).error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for the selected policy")
+        'PARAMS', '2', 'BLOB', query_vector).error().contains("SEARCH_ADHOC_BATCH_SIZE_IRRELEVANT 'batch size' is irrelevant for the selected policy (Error parsing vector similarity parameters)")
 
     env.expect(
         'FT.HYBRID', 'filter_idx',
@@ -164,14 +164,14 @@ def test_hybrid_policy_errors():
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
         'FILTER', '3', '@category:{"vegetable"}', "POLICY", "ADHOC",
-        'PARAMS', '2', 'BLOB', query_vector ).error().contains("Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query")
+        'PARAMS', '2', 'BLOB', query_vector ).error().contains("SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)")
 
     env.expect(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
         'FILTER', '3', '@category:{"vegetable"}', "BATCH_SIZE", "5",
-        'PARAMS', '2', 'BLOB', query_vector ).error().contains("Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query")
+        'PARAMS', '2', 'BLOB', query_vector ).error().contains("SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)")
 
     env.expect(
         'FT.HYBRID', 'filter_idx',

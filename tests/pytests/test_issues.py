@@ -38,6 +38,7 @@ def test_1502(env):
 
   env.expect('FT.ALTER idx1 SKIPINITIALSCAN SCHEMA ADD bar TEXT').ok()
   env.expect('FT.ALTER idx2 SCHEMA ADD bar TEXT').ok()
+
   waitForIndex(env, 'idx2')
 
   env.expect('ft.search idx1 *').equal([0])
@@ -476,7 +477,7 @@ def testOverMaxResults():
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '5', '10').equal([res[0], *res[6:11]])
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([10])
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([10])
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('SEARCH_LIMIT_OVER OFFSET exceeds maximum of 20')
 
     # test with number of documents equal to MAXSEARCHRESULTS
     for i in range(10,20):
@@ -487,7 +488,7 @@ def testOverMaxResults():
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '1', '20').equal([res[0], *[str(i) for i in range(1, 20, 1)]])
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([20, *res[6:11]])
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([20])
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('SEARCH_LIMIT_OVER OFFSET exceeds maximum of 20')
 
     # test with number of documents greater than MAXSEARCHRESULTS
     for i in range(20,30):
@@ -497,8 +498,8 @@ def testOverMaxResults():
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '10', '10').equal([30, *res[1:11]])
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '15', '10').equal([30, *res[6:11]])
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '20', '10').equal([30])
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('OFFSET exceeds maximum of 20')
-    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('OFFSET exceeds maximum of 20')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '25', '10').equal('SEARCH_LIMIT_OVER OFFSET exceeds maximum of 20')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', '30', '10').equal('SEARCH_LIMIT_OVER OFFSET exceeds maximum of 20')
 
 
 def test_MOD_3372(env):
@@ -510,7 +511,7 @@ def test_MOD_3372(env):
   env.expect('FT.EXPLAIN', 'idx').error().contains('wrong number of arguments')
   env.expect('FT.EXPLAIN', 'idx', 'foo').equal('UNION {\n  foo\n  +foo(expanded)\n}\n')
   env.expect('FT.EXPLAIN', 'idx', 'foo', 'verbatim').equal('foo\n')
-  env.expect('FT.EXPLAIN', 'non-exist', 'foo').error().equal('non-exist: no such index')
+  env.expect('FT.EXPLAIN', 'non-exist', 'foo').error().equal('SEARCH_INDEX_NOT_FOUND Index not found: non-exist')
 
   if not env.isCluster():
     # FT.EXPLAINCLI is not supported by the coordinator
@@ -518,7 +519,7 @@ def test_MOD_3372(env):
     env.expect('FT.EXPLAINCLI', 'idx').error().contains('wrong number of arguments')
     env.expect('FT.EXPLAINCLI', 'idx', 'foo').equal(['UNION {', '  foo', '  +foo(expanded)', '}', ''])
     env.expect('FT.EXPLAINCLI', 'idx', 'foo', 'verbatim').equal(['foo', ''])
-    env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('non-exist: no such index')
+    env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('SEARCH_INDEX_NOT_FOUND Index not found: non-exist')
 
 def test_MOD_3540(env):
   # disable SORTBY MAX for FT.SEARCH
@@ -1071,7 +1072,7 @@ def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
     query_vec = create_np_array_typed(np.random.rand(dim))
     env.expect('FT.SEARCH', 'idx', 'meta=>[KNN 5 @v $vec_param HYBRID_POLICY ADHOC_BF]', 'NOCONTENT',
                              'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'TIMEOUT', 1, 'DIALECT', 2)\
-        .error().contains('Timeout limit was reached')
+        .error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     # Then, when we delete inplace and tried to acquire the locks again for write, we got a deadlock.
     env.expect('DEL 0').equal(1)
 
@@ -1142,7 +1143,8 @@ def test_unsafe_simpleString_values():
 
   # Test creating an index with unsafe name
   env.expect('FT.CREATE', unsafe_index, 'PREFIX', '1', unsafe_value, 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT._LIST').equal([escape(unsafe_index)])
+  # Normalize output type across RESP2/RESP3 (server may return a list or set).
+  env.expect('FT._LIST').apply(lambda x: set(x)).equal({escape(unsafe_index)})
   info = index_info(env, unsafe_index)
   env.assertEqual(info['index_name'], escape(unsafe_index))
   env.assertEqual(info['index_definition']['prefixes'], [escape(unsafe_value)])
@@ -1843,3 +1845,40 @@ def test_mod_13010(env):
     env.assertEqual(
         length1, length2,
         message=f"Different number of messages: {length1} vs {length2}")
+
+@skip(cluster=False) # This test is only relevant for cluster
+def test_mod_14112(env: Env):
+  '''Test that FT.SEARCH returns an error (not crash) on topology validation failure.
+  When topology validation fails, the reducer context is NULL. Previously this caused
+  a SIGSEGV in sendSearchResults. Now we return an error gracefully.'''
+  # Create an index first (before breaking topology)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  # Pause topology refresh so our invalid topology stays in effect
+  env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+  # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
+  env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+  # Set topology to an invalid one (assuming port 9 is not open)
+  env.expect('SEARCH.CLUSTERSET',
+             'MYID',
+             '1',
+             'RANGES',
+             '2',
+             'SHARD',
+             '1',
+             'SLOTRANGE',
+             '0',
+             '8191',
+             'ADDR',
+             '127.0.0.1:9',
+             'MASTER',
+             'SHARD',
+             '2',
+             'SLOTRANGE',
+             '8192',
+             '16383',
+             'ADDR',
+             '127.0.0.1:9',
+             'MASTER'
+  ).ok()
+  # Verify that `FT.SEARCH` queries return an error (not crash)
+  env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')

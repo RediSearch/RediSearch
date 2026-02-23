@@ -40,7 +40,9 @@ impl WildcardBaseTest {
 
     fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
         let reader = self.test.ii.reader();
-        Wildcard::new(reader, self.test.mock_ctx.sctx(), 1.0)
+        // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
+        // that outlives the returned iterator.
+        unsafe { Wildcard::new(reader, self.test.mock_ctx.sctx(), 1.0) }
     }
 }
 
@@ -65,7 +67,9 @@ fn wildcard_empty_index() {
     let mock_ctx = MockContext::new(0, 0);
 
     let reader = ii.reader();
-    let mut it = Wildcard::new(reader, mock_ctx.sctx(), 1.0);
+    // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
+    // that outlives the iterator.
+    let mut it = unsafe { Wildcard::new(reader, mock_ctx.sctx(), 1.0) };
 
     // Should immediately be at EOF
     assert!(it.read().expect("read failed").is_none());
@@ -104,7 +108,9 @@ mod not_miri {
 
         fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
             let ii = DocIdsOnly::from_opaque(self.test.context.wildcard_inverted_index());
-            Wildcard::new(ii.reader(), self.test.context.sctx, 1.0)
+            // SAFETY: `self.test.context` provides a valid `RedisSearchCtx` with a valid
+            // `spec` and `existingDocs` that outlive the returned iterator.
+            unsafe { Wildcard::new(ii.reader(), self.test.context.sctx, 1.0) }
         }
     }
 

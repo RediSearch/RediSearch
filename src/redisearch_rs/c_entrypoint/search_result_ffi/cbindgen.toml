@@ -14,7 +14,10 @@ static const uint8_t Result_ExpiredDoc = 1 << 0;
 
 [parse]
 parse_deps = true
-include = ["search_result"]
+include = ["search_result", "rlookup"]
 
 [export]
-exclude = ["SearchResultFlags", "Option_DocumentMetadata"]
+exclude = ["SearchResultFlags", "Option_DocumentMetadata", "RLookupRow_RSValueFFI"]
+
+[export.rename]
+"RLookupRow_RSValueFFI" = "RLookupRow"

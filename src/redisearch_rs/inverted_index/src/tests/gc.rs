@@ -606,6 +606,71 @@ fn ii_apply_gc_last_block_updated() {
 }
 
 #[test]
+fn ii_apply_gc_last_block_updated_no_delta() {
+    // Create 2 blocks where:
+    // - Block 0 has a delta (entries to delete)
+    // - Block 1 (last) has NO delta but gained entries post-fork
+    // This tests the path where last_block_changed is true but there is no
+    // stale delta to pop — ignored_last_block must still be set to true.
+    let blocks = medium_thin_vec![
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 10, 11),
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+    ];
+
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
+
+    // Delta only for block 0 — block 1 had no deleted entries during scan.
+    let gc_result = vec![BlockGcScanResult {
+        index: 0,
+        repair: RepairType::Delete {
+            n_unique_docs_removed: 2,
+        },
+    }];
+
+    let delta = GcScanDelta {
+        last_block_idx: 1,
+        // Simulate post-fork writes: scan saw 2 entries, but now there are 3.
+        last_block_num_entries: 2,
+        deltas: gc_result,
+    };
+
+    let apply_info = ii.apply_gc(delta);
+
+    assert_eq!(
+        apply_info,
+        GcApplyInfo {
+            bytes_freed: 56,
+            bytes_allocated: 0,
+            entries_removed: 2,
+            // The key assertion: ignored_last_block must be true even without
+            // a delta for the last block.
+            ignored_last_block: true,
+        }
+    );
+
+    // Block 0 was deleted, block 1 (unchanged) remains.
+    assert_eq!(
+        ii.blocks,
+        vec![IndexBlock {
+            buffer: encode_ids!(Dummy, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        }]
+    );
+}
+
+#[test]
 fn ii_apply_gc_entries_tracking_index() {
     // Make a dummy encoder which allows duplicates
     #[derive(Clone)]

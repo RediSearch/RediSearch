@@ -262,7 +262,7 @@ impl InternalNode {
 ///   and optionally retain a range for query efficiency.
 ///
 /// When part of a [`NumericRangeTree`](crate::NumericRangeTree), nodes are
-/// stored in a [`slab::Slab`] arena and referenced by [`NodeIndex`].
+/// stored in a [`generational_slab::Slab`] arena and referenced by [`NodeIndex`].
 #[derive(Debug)]
 pub enum NumericRangeNode {
     /// A leaf node containing a range of document-value entries.
