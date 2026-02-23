@@ -66,14 +66,10 @@ protected:
   }
 };
 
-static RedisModuleSlotRangeArray *createSlotRangeArray(std::span<const std::array<uint16_t, 2>> ranges) {
-  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * ranges.size();
+static RedisModuleSlotRangeArray *createEmptySlotRangeArray() {
+  size_t total_size = sizeof(RedisModuleSlotRangeArray);
   auto array = (RedisModuleSlotRangeArray *)rm_malloc(total_size);
-  array->num_ranges = ranges.size();
-  for (size_t i = 0; i < ranges.size(); i++) {
-    array->ranges[i].start = ranges[i][0];
-    array->ranges[i].end = ranges[i][1];
-  }
+  array->num_ranges = 0;
   return array;
 }
 
@@ -84,7 +80,6 @@ static MRClusterTopology *getTopology(std::span<const char *const> hosts) {
   topo->capShards = numNodes;
   topo->shards = (MRClusterShard *)rm_calloc(numNodes, sizeof(MRClusterShard));
 
-  size_t slots_per_node = 16384 / numNodes;
   for (size_t i = 0; i < numNodes; i++) {
     MRClusterNode *node = &topo->shards[i].node;
     if (REDIS_OK != MREndpoint_Parse(hosts[i], &node->endpoint)) {
@@ -92,10 +87,7 @@ static MRClusterTopology *getTopology(std::span<const char *const> hosts) {
       return nullptr;
     }
     node->id = rm_strdup(hosts[i]);
-    std::array<std::array<uint16_t, 2>, 1> ranges = {{
-        {(uint16_t)(i * slots_per_node), (uint16_t)((i + 1) * slots_per_node - 1)},
-    }};
-    topo->shards[i].slotRanges = createSlotRangeArray(ranges);
+    topo->shards[i].slotRanges = createEmptySlotRangeArray();
   }
 
   return topo;
