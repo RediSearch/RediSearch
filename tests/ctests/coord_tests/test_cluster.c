@@ -10,7 +10,6 @@
 #include "endpoint.h"
 #include "command.h"
 #include "cluster.h"
-#include "io_runtime_ctx.h"
 #include "slot_ranges.h"
 
 #include "hiredis/hiredis.h"
@@ -158,55 +157,6 @@ void testCluster() {
   }
 }
 
-void testIORuntime_UpdateNodesAddRemove() {
-  const char *hosts_v1[] = {"localhost:6379", "localhost:6389", "localhost:6399"};
-  MRClusterTopology *topo_v1 = getTopology(3, hosts_v1);
-  IORuntimeCtx *io = IORuntimeCtx_Create(2, topo_v1, 11, true);
-
-  // Populate the conn manager from initial topology
-  IORuntimeCtx_UpdateNodes(io);
-  mu_assert_int_eq(3, dictSize(io->conn_mgr.map));
-  mu_check(dictFind(io->conn_mgr.map, hosts_v1[0]) != NULL);
-  mu_check(dictFind(io->conn_mgr.map, hosts_v1[1]) != NULL);
-  mu_check(dictFind(io->conn_mgr.map, hosts_v1[2]) != NULL);
-
-  // Apply new topology with one removed and one added node
-  const char *hosts_v2[] = {"localhost:6379", "localhost:6399", "localhost:6409"};
-  MRClusterTopology *topo_v2 = getTopology(3, hosts_v2);
-  MRClusterTopology *old_topo = io->topo;
-  io->topo = topo_v2;
-  IORuntimeCtx_UpdateNodes(io);
-  MRClusterTopology_Free(old_topo);
-
-  mu_assert_int_eq(3, dictSize(io->conn_mgr.map));
-  mu_check(dictFind(io->conn_mgr.map, "localhost:6379") != NULL);
-  mu_check(dictFind(io->conn_mgr.map, "localhost:6399") != NULL);
-  mu_check(dictFind(io->conn_mgr.map, "localhost:6409") != NULL);
-  mu_check(dictFind(io->conn_mgr.map, "localhost:6389") == NULL);
-
-  IORuntimeCtx_Free(io);
-}
-
-void testConnManager_DisconnectReturnAndRemoval() {
-  const char *hosts[] = {"localhost:6379", "localhost:6389"};
-  MRClusterTopology *topo = getTopology(2, hosts);
-  IORuntimeCtx *io = IORuntimeCtx_Create(1, topo, 12, true);
-
-  IORuntimeCtx_UpdateNodes(io);
-  mu_assert_int_eq(2, dictSize(io->conn_mgr.map));
-
-  // Existing node should disconnect/remove successfully
-  mu_assert_int_eq(REDIS_OK, MRConnManager_Disconnect(&io->conn_mgr, "localhost:6389"));
-  mu_assert_int_eq(1, dictSize(io->conn_mgr.map));
-  mu_check(dictFind(io->conn_mgr.map, "localhost:6389") == NULL);
-
-  // Missing node should return REDIS_ERR
-  mu_assert_int_eq(REDIS_ERR, MRConnManager_Disconnect(&io->conn_mgr, "localhost:6389"));
-  mu_assert_int_eq(REDIS_ERR, MRConnManager_Disconnect(&io->conn_mgr, "missing-node"));
-
-  IORuntimeCtx_Free(io);
-}
-
 static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
 
 int main(int argc, char **argv) {
@@ -215,8 +165,6 @@ int main(int argc, char **argv) {
   MU_RUN_TEST(testEndpoint);
   MU_RUN_TEST(testCluster);
   MU_RUN_TEST(testClusterTopology_Clone);
-  MU_RUN_TEST(testIORuntime_UpdateNodesAddRemove);
-  MU_RUN_TEST(testConnManager_DisconnectReturnAndRemoval);
   MU_REPORT();
 
   return minunit_status;

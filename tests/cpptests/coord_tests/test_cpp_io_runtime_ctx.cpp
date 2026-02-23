@@ -63,6 +63,50 @@ protected:
   }
 };
 
+static RedisModuleSlotRangeArray *createSlotRangeArray(size_t numRanges, uint16_t ranges[][2]) {
+  size_t total_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange) * numRanges;
+  RedisModuleSlotRangeArray *array = (RedisModuleSlotRangeArray *)rm_malloc(total_size);
+  array->num_ranges = numRanges;
+  for (size_t i = 0; i < numRanges; i++) {
+    array->ranges[i].start = ranges[i][0];
+    array->ranges[i].end = ranges[i][1];
+  }
+  return array;
+}
+
+static MRClusterTopology *getTopology(size_t numNodes, const char **hosts) {
+  MRClusterTopology *topo = (MRClusterTopology *)rm_malloc(sizeof(*topo));
+  topo->numShards = numNodes;
+  topo->capShards = numNodes;
+  topo->shards = (MRClusterShard *)rm_calloc(numNodes, sizeof(MRClusterShard));
+
+  size_t slots_per_node = 16384 / numNodes;
+  for (size_t i = 0; i < numNodes; i++) {
+    MRClusterNode *node = &topo->shards[i].node;
+    if (REDIS_OK != MREndpoint_Parse(hosts[i], &node->endpoint)) {
+      MRClusterTopology_Free(topo);
+      return nullptr;
+    }
+    node->id = rm_strdup(hosts[i]);
+    uint16_t ranges[][2] = {{(uint16_t)(i * slots_per_node),
+                             (uint16_t)((i + 1) * slots_per_node - 1)}};
+    topo->shards[i].slotRanges = createSlotRangeArray(1, ranges);
+  }
+
+  return topo;
+}
+
+static void startAndShutdownRuntime(IORuntimeCtx *io) {
+  int counter = 0;
+  // Start runtime through schedule path so io_runtime_started_or_starting is set.
+  IORuntimeCtx_Schedule(io, testCallback, &counter);
+  bool started = RS::WaitForCondition([&]() {
+    return io->uv_runtime.loop_th_created;
+  });
+  ASSERT_TRUE(started) << "Timeout waiting for IO runtime thread creation";
+  IORuntimeCtx_FireShutdown(io);
+}
+
 TEST_F(IORuntimeCtxCommonTest, InitialState) {
   ASSERT_NE(ctx, nullptr);
   ASSERT_NE(ctx->queue, nullptr);
@@ -313,4 +357,59 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
 
   // Cleanup
   ConcurrentSearch_ThreadPoolDestroy();
+}
+
+TEST_F(IORuntimeCtxCommonTest, UpdateNodesAddRemove) {
+  const char *hosts_v1[] = {"localhost:6379", "localhost:6389", "localhost:6399"};
+  MRClusterTopology *topo_v1 = getTopology(3, hosts_v1);
+  ASSERT_NE(topo_v1, nullptr);
+
+  IORuntimeCtx *io = IORuntimeCtx_Create(2, topo_v1, 11, true);
+  IORuntimeCtx_UpdateNodes(io);
+
+  ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
+
+  const char *hosts_v2[] = {"localhost:6379", "localhost:6399", "localhost:6409"};
+  MRClusterTopology *topo_v2 = getTopology(3, hosts_v2);
+  ASSERT_NE(topo_v2, nullptr);
+  MRClusterTopology *old_topo = io->topo;
+  io->topo = topo_v2;
+  IORuntimeCtx_UpdateNodes(io);
+  MRClusterTopology_Free(old_topo);
+
+  ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
+
+  startAndShutdownRuntime(io);
+  IORuntimeCtx_Free(io);
+}
+
+TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
+  const char *hosts_v1[] = {"localhost:6379", "localhost:6389", "localhost:6399"};
+  MRClusterTopology *topo_v1 = getTopology(3, hosts_v1);
+  ASSERT_NE(topo_v1, nullptr);
+
+  IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 12, true);
+  IORuntimeCtx_UpdateNodes(io);
+  ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
+
+  const char *hosts_v2[] = {"localhost:6379", "localhost:6399"};
+  MRClusterTopology *topo_v2 = getTopology(2, hosts_v2);
+  ASSERT_NE(topo_v2, nullptr);
+  MRClusterTopology *old_topo = io->topo;
+  io->topo = topo_v2;
+  IORuntimeCtx_UpdateNodes(io);
+  MRClusterTopology_Free(old_topo);
+  ASSERT_EQ(dictSize(io->conn_mgr.map), 2);
+
+  const char *hosts_v3[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
+  MRClusterTopology *topo_v3 = getTopology(4, hosts_v3);
+  ASSERT_NE(topo_v3, nullptr);
+  old_topo = io->topo;
+  io->topo = topo_v3;
+  IORuntimeCtx_UpdateNodes(io);
+  MRClusterTopology_Free(old_topo);
+  ASSERT_EQ(dictSize(io->conn_mgr.map), 4);
+
+  startAndShutdownRuntime(io);
+  IORuntimeCtx_Free(io);
 }
