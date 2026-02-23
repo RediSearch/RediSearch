@@ -62,7 +62,7 @@ pub struct SearchResult<'index> {
 
 impl Drop for SearchResult<'_> {
     fn drop(&mut self) {
-        self.clear();
+        // self.clear();
 
         self._row_data.reset_dyn_values();
     }

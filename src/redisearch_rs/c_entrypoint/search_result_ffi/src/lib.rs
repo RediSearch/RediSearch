@@ -46,7 +46,7 @@ pub unsafe extern "C" fn SearchResult_Clear(res: Option<NonNull<SearchResult>>) 
     // Safety: ensured by caller (1.)
     let res = unsafe { res.unwrap().as_mut() };
 
-    res.clear();
+    // res.clear();
 }
 
 /// Destroys the [`SearchResult`] pointed to by `res` releasing any resources owned by it.
