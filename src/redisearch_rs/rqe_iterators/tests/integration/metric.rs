@@ -101,6 +101,7 @@ mod not_miri {
                     "Case {i}, element {j}"
                 );
 
+                assert!(!res.metrics.is_null());
                 let metrics = unsafe { *res.metrics };
                 assert!(metrics.key.is_null());
 
@@ -135,6 +136,7 @@ mod not_miri {
             assert_eq!(first_doc.kind(), RSResultKind::Metric);
             assert_eq!(first_doc.as_numeric().unwrap(), metric_data[0]);
 
+            assert!(!first_doc.metrics.is_null());
             let metrics = unsafe { *first_doc.metrics };
             assert!(metrics.key.is_null());
 
@@ -172,6 +174,7 @@ mod not_miri {
                     assert_eq!(res.kind(), RSResultKind::Metric);
                     assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
+                    assert!(!res.metrics.is_null());
                     let metrics = unsafe { *res.metrics };
                     assert!(metrics.key.is_null());
 
@@ -207,6 +210,7 @@ mod not_miri {
                 assert_eq!(res.kind(), RSResultKind::Metric);
                 assert_eq!(res.as_numeric().unwrap(), metric_data[j]);
 
+                assert!(!res.metrics.is_null());
                 let metrics = unsafe { *res.metrics };
                 assert!(metrics.key.is_null());
 
@@ -332,6 +336,87 @@ mod not_miri {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn rewind() {
+        for (ci, &case) in CASES.iter().enumerate() {
+            let metric_data: Vec<f64> = case.iter().map(|&id| id as f64 * 0.1).collect();
+            let mut it = MetricSortedById::new(case.to_vec(), metric_data.clone());
+
+            // Skip to each doc ID, verify, then rewind and check reset
+            for (j, &id) in case.iter().enumerate() {
+                let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(id) else {
+                    panic!("Case {ci} skip_to({id}) expected Found");
+                };
+                assert_eq!(res.doc_id, id, "Case {ci} skip_to({id})");
+                assert_eq!(
+                    res.as_numeric().unwrap(),
+                    metric_data[j],
+                    "Case {ci} skip_to({id}) metric"
+                );
+
+                assert!(!res.metrics.is_null());
+                let metrics = unsafe { *res.metrics };
+                assert!(metrics.key.is_null());
+                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                assert_eq!(
+                    metric_val, metric_data[j],
+                    "Case {ci} skip_to({id}) RSValue metric"
+                );
+                assert_eq!(it.last_doc_id(), id, "Case {ci} skip_to({id})");
+                it.rewind();
+                assert_eq!(
+                    it.last_doc_id(),
+                    0,
+                    "Case {ci} last_doc_id after rewind from {id}"
+                );
+                assert!(!it.at_eof(), "Case {ci} at_eof after rewind from {id}");
+            }
+
+            // Read all docs sequentially
+            for (j, &id) in case.iter().enumerate() {
+                let res = it.read().expect("read failed").expect("unexpected EOF");
+                assert_eq!(res.doc_id, id, "Case {ci} sequential read expected {id}");
+                assert_eq!(
+                    res.as_numeric().unwrap(),
+                    metric_data[j],
+                    "Case {ci} sequential read metric for {id}"
+                );
+
+                assert!(!res.metrics.is_null());
+                let metrics = unsafe { *res.metrics };
+                assert!(metrics.key.is_null());
+                let metric_val = unsafe { RSValue_Number_Get(metrics.value) };
+                assert_eq!(
+                    metric_val, metric_data[j],
+                    "Case {ci} sequential read RSValue metric for {id}"
+                );
+                assert_eq!(
+                    it.last_doc_id(),
+                    id,
+                    "Case {ci} sequential read last_doc_id"
+                );
+            }
+
+            // Read past EOF
+            assert!(matches!(it.read(), Ok(None)), "Case {ci} expected EOF");
+            assert!(it.at_eof(), "Case {ci} expected at_eof after reading all");
+            assert_eq!(
+                it.last_doc_id(),
+                *case.last().unwrap(),
+                "Case {ci} last_doc_id after EOF"
+            );
+
+            // Rewind after EOF
+            it.rewind();
+            assert_eq!(
+                it.last_doc_id(),
+                0,
+                "Case {ci} last_doc_id after rewind from EOF"
+            );
+            assert!(!it.at_eof(), "Case {ci} at_eof after rewind from EOF");
         }
     }
 }
