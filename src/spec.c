@@ -4213,15 +4213,17 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
 
 // Update a term's document count in the Serving Trie
 // Note: term is NOT null-terminated; term_len specifies the length
-void IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+// Returns true if the term was completely emptied and deleted from the trie.
+bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
                                   size_t doc_count_decrement) {
   if (!sp->terms || doc_count_decrement == 0) {
-    return;
+    return false;
   }
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
   RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
+  return result == TRIE_DECR_DELETED;
 }
 
 // Update IndexScoringStats based on compaction delta

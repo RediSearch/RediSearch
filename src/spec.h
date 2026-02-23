@@ -787,8 +787,9 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
  * @param term Pointer to term string (NOT null-terminated)
  * @param term_len Length of term in bytes
  * @param doc_count_decrement Number of documents to decrement from the term's count
+ * @return true if the term was completely emptied and deleted from the trie
  */
-void IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
                                       size_t doc_count_decrement);
 
 /**
