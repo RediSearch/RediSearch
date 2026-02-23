@@ -553,7 +553,7 @@ uint32_t RLookup_GetRowLen(const struct RLookup *lookup);
 struct RLookup RLookup_New(void);
 
 /**
- * Initialize the lookup. If cache is provided, then it will be used as an
+ * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
  * # Safety
@@ -564,7 +564,8 @@ struct RLookup RLookup_New(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_SetCache(struct RLookup *lookup, struct IndexSpecCache *spcache);
+void RLookup_SetCache(struct RLookup *lookup,
+                      struct IndexSpecCache *spcache);
 
 /**
  * Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].

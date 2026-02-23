@@ -475,7 +475,7 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
     RLookup::new().into_opaque()
 }
 
-/// Initialize the lookup. If cache is provided, then it will be used as an
+/// Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
 /// # Safety
