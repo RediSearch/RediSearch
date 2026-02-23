@@ -79,12 +79,6 @@ impl<'a> RLookup<'a> {
     }
 
     pub fn set_cache(&mut self, spcache: Option<IndexSpecCache>) {
-        // C-CODE: used memset to zero initialize,
-        // We behave the same way in release, but add a debug assert to catch misuses.
-        if self.index_spec_cache.is_some() {
-            debug_assert!(false, "RLookup already initialized with an IndexSpecCache");
-            *self = Self::new();
-        }
         self.index_spec_cache = spcache;
     }
 
@@ -532,57 +526,6 @@ mod tests {
     #[cfg(not(miri))]
     use proptest::prelude::*;
 
-    #[test]
-    fn rlookup_init() {
-        let mut rlookup = RLookup::new();
-
-        let spcache = Box::new(ffi::IndexSpecCache {
-            fields: ptr::null_mut(),
-            nfields: 0,
-            refcount: 1,
-        });
-        let spcache = {
-            let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(spcache)) };
-            unsafe { IndexSpecCache::from_raw(ptr) }
-        };
-
-        rlookup.init(Some(spcache));
-
-        assert!(rlookup.index_spec_cache.is_some());
-    }
-
-    #[test]
-    #[cfg_attr(debug_assertions, should_panic)]
-    fn rlookup_no_reinit() {
-        let mut rlookup = RLookup::new();
-
-        let spcache = Box::new(ffi::IndexSpecCache {
-            fields: ptr::null_mut(),
-            nfields: 0,
-            refcount: 1,
-        });
-        let spcache = {
-            let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(spcache)) };
-            unsafe { IndexSpecCache::from_raw(ptr) }
-        };
-
-        rlookup.init(Some(spcache));
-        assert!(rlookup.index_spec_cache.is_some());
-
-        let spcache = Box::new(ffi::IndexSpecCache {
-            fields: ptr::null_mut(),
-            nfields: 0,
-            refcount: 1,
-        });
-        let spcache = {
-            let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(spcache)) };
-            unsafe { IndexSpecCache::from_raw(ptr) }
-        };
-
-        // this should panic
-        rlookup.init(Some(spcache));
-    }
-
     // Assert that we can successfully write keys to the rlookup
     #[test]
     fn rlookup_write_new_key() {
@@ -673,7 +616,7 @@ mod tests {
         let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
         rlookup.keys.push(key);
@@ -715,7 +658,7 @@ mod tests {
         let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
 
@@ -770,7 +713,7 @@ mod tests {
         let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
 
@@ -816,7 +759,7 @@ mod tests {
         let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
 
@@ -867,7 +810,7 @@ mod tests {
             let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
 
             let mut rlookup = RLookup::new();
-            rlookup.init(Some(spcache));
+            rlookup.set_cache(Some(spcache));
 
             let key = RLookupKey::new(&rlookup, key_name, flag.into());
 
@@ -906,7 +849,7 @@ mod tests {
         let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -935,7 +878,7 @@ mod tests {
         let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -1263,7 +1206,7 @@ mod tests {
 
              let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
-             rlookup.init(Some(spcache));
+             rlookup.set_cache(Some(spcache));
 
              // the first call will load from the index spec cache
              let key = rlookup
@@ -1328,7 +1271,7 @@ mod tests {
              let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
              // set the cache as the rlookup cache
-             rlookup.init(Some(spcache));
+             rlookup.set_cache(Some(spcache));
 
              let not_key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty());
              prop_assert!(not_key.is_none());
@@ -1372,7 +1315,7 @@ mod tests {
              let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
              // set the cache as the rlookup cache
-             rlookup.init(Some(spcache));
+             rlookup.set_cache(Some(spcache));
 
              // set the AllowUnresolved option to allow unresolved keys in this rlookup
              rlookup.options.set(RLookupOption::AllowUnresolved, true);
