@@ -794,7 +794,7 @@ static int MRConn_Connect(MRConn *conn) {
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
   if (!c) {
-    CONN_LOG(conn, "Could not allocate async context");
+    CONN_LOG(conn, "Could not allocate async context with the given options");
     return REDIS_ERR;
   }
   if (c->err) {
