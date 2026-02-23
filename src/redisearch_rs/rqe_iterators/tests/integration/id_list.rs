@@ -262,6 +262,58 @@ fn skip_between_any_pair() {
 }
 
 #[test]
+fn rewind() {
+    for (ci, &case) in CASES.iter().enumerate() {
+        let mut it = IdListSorted::new(case.to_vec());
+
+        // Skip to each doc ID, verify, then rewind and check reset
+        for &id in case {
+            let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(id) else {
+                panic!("Case {ci} skip_to({id}) expected Found");
+            };
+            assert_eq!(res.doc_id, id, "Case {ci} skip_to({id})");
+            assert_eq!(it.last_doc_id(), id, "Case {ci} skip_to({id})");
+            it.rewind();
+            assert_eq!(
+                it.last_doc_id(),
+                0,
+                "Case {ci} last_doc_id after rewind from {id}"
+            );
+            assert!(!it.at_eof(), "Case {ci} at_eof after rewind from {id}");
+        }
+
+        // Read all docs sequentially
+        for &id in case {
+            let res = it.read().expect("read failed").expect("unexpected EOF");
+            assert_eq!(res.doc_id, id, "Case {ci} sequential read expected {id}");
+            assert_eq!(
+                it.last_doc_id(),
+                id,
+                "Case {ci} sequential read last_doc_id"
+            );
+        }
+
+        // Read past EOF
+        assert!(matches!(it.read(), Ok(None)), "Case {ci} expected EOF");
+        assert!(it.at_eof(), "Case {ci} expected at_eof after reading all");
+        assert_eq!(
+            it.last_doc_id(),
+            *case.last().unwrap(),
+            "Case {ci} last_doc_id after EOF"
+        );
+
+        // Rewind after EOF
+        it.rewind();
+        assert_eq!(
+            it.last_doc_id(),
+            0,
+            "Case {ci} last_doc_id after rewind from EOF"
+        );
+        assert!(!it.at_eof(), "Case {ci} at_eof after rewind from EOF");
+    }
+}
+
+#[test]
 fn revalidate() {
     let mut it = IdListSorted::new(vec![1, 2, 3]);
     assert_eq!(
