@@ -51,6 +51,7 @@ enum DiskJobType {
     DISK_HNSW_REPAIR_NODE_CONNECTIONS_JOB,
     DISK_HNSW_DELETE_VECTOR_INIT_JOB,
     DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB,
+    DISK_HNSW_QUERY_MARKER_JOB,
 };
 
 struct AsyncDiskJob : public AsyncJob {
@@ -99,6 +100,13 @@ struct InsertDiskJob : public AsyncDiskJob {
         : AsyncDiskJob(allocator, DISK_HNSW_INSERT_VECTOR_JOB, callback, index_), label(label_) {}
 };
 
+// Query marker job - tracks active queries to prevent ID reuse during search
+// No-op execution, just for tracking in currently_running
+struct QueryMarkerJob : public AsyncDiskJob {
+    QueryMarkerJob(std::shared_ptr<VecSimAllocator> allocator, JobCallback callback, VecSimIndex* index_)
+        : AsyncDiskJob(allocator, DISK_HNSW_QUERY_MARKER_JOB, callback, index_) {}
+};
+
 template <typename DataType, typename DistType>
 class TieredHNSWDiskIndex : public VecSimTieredIndex<DataType, DistType> {
 private:
@@ -107,8 +115,8 @@ private:
     vecsim_stl::unordered_map<GraphNodeType, std::shared_ptr<AsyncDiskJob>> pending_repairs;
 
     // Job tracking for currently running jobs (non-owning raw pointers)
-    std::mutex running_guard;
-    vecsim_stl::vector<AsyncDiskJob*> currently_running;
+    mutable std::mutex running_guard;
+    mutable vecsim_stl::vector<AsyncDiskJob*> currently_running;
 
     // Jobs that have been submitted but not yet started - keeps them alive
     // Map from raw pointer to owning shared_ptr for efficient lookup
@@ -117,6 +125,8 @@ private:
 
     // Flag to indicate if the index is being destroyed
     std::atomic<bool> is_destroyed{false};
+
+    VecSimQueryReply* topKQueryImp(const void* queryBlob, size_t k, VecSimQueryParams* queryParams) const;
 
 public:
     // Custom deleter for pending jobs that auto-submits when ref count reaches 0
@@ -389,6 +399,9 @@ public:
             case DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB:
                 index->executeDeleteFinalizeJob(static_cast<DeleteDiskJob*>(disk_job));
                 break;
+            case DISK_HNSW_QUERY_MARKER_JOB:
+                // No-op - query markers are just for tracking in currently_running
+                break;
             }
         }
 
@@ -508,6 +521,9 @@ public:
     void acquireSharedLocks() override { /* TBD */ }
     void releaseSharedLocks() override { /* TBD */ }
 
+    // Override topKQuery to use query markers instead of mainIndexGuard
+    VecSimQueryReply* topKQuery(const void* queryBlob, size_t k, VecSimQueryParams* queryParams) const override;
+
     // VecSimTieredIndex interface
     size_t getNumMarkedDeleted() const override { return get_hnsw_index()->getNumMarkedDeleted(); }
 
@@ -528,6 +544,16 @@ public:
     // Test helper: manually execute just the executeInsertJob logic for a job
     // This allows fine-grained control over job execution timing in tests
     void testExecuteInsertJob(AsyncDiskJob* job) { executeInsertJob(job); }
+
+    // Test helper: get count of currently running jobs (including query markers)
+    size_t getCurrentlyRunningCount() const {
+        std::lock_guard<std::mutex> lock(running_guard);
+        return currently_running.size();
+    }
+
+    // Test helper: get reference to flatIndexGuard for testing concurrent behavior
+    // Used to block topKQuery at specific points to observe intermediate state
+    std::shared_mutex& getFlatIndexGuard() { return this->flatIndexGuard; }
 #endif
 };
 
@@ -631,4 +657,80 @@ VecSimBatchIterator* TieredHNSWDiskIndex<DataType, DistType>::newBatchIterator(c
 template <typename DataType, typename DistType>
 void TieredHNSWDiskIndex<DataType, DistType>::runGC() {
     // TBD
+}
+
+template <typename DataType, typename DistType>
+VecSimQueryReply* TieredHNSWDiskIndex<DataType, DistType>::topKQueryImp(const void* queryBlob, size_t k,
+                                                                        VecSimQueryParams* queryParams) const {
+    // Check flat buffer (RAII lock for exception safety)
+    std::shared_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+
+    if (this->frontendIndex->indexSize() == 0) {
+        flat_lock.unlock();
+
+        // Query backend only (no flat results to merge)
+        auto processed_query_ptr = this->frontendIndex->preprocessQuery(queryBlob);
+        const void* processed_query = processed_query_ptr.get();
+
+        auto results = this->backendIndex->topKQuery(processed_query, k, queryParams);
+
+        return results;
+    }
+
+    // Query flat buffer first
+    auto flat_results = this->frontendIndex->topKQuery(queryBlob, k, queryParams);
+    flat_lock.unlock();
+
+    if (flat_results->code != VecSim_QueryReply_OK) {
+        return flat_results;
+    }
+
+    // Query backend
+    auto processed_query_ptr = this->frontendIndex->preprocessQuery(queryBlob);
+    const void* processed_query = processed_query_ptr.get();
+
+    auto main_results = this->backendIndex->topKQuery(processed_query, k, queryParams);
+
+    if (main_results->code != VecSim_QueryReply_OK) {
+        VecSimQueryReply_Free(flat_results);
+        return main_results;
+    }
+
+    // Merge results (multi-value not supported yet)
+    assert(!this->backendIndex->isMultiValue() && "Multi-value indexes not supported yet");
+    // We use withSet=true because after querying the flat buffer and releasing flatIndexGuard, a concurrent
+    // executeInsertJob can move a vector from flat to backend before we query the backend.
+    // The flat buffer stores vectors in FP32, while the backend uses SQ8
+    // quantization, meaning the same vector may produce different scores due to quantization precision.
+    // Without deduplication by ID, the same label appears twice with different scores, and will appear twice in the
+    // final results.
+    return merge_result_lists<true>(main_results, flat_results, k);
+}
+
+template <typename DataType, typename DistType>
+VecSimQueryReply* TieredHNSWDiskIndex<DataType, DistType>::topKQuery(const void* queryBlob, size_t k,
+                                                                     VecSimQueryParams* queryParams) const {
+
+    // Create query marker job to track this query and prevent ID reuse
+    QueryMarkerJob marker_job(
+        this->allocator, [](AsyncJob*) { /* No-op callback */ },
+        const_cast<VecSimIndex*>(static_cast<const VecSimIndex*>(this)));
+
+    // Register query as currently running
+    {
+        std::lock_guard<std::mutex> lock(running_guard);
+        currently_running.push_back(&marker_job);
+    }
+
+    VecSimQueryReply* results = topKQueryImp(queryBlob, k, queryParams);
+    {
+        std::lock_guard<std::mutex> lock(running_guard);
+        // Remove marker from currently_running (swap with last and pop)
+        auto it = std::find(currently_running.begin(), currently_running.end(), &marker_job);
+        assert(it != currently_running.end()); // Marker must be in currently_running
+        *it = currently_running.back();
+        currently_running.pop_back();
+    }
+
+    return results;
 }

@@ -9,6 +9,7 @@
 
 #include "gtest/gtest.h"
 #include "test_utils.h"
+#include "tests_utils.h"      // VectorSimilarity test utilities (populate_float_vec, etc.)
 #include "mock_thread_pool.h" // VectorSimilarity's tieredIndexMock
 #include "vecsim_disk_api.h"
 #include "algorithms/hnsw/hnsw_disk_tiered.h"
@@ -19,46 +20,67 @@
 
 #include <thread>
 #include <condition_variable>
+#include <cmath>
+#include <set>
 
 using namespace test_utils;
 using sq8 = vecsim_types::sq8;
 
 // Shared mock job queue for all tiered HNSW disk tests
 struct MockJobQueue {
-    std::atomic<size_t> submission_count{0};
     std::vector<AsyncJob*> jobs;
-    std::mutex jobs_mutex;
+    mutable std::recursive_mutex jobs_mutex;
 
     void submitJob(AsyncJob* job) {
-        std::lock_guard<std::mutex> lock(jobs_mutex);
-        submission_count++;
+        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
         jobs.push_back(job);
     }
 
     void submitJobs(const std::vector<AsyncDiskJob*>& job_list) {
-        std::lock_guard<std::mutex> lock(jobs_mutex);
-        submission_count += job_list.size();
+        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
         for (auto* job : job_list) {
             jobs.push_back(job);
         }
     }
 
-    size_t size() const { return submission_count.load(); }
+    size_t size() const {
+        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
+        return jobs.size();
+    }
 
     AsyncJob* getJob(size_t index) {
-        std::lock_guard<std::mutex> lock(jobs_mutex);
+        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
         return (index < jobs.size()) ? jobs[index] : nullptr;
     }
 
     AsyncJob* getLastJob() {
-        std::lock_guard<std::mutex> lock(jobs_mutex);
+        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
         return jobs.empty() ? nullptr : jobs.back();
     }
 
     void clear() {
-        std::lock_guard<std::mutex> lock(jobs_mutex);
-        submission_count = 0;
+        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
         jobs.clear();
+    }
+
+    // Execute all pending jobs, draining the queue
+    // Jobs submitted during execution (e.g., repair jobs from inserts) are also executed
+    void executeAll() {
+        while (true) {
+            AsyncJob* job = nullptr;
+            {
+                std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
+                if (jobs.empty()) {
+                    break;
+                }
+                job = jobs.front();
+                jobs.erase(jobs.begin());
+            }
+            // Execute without holding lock - allows new jobs to be submitted
+            if (job) {
+                job->Execute(job);
+            }
+        }
     }
 };
 
@@ -68,8 +90,7 @@ static MockJobQueue mock_queue;
 static int mockSubmitCallback(void* job_queue, void* index_ctx, AsyncJob** jobs, JobCallback* CBs, size_t jobs_len) {
     auto* queue = static_cast<MockJobQueue*>(index_ctx);
     {
-        std::lock_guard<std::mutex> lock(queue->jobs_mutex);
-        queue->submission_count += jobs_len;
+        std::lock_guard<std::recursive_mutex> lock(queue->jobs_mutex);
         for (size_t i = 0; i < jobs_len; ++i) {
             queue->jobs.push_back(jobs[i]);
         }
@@ -1305,4 +1326,534 @@ TEST_F(TieredHNSWDiskAsyncJobTest, MultipleJobsConcurrentlyHoldConsistencyLock) 
     EXPECT_EQ(jobs_completed, NUM_JOBS);
     // If we got here, all NUM_JOBS threads held the shared lock simultaneously
     EXPECT_TRUE(all_acquired) << "All jobs should have held shared locks concurrently";
+}
+
+// =============================================================================
+// topKQuery Tests - Storage-Backed (comprehensive testing)
+// =============================================================================
+// Tests backend-only, mixed queries, sorting, and preprocessing with real SpeedB storage.
+
+TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_BackendOnly_Basic) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Add vectors via addVector (goes to flat buffer + creates insert job)
+    const size_t numVectors = 3;
+    for (size_t i = 0; i < numVectors; i++) {
+        float vec[DIM];
+        for (size_t d = 0; d < DIM; d++) {
+            vec[d] = static_cast<float>(i + 1);
+        }
+        EXPECT_EQ(index->addVector(vec, 100 + i), 1);
+    }
+
+    // Execute all insert jobs to move vectors to backend
+    mock_queue.executeAll();
+
+    // Now vectors are in backend. Query should find them.
+    float query[DIM] = {1.0f, 1.0f, 1.0f, 1.0f};
+    auto* reply = index->topKQuery(query, numVectors, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), numVectors);
+
+    // Verify scores are valid and sorted ascending
+    for (size_t i = 0; i < reply->results.size(); i++) {
+        EXPECT_TRUE(std::isfinite(reply->results[i].score)) << "Score must be finite, got: " << reply->results[i].score;
+        if (i > 0) {
+            EXPECT_LE(reply->results[i - 1].score, reply->results[i].score)
+                << "Results should be sorted by score ascending";
+        }
+    }
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_Mixed_FlatAndBackend) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Add first batch of vectors and execute jobs (moves to backend)
+    for (size_t i = 0; i < 2; i++) {
+        float vec[DIM];
+        for (size_t d = 0; d < DIM; d++) {
+            vec[d] = static_cast<float>(i + 1);
+        }
+        EXPECT_EQ(index->addVector(vec, 100 + i), 1);
+    }
+
+    // Execute insert jobs - vectors 100, 101 go to backend
+    mock_queue.executeAll();
+
+    // Add second batch - stays in flat buffer (jobs not executed)
+    for (size_t i = 2; i < 4; i++) {
+        float vec[DIM];
+        for (size_t d = 0; d < DIM; d++) {
+            vec[d] = static_cast<float>(i + 1);
+        }
+        EXPECT_EQ(index->addVector(vec, 100 + i), 1);
+    }
+    // Don't execute these jobs - vectors 102, 103 stay in flat buffer
+
+    // Query should find all 4 vectors (2 from backend + 2 from flat)
+    float query[DIM] = {2.0f, 2.0f, 2.0f, 2.0f};
+    auto* reply = index->topKQuery(query, 10, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), 4);
+
+    // Verify all scores valid and sorted
+    std::set<labelType> foundLabels;
+    for (size_t i = 0; i < reply->results.size(); i++) {
+        EXPECT_TRUE(std::isfinite(reply->results[i].score));
+        foundLabels.insert(reply->results[i].id);
+        if (i > 0) {
+            EXPECT_LE(reply->results[i - 1].score, reply->results[i].score);
+        }
+    }
+
+    // Verify we found all 4 labels
+    EXPECT_EQ(foundLabels.size(), 4);
+    for (size_t i = 0; i < 4; i++) {
+        EXPECT_TRUE(foundLabels.count(100 + i) > 0) << "Missing label: " << (100 + i);
+    }
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_KGreaterThanN) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Add 3 vectors
+    const size_t numVectors = 3;
+    for (size_t i = 0; i < numVectors; i++) {
+        float vec[DIM];
+        for (size_t d = 0; d < DIM; d++) {
+            vec[d] = static_cast<float>(i + 1);
+        }
+        EXPECT_EQ(index->addVector(vec, 100 + i), 1);
+    }
+
+    // Execute jobs to move to backend
+    mock_queue.executeAll();
+
+    // Query for k=10, but only 3 vectors exist
+    float query[DIM] = {1.0f, 1.0f, 1.0f, 1.0f};
+    auto* reply = index->topKQuery(query, 10, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), numVectors); // Should return all 3, not 10
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_Cosine_Normalization_BackendOnly) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_Cosine,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Add normalized vector [1, 0, 0, 0]
+    float normalized_vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    EXPECT_EQ(index->addVector(normalized_vec, 100), 1);
+
+    // Execute job to move to backend
+    mock_queue.executeAll();
+
+    // Query with unnormalized vector [2, 0, 0, 0] - same direction
+    float unnormalized_query[DIM] = {2.0f, 0.0f, 0.0f, 0.0f};
+    auto* reply = index->topKQuery(unnormalized_query, 1, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    ASSERT_EQ(reply->results.size(), 1);
+    EXPECT_EQ(reply->results[0].id, 100);
+
+    // Cosine distance should be ~0 after normalization
+    EXPECT_NEAR(reply->results[0].score, 0.0f, 1e-5f) << "Cosine distance should be ~0 for same-direction vectors";
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_Cosine_Normalization_Mixed) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_Cosine,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Add vector to backend: [1, 0, 0, 0]
+    float vec_backend[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    EXPECT_EQ(index->addVector(vec_backend, 100), 1);
+
+    // Execute job to move to backend
+    mock_queue.executeAll();
+
+    // Add vector to flat buffer: [0, 1, 0, 0] - orthogonal direction
+    float vec_flat[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    EXPECT_EQ(index->addVector(vec_flat, 101), 1);
+    // Don't execute this job - stays in flat
+
+    // Query with [3, 0, 0, 0] - same direction as backend vector
+    float query[DIM] = {3.0f, 0.0f, 0.0f, 0.0f};
+    auto* reply = index->topKQuery(query, 2, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    ASSERT_EQ(reply->results.size(), 2);
+
+    // Both scores should be finite
+    EXPECT_TRUE(std::isfinite(reply->results[0].score));
+    EXPECT_TRUE(std::isfinite(reply->results[1].score));
+
+    // Backend vector [1,0,0,0] should be closest (cosine dist ~0)
+    // Flat vector [0,1,0,0] should be farther (cosine dist ~1, orthogonal)
+    EXPECT_EQ(reply->results[0].id, 100); // Backend vector is closer
+    EXPECT_NEAR(reply->results[0].score, 0.0f, 1e-5f);
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+// =============================================================================
+// Test: Query Marker Registration/Deregistration in currently_running
+// =============================================================================
+//
+// PURPOSE:
+// Verify that topKQuery properly registers a query marker in `currently_running`
+// at the start of the search, and deregisters it when the search completes.
+// This is critical for preventing ID recycling during active searches.
+//
+// APPROACH:
+// Hold `flatIndexGuard` exclusively from the main thread to block the query
+// thread at a specific point (after marker registration but before the flat
+// buffer search). This allows us to observe the intermediate state.
+//
+// FLOW:
+// 1. Main thread: Acquire flatIndexGuard exclusively (blocks shared acquires)
+// 2. Spawn query thread: Call topKQuery() - it will:
+//    a. Register query marker in currently_running
+//    b. Try to acquire flatIndexGuard.lock_shared() -> BLOCKS HERE
+// 3. Main thread: Wait briefly, then check getCurrentlyRunningCount() == 1
+// 4. Main thread: Release flatIndexGuard
+// 5. Query thread: Completes the search
+// 6. Main thread: Verify getCurrentlyRunningCount() == 0 (marker deregistered)
+//
+TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_QueryMarker_RegisteredAndDeregistered) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    auto* tieredIndex = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tieredIndex, nullptr);
+
+    // Verify currently_running is empty initially
+    EXPECT_EQ(tieredIndex->getCurrentlyRunningCount(), 0);
+
+    // Add a vector to flat buffer (don't move to backend - we want it in flat)
+    float vec[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_EQ(index->addVector(vec, 100), 1);
+    // Don't execute jobs - keep vector in flat buffer so topKQuery will try to search it
+
+    // =========================================================================
+    // STEP 1: Acquire flatIndexGuard exclusively to block the query thread
+    // =========================================================================
+    auto& flatGuard = tieredIndex->getFlatIndexGuard();
+    flatGuard.lock(); // Exclusive lock - blocks any shared lock attempts
+
+    // =========================================================================
+    // STEP 2: Spawn query thread - will block at flatIndexGuard.lock_shared()
+    // =========================================================================
+    VecSimQueryReply* reply = nullptr;
+    std::atomic<bool> query_started{false};
+    std::atomic<bool> query_completed{false};
+
+    std::thread query_thread([&]() {
+        query_started = true;
+        float query[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+        reply = index->topKQuery(query, 1, nullptr);
+        query_completed = true;
+    });
+
+    // =========================================================================
+    // STEP 3: Wait for query thread to start and register marker
+    // =========================================================================
+    // The query thread will:
+    // 1. Create QueryMarkerJob
+    // 2. Register marker in currently_running (under running_guard)
+    // 3. Try to acquire flatIndexGuard.lock_shared() -> BLOCKS
+    //
+    // We need to wait for step 2 to complete. Since step 3 blocks, once we see
+    // getCurrentlyRunningCount() > 0, we know the marker is registered.
+
+    // Wait for query thread to start
+    while (!query_started.load()) {
+        std::this_thread::yield();
+    }
+
+    // Wait for marker to be registered (with timeout to avoid infinite loop)
+    const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (tieredIndex->getCurrentlyRunningCount() == 0) {
+        if (std::chrono::steady_clock::now() > timeout) {
+            FAIL() << "Timeout waiting for query marker to be registered";
+        }
+        std::this_thread::yield();
+    }
+
+    // VERIFY: Query marker is registered while query is blocked
+    EXPECT_EQ(tieredIndex->getCurrentlyRunningCount(), 1)
+        << "Query marker should be registered while query is blocked at flatIndexGuard";
+
+    // Query should NOT have completed yet (still blocked)
+    EXPECT_FALSE(query_completed.load()) << "Query should be blocked waiting for flatIndexGuard";
+
+    // =========================================================================
+    // STEP 4: Release flatIndexGuard - query thread can proceed
+    // =========================================================================
+    flatGuard.unlock();
+
+    // Wait for query to complete
+    query_thread.join();
+
+    // =========================================================================
+    // STEP 5: Verify marker is deregistered after query completes
+    // =========================================================================
+    EXPECT_TRUE(query_completed.load());
+    EXPECT_EQ(tieredIndex->getCurrentlyRunningCount(), 0)
+        << "Query marker should be deregistered after query completes (RAII cleanup)";
+
+    // Verify query succeeded
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), 1);
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+// =============================================================================
+// topKQuery Tests - Minimal Flat-Only (validates code path works)
+// =============================================================================
+// Comprehensive testing (sorting, edge cases, merge logic) is in storage-backed tests.
+
+TEST_P(TieredHNSWDiskMetricTest, TopKQuery_FlatOnly_Basic) {
+    VecSimMetric metric = GetParam();
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = metric,
+    };
+
+    auto params_holder = createTieredDiskParams(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Add vectors via public API (goes to flat buffer, backend job is no-op without storage)
+    const size_t numVectors = 3;
+    std::set<labelType> addedLabels;
+    for (size_t i = 0; i < numVectors; i++) {
+        float vec[DIM];
+        for (size_t d = 0; d < DIM; d++) {
+            vec[d] = static_cast<float>(i + 1);
+        }
+        labelType label = 100 + i;
+        EXPECT_EQ(index->addVector(vec, label), 1);
+        addedLabels.insert(label);
+    }
+
+    // Query
+    float query[DIM] = {1.0f, 1.0f, 1.0f, 1.0f};
+    auto* reply = index->topKQuery(query, numVectors, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    EXPECT_EQ(reply->results.size(), numVectors);
+
+    // Verify all results are valid
+    for (const auto& result : reply->results) {
+        // Label should be one we added
+        EXPECT_TRUE(addedLabels.count(result.id) > 0) << "Unexpected label: " << result.id;
+        // Score must be a valid finite number
+        EXPECT_TRUE(std::isfinite(result.score)) << "Score must be finite, got: " << result.score;
+    }
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+// Cosine-specific: Verify query normalization in flat-only path
+TEST_F(TieredHNSWDiskTest, TopKQuery_Cosine_Normalization_FlatOnly) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_Cosine,
+    };
+
+    auto params_holder = createTieredDiskParams(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Add a normalized vector [1, 0, 0, 0] (magnitude = 1)
+    float normalized_vec[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    EXPECT_EQ(index->addVector(normalized_vec, 100), 1);
+
+    // Query with unnormalized vector [2, 0, 0, 0] (magnitude = 2, same direction)
+    // If normalization works: query becomes [1, 0, 0, 0] -> cosine distance = 0
+    float unnormalized_query[DIM] = {2.0f, 0.0f, 0.0f, 0.0f};
+    auto* reply = index->topKQuery(unnormalized_query, 1, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    ASSERT_EQ(reply->results.size(), 1);
+    EXPECT_EQ(reply->results[0].id, 100);
+
+    // Cosine distance should be ~0 (same direction after normalization)
+    // Using tolerance for floating-point comparison
+    EXPECT_NEAR(reply->results[0].score, 0.0f, 1e-5f)
+        << "Cosine distance should be ~0 for same-direction vectors after normalization";
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+// Test that demonstrates a potential bug in topKQuery when the same label exists in both
+// flat buffer (FP32) and backend (SQ8 quantized). Due to quantization precision loss,
+// the same vector produces slightly different scores when queried against FP32 vs SQ8.
+// With merge_result_lists<false>, this can lead to duplicate labels in results.
+//
+// Bug scenario (race condition):
+// 1. Insert label X to flat buffer (FP32)
+// 2. topKQuery starts, queries flat buffer (finds X with score S1)
+// 3. Releases flatIndexGuard
+// 4. Insert job moves X from flat to backend (now quantized to SQ8)
+// 5. topKQuery queries backend (finds X with score S2, slightly different due to quantization)
+// 6. merge_result_lists<false> sees (X, S1) and (X, S2) as different entries → duplicate!
+//
+// Fix: Use merge_result_lists<true> which tracks seen labels by ID, not (ID, score) pair.
+TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_SameVectorDifferentScores_DueToQuantization) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    // Cast to access test helpers
+    auto* tieredIndex = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tieredIndex, nullptr);
+
+    // The label that will appear in both flat and backend
+    const labelType duplicateLabel = 100;
+
+    // Vector that will be stored in both places
+    // Using values that will show measurable quantization error
+    float vec[DIM];
+    populate_float_vec(vec, DIM, 1);
+
+    // Step 1: Add vector to flat buffer (stays as FP32)
+    // Don't execute jobs - vector stays in flat buffer
+    EXPECT_EQ(index->addVector(vec, duplicateLabel), 1);
+    EXPECT_EQ(mock_queue.size(), 1); // Insert job created but not executed
+
+    // Step 2: Add the SAME vector with SAME label directly to backend (gets quantized to SQ8)
+    // This simulates the race condition where the vector has been moved to backend
+    // but is also still in flat buffer (shouldn't happen in correct code, but we're simulating the bug)
+    auto* backendIndex = tieredIndex->getBackendIndex();
+    ASSERT_NE(backendIndex, nullptr);
+
+    // Add directly to backend - bypasses the tiered layer
+    // The backend will quantize this to SQ8
+    backendIndex->addVector(vec, duplicateLabel);
+
+    // Verify both indexes have the vector
+    auto* flatIndex = tieredIndex->getFlatBufferIndex();
+    ASSERT_NE(flatIndex, nullptr);
+
+    EXPECT_EQ(flatIndex->indexSize(), 1) << "Flat buffer should have 1 vector";
+    EXPECT_EQ(backendIndex->indexSize(), 1) << "Backend should have 1 vector";
+
+    // Step 3: Query - flat has FP32 version, backend has SQ8 version
+    float query[DIM] = {};
+    populate_float_vec(query, DIM, 2);
+
+    auto* reply = index->topKQuery(query, 10, nullptr);
+
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+
+    // With the bug (withSet=false): label 100 appears TWICE with different scores
+    // With the fix (withSet=true): label 100 appears ONCE
+    EXPECT_EQ(reply->results.size(), 1) << "Should have exactly 1 result (the single label), not "
+                                        << reply->results.size();
+
+    delete reply;
+    VecSimDisk_FreeIndex(index);
 }
