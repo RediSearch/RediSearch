@@ -643,22 +643,24 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                QueryError *status);
 
 /**
- * Return a cursor over an [`RLookup`]'s key list.
+ * Return an iterator over an [`RLookup`]'s key list.
  *
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
 
 /**
- * Return a cursor over an [`RLookup`]'s key list with editing operations.
+ * Return an iterator over an [`RLookup`]'s key list with editing operations.
  *
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
