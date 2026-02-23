@@ -76,7 +76,7 @@ typedef struct {
   MRConn **conns;
 } MRConnPool;
 
-static inline void MRConnPool_Disconnect(MRConnPool *pool) {
+static inline void MRConnPool_Disconnect(const MRConnPool *pool) {
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
     MRConn_Disconnect(pool->conns[i]);
