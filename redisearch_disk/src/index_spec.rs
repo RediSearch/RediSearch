@@ -10,14 +10,20 @@ use crate::database::SpeedbMultithreadedDatabase;
 use crate::disk_context::DiskContext;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use document::DocumentType;
+use ffi::{IteratorType_INV_IDX_TAG_ITERATOR, QueryIterator, t_fieldIndex};
+use rqe_iterators_interop::RQEIteratorWrapper;
 use speedb::{
     ColumnFamilyDescriptor, DEFAULT_COLUMN_FAMILY_NAME, Error as SpeedbError,
     Options as SpeedbDbOptions,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 use self::doc_table::DocTable;
-use self::inverted_index::InvertedIndex;
+use self::inverted_index::{
+    InvertedIndex, TagIndexConfig, TagInvertedIndex, TermIndexConfig, block_traits::IndexConfig,
+};
 
 use redis_module::raw::{RedisModuleIO, load_unsigned, save_unsigned};
 
@@ -43,11 +49,15 @@ const _: () = {
 pub struct IndexSpec {
     /// The name of the index
     name: String,
-    /// The inverted index mapping terms to the inverted index blocks
+    /// The inverted index mapping terms to the inverted index blocks (for fulltext fields)
     inverted_index: InvertedIndex,
+    /// Tag inverted indexes, one per tag field (keyed by field_index)
+    tag_inverted_indexes: RwLock<HashMap<t_fieldIndex, Arc<TagInvertedIndex>>>,
     /// The document table mapping document IDs to document metadata
     doc_table: DocTable,
 
+    /// Store for deleted IDs, needed for creating new tag indexes
+    deleted_ids: DeletedIdsStore,
     /// The Speedb database used by this index, makes it easier to drop the database when the index is dropped
     database: SpeedbMultithreadedDatabase,
 }
@@ -58,7 +68,7 @@ impl IndexSpec {
     /// Creates a new IndexSpec with the given name and document type.
     ///
     /// This will create or open a Speedb database at `{base_path}_{index_name}_{doc_type}/`
-    /// with two column families: "doc_table" and "fulltext".
+    /// with column families for doc_table, fulltext, and any existing tag fields.
     ///
     /// # Arguments
     /// * `name` - The name of the index
@@ -90,27 +100,55 @@ impl IndexSpec {
         // memory control instead of per-database limits.
         db_options.set_write_buffer_manager(disk_context.write_buffer_manager());
 
-        // Always use open_cf_descriptors with create_missing_column_families=true
-        // This handles both new databases and partially-created databases gracefully:
-        // - For new databases: creates all CFs
-        // - For existing complete databases: opens with correct options
-        // - For partially-created databases: creates missing CFs
-        let cf_descriptors = vec![
+        // Discover existing tag field CFs before opening the database
+        // RocksDB/Speedb requires all existing CFs to be opened
+        let existing_tag_fields: Vec<t_fieldIndex> =
+            SpeedbMultithreadedDatabase::list_cf(&db_options, &db_path)
+                .unwrap_or_default() // Database doesn't exist yet, no existing tag CFs
+                .iter()
+                .filter_map(|cf_name| TagIndexConfig::parse_cf_name(cf_name))
+                .collect();
+
+        // Build CF descriptors for core CFs plus any existing tag CFs
+        let mut cf_descriptors = vec![
             ColumnFamilyDescriptor::new(DEFAULT_COLUMN_FAMILY_NAME, SpeedbDbOptions::default()),
             DocTable::cf_descriptor(
                 disk_context.cache(),
                 Self::DOC_TABLE_BLOOM_FILTER_BITS_PER_KEY,
             ),
             DocTable::reverse_lookup_cf_descriptor(),
-            InvertedIndex::cf_descriptor(deleted_ids.clone()),
+            TermIndexConfig::cf_descriptor(Some(deleted_ids.clone())),
         ];
-        let database =
-            SpeedbMultithreadedDatabase::open_cf_descriptors(&db_options, db_path, cf_descriptors)?;
+
+        // Add descriptors for existing tag field CFs
+        for &field_index in &existing_tag_fields {
+            cf_descriptors.push(TagIndexConfig::cf_descriptor(
+                field_index,
+                deleted_ids.clone(),
+            ));
+        }
+
+        let database = SpeedbMultithreadedDatabase::open_cf_descriptors(
+            &db_options,
+            &db_path,
+            cf_descriptors,
+        )?;
+
+        // Create TagInvertedIndex for each existing tag field
+        let mut tag_inverted_indexes = HashMap::new();
+        for field_index in existing_tag_fields {
+            tag_inverted_indexes.insert(
+                field_index,
+                Arc::new(TagInvertedIndex::new(database.clone(), field_index)),
+            );
+        }
 
         Ok(Self {
             name,
-            doc_table: DocTable::new(document_type, database.clone(), deleted_ids)?,
+            doc_table: DocTable::new(document_type, database.clone(), deleted_ids.clone())?,
             inverted_index: InvertedIndex::new(database.clone()),
+            tag_inverted_indexes: RwLock::new(tag_inverted_indexes),
+            deleted_ids,
             database,
         })
     }
@@ -120,9 +158,76 @@ impl IndexSpec {
         &self.name
     }
 
-    /// Returns a reference to the inverted index for this index.
+    /// Returns a reference to the inverted index for this index (fulltext fields).
     pub fn inverted_index(&self) -> &InvertedIndex {
         &self.inverted_index
+    }
+
+    /// Gets or creates a tag inverted index for the given field index.
+    ///
+    /// If the tag index doesn't exist, creates a new column family and TagInvertedIndex first.
+    /// Returns a cloned Arc, so the caller can use it without holding any locks.
+    ///
+    /// Use this method for write operations (indexing). For read operations (queries),
+    /// use [`get_tag_index`] instead to avoid creating column families as a side effect.
+    pub fn tag_index(
+        &self,
+        field_index: t_fieldIndex,
+    ) -> Result<Arc<TagInvertedIndex>, SpeedbError> {
+        // Fast path: check if index already exists with read lock
+        if let Some(index) = self.get_tag_index(field_index) {
+            return Ok(index);
+        }
+
+        // Slow path: need to create the index
+        // unwrap: RwLock is never poisoned - we don't panic while holding the lock
+        let mut indexes = self.tag_inverted_indexes.write().unwrap();
+
+        // Double-check after acquiring write lock
+        if let std::collections::hash_map::Entry::Vacant(entry) = indexes.entry(field_index) {
+            let cf_name = TagIndexConfig::cf_name(field_index);
+            let cf_options = TagIndexConfig::cf_options(self.deleted_ids.clone());
+
+            // Create the column family in the database
+            self.database.create_cf(&cf_name, &cf_options)?;
+
+            // Create the TagInvertedIndex
+            let tag_index = Arc::new(TagInvertedIndex::new(self.database.clone(), field_index));
+            entry.insert(tag_index);
+        }
+
+        Ok(Arc::clone(indexes.get(&field_index).unwrap()))
+    }
+
+    /// Gets an existing tag inverted index for the given field index.
+    ///
+    /// Returns `None` if the tag index doesn't exist. This is a read-only operation
+    /// that doesn't create any database state.
+    ///
+    /// Use this method for read operations (queries). For write operations (indexing),
+    /// use [`tag_index`] instead which will create the index if it doesn't exist.
+    fn get_tag_index(&self, field_index: t_fieldIndex) -> Option<Arc<TagInvertedIndex>> {
+        // unwrap: RwLock is never poisoned - we don't panic while holding the lock
+        let indexes = self.tag_inverted_indexes.read().unwrap();
+        indexes.get(&field_index).map(Arc::clone)
+    }
+
+    /// Creates a new tag iterator for the given field and tag.
+    ///
+    /// Returns `None` if no tag index exists for this field.
+    /// Returns `Some(Ok(ptr))` on success, `Some(Err(e))` if iterator creation failed.
+    pub fn new_tag_iterator(
+        &self,
+        field_index: t_fieldIndex,
+        tag: &str,
+        weight: f64,
+    ) -> Option<Result<*mut QueryIterator, inverted_index::TagPostingReaderCreateError>> {
+        let tag_index = self.get_tag_index(field_index)?;
+        Some(
+            tag_index
+                .tag_iterator(tag, weight)
+                .map(|iter| RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_TAG_ITERATOR, iter)),
+        )
     }
 
     /// Returns a reference to the document table for this index.
@@ -186,9 +291,21 @@ impl IndexSpec {
         self.database.clone()
     }
 
-    /// Triggers a full compaction on the inverted index.
+    /// Triggers a full compaction on the fulltext inverted index.
     pub fn compact_text_inverted_index(&self) {
         self.inverted_index.compact_full();
+    }
+
+    /// Triggers a full compaction on all tag inverted indexes.
+    ///
+    /// This runs the merge operator on each tag column family, filtering out
+    /// deleted document IDs to reclaim disk space and improve query performance.
+    pub fn compact_tag_inverted_indexes(&self) {
+        // unwrap: RwLock is never poisoned - we don't panic while holding the lock
+        let indexes = self.tag_inverted_indexes.read().unwrap();
+        for (_, tag_index) in indexes.iter() {
+            tag_index.compact_full();
+        }
     }
 }
 

@@ -104,13 +104,13 @@ pub extern "C" fn SearchDisk_GetAPI() -> *mut RedisSearchDiskAPI {
             setThrottleCallbacks: Some(set_throttle_callbacks),
         },
         index: IndexDiskAPI {
+            markToBeDeleted: Some(index_spec_mark_to_be_deleted),
             indexTerm: Some(index_spec_index_term),
-            indexTags: Some(index_spec_index_tag),
+            indexTags: Some(index_spec_index_tags),
             deleteDocument: Some(index_spec_delete_document),
             newTermIterator: Some(index_spec_new_term_iterator),
             newTagIterator: Some(index_spec_new_tag_iterator),
             newWildcardIterator: Some(index_spec_new_wildcard_iterator),
-            markToBeDeleted: Some(index_spec_mark_to_be_deleted),
             runGC: Some(index_spec_run_gc),
         },
         docTable: DocTableDiskAPI {
@@ -329,6 +329,7 @@ extern "C" fn index_spec_run_gc(index: *mut RedisSearchDiskIndexSpec) {
             "running GC compaction on disk index"
         );
         index.compact_text_inverted_index();
+        index.compact_tag_inverted_indexes();
     } else {
         warn!("index_spec_run_gc called with null pointer, skipping");
     }
@@ -436,7 +437,7 @@ extern "C" fn index_spec_rdb_load(
     }
 }
 
-/// Indexes a new document.
+/// Indexes a term for fulltext search.
 ///
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
@@ -479,24 +480,79 @@ extern "C" fn index_spec_index_term(
         Err(error) => {
             error!(
                 error = &error as &dyn std::error::Error,
-                "failed to index document"
+                "failed to index text term"
             );
             false
         }
     }
 }
 
+/// Indexes multiple tag values for a document.
+///
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
-/// 2. `values` must point to a valid array of at least `num_values` pointers.
-unsafe extern "C" fn index_spec_index_tag(
-    _index: *mut RedisSearchDiskIndexSpec,
-    _values: *mut *const c_char,
-    _num_values: usize,
-    _doc_id: t_docId,
-    _field_index: t_fieldIndex,
+/// 2. `values` must point to an array of `num_values` valid C string pointers.
+/// 3. Each string pointer in `values` must be a valid null-terminated C string.
+extern "C" fn index_spec_index_tags(
+    index: *mut RedisSearchDiskIndexSpec,
+    values: *mut *const c_char,
+    num_values: usize,
+    doc_id: t_docId,
+    field_index: t_fieldIndex,
 ) -> bool {
-    debug!("index_spec_index_tag called (no-op)");
+    if values.is_null() || num_values == 0 {
+        // Nothing to index
+        return true;
+    }
+
+    // Safety: see safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
+        error!("index pointer is null");
+        return false;
+    };
+
+    // Get or create the tag index once, outside the loop
+    let tag_index = match index.tag_index(field_index) {
+        Ok(idx) => idx,
+        Err(error) => {
+            error!(
+                error = &error as &dyn std::error::Error,
+                "failed to get or create tag index"
+            );
+            return false;
+        }
+    };
+
+    // Safety: see safety points 2 and 3 above.
+    let values_slice = unsafe { std::slice::from_raw_parts(values, num_values) };
+
+    for &value_ptr in values_slice {
+        if value_ptr.is_null() {
+            continue;
+        }
+
+        // Safety: value_ptr is a valid null-terminated C string (see safety point 3)
+        let c_str = unsafe { std::ffi::CStr::from_ptr(value_ptr) };
+        let tag = match c_str.to_str() {
+            Ok(s) => s,
+            Err(error) => {
+                error!(
+                    error = &error as &dyn std::error::Error,
+                    "tag value is not valid UTF-8"
+                );
+                return false;
+            }
+        };
+
+        if let Err(error) = tag_index.insert(tag, doc_id) {
+            error!(
+                error = &error as &dyn std::error::Error,
+                "failed to index tag"
+            );
+            return false;
+        }
+    }
+
     true
 }
 
@@ -686,16 +742,6 @@ extern "C" fn index_spec_new_term_iterator(
     }
 }
 
-extern "C" fn index_spec_new_tag_iterator(
-    _index: *mut RedisSearchDiskIndexSpec,
-    _query_tag: *const RSToken,
-    _field_index: t_fieldIndex,
-    _weight: f64,
-) -> *mut QueryIterator {
-    debug!("index_spec_new_tag_iterator called (no-op)");
-    std::ptr::null_mut()
-}
-
 /// Creates a new wildcard iterator for `index`.
 ///
 /// # Safety
@@ -723,6 +769,57 @@ extern "C" fn index_spec_new_wildcard_iterator(
             );
             std::ptr::null_mut()
         }
+    }
+}
+
+/// Creates a new tag iterator for `index`.
+///
+/// # Safety
+/// 1. `index` must have been returned from [`index_spec_open`].
+/// 2. `token` must be a valid pointer to an `RSToken`.
+extern "C" fn index_spec_new_tag_iterator(
+    index: *mut RedisSearchDiskIndexSpec,
+    token: *const RSToken,
+    field_index: t_fieldIndex,
+    weight: f64,
+) -> *mut QueryIterator {
+    if token.is_null() {
+        error!("token pointer is null");
+        return std::ptr::null_mut();
+    }
+
+    // SAFETY: token is guaranteed to be valid by safety point 2.
+    let tok = unsafe { &*token };
+    // SAFETY: tok.str_ and tok.len are valid as token is guaranteed valid by safety point 2.
+    let slice = unsafe { std::slice::from_raw_parts(tok.str_ as *const u8, tok.len) };
+    let tag_str = match std::str::from_utf8(slice) {
+        Ok(s) => s,
+        Err(error) => {
+            error!(
+                error = &error as &dyn std::error::Error,
+                "tag is not valid UTF-8"
+            );
+            return std::ptr::null_mut();
+        }
+    };
+
+    // Safety: see safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
+        error!("index pointer is null");
+        return std::ptr::null_mut();
+    };
+
+    match index.new_tag_iterator(field_index, tag_str, weight) {
+        Some(Ok(ptr)) => ptr,
+        Some(Err(error)) => {
+            error!(
+                error = &error as &dyn std::error::Error,
+                "failed to create tag iterator"
+            );
+            std::ptr::null_mut()
+        }
+        // Tag index doesn't exist - return null iterator (no results)
+        None => std::ptr::null_mut(),
     }
 }
 

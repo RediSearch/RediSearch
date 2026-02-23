@@ -89,44 +89,6 @@ mod tests {
     use term::PostingsListBlock;
 
     #[test]
-    fn test_strip_doc_id_suffix_basic() {
-        // "foo" + delimiter + 8 bytes of doc_id
-        let key = b"foo\x00\x00\x00\x00\x00\x00\x00\x00\x28"; // doc_id = 40
-        let expected = b"foo";
-        assert_eq!(InvertedIndex::strip_doc_id_suffix(key), expected);
-    }
-
-    #[test]
-    fn test_strip_doc_id_suffix_with_underscore_in_term() {
-        // "alpha_beta" + delimiter + 8 bytes of doc_id
-        let key = b"alpha_beta\x00\x00\x00\x00\x00\x00\x00\x00\x7B"; // doc_id = 123
-        let expected = b"alpha_beta";
-        assert_eq!(InvertedIndex::strip_doc_id_suffix(key), expected);
-    }
-
-    #[test]
-    fn test_strip_doc_id_suffix_with_delimiter_byte_in_doc_id() {
-        // Test that doc_id containing 0x5F ('_') doesn't break extraction
-        // doc_id = 95 has 0x5F as its last byte
-        let key = b"term\x00\x00\x00\x00\x00\x00\x00\x00\x5F"; // doc_id = 95
-        let expected = b"term";
-        assert_eq!(InvertedIndex::strip_doc_id_suffix(key), expected);
-    }
-
-    #[test]
-    fn test_has_doc_id_suffix() {
-        // With delimiter, DOC_ID_KEY_SIZE is 9 bytes (1 delimiter + 8 doc_id)
-        assert!(InvertedIndex::has_doc_id_suffix(
-            b"term\x00\x00\x00\x00\x00\x00\x00\x00\x01"
-        ));
-        assert!(InvertedIndex::has_doc_id_suffix(
-            b"\x00\x00\x00\x00\x00\x00\x00\x00\x01"
-        )); // just 9 bytes (delimiter + doc_id)
-        assert!(!InvertedIndex::has_doc_id_suffix(b"short")); // less than 9 bytes
-        assert!(!InvertedIndex::has_doc_id_suffix(b"")); // empty
-    }
-
-    #[test]
     fn postings_list_block_roundtrip() {
         let mut block = term::PostingsListBlock::default();
 

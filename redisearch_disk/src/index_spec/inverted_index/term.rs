@@ -9,8 +9,8 @@ use std::mem::size_of;
 use std::ops::Deref;
 
 use super::{
-    DeletedIdsStore, InvertedIndexKey, PostingsListReader, block_traits, generic_index,
-    generic_merge_operator::GenericMergeOperator, generic_reader,
+    DeletedIdsStore, InvertedIndexKey, PostingsListReader, block_traits, block_traits::IndexConfig,
+    generic_index, generic_merge_operator::GenericMergeOperator, generic_reader,
 };
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
@@ -64,8 +64,8 @@ impl block_traits::IndexConfig for TermIndexConfig {
     fn cf_descriptor(deleted_ids: Option<DeletedIdsStore>) -> ColumnFamilyDescriptor {
         let prefix_extractor = SliceTransform::create(
             Self::PREFIX_EXTRACTOR_NAME,
-            generic_index::GenericInvertedIndex::<Self>::strip_doc_id_suffix,
-            Some(generic_index::GenericInvertedIndex::<Self>::has_doc_id_suffix),
+            generic_index::strip_doc_id_suffix,
+            Some(generic_index::has_doc_id_suffix),
         );
 
         let mut cf_options = SpeedbDbOptions::default();
@@ -106,25 +106,11 @@ impl InvertedIndex {
     /// Creates a new inverted index with the given Speedb database.
     pub fn new(database: SpeedbMultithreadedDatabase) -> Self {
         InvertedIndex {
-            inner: generic_index::GenericInvertedIndex::new(database),
+            inner: generic_index::GenericInvertedIndex::new(
+                database,
+                TermIndexConfig::COLUMN_FAMILY_NAME,
+            ),
         }
-    }
-
-    /// Creates a column family descriptor for the inverted index.
-    pub fn cf_descriptor(deleted_ids: DeletedIdsStore) -> ColumnFamilyDescriptor {
-        generic_index::GenericInvertedIndex::<TermIndexConfig>::cf_descriptor(Some(deleted_ids))
-    }
-
-    /// Strip the doc_id suffix from the key, leaving just the term.
-    /// Delegates to the generic implementation.
-    pub fn strip_doc_id_suffix(src: &[u8]) -> &[u8] {
-        generic_index::GenericInvertedIndex::<TermIndexConfig>::strip_doc_id_suffix(src)
-    }
-
-    /// Returns whether `src` is long enough to contain a doc_id suffix.
-    /// Delegates to the generic implementation.
-    pub fn has_doc_id_suffix(src: &[u8]) -> bool {
-        generic_index::GenericInvertedIndex::<TermIndexConfig>::has_doc_id_suffix(src)
     }
 
     /// Inserts a document ID into the postings list for the given term and for

@@ -31,7 +31,6 @@ Feature: RediSearchDisk Basic Functionality
       | doc1   |
       | doc3   |
 
-  @skip
   Scenario: Index with tag fields
     Given the RediSearchDisk module is loaded
     When I create an index "idx" with fields:

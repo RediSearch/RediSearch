@@ -1,4 +1,4 @@
-use ffi::t_docId;
+use ffi::{t_docId, t_fieldIndex};
 use inverted_index::RSIndexResult;
 use rqe_iterators::{NoOpChecker, inverted_index::InvIndIterator};
 use speedb::{
@@ -8,9 +8,11 @@ use std::mem::size_of;
 use std::ops::Deref;
 
 use super::{
-    DeletedIdsStore, InvertedIndexKey, TagPostingsListReader, block_traits, generic_index,
-    generic_merge_operator::GenericMergeOperator, generic_reader,
+    DeletedIdsStore, TagPostingsListReader, block_traits, generic_index,
+    generic_index::GenericInvertedIndex, generic_merge_operator::GenericMergeOperator,
+    generic_reader,
 };
+
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
 
@@ -41,26 +43,31 @@ impl TagDocument {
 /// Configuration for tag-based inverted indexes.
 ///
 /// Tag indexes store only document IDs for exact-match queries, making them more compact
-/// than term indexes. They use the "tags" column family and use a merge operator for
-/// handling deleted IDs during compaction.
+/// than term indexes. Each tag field has its own column family (e.g., "tag_0", "tag_1").
 pub struct TagIndexConfig;
 
 impl TagIndexConfig {
-    const PREFIX_EXTRACTOR_NAME: &'static str = "tags_prefix_extractor";
-    const MERGE_OPERATOR_NAME: &'static str = "tags_merge_operator";
-}
+    const PREFIX_EXTRACTOR_NAME: &'static str = "tag_prefix_extractor";
+    const MERGE_OPERATOR_NAME: &'static str = "tag_merge_operator";
+    const CF_PREFIX: &'static str = "tag_";
 
-impl block_traits::IndexConfig for TagIndexConfig {
-    type SerializableBlock = TagPostingsListBlock;
-    type ArchivedBlock = archive::ArchivedTagBlock;
+    /// Returns the column family name for a given field index.
+    pub fn cf_name(field_index: t_fieldIndex) -> String {
+        format!("{}{}", Self::CF_PREFIX, field_index)
+    }
 
-    const COLUMN_FAMILY_NAME: &'static str = "tags";
+    /// Parses a column family name and returns the field index if it's a tag CF.
+    /// Returns None if the name doesn't match the tag CF pattern.
+    pub fn parse_cf_name(cf_name: &str) -> Option<t_fieldIndex> {
+        cf_name.strip_prefix(Self::CF_PREFIX)?.parse().ok()
+    }
 
-    fn cf_descriptor(deleted_ids: Option<DeletedIdsStore>) -> ColumnFamilyDescriptor {
+    /// Creates the column family options for a tag inverted index.
+    pub fn cf_options(deleted_ids: DeletedIdsStore) -> SpeedbDbOptions {
         let prefix_extractor = SliceTransform::create(
             Self::PREFIX_EXTRACTOR_NAME,
-            generic_index::GenericInvertedIndex::<Self>::strip_doc_id_suffix,
-            Some(generic_index::GenericInvertedIndex::<Self>::has_doc_id_suffix),
+            generic_index::strip_doc_id_suffix,
+            Some(generic_index::has_doc_id_suffix),
         );
 
         let mut cf_options = SpeedbDbOptions::default();
@@ -68,31 +75,52 @@ impl block_traits::IndexConfig for TagIndexConfig {
         cf_options.set_disable_auto_compactions(true);
         cf_options.set_merge_values(true);
 
-        // Tag indexes use a merge operator for handling deleted IDs
-        let deleted_ids =
-            deleted_ids.expect("Tag index requires DeletedIdsStore for merge operator");
         cf_options.set_merge_operator_associative(
             Self::MERGE_OPERATOR_NAME,
-            GenericMergeOperator::<Self>::full_merge_fn(deleted_ids.clone()),
+            GenericMergeOperator::<Self>::full_merge_fn(deleted_ids),
         );
 
         cf_options.set_prefix_extractor(prefix_extractor);
         cf_options.set_block_based_table_factory(&BlockBasedOptions::default());
 
-        ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, cf_options)
+        cf_options
+    }
+
+    /// Creates a column family descriptor for a tag inverted index.
+    pub fn cf_descriptor(
+        field_index: t_fieldIndex,
+        deleted_ids: DeletedIdsStore,
+    ) -> ColumnFamilyDescriptor {
+        ColumnFamilyDescriptor::new(Self::cf_name(field_index), Self::cf_options(deleted_ids))
+    }
+}
+
+impl block_traits::IndexConfig for TagIndexConfig {
+    type SerializableBlock = TagPostingsListBlock;
+    type ArchivedBlock = archive::ArchivedTagBlock;
+
+    // Not used directly - each tag field has its own CF via TagInvertedIndex::cf_name()
+    const COLUMN_FAMILY_NAME: &'static str = "tags";
+
+    fn cf_descriptor(deleted_ids: Option<DeletedIdsStore>) -> ColumnFamilyDescriptor {
+        let deleted_ids =
+            deleted_ids.expect("Tag index requires DeletedIdsStore for merge operator");
+        ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, Self::cf_options(deleted_ids))
     }
 }
 
 /// A tag inverted index maps tag values to the documents which contain the tag.
 /// Unlike the full-text inverted index, tag indexes only store document IDs without
 /// field masks or frequencies, making them much more compact and efficient.
+///
+/// Each tag field has its own TagInvertedIndex instance with a dedicated column family.
 pub struct TagInvertedIndex {
     /// The generic inverted index implementation
-    inner: generic_index::GenericInvertedIndex<TagIndexConfig>,
+    inner: GenericInvertedIndex<TagIndexConfig>,
 }
 
 impl Deref for TagInvertedIndex {
-    type Target = generic_index::GenericInvertedIndex<TagIndexConfig>;
+    type Target = GenericInvertedIndex<TagIndexConfig>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -100,25 +128,30 @@ impl Deref for TagInvertedIndex {
 }
 
 impl TagInvertedIndex {
-    /// Creates a new tag inverted index with the given Speedb database.
-    pub fn new(database: SpeedbMultithreadedDatabase) -> Self {
+    /// Creates a new tag inverted index for the given field.
+    ///
+    /// The column family must already exist in the database.
+    pub fn new(database: SpeedbMultithreadedDatabase, field_index: t_fieldIndex) -> Self {
         TagInvertedIndex {
-            inner: generic_index::GenericInvertedIndex::new(database),
+            inner: GenericInvertedIndex::new(database, &TagIndexConfig::cf_name(field_index)),
         }
     }
 
-    /// Creates a column family descriptor for the tag inverted index.
-    pub fn cf_descriptor(deleted_ids: DeletedIdsStore) -> ColumnFamilyDescriptor {
-        generic_index::GenericInvertedIndex::<TagIndexConfig>::cf_descriptor(Some(deleted_ids))
-    }
-
     /// Inserts a document ID into the postings list for the given tag.
+    ///
+    /// # Arguments
+    /// * `tag` - The tag value to index
+    /// * `doc_id` - The document ID to associate with this tag
     pub fn insert(&self, tag: &str, doc_id: t_docId) -> Result<(), speedb::Error> {
         let doc = TagDocument::new(doc_id);
         self.inner.insert(tag, doc_id, doc)
     }
 
     /// Returns an iterator over the document IDs for the given tag.
+    ///
+    /// # Arguments
+    /// * `tag` - The tag value to search for
+    /// * `weight` - Weight for scoring
     pub fn tag_iterator(
         &self,
         tag: &str,
@@ -127,17 +160,17 @@ impl TagInvertedIndex {
         InvIndIterator<'_, TagPostingsListReader<'_, Speedb>>,
         generic_reader::ReaderCreateError,
     > {
-        let key = InvertedIndexKey {
+        let key = super::InvertedIndexKey {
             prefix: tag,
             last_doc_id: None,
         }
         .as_key();
 
-        let iterator = self.inner.database().iterator_cf(
+        let iterator = self.inner.database().full_iterator_cf(
             &self.inner.cf_handle(),
             speedb::IteratorMode::From(&key, speedb::Direction::Forward),
         );
-        let reader = TagPostingsListReader::new(iterator, tag.to_string())?;
+        let reader = generic_reader::GenericReader::new(iterator, tag.to_string())?;
 
         let iter = InvIndIterator::new(reader, RSIndexResult::virt().weight(weight), NoOpChecker);
 

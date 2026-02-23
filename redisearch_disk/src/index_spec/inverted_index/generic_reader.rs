@@ -64,16 +64,12 @@ where
     DBAccess: speedb::DBAccess,
     Block: ArchivedBlock,
 {
-    /// Creates a new `GenericReader` for the given term/tag using the provided Speedb iterator.
+    /// Creates a new `GenericReader` for the given term using the provided Speedb iterator.
     pub fn new(
         mut iterator: DBIteratorWithThreadMode<'iterator, DBAccess>,
         prefix: String,
     ) -> Result<Self, ReaderCreateError> {
-        let key_prefix = InvertedIndexKey {
-            prefix: &prefix,
-            last_doc_id: None,
-        }
-        .as_key();
+        let key_prefix = InvertedIndexKey::new(&prefix, None).as_key();
 
         let estimate = Self::get_estimate(&mut iterator, &key_prefix, &prefix)?;
 
@@ -85,8 +81,8 @@ where
 
         Ok(Self {
             iterator,
-            prefix,
             key_prefix,
+            prefix,
             current_block: None,
             current_block_key: None,
             block_index: num_traits::Zero::zero(),
@@ -132,7 +128,7 @@ where
         true
     }
 
-    /// Get the estimated number of documents for the iterator over the current term.
+    /// Get the estimated number of documents for the iterator.
     fn get_estimate(
         iterator: &mut DBIteratorWithThreadMode<'iterator, DBAccess>,
         key_prefix: &[u8],
@@ -153,11 +149,7 @@ where
         let first_id = block.get_unchecked(num_traits::Zero::zero()).doc_id();
 
         // Now seek to the end to find the last document ID
-        let end_key = InvertedIndexKey {
-            prefix,
-            last_doc_id: Some(u64::MAX),
-        }
-        .as_key();
+        let end_key = InvertedIndexKey::new(prefix, Some(u64::MAX)).as_key();
 
         iterator.set_mode(speedb::IteratorMode::From(
             &end_key,
@@ -269,11 +261,7 @@ where
         }
 
         self.iterator.set_mode(speedb::IteratorMode::From(
-            &InvertedIndexKey {
-                prefix: &self.prefix,
-                last_doc_id: Some(doc_id),
-            }
-            .as_key(),
+            &InvertedIndexKey::new(&self.prefix, Some(doc_id)).as_key(),
             speedb::Direction::Forward,
         ));
 

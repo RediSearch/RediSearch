@@ -9,6 +9,8 @@ mod index_spec;
 #[cfg(not(miri))]
 mod inverted_index;
 #[cfg(not(miri))]
+mod tag;
+#[cfg(not(miri))]
 mod term;
 #[cfg(not(miri))]
 mod throttle;
