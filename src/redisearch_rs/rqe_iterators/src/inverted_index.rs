@@ -519,7 +519,7 @@ where
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context` must remain valid for the lifetime of the iterator.
-    pub fn new(
+    pub unsafe fn new(
         reader: R,
         context: NonNull<RedisSearchCtx>,
         term: Box<RSQueryTerm>,
