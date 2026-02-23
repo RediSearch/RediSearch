@@ -465,7 +465,7 @@ typedef struct {
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
 /**
- * Sets the cache for the lookup. If cache is provided, then it will be used as an
+ * Sets the `IndexSpecCache` of the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent
  */
 void RLookup_SetCache(RLookup *l, IndexSpecCache *cache);
