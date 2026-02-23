@@ -23,7 +23,7 @@ void SetOptionalIteratorChild(QueryIterator *it, QueryIterator* child);
 QueryIterator *TakeOptionalIteratorChild(QueryIterator *it);
 
 QueryIterator const *GetOptionalOptimizedIteratorWildcard(QueryIterator *const it);
-void SetOptionalOptimizedIteratorWildcard(QueryIterator *it, QueryIterator* child);
+void SetOptionalOptimizedIteratorWildcard(QueryIterator *it, QueryIterator* newWcii);
 
 #ifdef __cplusplus
 }
