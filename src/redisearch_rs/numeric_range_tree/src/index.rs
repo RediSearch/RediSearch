@@ -113,6 +113,18 @@ impl NumericIndex {
         }
     }
 
+    /// Get a reference to the last block in this index, if any.
+    pub(crate) fn last_block(&self) -> Option<&IndexBlock> {
+        let n = self.num_blocks();
+        if n == 0 {
+            return None;
+        }
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.block_ref(n - 1),
+            NumericIndex::Compressed(idx) => idx.block_ref(n - 1),
+        }
+    }
+
     /// Get the first document ID in a specific block.
     ///
     /// Returns `None` if the block index is out of bounds.

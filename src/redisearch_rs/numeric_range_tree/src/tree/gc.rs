@@ -74,21 +74,31 @@ impl NumericRangeNode {
     pub fn scan_gc(&self, doc_exists: &dyn Fn(ffi::t_docId) -> bool) -> Option<NodeGcDelta> {
         let range = self.range()?;
 
-        // HLL tracking for cardinality (re)estimation
+        // Pointer to the last block of the index. Used inside the repair
+        // closure to route each entry's HLL contribution into the correct
+        // accumulator.
+        let last_block_ptr: *const IndexBlock = range
+            .entries()
+            .last_block()
+            .map(|b| b as *const IndexBlock)
+            .unwrap_or(std::ptr::null());
+
+        // HLL tracking for cardinality (re)estimation.
+        //
+        // `majority_hll` accumulates all blocks except the last one.
+        // `last_block_hll` accumulates only the last block.
         let mut majority_hll = Hll::new();
         let mut last_block_hll = Hll::new();
-        let mut last_block_ptr: *const IndexBlock = std::ptr::null();
 
         let mut repair_fn = |res: &RSIndexResult<'_>, block: &IndexBlock| {
-            let bp = block as *const IndexBlock;
-            if bp != last_block_ptr {
-                majority_hll.merge(&last_block_hll);
-                last_block_hll.clear();
-                last_block_ptr = bp;
-            }
             // SAFETY: We know this is a numeric index result
             let value = unsafe { res.as_numeric_unchecked() };
-            crate::range::update_cardinality(&mut last_block_hll, value);
+            let target = if std::ptr::eq(block, last_block_ptr) {
+                &mut last_block_hll
+            } else {
+                &mut majority_hll
+            };
+            crate::range::update_cardinality(target, value);
         };
 
         let delta = range
