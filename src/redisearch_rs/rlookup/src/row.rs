@@ -37,6 +37,12 @@ pub struct RLookupRow<'a, T: RSValueTrait> {
     num_dyn_values: u32,
 }
 
+impl<'a, T: RSValueTrait> Default for RLookupRow<'a, T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
     /// a [`RLookupRow::sorting_vector`] of the given length.
