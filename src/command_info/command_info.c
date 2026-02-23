@@ -2319,7 +2319,7 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                   {
                     .name = "shard_k_ratio",
                     .token = "SHARD_K_RATIO",
-                    .since = "8.6.1",
+                    .since = "8.4.7",
                     .type = REDISMODULE_ARG_TYPE_DOUBLE,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
