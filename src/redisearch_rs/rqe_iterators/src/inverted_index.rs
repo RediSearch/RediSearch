@@ -622,7 +622,7 @@ where
     /// 4. `context.spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    pub fn new(
+    pub unsafe fn new(
         reader: IndexReaderCore<'index, E>,
         context: NonNull<RedisSearchCtx>,
         weight: f64,
