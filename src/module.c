@@ -1623,7 +1623,8 @@ int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   return REDISMODULE_OK;
 }
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, bool isMock) {
+  RS_IsMock = isMock;
   GetRedisVersion(ctx);
 
   // Prepare thread local storage for storing active queries/cursors
@@ -4543,7 +4544,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // Init RediSearch internal search
-  if (RediSearch_InitModuleInternal(ctx) == REDISMODULE_ERR) {
+  if (RediSearch_InitModuleInternal(ctx, false) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init search library...");
     return REDISMODULE_ERR;
   }

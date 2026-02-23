@@ -41,7 +41,7 @@ extern "C" {
 // docs and code.
 #define CMD_INTERNAL "internal"
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, bool isMock);
 
 extern redisearch_thpool_t *depleterPool;
 void DepleterPool_ThreadPoolDestroy(void);
