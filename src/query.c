@@ -48,6 +48,7 @@
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
+#include "shard_window_ratio.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
@@ -2106,29 +2107,12 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
   return retVal;
 }
 
-static int ValidateShardKRatio(const char *value, double *ratio, QueryError *status) {
-  if (!ParseDouble(value, ratio, 1)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
-      "Invalid shard k ratio value", " '%s'", value);
-    return 0;
-  }
-
-  if (*ratio <= MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
-      "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
-      MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
-    return 0;
-  }
-
-  return 1;
-}
-
 // Convert the query attribute into a raw vector param to be resolved by the vector iterator
 // down the road. return 0 in case of an unrecognized parameter.
 static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr, QueryError *status) {
   if (STR_EQCASE(attr->name, attr->namelen, SHARD_K_RATIO_ATTR)) {
     double ratio;
-    if (!ValidateShardKRatio(attr->value, &ratio, status)) {
+    if (!validateShardKRatio(attr->value, &ratio, status)) {
       return 0;
     }
     vq->knn.shardWindowRatio = ratio;

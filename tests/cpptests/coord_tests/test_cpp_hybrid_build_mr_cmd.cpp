@@ -2,11 +2,15 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/parse_hybrid.h"
 #include "rmr/command.h"
 #include "dist_plan.h"
 #include "index_utils.h"
 #include "common.h"
 #include "profile/options.h"
+#include "vector_index.h"
+#include "shard_window_ratio.h"
+#include "src/query_error.h"
 
 #include <vector>
 
@@ -14,16 +18,25 @@
 
 extern "C" {
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            ProfileOptions profileOptions,
-                            MRCommand *xcmd, arrayof(char *) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams);
+                                  ProfileOptions profileOptions,
+                                  MRCommand *xcmd, arrayof(char *) serialized,
+                                  IndexSpec *sp,
+                                  const VectorQuery *vq,
+                                  size_t numShards);
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
-        memset(&hybridParams, 0, sizeof(hybridParams));
+
+        // Create index used by SHARD_K_RATIO tests
+        QueryError qerr = QueryError_Default();
+        RMCK::ArgvList createArgs(ctx, "FT.CREATE", "test_idx", "ON", "HASH",
+                                  "SCHEMA", "title", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
+                                  "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
+        testIndexSpec = IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
+        ASSERT_NE(testIndexSpec, nullptr) << "Failed to create index: " << QueryError_GetDisplayableError(&qerr, false);
     }
 
     void TearDown() override {
@@ -33,28 +46,127 @@ protected:
     }
 
     RedisModuleCtx *ctx = nullptr;
-    HybridPipelineParams hybridParams;
+    IndexSpec *testIndexSpec = nullptr;
 
-    void printMRCommand(const MRCommand *cmd) {
-        printf("MRCommand: ");
-        for (int i = 0; i < cmd->num; i++) {
-            printf("%s ", cmd->strs[i]);
-        }
-        printf("\n");
+    // Helper function to validate VectorQuery from AREQ
+    // Returns the VectorQuery pointer if validation passes, nullptr otherwise
+    VectorQuery* validateVectorQuery(AREQ *vectorReq, size_t expectedK, double expectedShardWindowRatio) {
+        EXPECT_NE(vectorReq->ast.root, nullptr) << "Vector AST root should not be NULL";
+        if (!vectorReq->ast.root) return nullptr;
+
+        EXPECT_EQ(vectorReq->ast.root->type, QN_VECTOR) << "Vector AST root should be QN_VECTOR";
+        if (vectorReq->ast.root->type != QN_VECTOR) return nullptr;
+
+        VectorQuery *vq = vectorReq->ast.root->vn.vq;
+        EXPECT_NE(vq, nullptr) << "VectorQuery should not be NULL";
+        if (!vq) return nullptr;
+
+        EXPECT_EQ(vq->type, VECSIM_QT_KNN);
+        EXPECT_EQ(vq->knn.k, expectedK);
+        EXPECT_DOUBLE_EQ(vq->knn.shardWindowRatio, expectedShardWindowRatio);
+
+        return vq;
     }
 
-    void printArgvList(RedisModuleString **argv, int argc) {
-        printf("ArgvList: ");
-        for (int i = 0; i < argc; i++) {
-            size_t len;
-            const char *str = RedisModule_StringPtrLen(argv[i], &len);
-            printf("%.*s ", (int)len, str);
+    // Helper function to test SHARD_K_RATIO command transformation
+    // Uses stack-allocated variables following the pattern in hybrid_debug.c
+    void testShardKRatioTransformation(const std::vector<const char*>& inputArgs,
+                                       size_t numShards,
+                                       size_t expectedK,
+                                       double expectedRatio,
+                                       long long expectedEffectiveK,
+                                       bool passNullVectorQuery = false) {
+        // Access the global NumShards variable for testing
+        extern size_t NumShards;
+
+        // Save and set NumShards
+        size_t originalNumShards = NumShards;
+        NumShards = numShards;
+
+        // Set up args
+        std::vector<const char*> argsWithNull = inputArgs;
+        argsWithNull.push_back(nullptr);
+        RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+        // Create search context and hybrid request
+        RedisSearchCtx *sctx = NewSearchCtxC(ctx, "test_idx", true);
+        ASSERT_NE(sctx, nullptr) << "Failed to create search context";
+
+        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+        ASSERT_NE(hreq, nullptr) << "Failed to create hybrid request";
+
+        // Stack-allocated variables (following hybrid_debug.c pattern)
+        HybridPipelineParams hybridParams = {};
+        ParseHybridCommandCtx cmd = {};
+        cmd.search = hreq->requests[0];
+        cmd.vector = hreq->requests[1];
+        cmd.tailPlan = &hreq->tailPipeline->ap;
+        cmd.hybridParams = &hybridParams;
+        cmd.reqConfig = &hreq->reqConfig;
+        cmd.cursorConfig = &hreq->cursorConfig;
+
+        ArgsCursor ac = {};
+        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
+
+        QueryError status = QueryError_Default();
+        if (int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS); rc != REDISMODULE_OK) {
+            if (hybridParams.scoringCtx) {
+                HybridScoringContext_Free(hybridParams.scoringCtx);
+            }
+            HybridRequest_Free(hreq);
+            NumShards = originalNumShards;
+            FAIL() << "Failed to parse hybrid command";
         }
-        printf("\n");
+
+        // Validate VectorQuery
+        const VectorQuery *vq = validateVectorQuery(cmd.vector, expectedK, expectedRatio);
+        ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
+
+        // Build MR command
+        MRCommand xcmd;
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+                                     nullptr, testIndexSpec,
+                                     passNullVectorQuery ? nullptr : vq, numShards);
+
+        // Verify the command was built correctly
+        EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
+
+        // Verify K value in output command
+        long long kValue;
+        int kIndex = findKValue(&xcmd, &kValue);
+        EXPECT_NE(kIndex, -1) << "K keyword should be present in output command";
+        EXPECT_EQ(kValue, expectedEffectiveK) << "K value mismatch";
+
+        // Cleanup (following hybrid_debug.c pattern)
+        MRCommand_Free(&xcmd);
+        if (hybridParams.scoringCtx) {
+            HybridScoringContext_Free(hybridParams.scoringCtx);
+        }
+        HybridRequest_Free(hreq);
+        NumShards = originalNumShards;
+    }
+
+    // Helper function to find K value in MRCommand
+    // Returns the index of K keyword, or -1 if not found
+    // If found, kValue will contain the K value as long long
+    int findKValue(const MRCommand *cmd, long long *kValue) {
+        for (int i = 0; i < cmd->num; i++) {
+            bool kFound = (cmd->lens[i] == 1 && strncasecmp(cmd->strs[i], "K", 1) == 0);
+            if (kFound && i + 1 < cmd->num) {
+                if (kValue) {
+                    *kValue = atoll(cmd->strs[i + 1]);
+                }
+                return i;
+            }
+        }
+        return -1;
     }
 
     // Helper function to test command transformation
     void testCommandTransformationWithoutIndexSpec(const std::vector<const char*>& inputArgs) {
+        // Access the global NumShards variable
+        extern size_t NumShards;
+
         // Convert vector to array for ArgvList constructor
         std::vector<const char*> argsWithNull = inputArgs;
         argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
@@ -62,9 +174,11 @@ protected:
         // Create ArgvList from input
         RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
 
-        // Build MR command
+        // Build MR command (pass NULL for VectorQuery - not testing
+        // SHARD_K_RATIO here)
         MRCommand xcmd;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL, nullptr, &hybridParams);
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+                                     nullptr, nullptr, nullptr, NumShards);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -84,6 +198,9 @@ protected:
 
     // Helper function to test command transformation
     void testCommandTransformationWithIndexSpec(const std::vector<const char*>& inputArgs) {
+      // Access the global NumShards variable
+      extern size_t NumShards;
+
       // Convert vector to array for ArgvList constructor
       std::vector<const char*> argsWithNull = inputArgs;
       argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
@@ -99,9 +216,11 @@ protected:
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
       ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
-      // Build MR command
+      // Build MR command (pass NULL for VectorQuery - not testing
+      // SHARD_K_RATIO here)
       MRCommand xcmd;
-      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd, NULL, sp, &hybridParams);
+      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+                                   nullptr, sp, nullptr, NumShards);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
@@ -281,4 +400,45 @@ TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data"
     });
+}
+
+// Test SHARD_K_RATIO modifies K value in distributed command with multiple shards
+// With 4 shards, K=100, ratio=0.5:
+// effectiveK = max(100/4, ceil(100*0.5)) = max(25, 50) = 50
+TEST_F(HybridBuildMRCommandTest, testShardKRatioModifiesK) {
+    testShardKRatioTransformation({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", "$BLOB",
+        "KNN", "4", "K", "100", "SHARD_K_RATIO", "0.5",
+        "COMBINE", "RRF", "2", "WINDOW", "100",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    }, /*numShards=*/4, /*expectedK=*/100, /*expectedRatio=*/0.5,
+    /*expectedEffectiveK=*/50);
+}
+
+// Test SHARD_K_RATIO with small ratio where min guarantee kicks in
+// With 4 shards, K=100, ratio=0.1:
+// effectiveK = max(100/4, ceil(100*0.1)) = max(25, 10) = 25
+TEST_F(HybridBuildMRCommandTest, testShardKRatioMinGuarantee) {
+    testShardKRatioTransformation({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", "$BLOB",
+        "KNN", "4", "K", "100", "SHARD_K_RATIO", "0.1",
+        "COMBINE", "RRF", "2", "WINDOW", "100",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    }, /*numShards=*/4, /*expectedK=*/100, /*expectedRatio=*/0.1,
+    /*expectedEffectiveK=*/25);
+}
+
+// Test SHARD_K_RATIO with ratio = 1.0 (no modification)
+// K value should remain 50 since ratio = 1.0 means no modification
+TEST_F(HybridBuildMRCommandTest, testShardKRatioNoModificationWhenRatioIsOne) {
+    testShardKRatioTransformation({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello",
+        "VSIM", "@vector_field", "$BLOB",
+        "KNN", "4", "K", "50", "SHARD_K_RATIO", "1.0",
+        "COMBINE", "RRF", "2", "WINDOW", "50",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    }, /*numShards=*/4, /*expectedK=*/50, /*expectedRatio=*/1.0,
+    /*expectedEffectiveK=*/50);
 }
