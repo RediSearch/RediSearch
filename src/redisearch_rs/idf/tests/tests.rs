@@ -9,6 +9,7 @@
 
 use approx::{assert_abs_diff_eq, assert_ulps_eq};
 use idf::{calculate_idf, calculate_idf_bm25};
+use rstest::rstest;
 
 // Miri interprets floating-point operations using a software implementation
 // that can produce results slightly different from hardware FPUs.
@@ -80,26 +81,25 @@ fn idf_known_values() {
 }
 
 /// Values computed from the original C implementation of `CalculateIDF`.
-#[test]
-fn idf_matches_c_reference() {
-    // (total_docs, term_docs) => expected IDF
-    let cases: &[(usize, usize, f64)] = &[
-        (0, 0, 1.0),
-        (0, 1, 1.0),
-        (1, 0, 1.0),
-        (1, 1, 1.0),
-        (10, 5, 1.0),
-        (100, 1, 6.0),
-        (100, 50, 1.0),
-        (100, 100, 1.0),
-        (1000, 1, 9.0),
-        (1000, 500, 1.0),
-        (10_000, 10_000, 1.0),
-        (1_000_000, 1, 19.0),
-    ];
-    for &(total, term, expected) in cases {
-        assert_abs_diff_eq!(calculate_idf(total, term), expected);
-    }
+#[rstest]
+#[case(0, 0, 1.0)]
+#[case(0, 1, 1.0)]
+#[case(1, 0, 1.0)]
+#[case(1, 1, 1.0)]
+#[case(10, 5, 1.0)]
+#[case(100, 1, 6.0)]
+#[case(100, 50, 1.0)]
+#[case(100, 100, 1.0)]
+#[case(1000, 1, 9.0)]
+#[case(1000, 500, 1.0)]
+#[case(10_000, 10_000, 1.0)]
+#[case(1_000_000, 1, 19.0)]
+fn idf_matches_c_reference(
+    #[case] total_docs: usize,
+    #[case] term_docs: usize,
+    #[case] expected: f64,
+) {
+    assert_abs_diff_eq!(calculate_idf(total_docs, term_docs), expected);
 }
 
 #[test]
@@ -164,25 +164,28 @@ fn bm25_idf_always_non_negative() {
 
 /// Values computed from the original C implementation of `CalculateIDF_BM25`,
 /// with the float-precision intermediate arithmetic corrected to f64.
-#[test]
-fn bm25_idf_matches_c_reference() {
-    // (total_docs, term_docs) => expected BM25 IDF
-    let cases: &[(usize, usize, f64)] = &[
-        (0, 0, f64::from_bits(4604418534313441775)),
-        (0, 1, f64::from_bits(4598854039415085969)),
-        (1, 0, f64::from_bits(4608922133940812271)),
-        (1, 1, f64::from_bits(4598854039415085969)),
-        (10, 5, f64::from_bits(4604418534313441775)),
-        (100, 1, f64::from_bits(4616425669059920044)),
-        (100, 50, f64::from_bits(4604418534313441775)),
-        (100, 100, f64::from_bits(4572371728709057247)),
-        (1000, 1, f64::from_bits(4619008071662370528)),
-        (1000, 500, f64::from_bits(4604418534313441775)),
-        (10_000, 10_000, f64::from_bits(4542502969032277634)),
-        (1_000_000, 1, f64::from_bits(4623738803079082246)),
-        (5, 10, f64::from_bits(4586865061838308779)), // term_docs > total_docs
-    ];
-    for &(total, term, expected) in cases {
-        assert_ulps_eq!(calculate_idf_bm25(total, term), expected, max_ulps = 4,);
-    }
+#[rstest]
+#[case(0, 0, f64::from_bits(4604418534313441775))]
+#[case(0, 1, f64::from_bits(4598854039415085969))]
+#[case(1, 0, f64::from_bits(4608922133940812271))]
+#[case(1, 1, f64::from_bits(4598854039415085969))]
+#[case(10, 5, f64::from_bits(4604418534313441775))]
+#[case(100, 1, f64::from_bits(4616425669059920044))]
+#[case(100, 50, f64::from_bits(4604418534313441775))]
+#[case(100, 100, f64::from_bits(4572371728709057247))]
+#[case(1000, 1, f64::from_bits(4619008071662370528))]
+#[case(1000, 500, f64::from_bits(4604418534313441775))]
+#[case(10_000, 10_000, f64::from_bits(4542502969032277634))]
+#[case(1_000_000, 1, f64::from_bits(4623738803079082246))]
+#[case(5, 10, f64::from_bits(4586865061838308779))] // term_docs > total_docs
+fn bm25_idf_matches_c_reference(
+    #[case] total_docs: usize,
+    #[case] term_docs: usize,
+    #[case] expected: f64,
+) {
+    assert_ulps_eq!(
+        calculate_idf_bm25(total_docs, term_docs),
+        expected,
+        max_ulps = 4,
+    );
 }

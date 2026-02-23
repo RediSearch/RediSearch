@@ -909,6 +909,7 @@ name = "idf"
 version = "0.0.1"
 dependencies = [
  "approx",
+ "rstest",
  "workspace_hack",
 ]
 
