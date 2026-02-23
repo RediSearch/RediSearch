@@ -30,7 +30,7 @@ pub unsafe extern "C" fn RLookupRow_New(lookup: *const OpaqueRLookup) -> OpaqueR
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
-    RLookupRow::new(lookup).into_opaque()
+    RLookupRow::new().into_opaque()
 }
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
@@ -148,20 +148,6 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 
     // Safety: ensured by caller (3.)
     let dst = unsafe { RLookupRow::from_opaque_non_null(dst_row.expect("`dst` must not be null")) };
-
-    #[cfg(debug_assertions)]
-    {
-        assert_eq!(
-            src.rlookup_id(),
-            lookup.id(),
-            "`src` must belong to `rlookup`"
-        );
-        assert_eq!(
-            dst.rlookup_id(),
-            lookup.id(),
-            "`dst` must belong to `rlookup`"
-        );
-    }
 
     dst.move_fields_from(src, lookup);
 }

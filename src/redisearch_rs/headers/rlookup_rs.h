@@ -169,20 +169,7 @@ typedef struct RLookupKey {
 /**
  * A type with size `N`.
  */
-typedef uint8_t Size_48[48];
-
-/**
- * A type with size `N`.
- */
 typedef uint8_t Size_40[40];
-
-#if defined(ENABLE_ASSERT)
-typedef Size_48 OpaqueRLookupSize;
-#endif
-
-#if !defined(ENABLE_ASSERT)
-typedef Size_40 OpaqueRLookupSize;
-#endif
 
 /**
  * An opaque lookup which can be passed by value to C.
@@ -191,16 +178,8 @@ typedef Size_40 OpaqueRLookupSize;
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookup {
-  OpaqueRLookupSize _0;
+  Size_40 _0;
 } RLookup;
-
-#if defined(ENABLE_ASSERT)
-typedef Size_48 OpaqueRLookupRowSize;
-#endif
-
-#if !defined(ENABLE_ASSERT)
-typedef Size_40 OpaqueRLookupRowSize;
-#endif
 
 /**
  * An opaque lookup row which can be passed by value to C.
@@ -209,7 +188,7 @@ typedef Size_40 OpaqueRLookupRowSize;
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookupRow {
-  OpaqueRLookupRowSize _0;
+  Size_40 _0;
 } RLookupRow;
 
 #ifdef __cplusplus

@@ -14,8 +14,6 @@ mod index_spec;
 mod lookup;
 #[cfg(test)]
 mod mock;
-#[cfg(debug_assertions)]
-mod rlookup_id;
 mod row;
 mod schema_rule;
 

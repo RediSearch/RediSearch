@@ -21,12 +21,7 @@ use std::{
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
 
-#[cfg(debug_assertions)]
-use crate::rlookup_id::RLookupId;
-use crate::{
-    RLookup,
-    bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes},
-};
+use crate::bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
 
 #[bitflags]
 #[repr(u32)]
@@ -147,9 +142,6 @@ pub struct RLookupKey<'a> {
     _name: Cow<'a, CStr>,
     #[pin]
     _path: Option<Cow<'a, CStr>>,
-
-    #[cfg(debug_assertions)]
-    pub(crate) rlookup_id: RLookupId,
 }
 
 #[derive(Debug)]
@@ -208,11 +200,7 @@ impl<'a> DerefMut for RLookupKey<'a> {
 // This means you may NEVER EVER hand out a `&mut CStr` EVER.
 impl<'a> RLookupKey<'a> {
     /// Constructs a new `RLookupKey` using the provided `name` and `flags`.
-    pub fn new(
-        #[cfg_attr(not(debug_assertions), allow(unused))] parent: &RLookup<'_>,
-        name: impl Into<Cow<'a, CStr>>,
-        flags: RLookupKeyFlags,
-    ) -> Self {
+    pub fn new(name: impl Into<Cow<'a, CStr>>, flags: RLookupKeyFlags) -> Self {
         debug_assert!(
             !flags.contains(RLookupKeyFlag::NameAlloc),
             "The NameAlloc flag should have been handled in the FFI function. This is a bug."
@@ -232,14 +220,11 @@ impl<'a> RLookupKey<'a> {
             },
             _name: name,
             _path: None,
-            #[cfg(debug_assertions)]
-            rlookup_id: parent.id(),
         }
     }
 
     /// Constructs a new `RLookupKey` using the provided `name`, `path` and `flags`.
     pub fn new_with_path(
-        parent: &RLookup<'_>,
         name: impl Into<Cow<'a, CStr>>,
         path: impl Into<Cow<'a, CStr>>,
         flags: RLookupKeyFlags,
@@ -249,7 +234,7 @@ impl<'a> RLookupKey<'a> {
             "The NameAlloc flag should have been handled in the FFI function. This is a bug."
         );
 
-        let mut new = Self::new(parent, name, flags);
+        let mut new = Self::new(name, flags);
         let path = path.into();
         new.path = path.as_ptr();
         new._path = Some(path);
@@ -308,11 +293,6 @@ impl<'a> RLookupKey<'a> {
 
     pub const fn path(&self) -> &Option<Cow<'a, CStr>> {
         &self._path
-    }
-
-    #[cfg(debug_assertions)]
-    pub const fn rlookup_id(&self) -> RLookupId {
-        self.rlookup_id
     }
 
     pub fn is_tombstone(&self) -> bool {
@@ -519,9 +499,7 @@ mod tests {
     // Make sure that the `into_ptr` and `from_ptr` functions are inverses of each other.
     #[test]
     fn into_ptr_from_ptr_roundtrip() {
-        let rlookup = RLookup::new();
-
-        let key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
         let key = Box::pin(key);
 
         let ptr = unsafe { RLookupKey::into_ptr(key) };
@@ -535,9 +513,7 @@ mod tests {
     fn rlookupkey_new_ascii() {
         let name = c"test";
 
-        let rlookup = RLookup::new();
-
-        let key = RLookupKey::new(&rlookup, name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(name, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
         assert!(matches!(key._name, Cow::Borrowed(_)));
     }
@@ -546,9 +522,7 @@ mod tests {
     fn rlookupkey_new_utf8() {
         let name = c"🔍🔥🎶";
 
-        let rlookup = RLookup::new();
-
-        let key = RLookupKey::new(&rlookup, name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(name, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
         assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
         assert!(matches!(key._name, Cow::Borrowed(_)));
@@ -556,9 +530,7 @@ mod tests {
 
     #[test]
     fn update_from_field_spec() {
-        let rlookup = RLookup::new();
-
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -592,9 +564,7 @@ mod tests {
 
     #[test]
     fn update_from_field_spec_sortable() {
-        let rlookup = RLookup::new();
-
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -635,9 +605,7 @@ mod tests {
 
     #[test]
     fn update_from_field_spec_numeric() {
-        let rlookup = RLookup::new();
-
-        let mut key = RLookupKey::new(&rlookup, c"test", RLookupKeyFlags::empty());
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -672,7 +640,7 @@ mod tests {
     #[test]
     fn new_only_name() {
         let name = Cow::Borrowed(c"foo");
-        let key = RLookupKey::new(&RLookup::new(), name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(name, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._name.as_ptr());
@@ -682,7 +650,7 @@ mod tests {
     fn new_name_and_path() {
         let name = Cow::Borrowed(c"foo");
         let path = Cow::Borrowed(c"bar");
-        let key = RLookupKey::new_with_path(&RLookup::new(), name, path, RLookupKeyFlags::empty());
+        let key = RLookupKey::new_with_path(name, path, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
