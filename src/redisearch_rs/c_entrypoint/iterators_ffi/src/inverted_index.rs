@@ -344,13 +344,16 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
             if !filter_ref.geo_filter.is_null() {
                 // Geo filter
                 let filter_reader = FilterGeoReader::new(filter_ref, reader);
-                let iter = Numeric::new(
-                    filter_reader,
-                    expiration_checker,
-                    range_tree,
-                    Some(range_min),
-                    Some(range_max),
-                );
+                // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
+                let iter = unsafe {
+                    Numeric::new(
+                        filter_reader,
+                        expiration_checker,
+                        range_tree,
+                        Some(range_min),
+                        Some(range_max),
+                    )
+                };
                 NumericIterator {
                     filter: Some(filter),
                     iterator: IteratorVariant::Geo(iter),
@@ -358,13 +361,16 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
             } else {
                 // Numeric filter (no geo)
                 let filter_reader = FilterNumericReader::new(filter_ref, reader);
-                let iter = Numeric::new(
-                    filter_reader,
-                    expiration_checker,
-                    range_tree,
-                    Some(range_min),
-                    Some(range_max),
-                );
+                // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
+                let iter = unsafe {
+                    Numeric::new(
+                        filter_reader,
+                        expiration_checker,
+                        range_tree,
+                        Some(range_min),
+                        Some(range_max),
+                    )
+                };
                 NumericIterator {
                     filter: Some(filter),
                     iterator: IteratorVariant::NumericFiltered(iter),
@@ -373,13 +379,16 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
         }
         None => {
             // No filter - use the reader directly
-            let iter = Numeric::new(
-                reader,
-                expiration_checker,
-                range_tree,
-                Some(range_min),
-                Some(range_max),
-            );
+            // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
+            let iter = unsafe {
+                Numeric::new(
+                    reader,
+                    expiration_checker,
+                    range_tree,
+                    Some(range_min),
+                    Some(range_max),
+                )
+            };
             NumericIterator {
                 filter: None,
                 iterator: IteratorVariant::Numeric(iter),

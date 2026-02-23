@@ -372,7 +372,7 @@ where
     ///
     /// 1. If `range_tree` is Some, it must be a valid pointer to a `NumericRangeTree`.
     /// 2. If `range_tree` is Some, it must stay valid during the iterator's lifetime.
-    pub fn new(
+    pub unsafe fn new(
         reader: R,
         expiration_checker: E,
         range_tree: Option<NonNull<NumericRangeTree>>,
