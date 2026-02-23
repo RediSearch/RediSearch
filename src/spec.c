@@ -4213,8 +4213,8 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
 
 // Update a term's document count in the Serving Trie
 // Note: term is NOT null-terminated; term_len specifies the length
-IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
-                               size_t doc_count_decrement) {
+void IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+                                  size_t doc_count_decrement) {
   if (!sp->terms || doc_count_decrement == 0) {
     return;
   }
