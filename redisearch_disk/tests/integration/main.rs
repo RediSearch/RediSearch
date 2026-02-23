@@ -10,6 +10,8 @@ mod index_spec;
 mod inverted_index;
 #[cfg(not(miri))]
 mod term;
+#[cfg(not(miri))]
+mod throttle;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;

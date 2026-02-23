@@ -22,8 +22,8 @@ use ffi::{
     IteratorType_INV_IDX_TERM_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR, MetricsDiskAPI,
     QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RSQueryTerm, RSToken,
     RedisModuleCtx, RedisModuleInfoCtx, RedisSearchDisk, RedisSearchDiskAPI,
-    RedisSearchDiskIndexSpec, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId,
-    t_fieldIndex, t_fieldMask,
+    RedisSearchDiskIndexSpec, ThrottleCB, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI,
+    t_docId, t_fieldIndex, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -72,6 +72,20 @@ unsafe fn c_str_to_str<'a>(ptr: *const c_char, len: usize) -> Option<&'a str> {
 #[unsafe(no_mangle)]
 pub extern "C" fn SearchDisk_HasAPI() -> bool {
     true
+}
+
+// Extern declaration for C++ throttle callback setter
+unsafe extern "C" {
+    fn VecSimDisk_SetThrottleCallbacks(enable: ThrottleCB, disable: ThrottleCB);
+}
+
+/// Sets throttle callbacks for vector disk tiered indexes.
+extern "C" fn set_throttle_callbacks(enable: ThrottleCB, disable: ThrottleCB) {
+    // SAFETY: VecSimDisk_SetThrottleCallbacks stores these callback pointers.
+    // The callbacks are provided by RediSearch and remain valid for the module lifetime.
+    unsafe {
+        VecSimDisk_SetThrottleCallbacks(enable, disable);
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -200,13 +214,6 @@ extern "C" fn is_async_io_supported(disk: *mut RedisSearchDisk) -> bool {
         return false;
     };
     disk_ctx.is_async_io_supported()
-}
-
-/// Sets throttle callbacks for vector disk tiered indexes.
-///
-/// Currently a no-op - throttling is not yet implemented for disk indexes.
-extern "C" fn set_throttle_callbacks(_enable: ffi::ThrottleCB, _disable: ffi::ThrottleCB) {
-    debug!("set_throttle_callbacks called (no-op)");
 }
 
 /// Opens an index.
