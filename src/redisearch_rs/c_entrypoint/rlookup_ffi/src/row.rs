@@ -9,7 +9,7 @@
 
 use ffi::RSValue;
 use libc::size_t;
-use rlookup::{OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
+use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
@@ -19,17 +19,8 @@ use std::{
 use value::RSValueFFI;
 
 /// Returns a newly created [`RLookupRow`].
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_New(lookup: *const OpaqueRLookup) -> OpaqueRLookupRow {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
-
+pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
     RLookupRow::new().into_opaque()
 }
 

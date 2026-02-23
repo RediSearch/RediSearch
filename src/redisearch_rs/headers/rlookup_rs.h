@@ -600,14 +600,8 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
 
 /**
  * Returns a newly created [`RLookupRow`].
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupRow RLookupRow_New(const struct RLookup *lookup);
+struct RLookupRow RLookupRow_New(void);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
