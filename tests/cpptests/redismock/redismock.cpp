@@ -38,6 +38,11 @@
 
 static std::mutex RMCK_GlobalLock;
 
+// Strong implementation overrides the weak one in module-init.c
+extern "C" bool IsMockRedisApi(void) {
+  return true;
+}
+
 std::string HashValue::Key::makeKey() const {
   if (flags & REDISMODULE_HASH_CFIELDS) {
     return std::string(cstr);

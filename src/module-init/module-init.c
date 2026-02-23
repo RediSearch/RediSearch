@@ -109,6 +109,10 @@ static inline const char* RS_GetExtraVersion() {
 int RS_Initialized = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
+__attribute__((weak)) bool IsMockRedisApi() {
+  return false;
+}
+
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
 #define DO_LOG(...)                                 \
   do {                                              \
