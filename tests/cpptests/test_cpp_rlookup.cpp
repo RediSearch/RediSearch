@@ -13,11 +13,6 @@
 
 class RLookupTest : public ::testing::Test {};
 
-TEST_F(RLookupTest, testInit) {
-  RLookup lk = RLookup_New();
-  RLookup_Cleanup(&lk);
-}
-
 TEST_F(RLookupTest, testFlags) {
   RLookup lk = RLookup_New();
   RLookupKey *fook = RLookup_GetKey_Read(&lk, "foo", RLOOKUP_F_NOFLAGS);
