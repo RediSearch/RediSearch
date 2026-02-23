@@ -173,13 +173,13 @@ HybridLookupContext* CreateDummyLookupContext(size_t numUpstreams) {
 
   // Create dummy RLookup for each upstream
   for (size_t i = 0; i < numUpstreams; i++) {
-    RLookup *dummyLookup = &RLookup_New();
-    array_append(lookupCtx->sourceLookups, dummyLookup);
+    RLookup dummyLookup = RLookup_New();
+    array_append(lookupCtx->sourceLookups, &dummyLookup);
   }
 
   // Create dummy tail lookup
-  RLookup *tailLookup = &RLookup_New();
-  lookupCtx->tailLookup = tailLookup;
+  RLookup tailLookup = RLookup_New();
+  lookupCtx->tailLookup = &tailLookup;
 
   return lookupCtx;
 }
@@ -1421,7 +1421,8 @@ static SearchResult* createTestSearchResult(uint8_t flags) {
   SearchResult_SetScoreExplain(result, NULL);
   SearchResult_SetDocumentMetadata(result, NULL);
   SearchResult_SetIndexResult(result, NULL);
-  memset(SearchResult_GetRowDataMut(result), 0, sizeof(RLookupRow));
+  // memset(SearchResult_GetRowDataMut(result), 0, sizeof(RLookupRow));
+  ***SearchResult_GetRowDataMut(result) = 3;
 
   return result;
 }
