@@ -11,15 +11,12 @@ use approx::{assert_abs_diff_eq, assert_ulps_eq};
 use idf::{calculate_idf, calculate_idf_bm25};
 
 // Miri interprets floating-point operations using a software implementation
-// that can produce results slightly different from hardware FPUs. All
-// comparisons use `approx` to tolerate these differences:
+// that can produce results slightly different from hardware FPUs.
 //
-// - `calculate_idf` returns `floor(log2(x))`, an integer. When `log2(x)` lands
-//   exactly on an integer (e.g. `log2(2.0) = 1.0`), Miri may compute a value
-//   marginally below it, causing `floor()` to round down by 1. The affected
-//   tests use `epsilon = 1.0` to accept this.
-// - `calculate_idf_bm25` uses `ln`, a continuous function. Miri's results
-//   differ by a few ULPs at most, handled via `max_ulps` / small `epsilon`.
+// - `calculate_idf` extracts the IEEE 754 exponent directly (no float math),
+//   so its results are exact and identical under Miri.
+// - `calculate_idf_bm25` uses `ln`, a continuous function whose Miri results
+//   can differ by a few ULPs. These tests use `approx` tolerances accordingly.
 
 #[test]
 fn idf_basic() {
@@ -36,13 +33,13 @@ fn idf_term_docs_zero_treated_as_one() {
 #[test]
 fn idf_total_docs_zero() {
     // 0 total docs, term in 1 doc → logb(1.0 + 1/1) = logb(2.0) = 1.0
-    assert_abs_diff_eq!(calculate_idf(0, 1), 1.0, epsilon = 1.0);
+    assert_abs_diff_eq!(calculate_idf(0, 1), 1.0);
 }
 
 #[test]
 fn idf_both_zero() {
     // 0 total, 0 term → treated as (0, 1) → logb(1.0 + 1/1) = 1.0
-    assert_abs_diff_eq!(calculate_idf(0, 0), 1.0, epsilon = 1.0);
+    assert_abs_diff_eq!(calculate_idf(0, 0), 1.0);
 }
 
 #[test]
@@ -101,8 +98,7 @@ fn idf_matches_c_reference() {
         (1_000_000, 1, 19.0),
     ];
     for &(total, term, expected) in cases {
-        // epsilon = 1.0: Miri's floor(log2(x)) can be off by 1 (see module comment).
-        assert_abs_diff_eq!(calculate_idf(total, term), expected, epsilon = 1.0);
+        assert_abs_diff_eq!(calculate_idf(total, term), expected);
     }
 }
 
