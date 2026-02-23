@@ -98,9 +98,6 @@ size_t ConcurrentCmdCtx_GetNumShards(const struct ConcurrentCmdCtx *cctx);
 // Returns the blocked client held in the context.
 RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmdCtx *cctx);
 
-// Returns the query timeout held in the context.
-rs_wall_clock_ms_t ConcurrentCmdCtx_GetQueryTimeout(struct ConcurrentCmdCtx *cctx);
-
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

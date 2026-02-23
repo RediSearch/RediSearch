@@ -570,6 +570,12 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
+static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
+  // We should check for timeout in pipeline if policy is return and timeout > 0
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status) {
@@ -606,6 +612,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+
+    // Set skip timeout
+    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
 
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
@@ -683,13 +692,6 @@ static void FreeCursorMappings(void *mappings) {
   array_free(vsimOrSearch->mappings);
   rm_free(mappings);
 }
-
-static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
-  // We should check for timeout in pipeline if policy is return and timeout > 0
-  return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
-}
-
 
 static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCtx *cmdCtx,
                         RedisModule_Reply *reply, QueryError *status) {
@@ -853,14 +855,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    // Store query timeout (parsed earlier on main thread)
-    hreq->reqConfig.queryTimeoutMS = ConcurrentCmdCtx_GetQueryTimeout(cmdCtx);
-
-    // Set skip timeout
-    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
-
     CoordRequestCtx_UnlockSetRequest(reqCtx);
-
 
     // Get numShards captured from main thread for thread-safe access
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
