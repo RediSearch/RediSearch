@@ -82,11 +82,8 @@ static MRClusterTopology *getTopology(std::span<const char *const> hosts) {
 
   for (size_t i = 0; i < numNodes; i++) {
     MRClusterNode *node = &topo->shards[i].node;
-    if (REDIS_OK != MREndpoint_Parse(hosts[i], &node->endpoint)) {
-      MRClusterTopology_Free(topo);
-      topo = nullptr;
-      break;
-    }
+    int rc = MREndpoint_Parse(hosts[i], &node->endpoint);
+    assert(rc == REDIS_OK);
     node->id = rm_strdup(hosts[i]);
     topo->shards[i].slotRanges = createEmptySlotRangeArray();
   }
