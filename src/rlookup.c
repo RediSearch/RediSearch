@@ -435,7 +435,6 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
 }
 
 void RLookup_SetCache(RLookup *lk, IndexSpecCache *spcache) {
-  memset(lk, 0, sizeof(*lk));
   lk->_spcache = spcache;
 }
 
