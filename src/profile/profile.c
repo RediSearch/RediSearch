@@ -608,12 +608,6 @@ PRINT_PROFILE_FUNC(printOptionalIt) {
     GetOptionalIteratorChild(root), "OPTIONAL");
 }
 
-PRINT_PROFILE_FUNC(printOptionalOptimizedIt) {
-  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
-    GetOptionalIteratorChild(root), "OPTIONAL-OPTIMIZED");
-}
-
-
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, &pi->counters,
@@ -637,8 +631,8 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
     case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
     // Single value
     case NOT_ITERATOR:                      { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
-    case OPTIONAL_ITERATOR:                 { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
-    case OPTIONAL_OPTIMIZED_ITERATOR:       { printOptionalOptimizedIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case OPTIONAL_ITERATOR: // fallthrough
+    case OPTIONAL_OPTIMIZED_ITERATOR:       { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case EMPTY_ITERATOR:                    { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case ID_LIST_SORTED_ITERATOR:           { printIdListSortedIt(reply, root, counters, cpuTime, depth, limited, config);          break; }
