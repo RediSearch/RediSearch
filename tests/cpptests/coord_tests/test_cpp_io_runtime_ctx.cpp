@@ -18,6 +18,7 @@
 #include "common.h"
 #include <unistd.h>
 #include <atomic>
+#include <initializer_list>
 
 // Test callback for queue operations
 static void testCallback(void *privdata) {
@@ -105,6 +106,26 @@ static void startAndShutdownRuntime(IORuntimeCtx *io) {
   });
   ASSERT_TRUE(started) << "Timeout waiting for IO runtime thread creation";
   IORuntimeCtx_FireShutdown(io);
+}
+
+static void replaceTopologyAndUpdateNodes(IORuntimeCtx *io, MRClusterTopology *new_topo) {
+  MRClusterTopology *old_topo = io->topo;
+  io->topo = new_topo;
+  IORuntimeCtx_UpdateNodes(io);
+  MRClusterTopology_Free(old_topo);
+}
+
+static void assertConnMapContains(IORuntimeCtx *io, std::initializer_list<const char *> present,
+                                  std::initializer_list<const char *> absent = {}) {
+  ASSERT_NE(io, nullptr);
+  ASSERT_NE(io->conn_mgr.map, nullptr);
+
+  for (const char *node_id : present) {
+    ASSERT_NE(dictFind(io->conn_mgr.map, node_id), nullptr) << "Expected node in conn map: " << node_id;
+  }
+  for (const char *node_id : absent) {
+    ASSERT_EQ(dictFind(io->conn_mgr.map, node_id), nullptr) << "Unexpected node in conn map: " << node_id;
+  }
 }
 
 TEST_F(IORuntimeCtxCommonTest, InitialState) {
@@ -368,16 +389,15 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesAddRemove) {
   IORuntimeCtx_UpdateNodes(io);
 
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
+  assertConnMapContains(io, {"localhost:6379", "localhost:6389", "localhost:6399"});
 
   const char *hosts_v2[] = {"localhost:6379", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo_v2 = getTopology(3, hosts_v2);
   ASSERT_NE(topo_v2, nullptr);
-  MRClusterTopology *old_topo = io->topo;
-  io->topo = topo_v2;
-  IORuntimeCtx_UpdateNodes(io);
-  MRClusterTopology_Free(old_topo);
+  replaceTopologyAndUpdateNodes(io, topo_v2);
 
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
+  assertConnMapContains(io, {"localhost:6379", "localhost:6399", "localhost:6409"}, {"localhost:6389"});
 
   startAndShutdownRuntime(io);
   IORuntimeCtx_Free(io);
@@ -391,24 +411,21 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
   IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 12, true);
   IORuntimeCtx_UpdateNodes(io);
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
+  assertConnMapContains(io, {"localhost:6379", "localhost:6389", "localhost:6399"});
 
   const char *hosts_v2[] = {"localhost:6379", "localhost:6399"};
   MRClusterTopology *topo_v2 = getTopology(2, hosts_v2);
   ASSERT_NE(topo_v2, nullptr);
-  MRClusterTopology *old_topo = io->topo;
-  io->topo = topo_v2;
-  IORuntimeCtx_UpdateNodes(io);
-  MRClusterTopology_Free(old_topo);
+  replaceTopologyAndUpdateNodes(io, topo_v2);
   ASSERT_EQ(dictSize(io->conn_mgr.map), 2);
+  assertConnMapContains(io, {"localhost:6379", "localhost:6399"}, {"localhost:6389"});
 
   const char *hosts_v3[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo_v3 = getTopology(4, hosts_v3);
   ASSERT_NE(topo_v3, nullptr);
-  old_topo = io->topo;
-  io->topo = topo_v3;
-  IORuntimeCtx_UpdateNodes(io);
-  MRClusterTopology_Free(old_topo);
+  replaceTopologyAndUpdateNodes(io, topo_v3);
   ASSERT_EQ(dictSize(io->conn_mgr.map), 4);
+  assertConnMapContains(io, {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"});
 
   startAndShutdownRuntime(io);
   IORuntimeCtx_Free(io);
