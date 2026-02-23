@@ -203,6 +203,9 @@ typedef struct {
   uint32_t maxTrimDelayMS;
   // Delay between trimming state checks (in milliseconds)
   uint32_t trimmingStateCheckDelayMS;
+  // If false, suppress emitting RediSearch INFO metrics when there are no indexes.
+  // (We still emit the "version" section, and we never suppress crash-report info.)
+  bool infoEmitOnZeroIndexes;
   // Simulate working under Flex conditions. This is used for testing only.
   bool simulateInFlex;
 } RSConfig;
@@ -388,6 +391,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                    \
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,            \
+    .infoEmitOnZeroIndexes = false,                                            \
     .simulateInFlex = false,           \
   }
 
