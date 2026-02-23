@@ -275,20 +275,16 @@ void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
 }
 
 QueryIterator const* GetOptionalOptimizedIteratorWildcard(QueryIterator *base) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
-        return it->wcii;
-    } else {
-        return NULL;
-    }
+    RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
+    OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
+    return it->wcii;
 }
 
 void SetOptionalOptimizedIteratorWildcard(QueryIterator *base, QueryIterator *newWcii) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
-        if (it->wcii) {
-            it->wcii->Free(it->wcii);
-        }
-        it->wcii = newWcii;
+    RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
+    OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+    if (it->wcii) {
+        it->wcii->Free(it->wcii);
     }
+    it->wcii = newWcii;
 }
