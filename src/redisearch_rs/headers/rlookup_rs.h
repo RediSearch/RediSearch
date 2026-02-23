@@ -212,28 +212,6 @@ typedef struct ALIGNED(8) RLookupRow {
   OpaqueRLookupRowSize _0;
 } RLookupRow;
 
-typedef struct KeyList {
-  struct RLookupKey *head;
-  struct RLookupKey *tail;
-  uint32_t rowlen;
-} KeyList;
-
-/**
- * A cursor over an [`RLookup`]'s key list.
- */
-typedef struct RLookupIterator {
-  const struct KeyList *_rlookup;
-  struct RLookupKey *current;
-} RLookupIterator;
-
-/**
- * A cursor over an [`RLookup`]'s key list with editing operations.
- */
-typedef struct RLookupIteratorMut {
-  struct KeyList *_rlookup;
-  struct RLookupKey *current;
-} RLookupIteratorMut;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -652,7 +630,7 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
+RLookupIterator RLookup_Iter(const struct RLookup *lookup);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list with editing operations.
@@ -664,7 +642,7 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
+RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
 /**
  * Returns a newly created [`RLookupRow`].

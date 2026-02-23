@@ -15,6 +15,7 @@ use rlookup::{
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
+    pin::Pin,
     ptr::{self, NonNull},
     slice,
 };
@@ -594,13 +595,16 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Iter<'list, 'a>(
-    lookup: *const OpaqueRLookup,
-) -> Cursor<'list, 'a> {
+pub unsafe extern "C" fn RLookup_Iter(lookup: *const OpaqueRLookup) -> ffi::RLookupIterator {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
-    lookup.cursor()
+    let current = lookup
+        .cursor()
+        .current()
+        .map_or(ptr::null(), |c| ptr::from_ref(c).cast::<ffi::RLookupKey>());
+
+    ffi::RLookupIterator { current }
 }
 
 /// Return an iterator over an [`RLookup`]'s key list with editing operations.
@@ -612,13 +616,21 @@ pub unsafe extern "C" fn RLookup_Iter<'list, 'a>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_IterMut<'list, 'a>(
+pub unsafe extern "C" fn RLookup_IterMut(
     lookup: Option<NonNull<OpaqueRLookup>>,
-) -> CursorMut<'list, 'a> {
+) -> ffi::RLookupIteratorMut {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
-    lookup.cursor_mut()
+    let current = lookup.cursor_mut().current().map_or(ptr::null_mut(), |c| {
+        ptr::from_mut(
+            // hello
+            unsafe { Pin::into_inner_unchecked(c) },
+        )
+        .cast::<ffi::RLookupKey>()
+    });
+
+    ffi::RLookupIteratorMut { current }
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
