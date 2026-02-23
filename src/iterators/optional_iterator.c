@@ -242,7 +242,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   return ret;
 }
 
-QueryIterator const* GetOptionalIteratorChild(QueryIterator *base) {
+QueryIterator const* GetOptionalIteratorChild(const QueryIterator *base) {
     if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
         OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
         return it->child;

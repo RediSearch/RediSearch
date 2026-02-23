@@ -18,7 +18,7 @@ extern "C" {
 
 QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight);
 
-QueryIterator const *GetOptionalIteratorChild(QueryIterator *const it);
+QueryIterator const *GetOptionalIteratorChild(const QueryIterator *const it);
 void SetOptionalIteratorChild(QueryIterator *it, QueryIterator* child);
 QueryIterator *TakeOptionalIteratorChild(QueryIterator *it);
 
