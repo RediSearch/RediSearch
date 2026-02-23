@@ -126,9 +126,9 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * update in-memory structures via FFI calls to the provided C IndexSpec.
  *
  * @param index Pointer to the disk index
- * @param spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ * @param user_data Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *user_data);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
