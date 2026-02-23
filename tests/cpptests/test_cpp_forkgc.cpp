@@ -869,3 +869,57 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   cur_cardinality -= 2;
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rt->root->range));
 }
+
+// Demonstrates the HLL cardinality bug when the last block is fully emptied during GC.
+// The C code's `countRemain` callback tracks block transitions by pointer comparison,
+// but is only called for surviving documents. When the last block is fully emptied,
+// the callback never fires for it, so `last_block_card` holds the penultimate block's
+// data. This causes `registers_without_last_block` to lose the penultimate block's
+// cardinality when `ignored_last_block = true`.
+TEST_F(FGCTestNumeric, testHllCardinalityWhenLastBlockFullyEmptied) {
+  constexpr size_t docs_per_block = 100;
+  constexpr size_t first_split_card = 16; // from `numeric_index.c`
+  size_t cur_id = 1;
+
+  // Step 1: Build 3 blocks with 3 distinct values (cardinality = 3).
+
+  // Block 0: 100 docs with value 1.0
+  for (size_t i = 0; i < docs_per_block; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, "1.0");
+  }
+  // Block 1: 100 docs with value 2.0
+  for (size_t i = 0; i < docs_per_block; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, "2.0");
+  }
+  // Block 2: 50 docs with value 3.0 (partial block)
+  for (size_t i = 0; i < docs_per_block / 2; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, "3.0");
+  }
+
+  NumericRangeTree *rt = getNumericTree(get_spec(ism), numeric_field_name);
+  ASSERT_TRUE(rt->root->range) << "Expected a single leaf node (no splits)";
+  EXPECT_EQ(3u, NumericRange_GetCardinality(rt->root->range));
+
+  // Step 2: Delete all docs in block 2 (doc IDs 201..250), then fork.
+  for (size_t i = 2 * docs_per_block + 1; i < cur_id; i++) {
+    auto rv = RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
+    ASSERT_TRUE(rv) << "Failed to delete doc " << i;
+  }
+
+  FGC_WaitBeforeFork(fgc);
+  FGC_ForkAndWaitBeforeApply(fgc);
+
+  // Step 3: Add a post-fork entry to trigger `ignored_last_block`.
+  // This writes to block 2 (still has capacity), changing its `num_entries`.
+  // When the parent applies, this mismatch causes `ignored_last_block = true`.
+  this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, "4.0");
+
+  // Step 4: Apply and assert.
+  FGC_Apply(fgc);
+
+  ASSERT_TRUE(rt->root->range);
+  // Correct cardinality is 4 (values 1.0, 2.0, 3.0, 4.0).
+  // With the bug, cardinality would be 3 (value 2.0 from block 1 is incorrectly
+  // excluded from `registers_without_last_block`).
+  EXPECT_EQ(4u, NumericRange_GetCardinality(rt->root->range));
+}
