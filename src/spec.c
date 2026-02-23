@@ -3916,7 +3916,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 
       // load document only if required
       if (!r) r = EvalCtx_Create();
-      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
+      QueryError status = QueryError_Default();
+      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p, &status);
 
       if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
         if (dictFind(specs, spec->specName)) {
