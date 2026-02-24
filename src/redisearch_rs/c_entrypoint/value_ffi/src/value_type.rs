@@ -140,7 +140,7 @@ pub unsafe extern "C" fn RSValue_IsNull(value: *const RsValue) -> bool {
     };
 
     // C implementation does a recursive check on reference types.
-    let value = value.fully_dereferenced();
+    let value = value.fully_dereferenced_ref();
 
     matches!(value, RsValue::Null)
 }
