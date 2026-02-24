@@ -1203,9 +1203,10 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
+  bool isSlave = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SLAVE;
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
 
-  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t maxmemory = isSlave ? 0 : RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
   size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
   maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
 
