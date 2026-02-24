@@ -38,6 +38,8 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
     buflen: size_t,
 ) -> *const c_char {
     let value = unsafe { expect_value(value) };
+    let len_ptr = unsafe { len_ptr.as_mut().expect("len_ptr is null") };
+
     let value = value.fully_dereferenced_ref();
 
     let (ptr, len): (*const c_char, size_t) = match value {
@@ -56,9 +58,7 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
         _ => (b"\0".as_ptr() as *const _, 0),
     };
 
-    if let Some(len_ptr) = unsafe { len_ptr.as_mut() } {
-        *len_ptr = len;
-    }
+    *len_ptr = len;
     ptr
 }
 
