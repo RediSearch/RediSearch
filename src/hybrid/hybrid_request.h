@@ -6,15 +6,7 @@
 #include "util/references.h"
 #include "redismodule.h"
 
-// Re-define RS_Atomic macro for use in HybridRequest struct.
-// aggregate.h undefs RS_Atomic at the end, so we need to define it again here.
-#ifdef __cplusplus
-#include <atomic>
-#define RS_Atomic(T) std::atomic<T>
-#else
-#include <stdatomic.h>
-#define RS_Atomic(T) _Atomic(T)
-#endif
+// Note: RS_Atomic macro is defined in aggregate.h and used by RequestSyncCtx
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,17 +40,8 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Timeout signaling flag for coordinator-level timeout handling
-    // Set by timeout callback on main thread, checked by background thread before replying
-    RS_Atomic(bool) timedOut;
-    // Reply ownership state, coordinates reply between main and background thread
-    // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
-    RS_Atomic(uint8_t) replyState;
-    // Flag to indicate whether to check for timeout using clock checks
-    bool skipTimeoutChecks;
-    // Reference count for shared ownership between timeout callback and background thread
-    // Initialized to 1. Free when reaches 0.
-    uint8_t refcount;
+    // Synchronization context for timeout handling (shared with AREQ)
+    RequestSyncCtx syncCtx;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
@@ -66,11 +49,11 @@ bool HybridRequest_TimedOut(HybridRequest *req);
 void HybridRequest_SetTimedOut(HybridRequest *req);
 
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return !req->skipTimeoutChecks;
+  return !req->syncCtx.skipTimeoutChecks;
 }
 
 static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  req->skipTimeoutChecks = skipTimeoutChecks;
+  req->syncCtx.skipTimeoutChecks = skipTimeoutChecks;
   // Propagate to the SearchCtx's SearchTime for timeout functions that access it directly
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;

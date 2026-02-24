@@ -233,9 +233,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->profileClocks.initClock = now;
 
     // Initialize timeout coordination fields
-    atomic_store_explicit(&hybridReq->timedOut, false, memory_order_relaxed);
-    atomic_store_explicit(&hybridReq->replyState, ReplyState_NotReplied, memory_order_relaxed);
-    hybridReq->refcount = 1;
+    RequestSyncCtx_Init(&hybridReq->syncCtx);
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
@@ -245,25 +243,25 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 }
 
 bool HybridRequest_TimedOut(HybridRequest *req) {
-  return atomic_load_explicit(&req->timedOut, memory_order_acquire);
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
 }
 
 void HybridRequest_SetTimedOut(HybridRequest *req) {
-  atomic_store_explicit(&req->timedOut, true, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
 bool HybridRequest_TryClaimReply(HybridRequest *req) {
   uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
       ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
 }
 
 void HybridRequest_MarkReplied(HybridRequest *req) {
-  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
 }
 
 uint8_t HybridRequest_GetReplyState(HybridRequest *req) {
-  return atomic_load_explicit(&req->replyState, memory_order_acquire);
+  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
@@ -351,14 +349,14 @@ static void HybridRequest_Free(HybridRequest *req) {
 }
 
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  __atomic_fetch_add(&req->refcount, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
   return req;
 }
 
 void HybridRequest_DecrRef(HybridRequest *req) {
   // Use ACQ_REL: release ensures our writes are visible before decrement,
   // acquire ensures we see all writes from other threads when refcount reaches 0.
-  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_ACQ_REL)) {
+  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
     HybridRequest_Free(req);
   }
 }

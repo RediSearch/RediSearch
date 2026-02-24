@@ -499,7 +499,7 @@ done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
     // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
+    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->syncCtx.skipTimeoutChecks || IsDebug(req));
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
@@ -703,7 +703,7 @@ done_3:
     _replyWarnings(req, reply, rc);
 
     // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
+    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->syncCtx.skipTimeoutChecks || IsDebug(req));
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
@@ -1166,7 +1166,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
     AREQ_MarkReplied(req);
   } else {
     // Background thread owns reply - wait for it to finish if still in progress
-    while (atomic_load_explicit(&req->replyState, memory_order_acquire) == ReplyState_Replying) {
+    while (atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire) == ReplyState_Replying) {
       // Busy wait until background thread transitions to REPLIED
     }
   }
@@ -1314,7 +1314,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // update timeout for current cursor read
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   // Reset Reply state
-  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_NotReplied, memory_order_release);
 
   if (!num) {
     num = req->cursorConfig.chunkSize;
