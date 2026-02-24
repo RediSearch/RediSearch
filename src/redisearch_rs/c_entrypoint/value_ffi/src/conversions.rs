@@ -18,7 +18,7 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
         RsValue::Number(n) => Some(*n),
         RsValue::String(string) => str_to_float(string.as_bytes()),
         RsValue::RedisString(string) => str_to_float(string.as_bytes()),
-        _ => None,
+        _ => return 0,
     };
 
     if let Some(num) = num {
