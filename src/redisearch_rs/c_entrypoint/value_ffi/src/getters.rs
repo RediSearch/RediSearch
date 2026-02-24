@@ -180,19 +180,17 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
     len_ptr: *mut size_t,
 ) -> *const c_char {
     // Safety: ensured by caller (1.)
-    let mut value = unsafe { expect_value(value) };
+    let value = unsafe { expect_value(value) };
 
-    let (ptr, len) = loop {
-        match value {
-            RsValue::String(str) => {
-                let (ptr, len) = str.as_ptr_len();
-                break (ptr, len as usize);
-            }
-            RsValue::RedisString(str) => break str.as_ptr_len(),
-            RsValue::Ref(ref_val) => value = ref_val.value(),
-            RsValue::Trio(trio) => value = trio.left().value(),
-            _ => return std::ptr::null(),
+    let value = value.fully_dereferenced_ref_and_trio();
+
+    let (ptr, len) = match value {
+        RsValue::String(str) => {
+            let (ptr, len) = str.as_ptr_len();
+            (ptr, len as usize)
         }
+        RsValue::RedisString(str) => str.as_ptr_len(),
+        _ => return std::ptr::null(),
     };
 
     // Safety: ensured by caller (2.)
