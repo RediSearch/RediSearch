@@ -8,8 +8,8 @@ For Rust specific guidelines, see [CONTRIBUTING.md](https://github.com/RediSearc
 
 ## TODOs
 
-- [] Get access to Okta/Jira/Confluence.
-- [] Get access to GitHub repository as a contributor with push access (now goes through Okta).
+- [ ] Get access to Okta/Jira/Confluence.
+- [ ] Get access to GitHub repository as a contributor with push access (now goes through Okta).
 
 ## Useful Links
 
