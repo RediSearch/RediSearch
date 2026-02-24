@@ -191,7 +191,7 @@ const FieldSpec *RLookup_FindFieldInSpecCache(const RLookup *lookup, const char 
 // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
 // has promised to load the entire document.
 static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
-  const FieldSpec *fs = findFieldInSpecCache(lookup, name);
+  const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, name);
   // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
   //        if the field has a different name (alias) than its path.
   if(!fs || (!FieldSpec_IsSortable(fs) && !(lookup->_options & RLOOKUP_OPT_ALL_LOADED))) {
@@ -302,7 +302,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     }
 
     // At this point we know for sure that it is not marked as loaded.
-    const FieldSpec *fs = findFieldInSpecCache(lookup, field_name);
+    const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, field_name);
     if (fs) {
       setKeyByFieldSpec(key, fs);
       if (RLookupKey_GetFlags(key) & RLOOKUP_F_VAL_AVAILABLE && !(flags & RLOOKUP_F_FORCE_LOAD)) {
