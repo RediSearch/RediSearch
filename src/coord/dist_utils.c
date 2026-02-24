@@ -49,9 +49,15 @@ static bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_tot
   return false;
 }
 
+// Original callback that extracts barrier from privateData
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
   ShardResponseBarrier *barrier = (ShardResponseBarrier *)MRIteratorCallback_GetPrivateData(ctx);
+  netCursorCallbackWithBarrier(ctx, rep, barrier);
+}
+
+// Core implementation that takes barrier explicitly
+void netCursorCallbackWithBarrier(MRIteratorCallbackCtx *ctx, MRReply *rep, ShardResponseBarrier *barrier) {
+  MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
