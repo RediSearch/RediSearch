@@ -103,7 +103,7 @@ uint32_t RSValue_ArrayLen(const struct RsValue *value);
 struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type undefined.
+ * Creates and returns a new **owned** [`RsValue::Undefined`].
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
  * ownership taking `RSValue_` functions, directly or indirectly.
@@ -111,7 +111,7 @@ struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 struct RsValue *RSValue_NewUndefined(void);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type null.
+ * Creates and returns a new **owned** [`RsValue::Null`].
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
  * ownership taking `RSValue_` functions, directly or indirectly.
@@ -119,7 +119,7 @@ struct RsValue *RSValue_NewUndefined(void);
 struct RsValue *RSValue_NewNull(void);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type number
+ * Creates and returns a new **owned** [`RsValue::Number`]
  * containing the given numeric value.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -128,7 +128,7 @@ struct RsValue *RSValue_NewNull(void);
 struct RsValue *RSValue_NewNumber(double value);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
+ * Creates and returns a new **owned** [`RsValue::Trio`] from three [`RsValue`]s.
  *
  * Takes ownership of all three arguments.
  *
@@ -145,7 +145,7 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *right);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -163,11 +163,11 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
 struct RsValue *RSValue_NewString(char *str, uint32_t len);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` methods, directly or indirectly.
+ * ownership taking `RSValue_` functions, directly or indirectly.
  *
  * # Safety
  *
@@ -181,7 +181,7 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
 struct RsValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * borrowing the given string buffer without taking ownership.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -199,7 +199,7 @@ struct RsValue *RSValue_NewStringWithoutNulTerminator(char *str, uint32_t len);
 struct RsValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given [`RedisModuleString`].
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -216,7 +216,7 @@ struct RsValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * copying `len` bytes from the given string buffer into a new Rust-allocated [`Box<CStr>`].
  *
  * The caller retains ownership of `str`.
@@ -243,7 +243,7 @@ struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
  *
  * # Panic
  *
- * Panics if the value is not a number type.
+ * Panics if the value is not an [`RsValue::Number`].
  */
 double RSValue_Number_Get(const struct RsValue *value);
 
@@ -256,7 +256,7 @@ double RSValue_Number_Get(const struct RsValue *value);
  *
  * # Panic
  *
- * Panics if the value is not a trio type.
+ * Panics if the value is not an [`RsValue::Trio`].
  */
 const struct RsValue *RSValue_Trio_GetLeft(const struct RsValue *value);
 
@@ -269,7 +269,7 @@ const struct RsValue *RSValue_Trio_GetLeft(const struct RsValue *value);
  *
  * # Panic
  *
- * Panics if the value is not a trio type.
+ * Panics if the value is not an [`RsValue::Trio`].
  */
 const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
 
@@ -282,7 +282,7 @@ const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
  *
  * # Panic
  *
- * Panics if the value is not a trio type.
+ * Panics if the value is not an [`RsValue::Trio`].
  */
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
@@ -301,14 +301,14 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  *
  * # Panic
  *
- * Panics if the value is not a `String` type.
- * Panics (in debug mode) if the string data might not be nul-terminated.
+ * - Panics if the value is not an [`RsValue::String`].
+ * - Panics (in debug mode) if the string data might not be nul-terminated.
  */
 const char *RSValue_String_GetNullTerminated(const struct RsValue *value, uint32_t *lenp);
 
 /**
  * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
- * length to `lenp`.
+ * length to `lenp`, if `lenp` is a non-null pointer.
  *
  * The returned pointer borrows from the [`RsValue`] and must not outlive it.
  *
@@ -321,7 +321,7 @@ const char *RSValue_String_GetNullTerminated(const struct RsValue *value, uint32
  *
  * # Panic
  *
- * Panics if the value is not a `String` type.
+ * Panics if the value is not an [`RsValue::String`].
  */
 const char *RSValue_String_GetSlice(const struct RsValue *value, uint32_t *lenp);
 
@@ -336,7 +336,7 @@ const char *RSValue_String_GetSlice(const struct RsValue *value, uint32_t *lenp)
  *
  * # Panic
  *
- * Panics if the value is not a `RedisString` type.
+ * Panics if the value is not an [`RsValue::RedisString`].
  */
 const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
 

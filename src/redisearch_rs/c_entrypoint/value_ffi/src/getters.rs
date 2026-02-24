@@ -21,7 +21,7 @@ use value::RsValue;
 ///
 /// # Panic
 ///
-/// Panics if the value is not a number type.
+/// Panics if the value is not an [`RsValue::Number`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
     // Safety: ensured by caller (1.)
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
 ///
 /// # Panic
 ///
-/// Panics if the value is not a trio type.
+/// Panics if the value is not an [`RsValue::Trio`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RsValue) -> *const RsValue {
     // Safety: ensured by caller (1.)
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RsValue) -> *const R
 ///
 /// # Panic
 ///
-/// Panics if the value is not a trio type.
+/// Panics if the value is not an [`RsValue::Trio`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RsValue) -> *const RsValue {
     // Safety: ensured by caller (1.)
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RsValue) -> *const
 ///
 /// # Panic
 ///
-/// Panics if the value is not a trio type.
+/// Panics if the value is not an [`RsValue::Trio`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const RsValue {
     // Safety: ensured by caller (1.)
@@ -111,8 +111,8 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
 ///
 /// # Panic
 ///
-/// Panics if the value is not a `String` type.
-/// Panics (in debug mode) if the string data might not be nul-terminated.
+/// - Panics if the value is not an [`RsValue::String`].
+/// - Panics (in debug mode) if the string data might not be nul-terminated.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_String_GetNullTerminated(
     value: *const RsValue,
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn RSValue_String_GetNullTerminated(
 }
 
 /// Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
-/// length to `lenp`.
+/// length to `lenp`, if `lenp` is a non-null pointer.
 ///
 /// The returned pointer borrows from the [`RsValue`] and must not outlive it.
 ///
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn RSValue_String_GetNullTerminated(
 ///
 /// # Panic
 ///
-/// Panics if the value is not a `String` type.
+/// Panics if the value is not an [`RsValue::String`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_String_GetSlice(
     value: *const RsValue,
@@ -182,7 +182,7 @@ pub unsafe extern "C" fn RSValue_String_GetSlice(
 ///
 /// # Panic
 ///
-/// Panics if the value is not a `RedisString` type.
+/// Panics if the value is not an [`RsValue::RedisString`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_RedisString_Get(
     value: *const RsValue,
