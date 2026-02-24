@@ -1478,8 +1478,8 @@ checksum = "bee689443a2bd0a16ab0348b52ee43e3b2d1b1f931c8aa5c9f8de4c86fbe8c40"
 dependencies = [
  "bitflags 2.10.0",
  "num-traits 0.2.19",
- "rand",
- "rand_chacha",
+ "rand 0.9.2",
+ "rand_chacha 0.9.0",
  "rand_xorshift",
  "regex-syntax",
  "unarray",
@@ -1503,7 +1503,7 @@ dependencies = [
  "criterion",
  "proptest",
  "proptest-derive",
- "rand",
+ "rand 0.9.2",
  "workspace_hack",
 ]
 
@@ -1569,12 +1569,33 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "rand"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+dependencies = [
+ "libc",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6db2770f06117d490610c7488547d543617b21bfa07796d7a12f6f1bd53850d1"
 dependencies = [
- "rand_chacha",
+ "rand_chacha 0.9.0",
  "rand_core 0.9.5",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -1592,6 +1613,9 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom 0.2.17",
+]
 
 [[package]]
 name = "rand_core"
@@ -1869,6 +1893,8 @@ dependencies = [
  "redisearch_rs",
  "rqe_iterators",
  "rqe_iterators_test_utils",
+ "rstest",
+ "rstest_reuse",
  "thiserror",
  "types_ffi",
  "value",
@@ -1891,7 +1917,7 @@ dependencies = [
  "iterators_ffi",
  "itertools 0.14.0",
  "query_term",
- "rand",
+ "rand 0.9.2",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
@@ -1948,6 +1974,17 @@ dependencies = [
  "rustc_version",
  "syn 2.0.114",
  "unicode-ident",
+]
+
+[[package]]
+name = "rstest_reuse"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3a8fb4672e840a587a66fc577a5491375df51ddb88f2a2c2a792598c326fe14"
+dependencies = [
+ "quote 1.0.44",
+ "rand 0.8.5",
+ "syn 2.0.114",
 ]
 
 [[package]]
@@ -2969,6 +3006,7 @@ dependencies = [
  "clap",
  "clap_builder",
  "either",
+ "getrandom 0.2.17",
  "getrandom 0.3.4",
  "insta",
  "itertools 0.13.0",
@@ -2980,8 +3018,9 @@ dependencies = [
  "ppv-lite86",
  "proc-macro2",
  "quote 1.0.44",
- "rand",
- "rand_chacha",
+ "rand 0.9.2",
+ "rand_chacha 0.9.0",
+ "rand_core 0.6.4",
  "redis-module",
  "regex",
  "regex-automata",
