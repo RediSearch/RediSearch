@@ -639,6 +639,13 @@ RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 3. The caller must treat the returned `current` pointer as pinned. Specifically
+ *    a. Not move (memcpy/memmove) out of the pointer.
+ *    b. The pointed-to value must remain at its original address in memory and never be relocated.
+ *
+ * Although the internal `Pin` is unwrapped via `into_inner_unchecked`,
+ * the pin invariant is still upheld: both this function and the caller
+ * guarantee that the value behind the pointer is never moved.///
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
