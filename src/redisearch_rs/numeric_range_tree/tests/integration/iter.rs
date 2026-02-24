@@ -12,7 +12,7 @@
 use numeric_range_tree::{NumericRangeTree, ReversePreOrderDfsIterator};
 use rstest::rstest;
 
-use super::helpers::{SPLIT_TRIGGER, build_tree};
+use numeric_range_tree::test_utils::{SPLIT_TRIGGER, build_tree};
 
 #[test]
 fn test_iterator_single_node() {

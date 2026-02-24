@@ -1278,6 +1278,7 @@ name = "numeric_range_tree"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "criterion",
  "ffi",
  "generational_slab",
  "hyperloglog",
