@@ -221,7 +221,7 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
-                        ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1800, 'Estimated number of matches', 10000]],
+                        ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 82, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 10],
                     ['Type', 'Loader', 'Results processed', 10],
@@ -265,7 +265,7 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 1800, 'Estimated number of matches', 10000]],
+                        ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 82, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 10],
                     ['Type', 'Loader', 'Results processed', 10],
@@ -305,7 +305,7 @@ def testOptimizer(env):
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
-                        ['Type', 'WILDCARD', 'Number of reading operations', 3400]],
+                        ['Type', 'WILDCARD', 'Number of reading operations', 70]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Results processed', 10],
                     ['Type', 'Loader', 'Results processed', 10],

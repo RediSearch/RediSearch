@@ -32,6 +32,12 @@ extern "C" {
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt, FieldType forType,
                                         IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
+// Like NewNumericFilterIterator, but also outputs the overall min/max values of the matching
+// numeric ranges. outMin/outMax may be NULL if the caller doesn't need the bounds.
+QueryIterator *NewNumericFilterIteratorWithBounds(const RedisSearchCtx *ctx, const NumericFilter *flt, FieldType forType,
+                                                  IteratorsConfig *config, const FieldFilterContext* filterCtx,
+                                                  double *outMin, double *outMax);
+
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec* spec, FieldSpec* fs, bool create_if_missing);
 
 // Passes RSGlobalConfig.numericTreeMaxDepthRange automatically

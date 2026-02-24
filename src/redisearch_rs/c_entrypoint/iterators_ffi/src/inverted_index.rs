@@ -645,6 +645,10 @@ pub struct NumericRangeIteratorsResult {
     pub iterators: *mut *mut ffi::QueryIterator,
     /// Number of iterators in the array.
     pub len: usize,
+    /// Minimum value across all returned ranges. `INFINITY` when `len == 0`.
+    pub min_val: f64,
+    /// Maximum value across all returned ranges. `NEG_INFINITY` when `len == 0`.
+    pub max_val: f64,
 }
 
 /// Creates numeric range iterators for all ranges in the tree matching the filter.
@@ -688,10 +692,24 @@ pub unsafe extern "C" fn CreateNumericRangeIterators(
 
     let ranges: Vec<&NumericRange> = tree.find(filter);
 
+    // Compute overall min/max across all matching ranges.
+    // When there are no ranges, the fold defaults naturally produce
+    // -INFINITY/+INFINITY (no early-exit will trigger on an empty set).
+    let overall_min = ranges
+        .iter()
+        .map(|r| r.min_val())
+        .fold(f64::INFINITY, f64::min);
+    let overall_max = ranges
+        .iter()
+        .map(|r| r.max_val())
+        .fold(f64::NEG_INFINITY, f64::max);
+
     if ranges.is_empty() {
         return NumericRangeIteratorsResult {
             iterators: std::ptr::null_mut(),
             len: 0,
+            min_val: overall_min,
+            max_val: overall_max,
         };
     }
 
@@ -756,5 +774,7 @@ pub unsafe extern "C" fn CreateNumericRangeIterators(
     NumericRangeIteratorsResult {
         iterators,
         len: ranges.len(),
+        min_val: overall_min,
+        max_val: overall_max,
     }
 }

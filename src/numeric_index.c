@@ -26,12 +26,17 @@
 #include "util/misc.h"
 
 /* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
- * the filter */
+ * the filter. If outMin/outMax are non-NULL, they receive the overall min/max values across all
+ * matching ranges. */
 // This function should move over to Rust once the union iterator is ported.
-QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
-                                     const NumericFilter *f, IteratorsConfig *config,
-                                     const FieldFilterContext *filterCtx) {
+static QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
+                                            const NumericFilter *f, IteratorsConfig *config,
+                                            const FieldFilterContext *filterCtx,
+                                            double *outMin, double *outMax) {
   NumericRangeIteratorsResult result = CreateNumericRangeIterators(t, sctx, f, filterCtx);
+
+  if (outMin) *outMin = result.min_val;
+  if (outMax) *outMax = result.max_val;
 
   if (result.len == 0) {
     return NULL;
@@ -64,6 +69,13 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool cre
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                         FieldType forType, IteratorsConfig *config,
                                         const FieldFilterContext *filterCtx) {
+  return NewNumericFilterIteratorWithBounds(ctx, flt, forType, config, filterCtx, NULL, NULL);
+}
+
+QueryIterator *NewNumericFilterIteratorWithBounds(const RedisSearchCtx *ctx, const NumericFilter *flt,
+                                                  FieldType forType, IteratorsConfig *config,
+                                                  const FieldFilterContext *filterCtx,
+                                                  double *outMin, double *outMax) {
   const FieldSpec *fs = flt->fieldSpec;
 
   NumericRangeTree *t = openNumericOrGeoIndex(ctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
@@ -71,5 +83,5 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const Numeric
     return NULL;
   }
 
-  return createNumericIterator(ctx, t, flt, config, filterCtx);
+  return createNumericIterator(ctx, t, flt, config, filterCtx, outMin, outMax);
 }

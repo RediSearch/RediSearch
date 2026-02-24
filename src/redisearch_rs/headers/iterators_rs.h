@@ -37,6 +37,14 @@ typedef struct NumericRangeIteratorsResult {
    * Number of iterators in the array.
    */
   uintptr_t len;
+  /**
+   * Minimum value across all returned ranges. `INFINITY` when `len == 0`.
+   */
+  double min_val;
+  /**
+   * Maximum value across all returned ranges. `NEG_INFINITY` when `len == 0`.
+   */
+  double max_val;
 } NumericRangeIteratorsResult;
 
 #ifdef __cplusplus

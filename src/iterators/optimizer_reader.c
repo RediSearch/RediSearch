@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "iterators/optimizer_reader.h"
+#include "numeric_index.h"
 #include "iterators_rs.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
@@ -80,8 +81,9 @@ static void OPT_Rewind(QueryIterator *self) {
   }
 
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  // create new numeric filter
-  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
+  // create new numeric filter and refresh range bounds
+  optIt->numericIter = NewNumericFilterIteratorWithBounds(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx,
+                                                          &optIt->numericRangeMin, &optIt->numericRangeMax);
 
   optIt->heapOldSize = heap_count(heap);
   optIt->numIterations++;
@@ -186,6 +188,30 @@ IteratorStatus OPT_Read(QueryIterator *self) {
             it->pooledResult = tempRes;
           }
           DMD_Return(it->pooledResult->dmd);
+
+          // Early exit when no remaining doc in the numeric range can
+          // displace the worst item in the heap.
+          //
+          // The heap is a max-heap by cmpAsc (min-heap by cmpDesc), so
+          // heap_peek returns the "worst" selected item — the one with
+          // the highest numeric value (ascending) or lowest (descending).
+          //
+          // For ascending sort: every remaining doc has value >= rangeMin.
+          // If worstVal < rangeMin, no doc can have a value <= worstVal,
+          // so none can displace the peek.
+          //
+          // We use strict comparisons because after OPT_Rewind the heap
+          // retains items with high docIds from prior iterations while
+          // the child iterator restarts from low docIds.  Equal-value
+          // docs with smaller docIds can still win the tiebreaker.
+          //
+          // Symmetrically for descending: worstVal > rangeMax means no
+          // remaining doc can have a low-enough value to displace it.
+          double worstVal = IndexResult_NumValue(heap_peek(it->heap));
+          if (it->optim->asc ? (worstVal < it->numericRangeMin)
+                              : (worstVal > it->numericRangeMax)) {
+            break;
+          }
         }
       }
     }
@@ -239,7 +265,8 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   oi->numericFieldIndex = field->index;
-  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
+  oi->numericIter = NewNumericFilterIteratorWithBounds(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx,
+                                                       &oi->numericRangeMin, &oi->numericRangeMax);
   if (!oi->numericIter) {
     OptimizerIterator_Free(&oi->base);
     return NewEmptyIterator();

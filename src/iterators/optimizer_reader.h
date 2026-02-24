@@ -50,6 +50,9 @@ typedef struct {
 
   IteratorsConfig *config;       // Copy of current RSglobalconfig.IteratorsConfig
   t_fieldIndex numericFieldIndex; // field index for numeric filter
+
+  double numericRangeMin;         // min value of current numeric range(s)
+  double numericRangeMax;         // max value of current numeric range(s)
 } OptimizerIterator;
 
 #ifdef __cplusplus
