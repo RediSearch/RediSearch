@@ -493,7 +493,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 /**
  * Search an index field by its name in the lookup table spec cache.
  */
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
+const FieldSpec *RLookup_FindFieldInSpecCache(const RLookup *lookup, const char *name);
 
 /**
  * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
