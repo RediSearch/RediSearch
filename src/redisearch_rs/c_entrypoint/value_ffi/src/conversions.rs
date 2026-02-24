@@ -57,8 +57,7 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
             }
         }
         RsValue::String(string) => {
-            // The C code might assume a nul-terminator which `_checked` ensures will be the case.
-            let (ptr, len) = string.as_ptr_len_checked();
+            let (ptr, len) = string.as_ptr_len_for_nul_terminated();
             (ptr, len as usize)
         }
         RsValue::RedisString(string) => string.as_ptr_len(),
