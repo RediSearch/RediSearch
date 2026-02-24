@@ -234,6 +234,11 @@
                 "token": "GEO"
               },
               {
+                "name": "geoshape",
+                "type": "pure-token",
+                "token": "GEOSHAPE"
+              },
+              {
                 "name": "vector",
                 "type": "pure-token",
                 "token": "VECTOR"

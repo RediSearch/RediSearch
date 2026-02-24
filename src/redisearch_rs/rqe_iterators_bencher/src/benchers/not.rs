@@ -26,8 +26,11 @@ impl Bencher {
     const WEIGHT: f64 = 1.0;
     const MAX_DOC_ID: u64 = 1_000_000;
 
-    /// Duration chosen to be big enough such that it will not be reached.
-    const NOT_ITERATOR_LARGE_TIMEOUT: Duration = Duration::from_secs(300);
+    /// Duration is irrelevant since we skip timeout checks in benchmarks.
+    const NOT_ITERATOR_TIMEOUT: Duration = Duration::ZERO;
+
+    /// Skip timeout checks in benchmarks to avoid any overhead.
+    const SKIP_TIMEOUT_CHECKS: bool = true;
 
     fn benchmark_group<'a>(
         &self,
@@ -42,7 +45,6 @@ impl Bencher {
 
     pub fn bench(&self, c: &mut Criterion) {
         self.read_empty_child(c);
-        self.read_sparse_child(c);
         self.read_dense_child(c);
         self.skip_to_empty_child(c);
         self.skip_to_sparse_child(c);
@@ -61,7 +63,8 @@ impl Bencher {
                         Empty,
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -92,52 +95,6 @@ impl Bencher {
         group.finish();
     }
 
-    /// Benchmark NOT with sparse child (most docs returned)
-    fn read_sparse_child(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Not - Read Sparse Child");
-
-        // Rust implementation
-        group.bench_function("Rust", |b| {
-            b.iter_batched_ref(
-                || {
-                    // Child has 1% of docs (every 100th doc)
-                    let data: Vec<_> = (1..Self::MAX_DOC_ID).step_by(100).collect();
-                    Not::new(
-                        IdListSorted::new(data),
-                        Self::MAX_DOC_ID,
-                        1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
-                    )
-                },
-                |it| {
-                    while let Ok(Some(current)) = it.read() {
-                        black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // C implementation (non-optimized)
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..Self::MAX_DOC_ID).step_by(100).collect();
-                    let child = QueryIterator::new_id_list(data);
-                    QueryIterator::new_not_non_optimized(child, Self::MAX_DOC_ID, Self::WEIGHT)
-                },
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.finish();
-    }
-
     /// Benchmark NOT with dense child (few docs returned)
     fn read_dense_child(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Not - Read Dense Child");
@@ -152,7 +109,8 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -197,7 +155,8 @@ impl Bencher {
                         Empty,
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -242,7 +201,8 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {
@@ -288,7 +248,8 @@ impl Bencher {
                         IdListSorted::new(data),
                         Self::MAX_DOC_ID,
                         1.0,
-                        Self::NOT_ITERATOR_LARGE_TIMEOUT,
+                        Self::NOT_ITERATOR_TIMEOUT,
+                        Self::SKIP_TIMEOUT_CHECKS,
                     )
                 },
                 |it| {

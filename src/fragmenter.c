@@ -492,9 +492,9 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
 
   RSQueryTerm *term = iter->curMatchRec;
 
-  iter->tmpTerm.score = term->idf;
-  iter->tmpTerm.termId = term->id;
-  iter->tmpTerm.len = term->len;
+  iter->tmpTerm.score = QueryTerm_GetIDF(term);
+  iter->tmpTerm.termId = QueryTerm_GetID(term);
+  iter->tmpTerm.len = QueryTerm_GetLen(term);
   iter->tmpTerm.tokPos = iter->curTokPos;
   iter->tmpTerm.bytePos = iter->curByteOffset;
   *termInfo = &iter->tmpTerm;

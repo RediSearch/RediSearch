@@ -40,7 +40,7 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
     RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
     if (term != NULL) {
       printProfileType("TAG");
-      REPLY_KVSTR_SAFE("Term", term->str);
+      REPLY_KVSTR_SAFE("Term", QueryTerm_GetStr(term));
     }
   } else if (readerFlags & Index_StoreNumeric) {
     NumericInvIndIterator *numIt = (NumericInvIndIterator *)it;
@@ -61,7 +61,7 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
   } else {
     printProfileType("TEXT");
     RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    REPLY_KVSTR_SAFE("Term", term->str);
+    REPLY_KVSTR_SAFE("Term", QueryTerm_GetStr(term));
   }
 
   // print counter and clock
@@ -256,7 +256,7 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
     }
     if (timedout) {
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     }
     if (reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);

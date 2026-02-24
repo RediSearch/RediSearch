@@ -1,0 +1,41 @@
+[package]
+name = "numeric_range_tree_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+test = false
+bench = false
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
+
+[dependencies]
+numeric_range_tree.workspace = true
+inverted_index.workspace = true
+inverted_index_ffi = { path = "../inverted_index_ffi" }
+generational_slab.workspace = true
+hyperloglog.workspace = true
+ffi.workspace = true
+tracing.workspace = true
+workspace_hack.workspace = true
+
+[target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
+workspace = true
+default-features = false
+features = ["min-redis-compatibility-version-7-2"]
+
+[target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
+workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+
+[target.'cfg(miri)'.dependencies]
+redis_mock.workspace = true

@@ -40,7 +40,7 @@ impl<'a> ReversePreOrderDfsIterator<'a> {
     }
 
     /// Create a new iterator starting from the given node index in the tree.
-    pub fn from_node(tree: &'a NumericRangeTree, node_idx: NodeIndex) -> Self {
+    fn from_node(tree: &'a NumericRangeTree, node_idx: NodeIndex) -> Self {
         let mut stack = Vec::with_capacity(tree.node(node_idx).max_depth() as usize + 1);
         stack.push(node_idx);
         Self { tree, stack }
@@ -70,5 +70,46 @@ impl<'a> IntoIterator for &'a NumericRangeTree {
 
     fn into_iter(self) -> Self::IntoIter {
         ReversePreOrderDfsIterator::new(self)
+    }
+}
+
+/// Same iteration logic as [`ReversePreOrderDfsIterator`], but it yields indices alongside each node.
+#[derive(Debug)]
+pub struct IndexedReversePreOrderDfsIterator<'a> {
+    /// Reference to the tree (used to resolve node indices).
+    tree: &'a NumericRangeTree,
+    /// Stack of node indices to visit. Nodes are pushed right-first so left is
+    /// processed first (LIFO order).
+    stack: Vec<NodeIndex>,
+}
+
+impl<'a> IndexedReversePreOrderDfsIterator<'a> {
+    /// Create a new iterator starting from the root of the given tree.
+    pub fn new(tree: &'a NumericRangeTree) -> Self {
+        Self::from_node(tree, tree.root_index())
+    }
+
+    /// Create a new iterator starting from the given node index in the tree.
+    fn from_node(tree: &'a NumericRangeTree, node_idx: NodeIndex) -> Self {
+        let mut stack = Vec::with_capacity(tree.node(node_idx).max_depth() as usize + 1);
+        stack.push(node_idx);
+        Self { tree, stack }
+    }
+}
+
+impl<'a> Iterator for IndexedReversePreOrderDfsIterator<'a> {
+    type Item = (NodeIndex, &'a NumericRangeNode);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node_idx = self.stack.pop()?;
+        let node = self.tree.node(node_idx);
+
+        if let NumericRangeNode::Internal(internal) = node {
+            // Push children onto stack (left first so right is processed first)
+            self.stack.push(internal.left_index());
+            self.stack.push(internal.right_index());
+        }
+
+        Some((node_idx, node))
     }
 }

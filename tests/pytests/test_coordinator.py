@@ -113,8 +113,8 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('No such index idx')
-    env.expect('FT.SEARCH', 'idx', '*').error().contains('No such index idx')
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('SEARCH_INDEX_NOT_FOUND Index not found')
+    env.expect('FT.SEARCH', 'idx', '*').error().contains('SEARCH_INDEX_NOT_FOUND Index not found')
 
     # Bad query
     # create the index
@@ -126,6 +126,53 @@ def test_error_propagation_from_shards(env):
     #   1. The language requested in the command.
     #   2. The scorer requested in the command.
     #   3. Parameters evaluation
+
+@skip(cluster=False, min_shards=2)
+def test_index_missing_on_one_shard(env):
+    """Tests that we get an error if the index is missing on one shard.
+    """
+
+    first_conn = env.getConnection(0)
+
+    # Create an index on all shards
+    index_name = 'idx'
+    env.expect(
+        'FT.CREATE', index_name, 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT',
+        'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+        'DISTANCE_METRIC', 'L2').ok()
+
+    # Drop the index on only one shard (without recreating it)
+    first_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    first_conn.execute_command('_FT.DROPINDEX', index_name)
+
+    error_msg = f'SEARCH_INDEX_NOT_FOUND Index not found: {index_name}'
+
+    # Query via the shard connection
+    try:
+        first_conn.execute_command('_FT.INFO', index_name)
+        env.assertTrue(False) # Should not reach this point
+    except Exception as e:
+        env.assertContains(error_msg, str(e))
+
+    # Query via the cluster connection
+    env.expect('FT.SEARCH', index_name, '*').error().contains(error_msg)
+    env.expect('FT.AGGREGATE', index_name, '*').error().contains(error_msg)
+    env.expect('FT.HYBRID', index_name, 'SEARCH', '*',
+               'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', 'aaaabbbb')\
+                .error().contains(error_msg)
+    env.expect('FT.SYNUPDATE', index_name, '1', 'a', 'b')\
+                .error().contains(error_msg)
+    env.expect('FT.ALTER', index_name, 'SCHEMA', 'ADD', 'n2', 'NUMERIC')\
+                .error().contains(error_msg)
+    # FT.TAGVALS: query the shard directly (not via coordinator) to ensure we hit
+    # the shard where the index is missing, avoiding non-deterministic fanout behavior.
+    try:
+        first_conn.execute_command('_FT.TAGVALS', index_name, 'n')
+        env.assertTrue(False, message="TAGVALS should have failed with index not found")
+    except Exception as e:
+        env.assertContains(error_msg, str(e))
+    env.expect('FT.MGET', index_name, 'doc1').error().contains(error_msg)
+    env.expect('FT.DROP', index_name).error().contains(error_msg)
 
 @skip(cluster=False)
 def test_timeout():
@@ -150,18 +197,18 @@ def test_timeout():
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '2', '@t1', '@__key', 'APPLY',
         '@t1 ^ @t1', 'AS', 't1exp', 'groupby', '2', '@t1', '@t1exp', 'REDUCE',
         'tolist', '1', '@__key', 'AS', 'keys', 'timeout', '1'
-    ).error().contains('Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
     # Client cursor mid execution
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', n_docs,
         'timeout', '1'
-    ).error().contains('Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
     # FT.SEARCH
     env.expect(
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', n_docs, 'timeout', '1'
-    ).error().contains('Timeout limit was reached')
+    ).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
 @skip(cluster=False, min_shards=2)
 def test_mod_6287(env):

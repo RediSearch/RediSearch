@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#define RETURN_PARSE_ERROR(rc)                                    \
+#define RETURN_PARSE_ERROR(rc)                                               \
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, AC_Strerror(rc)); \
   return REDISMODULE_ERR;
 

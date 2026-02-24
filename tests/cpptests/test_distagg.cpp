@@ -82,7 +82,7 @@ static void testAverage() {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 
 /**
@@ -128,7 +128,7 @@ static void testCountDistinct() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
@@ -166,7 +166,7 @@ static void testSplit() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 
 int main(int, char **) {

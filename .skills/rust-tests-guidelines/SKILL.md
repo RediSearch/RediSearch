@@ -1,6 +1,6 @@
 ---
 name: rust-tests-guidelines
-description: Guidelines for writing Rust tests.
+description: Guidelines for writing Rust tests. Use this when you want to write Rust tests.
 ---
 
 # Guidelines for Writing Rust Tests
@@ -21,7 +21,7 @@ Guidelines for writing new tests for Rust code.
 ## Code organization
 
 1. Put tests under the `tests` directory of the relevant crate if they don't rely on private APIs.
-2. The `tests` directory should be organized as a crate, with a `main.rs` file and all tests in modules. 
+2. The `tests` directory should be organized as a crate, with a `main.rs` file and all tests in modules.
    Refer to the `trie_rs/tests` directory as an example.
 3. If the test *must* rely on private APIs, co-locate them with the code they test, using a `#[cfg(test)]` module.
 

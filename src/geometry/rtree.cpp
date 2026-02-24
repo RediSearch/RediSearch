@@ -307,7 +307,9 @@ auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filt
     const auto results =
         std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>);
     const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
-    std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, results, allocated_);
+    // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks when skipTimeoutChecks is set
+    const uint32_t timeoutCounter = (sctx && sctx->time.skipTimeoutChecks) ? REDISEARCH_UNINITIALIZED : 0;
+    std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, results, allocated_, timeoutCounter);
     return qi->base();
   } catch (const std::exception& e) {
     if (err_msg) {

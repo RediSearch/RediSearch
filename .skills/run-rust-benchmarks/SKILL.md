@@ -1,6 +1,6 @@
 ---
 name: run-rust-benchmarks
-description: Run Rust benchmarks and compare performance with the C implementation
+description: Run Rust benchmarks and compare performance with the C implementation. Use this when you work on migrating C code to Rust and want to ensure performance is not regressed.
 ---
 
 # Rust Benchmarks Skill

@@ -18,6 +18,7 @@
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
 pub use fnv_ffi as fnv;
+pub use idf_ffi as idf;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
 pub use module_init_ffi as tracing_redismodule;
