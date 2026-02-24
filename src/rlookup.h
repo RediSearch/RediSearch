@@ -373,7 +373,7 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
  * @param row the row data which contains the value
  * @return the value if found, NULL otherwise.
  */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+static inline RSValue *RLookupRow_Get(const RLookupKey *key, const RLookupRow *row) {
 
   RSValue *ret = NULL;
   if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
