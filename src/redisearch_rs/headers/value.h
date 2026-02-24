@@ -303,7 +303,7 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  * Panics if the value is not a `String` type.
  * Panics (in debug mode) if the string data might not be nul-terminated.
  */
-const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
+const char *RSValue_String_GetNullTerminated(const struct RsValue *value, uint32_t *lenp);
 
 /**
  * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
@@ -322,7 +322,7 @@ const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
  *
  * Panics if the value is not a `String` type.
  */
-const char *RSValue_String_GetTrusted(const struct RsValue *value, uint32_t *lenp);
+const char *RSValue_String_GetSlice(const struct RsValue *value, uint32_t *lenp);
 
 /**
  * Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
@@ -343,7 +343,7 @@ const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
  * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
  * length to `len_ptr`.
  *
- * Unlike [`RSValue_String_Get`], this function handles all string variants (including
+ * Unlike [`RSValue_String_GetNullTerminated`], this function handles all string variants (including
  * `RedisString`) and automatically dereferences `Ref` values and follows through the left
  * element of `Trio` values. Returns null for non-string variants.
  *
