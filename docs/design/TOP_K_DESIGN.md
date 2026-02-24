@@ -30,19 +30,26 @@
 
 ## TL;DR
 
-We're porting two C iterators (`HybridIterator` and `OptimizerIterator`) to Rust. After analysis, we discovered they share the same fundamental algorithm with three execution modes:
+We're porting two C iterators (`HybridIterator` and `OptimizerIterator`) to Rust. After analysis, we discovered they share the same collection/yield skeleton, with source-specific strategy switching:
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
 | **Unfiltered** | Iterate source directly, collect top-k | Pure KNN / Pure SORTBY |
 | **Batches** | Get batch from source → intersect with child filter | Hybrid vector search / Filtered SORTBY |
-| **Adhoc-BF** | Iterate child filter → lookup score per doc | Small filter selectivity |
+| **Adhoc-BF** | Iterate child filter → lookup score per doc | Vector source only (small filter selectivity) |
 
 **Proposed design:** A `ScoreSource` trait that abstracts the score provider, and a single generic `TopKIterator<S: ScoreSource>` that implements the shared collection/intersection/yield logic.
 
 ```rust
+pub trait ScoreBatch {
+    fn next(&mut self) -> Option<(t_docId, f64)>;
+    fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
+}
+
 pub trait ScoreSource<'index> {
-    fn next_batch(&mut self) -> Result<Option<ScoreBatch>, RQEIteratorError>;
+    type Batch: ScoreBatch;
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
+    // Optional in practice: sources that never switch to adhoc can return None.
     fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64>;
     fn num_estimated(&self) -> usize;
     fn rewind(&mut self);  // Called by TopK when CollectionStrategy::Rewind is returned
@@ -52,13 +59,18 @@ pub trait ScoreSource<'index> {
 
 pub enum CollectionStrategy {
     Continue,        // Keep iterating current batch sequence
-    SwitchToAdhoc,   // Rewind child, switch to adhoc brute-force mode
+    SwitchToAdhoc,   // Rewind child, switch to adhoc brute-force mode (Vector in v1)
     SwitchToBatches, // Source rewinds itself, TopK rewinds child, restart batches
     Stop,            // Collection complete
 }
 ```
 
 This keeps the shared logic in one place while allowing each source (Vector/Numeric) to handle its domain-specific details.
+
+**Delivery strategy:** We will integrate in stages to reduce risk:
+1. Port vector and numeric behavior with clear source-specific semantics.
+2. Keep shared Top-K collection/intersection/yield logic in one Rust component.
+3. Defer deeper specialization (const generics, result-builder split) until after parity/perf validation.
 
 ---
 
@@ -120,6 +132,7 @@ Optimizes `SORTBY numeric_field` queries with optional filtering.
 - Uses numeric range iterator as source
 - Configurable sort order (ASC/DESC)
 - Has retry logic with "success ratio" heuristics
+- No adhoc score-lookup mode in current implementation (retry is range expansion + rewind)
 
 **Known issues:**
 - The current implementation uses a hacky union iterator
@@ -132,6 +145,11 @@ Optimizes `SORTBY numeric_field` queries with optional filtering.
 
 The optimizer should work with **sorted numeric ranges** where each "batch" is a subset of ranges ordered by numeric value. The current union-based hack should be replaced with proper range-based iteration.
 
+Behavioral expectation for the Rust port:
+- Query semantics should remain the same (same matching and top-k ordering rules for ASC/DESC).
+- Internal control flow changes (clean range iteration + explicit retries) should not be externally visible, except for bug fixes.
+- Known bug fixes are expected outcomes, not breaking changes (e.g., safer retry math and cleaner revalidation paths).
+
 ---
 
 ## Analysis: Shared Patterns
@@ -142,14 +160,14 @@ After analyzing both implementations, we identified these shared patterns:
 |--------|--------|-----------|---------|
 | **Unfiltered mode** | ✅ KNN (no child) | ✅ Pure SORTBY (should exist) | ✅ |
 | **Batches mode** | ✅ VecSim batches | ✅ Numeric range subsets | ✅ |
-| **Adhoc-BF mode** | ✅ Distance lookup | ✅ Value lookup | ✅ |
-| **Top-k heap** | ✅ Min-max heap | ✅ Min/max heap | ✅ |
-| **Two-phase execution** | ✅ Collect → Yield | ✅ Collect → Yield | ✅ |
+| **Adhoc-BF mode** | ✅ Distance lookup | ❌ Not in current implementation (possible future extension) | ⚠️ Partial |
+| **Top-k heap** | ✅ Used for filtered modes | ✅ Used for filtered modes | ✅ |
+| **Two-phase execution** | ⚠️ Optional (unfiltered can stream directly) | ⚠️ Optional (unfiltered can stream directly) | ✅ |
 | **Intersection algorithm** | ✅ Alternating skip_to | ✅ Alternating skip_to | ✅ |
 | **Output order** | By score (unsorted by ID) | By score (unsorted by ID) | ✅ |
 | **Strategy switching** | ✅ Batches → Adhoc | ✅ Expand range → Retry | ✅ |
 
-**Conclusion:** The core algorithm is identical. Only the score source differs.
+**Conclusion:** The collection/intersection skeleton is shared, with source-specific strategies and an unfiltered direct-yield fast path.
 
 ---
 
@@ -160,11 +178,13 @@ After analyzing both implementations, we identified these shared patterns:
 A minimal trait that abstracts the score provider:
 
 ```rust
-/// A batch of (doc_id, score) pairs, sorted by doc_id within the batch.
-/// Batches are ordered by score across the iteration.
-pub struct ScoreBatch {
-    // Implementation detail - could be Vec, iterator adapter, etc.
-    entries: Vec<(t_docId, f64)>,
+/// A cursor over a score-ordered batch.
+///
+/// The cursor yields entries sorted by doc_id within the batch, enabling
+/// efficient intersection against a child iterator.
+pub trait ScoreBatch {
+    fn next(&mut self) -> Option<(t_docId, f64)>;
+    fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
 }
 
 /// A source of scores for top-k collection.
@@ -173,12 +193,17 @@ pub struct ScoreBatch {
 /// - Each batch is sorted by doc_id (for efficient intersection)
 /// - Batches are ordered by score (best scores come first)
 pub trait ScoreSource<'index> {
+    type Batch: ScoreBatch;
+
     /// Get the next batch of results.
     ///
     /// Returns `Ok(Some(batch))` if more results are available.
     /// Returns `Ok(None)` if exhausted.
     /// Returns `Err(TimedOut)` if timeout reached.
-    fn next_batch(&mut self) -> Result<Option<ScoreBatch>, RQEIteratorError>;
+    ///
+    /// Unfiltered contract:
+    /// - Sources should emit a single final score-ordered batch (up to k docs), then `None`.
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
 
     /// Lookup the score for a single document (for adhoc-BF mode).
     ///
@@ -228,7 +253,7 @@ A single generic struct that handles all modes:
 ```rust
 /// Execution mode for top-k collection.
 pub enum TopKMode {
-    /// No child filter - collect directly from source.
+    /// No child filter - yield directly from source batch cursor.
     Unfiltered,
     /// Get batches from source, intersect with child.
     Batches,
@@ -236,7 +261,7 @@ pub enum TopKMode {
     AdhocBF,
 }
 
-/// A top-k iterator that collects the best k results by score.
+/// A top-k iterator that returns the best k results by score.
 ///
 /// Results are yielded sorted by score, NOT by document ID.
 /// This iterator can only be used at the root of a query tree.
@@ -245,6 +270,7 @@ pub struct TopKIterator<'index, S: ScoreSource<'index>> {
     child: Option<Box<dyn RQEIterator<'index> + 'index>>,
     mode: TopKMode,
     heap: TopKHeap<ScoredResult>,
+    direct_batch: Option<S::Batch>, // Used by unfiltered direct-yield path
     k: usize,
     compare: fn(f64, f64) -> Ordering,  // Score comparison
 
@@ -264,6 +290,7 @@ enum Phase {
     NotStarted,
     Collecting,
     Yielding,
+    YieldingDirect,
 }
 
 pub struct TopKMetrics {
@@ -278,18 +305,28 @@ pub struct TopKMetrics {
 #### Unfiltered Mode (No Child)
 
 ```rust
-fn collect_unfiltered(&mut self) -> Result<(), RQEIteratorError> {
-    while let Some(batch) = self.source.next_batch()? {
-        for (doc_id, score) in batch {
-            self.heap.maybe_insert(doc_id, score);
-        }
-        // Early termination check
-        if matches!(self.source.collection_strategy(self.heap.len(), self.k),
-                    CollectionStrategy::Stop) {
-            break;
-        }
-    }
+fn prepare_unfiltered_direct(&mut self) -> Result<(), RQEIteratorError> {
+    // In unfiltered mode, source returns a single final score-ordered batch.
+    self.direct_batch = self.source.next_batch()?;
+    self.phase = Phase::YieldingDirect;
     Ok(())
+}
+
+fn read_unfiltered_direct(&mut self) -> Result<Option<RSIndexResult<'index>>, RQEIteratorError> {
+    let Some(batch) = self.direct_batch.as_mut() else {
+        return Ok(None);
+    };
+
+    if let Some((doc_id, score)) = batch.next() {
+        return Ok(Some(self.source.build_result(doc_id, score)));
+    }
+
+    // Optional sanity check: sources should be exhausted after the final batch in this mode.
+    if cfg!(debug_assertions) {
+        debug_assert!(matches!(self.source.next_batch()?, None));
+    }
+    self.direct_batch = None;
+    Ok(None)
 }
 ```
 
@@ -300,9 +337,9 @@ fn collect_batches(&mut self) -> Result<(), RQEIteratorError> {
     let child = self.child.as_mut().unwrap();
 
     'outer: loop {
-        while let Some(batch) = self.source.next_batch()? {
+        while let Some(mut batch) = self.source.next_batch()? {
             child.rewind();
-            self.intersect_batch_with_child(&batch, child)?;
+            self.intersect_batch_with_child(&mut batch, child)?;
 
             match self.source.collection_strategy(self.heap.len(), self.k) {
                 CollectionStrategy::Continue => {}
@@ -327,29 +364,28 @@ fn collect_batches(&mut self) -> Result<(), RQEIteratorError> {
     Ok(())
 }
 
-fn intersect_batch_with_child(
+fn intersect_batch_with_child<B: ScoreBatch>(
     &mut self,
-    batch: &ScoreBatch,
+    batch: &mut B,
     child: &mut dyn RQEIterator
 ) -> Result<(), RQEIteratorError> {
-    let mut batch_iter = batch.iter();
-    let mut batch_entry = batch_iter.next();
+    let mut batch_entry = batch.next();
     let mut child_result = child.read()?;
 
     while let (Some((batch_id, score)), Some(child_res)) = (batch_entry, child_result.as_ref()) {
         match batch_id.cmp(&child_res.doc_id) {
             Ordering::Equal => {
-                self.heap.maybe_insert(*batch_id, *score);
-                batch_entry = batch_iter.next();
+                self.heap.maybe_insert(batch_id, score);
+                batch_entry = batch.next();
                 child_result = child.read()?;
             }
             Ordering::Greater => {
                 // Child behind - skip forward
-                child_result = child.skip_to(*batch_id)?.map(|o| o.into_result());
+                child_result = child.skip_to(batch_id)?.map(|o| o.into_result());
             }
             Ordering::Less => {
                 // Batch behind - advance batch
-                batch_entry = batch_iter.next();
+                batch_entry = batch.skip_to(child_res.doc_id).or_else(|| batch.next());
             }
         }
     }
@@ -357,10 +393,11 @@ fn intersect_batch_with_child(
 }
 ```
 
-#### Adhoc-BF Mode (With Child, Score Lookup)
+#### Adhoc-BF Mode (Vector Source in v1)
 
 ```rust
 fn collect_adhoc(&mut self) -> Result<(), RQEIteratorError> {
+    // Used by sources that support per-doc score lookup (Vector in v1).
     let child = self.child.as_mut().unwrap();
 
     while let Some(result) = child.read()? {
@@ -413,6 +450,7 @@ fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStra
 **Rationale:** The source has domain knowledge to make this decision:
 - Hybrid: Based on batch size vs. child selectivity heuristics → `SwitchToAdhoc`
 - Optimizer: Based on success ratio → `SwitchToBatches` after expanding numeric range
+- In v1, `NumericScoreSource` will not emit `SwitchToAdhoc`
 
 **Mode switch flows:**
 
@@ -439,7 +477,16 @@ fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStra
 - Function pointers can be inlined by LLVM in many cases
 - Simpler than const generics for ASC/DESC
 
-### D4: Timeout Handling
+### D4: Unfiltered Fast Path
+
+**Decision:** In `Unfiltered` mode, bypass heap collection and yield directly from a single final score-ordered batch cursor.
+
+**Rationale:**
+- Both vector and numeric sources can provide final sorted results directly in unfiltered queries.
+- Avoids unnecessary heap maintenance and collection phase when there is no child intersection.
+- Keeps heap-based logic focused on filtered modes (`Batches`, `AdhocBF`).
+
+### D5: Timeout Handling
 
 **Decision:** Errors propagate through `Result` returns.
 
@@ -448,13 +495,13 @@ fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStra
 - Source checks timeout internally in `next_batch()` and `lookup_score()`
 - No additional trait methods needed
 
-### D5: Profile Integration
+### D6: Profile Integration
 
 **Decision:** TopK exposes `TopKMetrics` struct that Profile can query.
 
 **Rationale:** Allows capturing domain-specific metrics (batch count, strategy switches) without Profile knowing about TopK internals.
 
-### D6: Naming
+### D7: Naming
 
 **Decision:** Rename the iterators to reflect what they actually do.
 
@@ -473,6 +520,15 @@ fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStra
 - Consistent naming pattern makes the relationship between the two obvious
 - Type aliases provide convenient names while sharing implementation
 
+### D8: Dispatch Strategy
+
+**Decision:** Use static dispatch (`TopKIterator<S: ScoreSource<'index>>`) for the initial implementation.
+
+**Rationale:**
+- Matches existing RediSearch Rust style (prefer static dispatch where concrete types are known at iterator-tree build time).
+- Keeps call sites simple and avoids vtable overhead in frequently invoked trait methods.
+- If compile time or binary size becomes an issue, dynamic dispatch can be evaluated with benchmarks later.
+
 ---
 
 ## Concrete Implementations
@@ -489,7 +545,9 @@ pub struct VectorScoreSource {
 }
 
 impl<'index> ScoreSource<'index> for VectorScoreSource {
-    fn next_batch(&mut self) -> Result<Option<ScoreBatch>, RQEIteratorError> {
+    type Batch = VecSimScoreBatchCursor;
+
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         if self.timeout_ctx.is_expired() {
             return Err(RQEIteratorError::TimedOut);
         }
@@ -503,7 +561,7 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
         }
 
         let reply = batch_iter.next(self.compute_batch_size());
-        Ok(Some(ScoreBatch::from_vecsim_reply(reply)))
+        Ok(Some(VecSimScoreBatchCursor::new(reply)))
     }
 
     fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
@@ -551,7 +609,9 @@ pub struct NumericScoreSource<'index> {
 }
 
 impl<'index> ScoreSource<'index> for NumericScoreSource<'index> {
-    fn next_batch(&mut self) -> Result<Option<ScoreBatch>, RQEIteratorError> {
+    type Batch = NumericRangeBatchCursor;
+
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         if self.timeout_ctx.is_expired() {
             return Err(RQEIteratorError::TimedOut);
         }
@@ -562,13 +622,14 @@ impl<'index> ScoreSource<'index> for NumericScoreSource<'index> {
             return Ok(None);
         }
 
-        // Flatten ranges into (doc_id, value) pairs, sorted by doc_id
-        Ok(Some(ScoreBatch::from_numeric_ranges(batch)))
+        Ok(Some(NumericRangeBatchCursor::new(batch)))
     }
 
     fn lookup_score(&mut self, doc_id: t_docId) -> Option<f64> {
-        // Used in adhoc-BF mode
-        self.numeric_index.get_value(doc_id)
+        // Numeric adhoc lookup is not used in v1 strategy selection.
+        // Keep API compatibility for possible future extension.
+        let _ = doc_id;
+        None
     }
 
     fn num_estimated(&self) -> usize {
@@ -599,6 +660,7 @@ impl<'index> ScoreSource<'index> for NumericScoreSource<'index> {
             return CollectionStrategy::SwitchToBatches;
         }
 
+        // Numeric source does not switch to adhoc in v1.
         CollectionStrategy::Continue
     }
 }
@@ -608,23 +670,14 @@ impl<'index> ScoreSource<'index> for NumericScoreSource<'index> {
 
 ## Open Questions for Review
 
-We'd appreciate feedback on the following design questions:
+Most high-level API choices are now fixed for v1:
+- Static dispatch for `TopKIterator<S: ScoreSource<'index>>`
+- Iterator-first batch API (`ScoreBatch` cursor, not `Vec<(doc_id, score)>`)
+- Vector supports `SwitchToAdhoc`; Numeric uses batches+retry only
 
-### Q1: Trait Object vs. Monomorphization
+The remaining questions are intentionally deferred until after parity and baseline benchmarks.
 
-**Current design:** `TopKIterator<S: ScoreSource<'index>>` uses static dispatch (monomorphization).
-
-**Question:** Should we use `Box<dyn ScoreSource>` instead for smaller binary size and faster compilation?
-
-**Trade-off:**
-- Static dispatch: Better inlining, zero vtable overhead, but larger binary
-- Dynamic dispatch: Smaller binary, but vtable overhead on every trait method call
-
-### Q2: Batch Representation
-
-**Current design:** `ScoreBatch` is a `Vec<(t_docId, f64)>`.
-
-**Question:** Should we use a more abstract iterator-based design?
+### Q1: Batch Cursor Ownership
 
 ```rust
 pub trait ScoreBatch {
@@ -633,15 +686,17 @@ pub trait ScoreBatch {
 }
 ```
 
-**Trade-off:**
-- Vec: Simple, good cache locality, but requires allocation
-- Iterator: Zero-copy from VecSim, but more complex API
+**Deferred question:** Should batch cursors own batch resources (simpler lifetime model) or borrow from source state (fewer moves/allocations)?
 
-### Q3: Result Building
+**Trade-off:**
+- Owning cursor: simpler safety model across FFI boundaries
+- Borrowed cursor: potentially less overhead, but more complex lifetimes
+
+### Q2: Result Building
 
 **Current design:** Source provides `build_result(doc_id, score) -> RSIndexResult` method.
 
-**Question:** Is this the right level of abstraction? Should we have separate methods for different result types?
+**Deferred question:** Is this the right level of abstraction, or should we split into result-type-specific methods?
 
 ```rust
 // Alternative: more explicit methods
@@ -653,9 +708,9 @@ fn build_aggregate_result(&self, doc_id: t_docId, score: f64, child: &RSIndexRes
 - Single method: Simpler trait, source decides internally
 - Multiple methods: More explicit, but TopK needs to know which to call
 
-### Q4: Const Generics for Performance-Critical Paths
+### Q3: Const Generics for Performance-Critical Paths
 
-**Question:** Should we use const generics to eliminate branches in hot paths?
+**Deferred question:** Should we use const generics to eliminate branches in hot paths?
 
 ```rust
 pub struct TopKIterator<'index, S: ScoreSource, const ASC: bool, const FILTERED: bool> { ... }
@@ -757,7 +812,7 @@ pub struct TopKIterator<'index, S: ScoreSource, const ASC: bool, const FILTERED:
    ```
 
 3. **Invariants to test:**
-   - Top-k heap never exceeds k elements
+   - Top-k heap never exceeds k elements (filtered modes)
    - Results are always sorted by score
    - Intersection produces subset of both inputs
    - Rewind restores to initial state
@@ -789,8 +844,8 @@ pub struct TopKIterator<'index, S: ScoreSource, const ASC: bool, const FILTERED:
 
 #### 3. TopKIterator - Unfiltered Mode
 ```rust
-#[test] fn test_unfiltered_collects_top_k();
-#[test] fn test_unfiltered_early_termination_on_stop();
+#[test] fn test_unfiltered_direct_yield_no_heap_collection();
+#[test] fn test_unfiltered_consumes_single_final_batch();
 #[test] fn test_unfiltered_handles_empty_source();
 #[test] fn test_unfiltered_timeout_propagates();
 #[test] fn test_unfiltered_yields_sorted_by_score();
@@ -913,10 +968,10 @@ fn bench_rust_vs_c_batches(c: &mut Criterion);
 
 | Priority | Test Category | Rationale |
 |----------|---------------|-----------|
-| **P0** | Unfiltered mode | Simplest path, validates core heap logic |
+| **P0** | Unfiltered mode | Simplest path, validates direct-yield fast path |
 | **P0** | Batches mode intersection | Most common hybrid path |
 | **P0** | Parity tests | Must match C behavior |
-| **P1** | Adhoc-BF mode | Less common but critical |
+| **P1** | Adhoc-BF mode (Vector) | Less common but critical for hybrid queries |
 | **P1** | Strategy switching | New SwitchToBatches needs coverage |
 | **P1** | NumericScoreSource | Currently undertested in C |
 | **P2** | Timeout handling | Edge case |
@@ -926,27 +981,27 @@ fn bench_rust_vs_c_batches(c: &mut Criterion);
 
 ## Implementation Plan
 
-1. **Phase 1: Core Infrastructure**
-   - [ ] Implement `TopKHeap` utility
-   - [ ] Define `ScoreSource` trait
-   - [ ] Implement `TopKIterator` struct with `RQEIterator` impl
-   - [ ] Unit tests: heap, mock source, all 3 modes
+1. **Phase 1: Source-Specific Parity First (Low Risk Integration)**
+   - [ ] Implement shared utilities (`TopKHeap`, intersection helpers, common metrics structs)
+   - [ ] Implement unfiltered direct-yield path (single final batch, no heap collection)
+   - [ ] Port `VectorScoreSource` behavior and integrate behind existing query paths
+   - [ ] Port hybrid iterator C++ tests to Rust and add parity tests against C
+   - [ ] Keep Vector Adhoc-BF behavior and BATCHES→ADHOC switching
 
-2. **Phase 2: Vector Source**
-   - [ ] Implement `VectorScoreSource`
-   - [ ] FFI bridge for C integration
-   - [ ] Port hybrid iterator C++ tests to Rust
-   - [ ] Parity tests against C implementation
-
-3. **Phase 3: Numeric Source**
+2. **Phase 2: Numeric Parity and Retry Correctness**
    - [ ] Implement `NumericScoreSource` with proper range iteration
-   - [ ] FFI bridge for C integration
-   - [ ] **New tests for retry/SwitchToBatches** (currently untested in C)
-   - [ ] Parity tests against C implementation
+   - [ ] Keep Numeric strategy to batches+retry (no adhoc mode in v1)
+   - [ ] Add **new tests for retry/SwitchToBatches** (currently untested in C)
+   - [ ] Add parity tests against C optimizer behavior
 
-4. **Phase 4: Integration & Profiling**
-   - [ ] Profile iterator integration
-   - [ ] Performance benchmarks (compare to C)
+3. **Phase 3: Consolidate into Generic `TopKIterator`**
+   - [ ] Finalize `ScoreSource` + `TopKIterator` shared boundary
+   - [ ] Migrate both sources to the shared iterator implementation
+   - [ ] Validate no behavioral regressions in profile output and result ordering
+
+4. **Phase 4: Performance and Optional Specialization**
+   - [ ] Benchmark against C and capture regressions/improvements
+   - [ ] Revisit deferred design questions (batch cursor ownership, const generics, result-builder split)
    - [ ] Property-based tests
    - [ ] Python flow test parity validation
 
