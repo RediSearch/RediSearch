@@ -614,6 +614,7 @@ def test_gc_oom_replica_relaxed():
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertGreater(bytes_collected, 0,
         message="GC should run on replica even when maxmemory is exceeded")
+
 @skip(cluster=True)
 def testForceGCBypassesThreshold(env):
     """Test that GC_FORCEINVOKE (force=true) bypasses the clean threshold,
