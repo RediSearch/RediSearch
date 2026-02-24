@@ -11,7 +11,7 @@ use ffi::RedisModuleString;
 use std::ffi::{CString, c_char, c_double};
 use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 
-/// Creates and returns a new **owned** [`RsValue`] object of type undefined.
+/// Creates and returns a new **owned** [`RsValue::Undefined`].
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
 /// ownership taking `RSValue_` functions, directly or indirectly.
@@ -20,7 +20,7 @@ pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
     SharedRsValue::new(RsValue::Undefined).into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type null.
+/// Creates and returns a new **owned** [`RsValue::Null`].
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
 /// ownership taking `RSValue_` functions, directly or indirectly.
@@ -29,7 +29,7 @@ pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
     SharedRsValue::new(RsValue::Null).into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type number
+/// Creates and returns a new **owned** [`RsValue::Number`]
 /// containing the given numeric value.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -41,7 +41,7 @@ pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
         .cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
+/// Creates and returns a new **owned** [`RsValue::Trio`] from three [`RsValue`]s.
 ///
 /// Takes ownership of all three arguments.
 ///
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn RSValue_NewTrio(
     .cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type string,
+/// Creates and returns a new **owned** [`RsValue::String`],
 /// taking ownership of the given `RedisModule_Alloc`-allocated buffer.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -98,11 +98,11 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut R
     shared_value.into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type string,
+/// Creates and returns a new **owned** [`RsValue::String`],
 /// taking ownership of the given `RedisModule_Alloc`-allocated buffer.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` methods, directly or indirectly.
+/// ownership taking `RSValue_` functions, directly or indirectly.
 ///
 /// # Safety
 ///
@@ -121,10 +121,10 @@ pub unsafe extern "C" fn RSValue_NewStringWithoutNulTerminator(
     let string = unsafe { RsString::rm_alloc_string_without_nul_terminator(str, len) };
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
-    shared_value.into_raw() as *mut _
+    shared_value.into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type string,
+/// Creates and returns a new **owned** [`RsValue::String`],
 /// borrowing the given string buffer without taking ownership.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -148,7 +148,7 @@ pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32)
     shared_value.into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type string,
+/// Creates and returns a new **owned** [`RsValue::String`],
 /// taking ownership of the given [`RedisModuleString`].
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -171,7 +171,7 @@ pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> 
     shared_value.into_raw().cast_mut()
 }
 
-/// Creates and returns a new **owned** [`RsValue`] object of type string,
+/// Creates and returns a new **owned** [`RsValue::String`],
 /// copying `len` bytes from the given string buffer into a new Rust-allocated [`Box<CStr>`].
 ///
 /// The caller retains ownership of `str`.
