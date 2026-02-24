@@ -21,11 +21,13 @@ use value::{Array, RsValue, shared::SharedRsValue};
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut RsValue {
     let array: Vec<*mut RsValue> = vec![std::ptr::null_mut(); len as usize];
+    let array_ptr = Box::into_raw(array.into_boxed_slice());
 
-    // `Box::into_raw` returns a `*mut [*mut _]` here, `cast_mut()` can't convert that to a
-    // `*mut *mut _`. `as_mut_ptr()` can, but that is nightly only still. Keeping an `as`
-    // cast for now.
-    Box::into_raw(array.into_boxed_slice()) as *mut *mut RsValue
+    // Safety: `array_ptr` just created above from `Box::into_raw`.
+    // `array_ptr` is a `*mut [*mut _]` here. This converts it to a `*mut *mut _`.
+    // `<pointer>.as_mut_ptr()` is a nightly on feature that directly casts `array_ptr` to
+    // `*mut *mut _` without needing unsafe. Use that when available.
+    unsafe { (*array_ptr).as_mut_ptr() }
 }
 
 /// Creates a heap-allocated array [`RsValue`] from existing values.
