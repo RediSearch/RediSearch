@@ -1872,7 +1872,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
+      ctx, "search-fork-gc-clean-threshold",
+      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
@@ -1890,7 +1891,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
+      ctx, "search-fork-gc-run-interval",
+      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_RUN_INTERVAL : DEFAULT_FORK_GC_RUN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec)
