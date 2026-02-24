@@ -6,27 +6,19 @@ use value::{RsString, RsValue};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_double) -> c_int {
-    let Some(mut value) = (unsafe { value.as_ref() }) else {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return 0;
     };
 
     let d = unsafe { d.as_mut().expect("d is null") };
 
-    let num = loop {
-        match value {
-            RsValue::Number(n) => break Some(*n),
-            RsValue::String(string) => break str_to_float(string.as_bytes()),
-            RsValue::RedisString(string) => break str_to_float(string.as_bytes()),
-            RsValue::Ref(ref_val) => {
-                value = ref_val.value();
-                continue;
-            }
-            RsValue::Trio(trio) => {
-                value = trio.left().value();
-                continue;
-            }
-            _ => break None,
-        };
+    let value = value.fully_dereferenced_ref_and_trio();
+
+    let num = match value {
+        RsValue::Number(n) => Some(*n),
+        RsValue::String(string) => str_to_float(string.as_bytes()),
+        RsValue::RedisString(string) => str_to_float(string.as_bytes()),
+        _ => None,
     };
 
     if let Some(num) = num {
@@ -46,7 +38,7 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
     buflen: size_t,
 ) -> *const c_char {
     let value = unsafe { expect_value(value) };
-    let value = value.fully_dereferenced();
+    let value = value.fully_dereferenced_ref();
 
     let (ptr, len): (*const c_char, size_t) = match value {
         RsValue::Number(num) => {
@@ -75,7 +67,7 @@ pub unsafe extern "C" fn RSValue_ToString(dst: *mut RsValue, value: *const RsVal
     let mut dst = unsafe { expect_shared_value(dst) };
 
     let value = unsafe { expect_value(value) };
-    let value = value.fully_dereferenced();
+    let value = value.fully_dereferenced_ref_and_trio();
 
     match value {
         RsValue::Number(number) => {
