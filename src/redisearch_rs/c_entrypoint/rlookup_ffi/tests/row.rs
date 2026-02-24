@@ -31,7 +31,7 @@ use value::RSValueTrait;
 #[should_panic(expected = "`src` and `dst` must not be the same")]
 fn rlookuprow_movefieldsfrom_same_row() {
     let lookup = RLookup::new();
-    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
 
     unsafe {
         RLookupRow_MoveFieldsFrom(
@@ -45,8 +45,8 @@ fn rlookuprow_movefieldsfrom_same_row() {
 #[test]
 fn rlookuprow_movefieldsfrom_different_rows() {
     let lookup = RLookup::new();
-    let mut src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
-    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
 
     unsafe {
         RLookupRow_MoveFieldsFrom(
@@ -64,7 +64,7 @@ fn rlookuprow_movefieldsfrom_different_rows() {
 fn rlookuprow_writefieldsfrom_same_row() {
     let src_lookup = RLookup::new();
     let mut dst_lookup = RLookup::new();
-    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&src_lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
 
     unsafe {
         RLookupRow_WriteFieldsFrom(
@@ -81,8 +81,8 @@ fn rlookuprow_writefieldsfrom_same_row() {
 #[should_panic(expected = "`src_lookup` and `dst_lookup` must not be the same")]
 fn rlookuprow_writefieldsfrom_same_lookup() {
     let mut lookup = RLookup::new();
-    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
-    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
 
     unsafe {
         RLookupRow_WriteFieldsFrom(
@@ -99,8 +99,8 @@ fn rlookuprow_writefieldsfrom_same_lookup() {
 fn rlookuprow_writefieldsfrom_different_lookups_and_rows() {
     let src_lookup = RLookup::new();
     let mut dst_lookup = RLookup::new();
-    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&src_lookup);
-    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&dst_lookup);
+    let src_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
+    let mut dst_row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
 
     unsafe {
         RLookupRow_WriteFieldsFrom(
@@ -119,8 +119,8 @@ fn rlookuprow_writefieldsfrom_different_lookups_and_rows() {
 fn rlookuprow_move() {
     let mut lookup = RLookup::new();
 
-    let mut src: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
-    let mut dst: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut src: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
+    let mut dst: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
 
     let key = lookup
         .get_key_write(c"foo", RLookupKeyFlags::empty())
@@ -153,7 +153,7 @@ fn rlookuprow_writebyname() {
     let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
-    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
     assert_eq!(value.refcount(), 1);
@@ -176,7 +176,7 @@ fn rlookuprow_writebynameowned() {
     let mut lookup = RLookup::new();
     let name = CString::new("name").unwrap();
     let len = 4;
-    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new(&lookup);
+    let mut row: RLookupRow<'_, RSValueFFI> = RLookupRow::new();
     let value = unsafe { RSValueFFI::from_raw(NonNull::new(RSValue_NewNumber(42.0)).unwrap()) };
 
     assert_eq!(value.refcount(), 1);

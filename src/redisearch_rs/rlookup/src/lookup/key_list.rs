@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RLookup, RLookupKey, RLookupKeyFlags};
+use crate::{RLookupKey, RLookupKeyFlags};
 use std::{ffi::CStr, pin::Pin, ptr::NonNull};
 
 #[cfg(any(debug_assertions, test))]
@@ -343,16 +343,11 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         let new = {
             let (name, path) = old.as_mut().make_tombstone();
             let mut key = if let Some(path) = path {
-                RLookupKey::new_with_path(&RLookup::new(), name, path, flags)
+                RLookupKey::new_with_path(name, path, flags)
             } else {
-                RLookupKey::new(&RLookup::new(), name, flags)
+                RLookupKey::new(name, flags)
             };
             key.dstidx = old.dstidx;
-
-            #[cfg(debug_assertions)]
-            {
-                key.rlookup_id = old.rlookup_id();
-            }
 
             key
         };
@@ -390,20 +385,18 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RLookup;
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
 
     // assert that the linked list is produced and linked correctly
     #[test]
     fn keylist_push_consistency() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_push_consistency after insertions");
@@ -421,17 +414,14 @@ mod tests {
     // Assert the Cursor::move_next method DOES NOT skip keys marked hidden
     #[test]
     fn keylist_cursor_move_next() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
-        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"baz",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
@@ -450,17 +440,14 @@ mod tests {
     // Assert the CursorMut::move_next method DOES NOT skip keys marked hidden
     #[test]
     fn keylist_cursor_mut_move_next() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
-        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"baz",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
@@ -478,13 +465,12 @@ mod tests {
 
     #[test]
     fn keylist_find() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find after insertions");
@@ -500,13 +486,12 @@ mod tests {
 
     #[test]
     fn keylist_find_mut() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find_mut after insertions");
@@ -528,11 +513,9 @@ mod tests {
 
     #[test]
     fn keylist_override_key_find() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
@@ -560,11 +543,9 @@ mod tests {
 
     #[test]
     fn keylist_override_key_iterate() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
@@ -584,17 +565,14 @@ mod tests {
 
     #[test]
     fn keylist_override_key_tail_handling() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         // push two keys, so we can override one without altering the tail and another one to override it.
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
         let secoond = keylist.push(RLookupKey::new(
-            &rlookup,
             c"bar",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));

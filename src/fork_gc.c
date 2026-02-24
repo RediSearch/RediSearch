@@ -978,8 +978,21 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
-  // Debug log the memory ratio
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  // Check if we are a slave/replica
+  bool isSlave = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SLAVE;
+  float used_memory_ratio = 0;
+  if (!isSlave) {
+    // On master, use the original unified logic
+    used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  } else {
+    // On slaves, only consider max_process_mem
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+    size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+    size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL);
+    RedisModule_FreeServerInfo(ctx, info);
+
+    used_memory_ratio = max_process_mem ? (float)used_memory / (float)max_process_mem : 0;
+  }
   RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f", used_memory_ratio);
 
   return used_memory_ratio > 1;

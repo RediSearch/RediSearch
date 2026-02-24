@@ -475,7 +475,7 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
     RLookup::new().into_opaque()
 }
 
-/// Initialize the lookup. If cache is provided, then it will be used as an
+/// Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
 /// # Safety
@@ -486,7 +486,7 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Init(
+pub unsafe extern "C" fn RLookup_SetCache(
     lookup: Option<NonNull<OpaqueRLookup>>,
     spcache: Option<NonNull<ffi::IndexSpecCache>>,
 ) {
@@ -498,7 +498,7 @@ pub unsafe extern "C" fn RLookup_Init(
         unsafe { IndexSpecCache::from_raw(spcache) }
     });
 
-    lookup.init(spcache);
+    lookup.set_cache(spcache);
 }
 
 /// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].

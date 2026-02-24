@@ -9,7 +9,7 @@
 
 use ffi::RSValue;
 use libc::size_t;
-use rlookup::{OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
+use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     ffi::{CStr, c_char},
     mem::{self, ManuallyDrop},
@@ -19,18 +19,9 @@ use std::{
 use value::RSValueFFI;
 
 /// Returns a newly created [`RLookupRow`].
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_New(lookup: *const OpaqueRLookup) -> OpaqueRLookupRow {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
-
-    RLookupRow::new(lookup).into_opaque()
+pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
+    RLookupRow::new().into_opaque()
 }
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
@@ -148,20 +139,6 @@ pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
 
     // Safety: ensured by caller (3.)
     let dst = unsafe { RLookupRow::from_opaque_non_null(dst_row.expect("`dst` must not be null")) };
-
-    #[cfg(debug_assertions)]
-    {
-        assert_eq!(
-            src.rlookup_id(),
-            lookup.id(),
-            "`src` must belong to `rlookup`"
-        );
-        assert_eq!(
-            dst.rlookup_id(),
-            lookup.id(),
-            "`dst` must belong to `rlookup`"
-        );
-    }
 
     dst.move_fields_from(src, lookup);
 }

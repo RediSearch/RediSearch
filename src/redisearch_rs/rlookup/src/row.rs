@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#[cfg(debug_assertions)]
-use crate::rlookup_id::RLookupId;
 use crate::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
 };
@@ -37,28 +35,23 @@ pub struct RLookupRow<'a, T: RSValueTrait> {
     /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
     /// is not the length of [`RLookupRow::dyn_values`]
     num_dyn_values: u32,
+}
 
-    #[cfg(debug_assertions)]
-    rlookup_id: RLookupId,
+impl<'a, T: RSValueTrait> Default for RLookupRow<'a, T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
     /// a [`RLookupRow::sorting_vector`] of the given length.
-    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
-    pub const fn new(rlookup: &RLookup<'_>) -> Self {
+    pub const fn new() -> Self {
         Self {
             sorting_vector: None,
             dyn_values: vec![],
             num_dyn_values: 0,
-            #[cfg(debug_assertions)]
-            rlookup_id: rlookup.id(),
         }
-    }
-
-    #[cfg(debug_assertions)]
-    pub const fn rlookup_id(&self) -> RLookupId {
-        self.rlookup_id
     }
 
     /// Returns the length of [`RLookupRow::dyn_values`].
@@ -227,9 +220,6 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: T) -> Option<T> {
-        #[cfg(debug_assertions)]
-        assert_eq!(key.rlookup_id(), self.rlookup_id);
-
         let idx = key.dstidx;
         if self.dyn_values.len() <= idx as usize {
             self.set_dyn_capacity((idx + 1) as usize);
@@ -373,12 +363,7 @@ pub mod opaque {
     /// The size and alignment of this struct must match the Rust `RLookupRow`
     /// structure exactly.
     #[repr(C, align(8))]
-    pub struct OpaqueRLookupRow(OpaqueRLookupRowSize);
-
-    #[cfg(debug_assertions)]
-    type OpaqueRLookupRowSize = Size<48>;
-    #[cfg(not(debug_assertions))]
-    type OpaqueRLookupRowSize = Size<40>;
+    pub struct OpaqueRLookupRow(Size<40>);
 
     c_ffi_utils::opaque!(RLookupRow<'_, RSValueFFI>, OpaqueRLookupRow);
 }
@@ -425,7 +410,7 @@ mod tests {
     #[test]
     fn get_length_without_flags() {
         let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let mut row = RLookupRow::<RSValueMock>::new();
         row.write_key_by_name(&mut rlookup, c"a", RSValueMock::create_num(42.));
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
@@ -444,7 +429,7 @@ mod tests {
     #[test]
     fn get_length_on_empty() {
         let rlookup = RLookup::new();
-        let row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let row = RLookupRow::<RSValueMock>::new();
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -460,7 +445,7 @@ mod tests {
     #[test]
     fn get_length_required_flags() {
         let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let mut row = RLookupRow::<RSValueMock>::new();
         let rlk = rlookup
             .get_key_write(c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
             .expect("key must be created");
@@ -482,7 +467,7 @@ mod tests {
     #[test]
     fn get_length_excluded_flags() {
         let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let mut row = RLookupRow::<RSValueMock>::new();
         let rlk = rlookup
             .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
             .expect("key must be created");
@@ -505,7 +490,7 @@ mod tests {
     #[test]
     fn get_length_required_and_excluded_flags_same() {
         let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let mut row = RLookupRow::<RSValueMock>::new();
         let rlk = rlookup
             .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
             .expect("key must be created");
@@ -528,7 +513,7 @@ mod tests {
     #[test]
     fn get_length_without_rule() {
         let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let mut row = RLookupRow::<RSValueMock>::new();
         row.write_key_by_name(&mut rlookup, c"a", RSValueMock::create_num(42.));
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(36.));
@@ -548,7 +533,7 @@ mod tests {
     #[test]
     fn get_length_with_rule() {
         let mut rlookup = RLookup::new();
-        let mut row = RLookupRow::<RSValueMock>::new(&rlookup);
+        let mut row = RLookupRow::<RSValueMock>::new();
         row.write_key_by_name(&mut rlookup, c"a", RSValueMock::create_num(42.));
         row.write_key_by_name(&mut rlookup, c"b", RSValueMock::create_num(12.));
         row.write_key_by_name(&mut rlookup, c"score", RSValueMock::create_num(100.));
