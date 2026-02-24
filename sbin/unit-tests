@@ -527,8 +527,9 @@ print_test_summary() {
         else
             printf "  %-44s FAILED (%d/%d passed)\n" "$label" "$p" "$t"
             any_failed=1
-            eval "local failed_names=(\"\${${block}_FAILED[@]}\")"
-            for name in "${failed_names[@]}"; do
+            local i name
+            for ((i=0; i<f; i++)); do
+                eval "name=\${${block}_FAILED[$i]}"
                 printf "    - %s\n" "$name"
                 if [[ -n $GITHUB_ACTIONS ]]; then
                     echo "::error::${label} failed: ${name}"
