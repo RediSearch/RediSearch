@@ -11,6 +11,19 @@
 #include "rmalloc.h"
 #include <time.h>
 
+struct ProfileCounters {
+  size_t read;
+  size_t skipTo;
+  int eof;
+};
+
+struct ProfileIterator {
+  QueryIterator base;
+  QueryIterator *child;
+  ProfileCounters counters;
+  rs_wall_clock_ns_t wallTime; // This field serves as a time accumulator, so using rs_wall_clock_ns_t is required.
+};
+
 static inline void SyncWithChild(ProfileIterator *pi) {
   pi->base.current = pi->child->current;
   pi->base.lastDocId = pi->child->lastDocId;
@@ -77,6 +90,32 @@ static ValidateStatus PI_Revalidate(struct QueryIterator *self) {
     SyncWithChild(pi);
   }
   return val;
+}
+
+// ProfileCounters getters
+size_t ProfileCounters_GetReadCount(ProfileCounters *c) {
+  return c->read;
+}
+
+size_t ProfileCounters_GetSkipToCount(ProfileCounters *c) {
+  return c->skipTo;
+}
+
+int ProfileCounters_GetEof(ProfileCounters *c) {
+  return c->eof;
+}
+
+// ProfileIterator getters
+QueryIterator *ProfileIterator_GetChild(ProfileIterator *pi) {
+  return pi->child;
+}
+
+ProfileCounters *ProfileIterator_GetCounters(ProfileIterator *pi) {
+  return &pi->counters;
+}
+
+rs_wall_clock_ns_t ProfileIterator_GetWallTimeNs(ProfileIterator *pi) {
+  return pi->wallTime;
 }
 
 /* Create a new profile iterator */

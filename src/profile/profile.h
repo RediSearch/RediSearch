@@ -23,7 +23,7 @@ typedef struct HybridRequest HybridRequest;
 #define printProfileRPCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Results processed", (vcount))
 // For now we only print the total counter in order to avoid breaking the response format of profile
 // If we get a chance to break it then consider splitting the count into separate fields
-#define printProfileCounters(counters) printProfileIteratorCounter(counters->read + counters->skipTo - counters->eof)
+#define printProfileCounters(counters) printProfileIteratorCounter(ProfileCounters_GetReadCount(counters) + ProfileCounters_GetSkipToCount(counters) - ProfileCounters_GetEof(counters))
 
 #define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (vtime))
 

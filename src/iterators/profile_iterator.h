@@ -11,18 +11,11 @@
 
 #include "iterators/iterator_api.h"
 
-typedef struct {
-  size_t read;
-  size_t skipTo;
-  int eof;
-} ProfileCounters;
+typedef struct ProfileCounters ProfileCounters;
 
-typedef struct {
-  QueryIterator base;
-  QueryIterator *child;
-  ProfileCounters counters;
-  rs_wall_clock_ns_t wallTime; // This field serves as a time accumulator, so using rs_wall_clock_ns_t is required.
-} ProfileIterator;
+size_t ProfileCounters_GetReadCount(ProfileCounters *c);
+size_t ProfileCounters_GetSkipToCount(ProfileCounters *c);
+int ProfileCounters_GetEof(ProfileCounters *c);
 
 /**
  * @brief Create a new profile iterator that wraps a child iterator
@@ -33,4 +26,10 @@ typedef struct {
  * @param child The iterator to wrap
  * @return QueryIterator* The new profile iterator
  */
+typedef struct ProfileIterator ProfileIterator;
+
 QueryIterator *NewProfileIterator(QueryIterator *child);
+
+QueryIterator *ProfileIterator_GetChild(ProfileIterator *it);
+ProfileCounters *ProfileIterator_GetCounters(ProfileIterator *it);
+rs_wall_clock_ns_t ProfileIterator_GetWallTimeNs(ProfileIterator *it);

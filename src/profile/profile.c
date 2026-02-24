@@ -611,8 +611,9 @@ PRINT_PROFILE_FUNC(printOptionalIt) {
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(reply, pi->child, &pi->counters,
-    rs_wall_clock_convert_ns_to_ms_d(pi->wallTime), depth, limited, config);
+  printIteratorProfile(reply, ProfileIterator_GetChild(pi), ProfileIterator_GetCounters(pi),
+    rs_wall_clock_convert_ns_to_ms_d(ProfileIterator_GetWallTimeNs(pi)),
+    depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters,
