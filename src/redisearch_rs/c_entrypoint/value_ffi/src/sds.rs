@@ -25,7 +25,7 @@ fn dump_sds(value: &RsValue, mut s: sds, obfuscate: bool) -> sds {
             }
         }
         RsValue::String(str) => {
-            let (ptr, len) = str.as_ptr_len();
+            let (ptr, len) = str.as_ptr_len_for_slice();
             if obfuscate {
                 unsafe {
                     // SAFETY: `Obfuscate_Text` returns a valid static C string.
