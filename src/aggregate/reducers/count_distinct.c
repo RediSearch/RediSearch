@@ -34,7 +34,7 @@ static void *distinctNewInstance(Reducer *r) {
 
 static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   distinctCounter *ctr = ctx;
-  const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
+  const RSValue *val = RLookupRow_Get(r->srckey, srcrow);
   if (!val || val == RSValue_NullStatic()) {
     return 1;
   }
@@ -93,7 +93,7 @@ static void *distinctishNewInstance(Reducer *parent) {
 
 static int distinctishAdd(Reducer *parent, void *instance, const RLookupRow *srcrow) {
   distinctishCounter *ctr = instance;
-  const RSValue *val = RLookup_GetItem(ctr->key, srcrow);
+  const RSValue *val = RLookupRow_Get(ctr->key, srcrow);
   if (!val || val == RSValue_NullStatic()) {
     return 1;
   }
@@ -167,7 +167,7 @@ typedef struct HLL hllSumCtx;
 
 static int hllsumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   hllSumCtx *ctr = ctx;
-  const RSValue *val = RLookup_GetItem(r->srckey, srcrow);
+  const RSValue *val = RLookupRow_Get(r->srckey, srcrow);
 
   if (val == NULL || !RSValue_IsString(val)) {
     // Not a string!

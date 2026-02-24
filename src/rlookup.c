@@ -412,7 +412,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
         i +=1;
         continue;
     }
-    const RSValue *v = RLookup_GetItem(kk, r);
+    const RSValue *v = RLookupRow_Get(kk, r);
     if (!v) {
         i +=1;
         continue;
@@ -494,7 +494,7 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
   const RLookupKey* k;
 
   while (RLookupIterator_Next(&iter, &k)) {
-    RSValue *vv = RLookup_GetItem(k, src);
+    RSValue *vv = RLookupRow_Get(k, src);
     if (vv) {
       RLookup_WriteKey(k, dst, vv);
     }
@@ -753,7 +753,7 @@ static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst,
         // No need to "write" this key. It's always implicitly loaded!
         (RLookupKey_GetFlags(kk) & RLOOKUP_F_VAL_AVAILABLE) ||
         // There is no value in the sorting vector, and we don't need to load it from the document.
-        ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (RLookup_GetItem(kk, dst) == NULL))
+        ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (RLookupRow_Get(kk, dst) == NULL))
     ));
 }
 
@@ -1109,7 +1109,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
     }
 
     // Get value from source row
-    RSValue *value = RLookup_GetItem(src_key, srcRow);
+    RSValue *value = RLookupRow_Get(src_key, srcRow);
     if (!value) {
       // No data for this key in source row
       continue;

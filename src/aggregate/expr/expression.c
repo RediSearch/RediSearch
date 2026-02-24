@@ -233,7 +233,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   }
 
   /** Find the actual value */
-  RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
+  RSValue *value = RLookupRow_Get(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", RLookupKey_GetName(e->lookupObj));

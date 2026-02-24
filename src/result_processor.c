@@ -695,8 +695,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   }
 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
-    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
+    const RSValue *v1 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
+    const RSValue *v2 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
@@ -1516,7 +1516,7 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
-  RSValue *distanceValue = RLookup_GetItem(self->scoreKey, SearchResult_GetRowData(r));
+  RSValue *distanceValue = RLookupRow_Get(self->scoreKey, SearchResult_GetRowData(r));
   if (distanceValue) {
     double originalScore = 0.0;
     if (RSValue_ToNumber(distanceValue, &originalScore)) {
@@ -2029,7 +2029,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
-    RSValue *docKeyValue = RLookup_GetItem(self->docKey, SearchResult_GetRowData(r));
+    RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }
