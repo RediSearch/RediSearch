@@ -463,7 +463,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
   RLookup_WriteKey(k, dst, v);
 }
 
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
+void RLookupRow_WriteByNameOwned(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
   RLookup_WriteKeyByName(lookup, name, len, row, value);
   RSValue_DecrRef(value);
 }

@@ -361,7 +361,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
 /**
  * Like WriteKeyByName, but consumes a refcount
  */
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
+void RLookupRow_WriteByNameOwned(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 /** Get a value from the row, provided the key.
  *
