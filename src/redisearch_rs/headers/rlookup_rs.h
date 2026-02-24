@@ -643,10 +643,6 @@ RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *    a. Not move (memcpy/memmove) out of the pointer.
  *    b. The pointed-to value must remain at its original address in memory and never be relocated.
  *
- * Although the internal `Pin` is unwrapped via `into_inner_unchecked`,
- * the pin invariant is still upheld: both this function and the caller
- * guarantee that the value behind the pointer is never moved.///
- *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);

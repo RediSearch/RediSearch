@@ -617,7 +617,6 @@ pub unsafe extern "C" fn RLookup_Iter(lookup: *const OpaqueRLookup) -> ffi::RLoo
 ///    a. Not move (memcpy/memmove) out of the pointer.
 ///    b. The pointed-to value must remain at its original address in memory and never be relocated.
 ///
-///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_IterMut(
@@ -628,7 +627,8 @@ pub unsafe extern "C" fn RLookup_IterMut(
 
     let current = lookup.cursor_mut().current().map_or(ptr::null_mut(), |c| {
         ptr::from_mut(
-            // Safety: ensured by caller (2., 3.), as well as this function not doing anything with the pointer besides returning it.
+            // Safety: ensured by caller (2., 3.)
+            // Both this function and the caller guarantee that the value behind the pointer is never moved.
             unsafe { Pin::into_inner_unchecked(c) },
         )
         .cast::<ffi::RLookupKey>()
