@@ -491,6 +491,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
         if (rc == RS_RESULT_TIMEDOUT) {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
+        } else if (rc == RS_RESULT_ERROR) {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+            "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
         } else {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
         }
@@ -538,15 +541,6 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
-  }
-
-  // Release the spec lock after pipeline building but BEFORE depleters try to
-  // acquire their locks.
-  // This prevents a deadlock caused by writer-preference rwlock: if a writer
-  // arrives while we hold the read lock, the depleters (trying to acquire
-  // read locks) would be blocked forever.
-  if (depleteInBackground) {
-    RedisSearchCtx_UnlockSpec(sctx);
   }
 
   // Record pipeline build time if profiling is enabled
@@ -807,8 +801,14 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
-  } else if (QueryError_HasError(&status)) {
-    QueryError_ReplyAndClear(outctx, &status);
+    // Lock was released inside RPSafeDepleter_DepleteAll (via RPSafeDepleter_WaitForDepletionToStart)
+  } else {
+    // buildPipelineAndExecute failed - need to release the lock we acquired
+    // The lock is only released on success path inside RPSafeDepleter_DepleteAll
+    RedisSearchCtx_UnlockSpec(sctx);
+    if (QueryError_HasError(&status)) {
+      QueryError_ReplyAndClear(outctx, &status);
+    }
   }
 
   RedisModule_FreeThreadSafeContext(outctx);

@@ -1596,6 +1596,7 @@ typedef struct {
   pthread_mutex_t mutex;
   uint32_t num_depleters;  // Number of depleters to sync
   atomic_int num_locked;   // Number of depleters that have locked the index
+  atomic_bool any_failed;  // Set to true if any depleter failed to acquire the lock
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
 } DepleterSync;
@@ -1615,6 +1616,7 @@ StrongRef DepleterSync_New(uint32_t num_depleters, bool take_index_lock) {
   pthread_mutex_init(&sync->mutex, NULL);
   sync->num_depleters = num_depleters;
   sync->take_index_lock = take_index_lock;
+  atomic_store(&sync->any_failed, false);
   return StrongRef_New(sync, DepleterSync_Free);
 }
 
@@ -1661,11 +1663,23 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *base) {
 // Helper function for RPSafeDepleter_Deplete that does the actual work of locking, depleting, and unlocking
 static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSync *sync) {
   RPStatus rc;
+  bool lock_acquired = false;
 
   if (sync->take_index_lock) {
-    // Lock the index for read
-    RedisSearchCtx_LockSpecRead(self->depletingThreadCtx);
-    // Increment the counter
+    // Try to lock the index for read (non-blocking)
+    // If a writer is waiting, this will fail immediately to prevent deadlock
+    int lock_rc = RedisSearchCtx_TryLockSpecRead(self->depletingThreadCtx);
+    if (lock_rc != REDISMODULE_OK) {
+      // Failed to acquire lock - likely a writer is waiting
+      // Set error status and return without depleting
+      self->last_rc = RS_RESULT_ERROR;
+      // Set the shared flag to indicate at least one depleter failed
+      atomic_store(&sync->any_failed, true);
+      // Do NOT increment num_locked counter since we didn't acquire the lock
+      return;
+    }
+    lock_acquired = true;
+    // Increment the counter to signal we have the lock
     atomic_fetch_add(&sync->num_locked, 1);
   }
 
@@ -1688,7 +1702,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   }
 
   // Unlock the index if we locked it
-  if (sync->take_index_lock) {
+  if (lock_acquired) {
     RedisSearchCtx_UnlockSpec(self->depletingThreadCtx);
   }
 
@@ -1759,17 +1773,28 @@ static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
 // Waits for all the depletion threads to take a read lock
 // After all of them took a lock it will release its own read lock which was previously obtained in the main query thread
 // This ensures all the safe depleters see a consistent index state across the board for their lifetime
+// If any depleter fails to acquire the lock, this function will detect it and release the main thread's lock
 static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *nextThreadCtx) {
   if (sync->take_index_lock && !sync->index_released) {
     // Load the atomic counter
     int num_locked = atomic_load(&sync->num_locked);
     RS_ASSERT(num_locked <= sync->num_depleters);
+
+    // Check if any depleter has failed to acquire the lock
+    bool any_failed = atomic_load(&sync->any_failed);
+
     if (num_locked == sync->num_depleters) {
-      // Release the index
-      RedisSearchCtx_UnlockSpec(nextThreadCtx);
-      // Mark the index as released
-      sync->index_released = true;
+      // All depleters successfully acquired their locks
+      // Keep holding the main thread's lock to protect the results that will be stored
+      // We'll release it after all depleters complete and results are safely stored
+      sync->index_released = true;  // Mark as "released" to prevent re-entry to this function
       return RS_RESULT_OK;
+    } else if (any_failed) {
+      // At least one depleter failed to acquire the lock
+      // Keep holding the main thread's lock to protect depleters that did acquire locks
+      // We'll release it after all depleters complete
+      sync->index_released = true;  // Mark as "released" to prevent re-entry to this function
+      return RS_RESULT_OK;  // Return OK to exit the wait loop, error will be detected later
     } else {
       // Not all safe depleter threads have taken the index lock yet. Wait for them
       return RS_RESULT_DEPLETING;
@@ -1899,6 +1924,7 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
 * 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
 * 3. Wait for the depletion to complete in all the safe depleters, there is no timeout handling here - we rely on each safe depleter to handle timeout and stop depleting.
 * 4. The function must return only after all the depletion threads finished running
+* 5. If any depleter fails to acquire the lock (RS_RESULT_ERROR), return RS_RESULT_ERROR to propagate the failure
 */
 int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
   DepleterSync *sync = NULL;
@@ -1946,6 +1972,34 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
       usleep(1000);
     }
   }
+
+  // Check if any depleter failed to acquire the lock
+  // This can happen when a writer (e.g., RESTORE) is waiting for the spec write lock
+  bool any_failed = false;
+  for (size_t i = 0; i < count; i++) {
+    RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
+    if (safeDepleter->last_rc == RS_RESULT_ERROR) {
+      any_failed = true;
+      break;
+    }
+  }
+
+  // Release the main thread's lock now that all depleters have completed
+  // We kept the lock during depletion to protect the index data that depleters
+  // are reading and storing in their results arrays
+  if (sync->take_index_lock && sync->index_released) {
+    // index_released was set to true in WaitForDepletionToStart, but we didn't
+    // actually release the lock - we kept it to protect the depletion process
+    // Release it now that all depleters have completed
+    RedisSearchCtx_UnlockSpec(searchCtx);
+  }
+
+  if (any_failed) {
+    // At least one depleter failed to acquire the lock
+    // Return error to propagate the failure up the call stack
+    return RS_RESULT_ERROR;
+  }
+
   return RS_RESULT_OK;
 }
 

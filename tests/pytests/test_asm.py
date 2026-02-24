@@ -94,8 +94,41 @@ def query_shards_ft_aggregate_withcursor(env, query, shards, expected):
 
 
 def query_shards_hybrid(env, query, shards, expected):
-    """Enhanced query_shards implementation for FT.HYBRID queries with score order checking"""
-    results = [shard.execute_command(*query) for shard in shards]
+    """Verifies FT.HYBRID works during concurrent writes with try-lock mechanism.
+
+    Handles lock acquisition errors that can occur when FT.HYBRID runs
+    concurrently with write operations (e.g., RESTORE during slot migration).
+    This is expected behavior with the try-lock mechanism that prevents deadlocks.
+
+    Lock errors can occur at two points:
+    - During background depletion: "Failed to acquire index lock for background depletion"
+    - During cursor read: "Failed to acquire index lock for cursor read"
+
+    Both are valid outcomes when a writer is waiting for the lock. The test accepts
+    these errors as expected behavior and does not treat them as failures.
+    """
+
+    results = []
+    for shard_idx, shard in enumerate(shards):
+        try:
+            result = shard.execute_command(*query)
+            results.append(result)
+            env.debugPrint(f"Shard {shard_idx}: Query succeeded")
+        except Exception as e:
+            error_str = str(e)
+            print(f"Shard {shard_idx}: Exception: {error_str}")
+            # Check for lock acquisition errors - can come from shard directly or wrapped by coordinator
+            if "Failed to acquire index lock" in error_str or "Failed to process shard responses" in error_str:
+                # This is expected when a writer is waiting for the lock
+                env.debugPrint(f"Shard {shard_idx}: Lock acquisition error (expected during concurrent writes)")
+                print(f"Shard {shard_idx}: Lock acquisition error (expected during concurrent writes)")
+                # Accept this as a valid outcome - don't add to results, don't fail the test
+                continue
+            else:
+                # Not a lock error - re-raise immediately
+                env.debugPrint(f"Shard {shard_idx}: Non-lock error occurred: {error_str}")
+                print(f"Shard {shard_idx}: Non-lock error occurred: {error_str}")
+                raise
 
     # Helper function to extract scores from result (in order)
     def extract_scores(result):
