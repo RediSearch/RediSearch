@@ -59,14 +59,8 @@ def test_create_hnsw_disk_index(redis_env):
     assert info.get('IS_DISK') == 1, f"Expected IS_DISK=1, got {info.get('IS_DISK')}"
 
 
-@pytest.mark.skip(reason="Requires merge operator configuration in C++ (MOD-13796)")
 def test_add_vectors_and_knn_query(redis_env):
-    """Test adding vectors and performing KNN queries.
-
-    NOTE: The vecsim_disk stubs return empty results for queries.
-    This test verifies the integration path works, not the actual search results.
-    When the real implementation is complete (MOD-13164), update assertions.
-    """
+    """Test adding vectors and performing KNN queries with disk-based HNSW."""
     conn = redis_env.getConnection()
 
     # Create index with all required disk parameters
@@ -82,7 +76,7 @@ def test_add_vectors_and_knn_query(redis_env):
         'RERANK'
     )
 
-    # Add vectors - these go through the stub which doesn't actually store them
+    # Add vectors
     vectors = [
         ('doc1', [1.0, 0.0, 0.0, 0.0]),
         ('doc2', [0.0, 1.0, 0.0, 0.0]),
@@ -102,9 +96,16 @@ def test_add_vectors_and_knn_query(redis_env):
         'DIALECT', '2'
     )
 
-    # MOD-13164 implemented: disk-based HNSW returns proper results
+    # Verify we get 2 results (KNN 2 requested)
     count = result[0]
-    assert count == 0, f"Expected 0 results from stub, got {count}"
+    assert count == 2, f"Expected 2 results, got {count}"
+
+    # Verify doc1 is first (exact match with distance 0)
+    # Result may be str or bytes depending on redis-py version
+    first_doc = result[1]
+    if isinstance(first_doc, bytes):
+        first_doc = first_doc.decode()
+    assert first_doc == 'doc1', f"Expected doc1 first, got {first_doc}"
 
 
 @pytest.mark.skip(reason="Document deletion for disk indexes not yet implemented in redisearch_disk")

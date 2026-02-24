@@ -14,6 +14,8 @@ mod tag;
 mod term;
 #[cfg(not(miri))]
 mod throttle;
+#[cfg(not(miri))]
+mod vecsim_disk;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;

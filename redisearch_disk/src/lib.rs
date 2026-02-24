@@ -15,7 +15,7 @@ use crate::disk_context::DiskContext;
 use crate::index_spec::IndexSpec;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
 use crate::index_spec::doc_table::{DocumentFlag, flags_from_oss, flags_to_oss};
-use crate::vecsim_disk::{SpeeDBHandles, VecSimDisk_CreateIndex};
+use crate::vecsim_disk::{EdgeListMergeOperator, SpeeDBHandles, VecSimDisk_CreateIndex};
 use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
@@ -1337,14 +1337,28 @@ extern "C" fn vector_create_index(
     let database = index_spec.database();
     let cf_name = format!("{}:{}", index_spec.name(), field_name);
 
-    // Create column family if needed
-    if database.cf_handle(&cf_name).is_none()
-        && database
-            .create_cf(&cf_name, &speedb::Options::default())
-            .is_err()
-    {
-        error!("vector_create_index: failed to create CF");
-        return std::ptr::null_mut();
+    // Create column family if needed - with EdgeListMergeOperator for HNSW incoming edges
+    if database.cf_handle(&cf_name).is_none() {
+        let mut cf_options = speedb::Options::default();
+        // The EdgeListMergeOperator handles APPEND and DELETE operations for HNSW edge lists.
+        // This is required for batch_merge_incoming_edges in HNSWStorage to work correctly.
+        //
+        // IMPORTANT: We use set_merge_operator (not set_merge_operator_associative) to provide
+        // separate full_merge and partial_merge functions. The C++ EdgeListMergeOperator uses
+        // different formats for operands ('A'/'D' prefixed) and values (raw edge bytes).
+        // - FullMerge: Produces raw edge bytes (final value format)
+        // - PartialMerge: Preserves operand format (for intermediate compaction results)
+        // Using the same function for both (as associative does) causes compaction crashes
+        // because partial merge results are stored as operands but would be in value format.
+        cf_options.set_merge_operator(
+            "EdgeListMergeOperator",
+            EdgeListMergeOperator::full_merge_fn(),
+            EdgeListMergeOperator::partial_merge_fn(),
+        );
+        if database.create_cf(&cf_name, &cf_options).is_err() {
+            error!("vector_create_index: failed to create CF");
+            return std::ptr::null_mut();
+        }
     }
 
     let db_ptr = database.as_raw_db();
