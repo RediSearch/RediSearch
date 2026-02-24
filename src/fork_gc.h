@@ -60,7 +60,7 @@ typedef struct ForkGC {
   int cleanNumericEmptyNodes;
 } ForkGC;
 
-ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
+ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen

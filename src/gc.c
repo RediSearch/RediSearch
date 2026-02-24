@@ -41,12 +41,12 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   switch (gcPolicy) {
     case GCPolicy_Fork:
       RS_LOG_ASSERT(spec_ref->diskSpec == NULL, "Fork GC is not supported for disk indexes");
-      ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
+      ret->gcCtx = FGC_Create(spec_ref, &ret->callbacks);
       break;
     case GCPolicy_Disk:
       RS_LOG_ASSERT(SearchDisk_IsEnabled(), "Disk GC is not enabled");
       RS_LOG_ASSERT(spec_ref->diskSpec, "Disk index is not opened");
-      ret->gcCtx = DiskGC_New(spec_ref, &ret->callbacks);
+      ret->gcCtx = DiskGC_Create(spec_ref, &ret->callbacks);
       break;
     default:
       RS_LOG_ASSERT(false, "Invalid GC policy");

@@ -27,7 +27,7 @@ typedef struct DiskGC {
   atomic_size_t deletedDocsFromLastRun;
 } DiskGC;
 
-DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
+DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
 #ifdef __cplusplus
 }

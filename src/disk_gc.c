@@ -85,7 +85,7 @@ static struct timespec getIntervalCb(void *ctx) {
   return (struct timespec){ .tv_sec = gc->intervalSec, .tv_nsec = 0 };
 }
 
-DiskGC *DiskGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
+DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   DiskGC *gc = rm_calloc(1, sizeof(*gc));
   *gc = (DiskGC){
       .index = StrongRef_Demote(spec_ref),
