@@ -17,14 +17,15 @@ use crate::c2rust::CRQEIterator;
 
 type ProfileIteratorImpl = Profile<'static, CRQEIterator>;
 
-#[unsafe(no_mangle)]
 /// Create a new profile iterator.
 ///
 /// # Safety
 ///
 /// 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
 /// 2. `child` must not be aliased.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut QueryIterator {
+    debug_assert!(!child.is_null());
     let child = NonNull::new(child)
         .expect("Trying to create a profile iterator using a NULL child iterator pointer");
     // SAFETY: thanks to 1 + 2
@@ -41,6 +42,13 @@ pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut Q
 pub unsafe extern "C" fn ProfileIterator_GetChild(
     it: *const QueryIterator,
 ) -> *const QueryIterator {
+    debug_assert!(!it.is_null());
+    debug_assert_eq!(
+        // SAFETY: guaranteed by 1.
+        unsafe { *it }.type_,
+        IteratorType_PROFILE_ITERATOR,
+        "Expected a profile iterator"
+    );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     let child: &QueryIterator = &*wrapper.inner.child();
@@ -59,6 +67,13 @@ pub unsafe extern "C" fn ProfileIterator_GetChild(
 pub unsafe extern "C" fn ProfileIterator_GetCounters(
     it: *const QueryIterator,
 ) -> *const ProfileCounters {
+    debug_assert!(!it.is_null());
+    debug_assert_eq!(
+        // SAFETY: guaranteed by 1.
+        unsafe { *it }.type_,
+        IteratorType_PROFILE_ITERATOR,
+        "Expected a profile iterator"
+    );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     wrapper.inner.counters()
@@ -71,6 +86,13 @@ pub unsafe extern "C" fn ProfileIterator_GetCounters(
 /// 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator) -> u64 {
+    debug_assert!(!it.is_null());
+    debug_assert_eq!(
+        // SAFETY: guaranteed by 1.
+        unsafe { *it }.type_,
+        IteratorType_PROFILE_ITERATOR,
+        "Expected a profile iterator"
+    );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     wrapper.inner.wall_time_ns()
@@ -83,6 +105,7 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
 /// 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ProfileCounters_GetReadCount(c: *const ProfileCounters) -> usize {
+    debug_assert!(!c.is_null());
     // SAFETY: guaranteed by 1.
     let counters = unsafe { &*c };
     counters.read
@@ -95,6 +118,7 @@ pub unsafe extern "C" fn ProfileCounters_GetReadCount(c: *const ProfileCounters)
 /// 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ProfileCounters_GetSkipToCount(c: *const ProfileCounters) -> usize {
+    debug_assert!(!c.is_null());
     // SAFETY: guaranteed by 1.
     let counters = unsafe { &*c };
     counters.skip_to
@@ -107,6 +131,7 @@ pub unsafe extern "C" fn ProfileCounters_GetSkipToCount(c: *const ProfileCounter
 /// 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ProfileCounters_GetEof(c: *const ProfileCounters) -> c_int {
+    debug_assert!(!c.is_null());
     // SAFETY: guaranteed by 1.
     let counters = unsafe { &*c };
     counters.eof as c_int
