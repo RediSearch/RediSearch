@@ -141,7 +141,7 @@ impl RsString {
         #[cfg(debug_assertions)]
         assert!(
             self.guaranteed_nul_terminated,
-            "as_ptr_len_checked() called on possibly non-nul-terminated string"
+            "as_ptr_len_for_nul_terminated() called on possibly non-nul-terminated string"
         );
         (self.ptr, self.len)
     }
