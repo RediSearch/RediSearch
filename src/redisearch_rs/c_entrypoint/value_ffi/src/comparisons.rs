@@ -144,7 +144,9 @@ fn compare_number_to_string(
             .ok_or(CompareError::NaNNumber)
     // else only if num_to_str_cmp_fallback is enabled, convert the number to a slice for comparison
     } else if num_to_str_cmp_fallback {
-        Ok(value::util::num_to_string(number).as_bytes().cmp(slice))
+        let mut buf = [0; 32];
+        let n = value::util::num_to_str(number, &mut buf).unwrap();
+        Ok(buf[0..n].cmp(slice))
     } else {
         Err(CompareError::NoNumberToStringFallback)
     }
