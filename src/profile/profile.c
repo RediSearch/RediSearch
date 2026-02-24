@@ -8,7 +8,6 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/profile_iterator.h"
 #include "iterators/inverted_index_iterator.h"
 #include "iterators/not_iterator.h"
 #include "iterators/optional_iterator.h"
@@ -610,9 +609,8 @@ PRINT_PROFILE_FUNC(printOptionalIt) {
 }
 
 PRINT_PROFILE_FUNC(printProfileIt) {
-  ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(reply, ProfileIterator_GetChild(pi), ProfileIterator_GetCounters(pi),
-    rs_wall_clock_convert_ns_to_ms_d(ProfileIterator_GetWallTimeNs(pi)),
+  printIteratorProfile(reply, ProfileIterator_GetChild(root), ProfileIterator_GetCounters(root),
+    rs_wall_clock_convert_ns_to_ms_d(ProfileIterator_GetWallTimeNs(root)),
     depth, limited, config);
 }
 

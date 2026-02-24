@@ -60,6 +60,12 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
         }
     }
 
+    /// Returns a reference to the child iterator.
+    #[inline]
+    pub const fn child(&self) -> &I {
+        &self.child
+    }
+
     /// Returns a reference to the collected profile counters.
     #[inline]
     pub const fn counters(&self) -> &ProfileCounters {

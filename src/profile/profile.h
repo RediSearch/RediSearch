@@ -10,7 +10,7 @@
 
 #include "value.h"
 #include "util/timeout.h"
-#include "iterators/profile_iterator.h"
+#include "iterators/iterator_api.h"
 
 // Forward declarations
 typedef struct ResultProcessor ResultProcessor;

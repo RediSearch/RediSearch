@@ -19,6 +19,11 @@ typedef enum MetricType {
   VECTOR_DISTANCE,
 } MetricType;
 
+/**
+ * Profile counters collected during query execution.
+ */
+typedef struct ProfileCounters ProfileCounters;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -258,6 +263,73 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
  * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
  */
 enum MetricType GetMetricType(QueryIterator *header);
+
+/**
+ * Create a new profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child` must not be aliased.
+ */
+QueryIterator *NewProfileIterator(QueryIterator *child);
+
+/**
+ * Get the child iterator from a profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+QueryIterator *ProfileIterator_GetChild(QueryIterator *it);
+
+/**
+ * Get the profile counters from a profile iterator.
+ *
+ * The returned pointer borrows from the iterator — it is valid as long as
+ * the iterator is alive. The C caller only reads through this pointer.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *it);
+
+/**
+ * Get the accumulated wall time in nanoseconds from a profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
+
+/**
+ * Get the read count from profile counters.
+ *
+ * # Safety
+ *
+ * 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
+ */
+uintptr_t ProfileCounters_GetReadCount(const struct ProfileCounters *c);
+
+/**
+ * Get the skip-to count from profile counters.
+ *
+ * # Safety
+ *
+ * 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
+ */
+uintptr_t ProfileCounters_GetSkipToCount(const struct ProfileCounters *c);
+
+/**
+ * Get the EOF flag from profile counters.
+ *
+ * # Safety
+ *
+ * 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
+ */
+int ProfileCounters_GetEof(const struct ProfileCounters *c);
 
 /**
  * Create a new non-optimized optional iterator.
