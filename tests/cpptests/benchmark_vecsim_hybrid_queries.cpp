@@ -201,7 +201,7 @@ void SetUp() {
 
 void TearDown() {
     RMCK_Shutdown();
-    RediSearch_CleanupModule(false);
+    RediSearch_SanitizerCleanupModule();
 }
 
 /**
