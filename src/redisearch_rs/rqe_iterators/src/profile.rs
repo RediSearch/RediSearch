@@ -20,7 +20,10 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 /// Profile counters collected during query execution.
+///
+/// This struct is `#[repr(C)]` so that C code can access its fields directly.
 #[derive(Debug, Default, Clone)]
+#[repr(C)]
 pub struct ProfileCounters {
     /// Number of `read()` calls made.
     pub read: usize,
@@ -58,6 +61,12 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
             wall_time: Duration::ZERO,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Returns a reference to the child iterator.
+    #[inline]
+    pub const fn child(&self) -> &I {
+        &self.child
     }
 
     /// Returns a reference to the collected profile counters.
