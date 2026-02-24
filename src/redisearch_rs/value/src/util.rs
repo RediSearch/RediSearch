@@ -14,7 +14,7 @@ pub fn str_to_float(input: &[u8]) -> Option<f64> {
     std::str::from_utf8(input).ok()?.parse::<f64>().ok()
 }
 
-pub fn num_to_str(float: f64, buf: &mut [u8]) -> Option<usize> {
+pub fn num_to_str(float: f64, buf: &mut [u8]) -> usize {
     let integer = float as i64;
     let result = if integer as f64 == float {
         unsafe {
@@ -37,10 +37,8 @@ pub fn num_to_str(float: f64, buf: &mut [u8]) -> Option<usize> {
     };
 
     if result < 0 {
-        None
-    } else if (result as usize) < buf.len() {
-        Some(result as usize)
-    } else {
-        None
+        panic!("snprintf failed")
     }
+
+    result as usize
 }
