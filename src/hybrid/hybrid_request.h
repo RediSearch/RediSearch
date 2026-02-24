@@ -71,6 +71,16 @@ static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
 
 static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
   req->skipTimeoutChecks = skipTimeoutChecks;
+  // Propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  if (req->sctx) {
+    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+  }
+  // Propagate to all AREQ subqueries
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      AREQ_SetSkipTimeoutChecks(req->requests[i], skipTimeoutChecks);
+    }
+  }
 }
 
 // Reply state management functions for coordinating replies between main and background threads
