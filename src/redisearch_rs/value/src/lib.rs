@@ -89,9 +89,10 @@ impl RsValue {
     }
 
     /// Returns the string bytes of the value, if it is a string type.
-    pub const fn as_str_bytes(&self) -> Option<&[u8]> {
+    pub fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
             RsValue::String(str) => Some(str.as_bytes()),
+            RsValue::RedisString(str) => Some(str.as_bytes()),
             _ => None,
         }
     }
