@@ -38,7 +38,7 @@ static bool periodicCb(void *privdata, bool force) {
 
   SearchDisk_RunGC(sp->diskSpec, sp);
 
-  IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)num_docs_to_clean);
+  // TODO: update stats with the number of documents cleaned
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
