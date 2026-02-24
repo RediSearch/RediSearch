@@ -201,8 +201,24 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     shared_value.into_raw().cast_mut()
 }
 
+/// Creates and returns a new **owned** [`RsValue::Number`] by parsing the given
+/// string as a floating-point number. Returns a null pointer if the string
+/// cannot be parsed.
+///
+/// The caller retains ownership of `value`.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
+///
+/// # Safety
+///
+/// 1. `value` must be a [valid], non-null pointer to a string buffer.
+/// 2. `value` must be [valid] for reads of `len` bytes.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2.)
     let slice = unsafe { std::slice::from_raw_parts(value as *const u8, len as usize) };
 
     let Some(number) = str_to_float(slice) else {
@@ -214,6 +230,13 @@ pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32)
         .cast_mut()
 }
 
+/// Creates and returns a new **owned** [`RsValue::Number`] from an `i64`.
+///
+/// The `i64` is cast to `f64`, which may lose precision for values outside
+/// the exact representable range of `f64`.
+///
+/// The caller must make sure to pass the returned [`RsValue`] to one of the
+/// ownership taking `RSValue_` functions, directly or indirectly.
 #[unsafe(no_mangle)]
 pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
     SharedRsValue::new(RsValue::Number(number as f64))
