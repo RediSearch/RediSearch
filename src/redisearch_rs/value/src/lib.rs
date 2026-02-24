@@ -87,6 +87,7 @@ impl RsValue {
     pub fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
             RsValue::String(str) => Some(str.as_bytes()),
+            RsValue::RedisString(str) => Some(str.as_bytes()),
             _ => None,
         }
     }
