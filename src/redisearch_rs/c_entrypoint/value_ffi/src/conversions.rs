@@ -45,9 +45,12 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
     let (ptr, len): (*const c_char, size_t) = match value {
         RsValue::Number(num) => {
             let buffer = unsafe { std::slice::from_raw_parts_mut(buf as *mut u8, buflen as usize) };
-            match num_to_str(*num, buffer) {
-                Some(n) => (buf as *const _, n),
-                None => (b"\0".as_ptr() as *const _, 0),
+            let n = num_to_str(*num, buffer);
+
+            if n < buflen {
+                (buf as *const _, n)
+            } else {
+                (b"\0".as_ptr() as *const _, 0)
             }
         }
         RsValue::String(string) => {
@@ -72,7 +75,7 @@ pub unsafe extern "C" fn RSValue_ToString(dst: *mut RsValue, value: *const RsVal
     match value {
         RsValue::Number(number) => {
             let mut buf = [0u8; 32];
-            let len = num_to_str(*number, &mut buf).unwrap();
+            let len = num_to_str(*number, &mut buf);
             let cstring = CString::new(&buf[..(len as usize)]).unwrap();
             let new_val = RsValue::String(RsString::cstring(cstring));
             dst.set_value(new_val);
@@ -95,5 +98,5 @@ pub unsafe extern "C" fn RSValue_NumToString(
         panic!("Expected number")
     };
 
-    num_to_str(*num, buf).unwrap()
+    num_to_str(*num, buf)
 }
