@@ -154,11 +154,13 @@ typedef struct IndexDiskAPI {
    * @brief Run a GC compaction cycle on the disk index.
    *
    * Synchronously runs a full compaction on the inverted index column family,
-   * removing entries for deleted documents.
+   * removing entries for deleted documents. Also applies the compaction delta
+   * to update in-memory structures via FFI calls to the provided C IndexSpec.
    *
-   * @param index Pointer to the index
+   * @param index Pointer to the disk index
+   * @param user_data Opaque pointer to the C IndexSpec (used for FFI callbacks)
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index);
+  void (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

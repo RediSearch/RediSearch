@@ -396,11 +396,12 @@ static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, enum IteratorT
 
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight) {
+  RS_ASSERT(term);
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
-  if (term && sctx) {
+  if (sctx) {
     term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
     term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
   }

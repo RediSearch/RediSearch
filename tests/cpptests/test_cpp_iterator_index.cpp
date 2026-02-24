@@ -48,7 +48,8 @@ protected:
         }
 
         SetTermsInvIndex();
-        it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, nullptr, 1.0);
+        RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+        it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NewQueryTerm(&tok, 1), 1.0);
     }
     void TearDown() override {
         it_base->Free(it_base);
@@ -185,7 +186,8 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           q_mock.sctx.time.current = {100, 100};
 
           // Create the iterator based on the flags
-          it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask}, nullptr, 1.0);
+          RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+          it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask}, NewQueryTerm(&tok, 1), 1.0);
       }
 
       void TearDown() override {

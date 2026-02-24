@@ -11,11 +11,12 @@
 
 use std::{f64, ptr::NonNull};
 
-use ffi::{NumericRangeTree, RedisSearchCtx, t_docId};
+use ffi::{NumericRangeTree, RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
-    TermReader, opaque::OpaqueEncoding,
+    RSOffsetSlice, TermReader, opaque::OpaqueEncoding,
 };
+use query_term::RSQueryTerm;
 
 use crate::expiration_checker::{ExpirationChecker, NoOpChecker};
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -371,7 +372,7 @@ where
     ///
     /// 1. If `range_tree` is Some, it must be a valid pointer to a `NumericRangeTree`.
     /// 2. If `range_tree` is Some, it must stay valid during the iterator's lifetime.
-    pub fn new(
+    pub unsafe fn new(
         reader: R,
         expiration_checker: E,
         range_tree: Option<NonNull<NumericRangeTree>>,
@@ -491,6 +492,8 @@ where
 /// * `E` - The expiration checker type used to check for expired documents.
 pub struct Term<'index, R, E = NoOpChecker> {
     it: InvIndIterator<'index, R, E>,
+    #[allow(dead_code)] // will be used by should_abort()
+    context: NonNull<RedisSearchCtx>,
 }
 
 impl<'index, R, E> Term<'index, R, E>
@@ -503,11 +506,32 @@ where
     /// Filtering the results can be achieved by wrapping the reader with
     /// a [`inverted_index::FilterMaskReader`].
     ///
+    /// `term` is the query term that brought up this iterator. It is stored
+    /// in the result and persists across all reads.
+    ///
+    /// `weight` is the scoring weight applied to the result record. It is
+    /// typically derived from the query node and used by the scoring function
+    /// to scale the relevance of results from this iterator.
+    ///
     /// `expiration_checker` is used to check for expired documents when reading from the inverted index.
-    pub fn new(reader: R, expiration_checker: E) -> Self {
-        let result = RSIndexResult::term();
+    ///
+    /// # Safety
+    ///
+    /// 1. `context` must point to a valid [`RedisSearchCtx`].
+    /// 2. `context` must remain valid for the lifetime of the iterator.
+    pub unsafe fn new(
+        reader: R,
+        context: NonNull<RedisSearchCtx>,
+        term: Box<RSQueryTerm>,
+        weight: f64,
+        expiration_checker: E,
+    ) -> Self {
+        let result =
+            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
+                .weight(weight);
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
+            context,
         }
     }
 }
@@ -598,7 +622,7 @@ where
     /// 4. `context.spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    pub fn new(
+    pub unsafe fn new(
         reader: IndexReaderCore<'index, E>,
         context: NonNull<RedisSearchCtx>,
         weight: f64,

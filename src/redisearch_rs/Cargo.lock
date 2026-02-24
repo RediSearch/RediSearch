@@ -111,6 +111,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
+name = "approx"
+version = "0.6.0-rc2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94fbdd65cc59dcc820bfb0fd01315963d4f9898bf3399a47134c9836698c47df"
+dependencies = [
+ "num-traits 0.2.19",
+ "paste",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -895,6 +905,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "idf"
+version = "0.0.1"
+dependencies = [
+ "approx",
+ "rstest",
+ "workspace_hack",
+]
+
+[[package]]
+name = "idf_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "idf",
+ "workspace_hack",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1676,6 +1704,7 @@ dependencies = [
  "buffer",
  "build_utils",
  "fnv_ffi",
+ "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "module_init_ffi",

@@ -83,7 +83,10 @@ fn apply_gc_to_single_leaf(#[values(false, true)] compress_floats: bool) {
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
     assert_eq!(result.index_gc_info.entries_removed, 5);
-    assert_eq!(tree.num_entries(), entries_before - 5);
+    assert_eq!(
+        tree.num_entries(),
+        entries_before - result.index_gc_info.entries_removed
+    );
     assert!(
         result.index_gc_info.bytes_freed > 0,
         "GC that removes entries should free bytes"
@@ -236,6 +239,65 @@ fn cardinality_after_gc_no_new_blocks(#[values(false, true)] compress_floats: bo
     // predict the exact cardinality estimate — only verify it's non-zero.
     let cardinality_after = tree.root().range().unwrap().cardinality();
     assert!(cardinality_after > 0);
+}
+
+#[rstest]
+fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // Build a single-leaf tree with 3 blocks:
+    // - Block 0 (full): value 1.0
+    // - Block 1 (full): value 2.0
+    // - Block 2 (partial, half-full): value 3.0
+    let partial = ENTRIES_PER_BLOCK / 2;
+    let n = ENTRIES_PER_BLOCK * 2 + partial;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=n {
+        let value = if i <= ENTRIES_PER_BLOCK {
+            1.0
+        } else if i <= ENTRIES_PER_BLOCK * 2 {
+            2.0
+        } else {
+            3.0
+        };
+        tree.add(i, value, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+    let cardinality = tree.root().range().unwrap().cardinality();
+    assert_eq!(
+        cardinality, 3,
+        "cardinality should reflect all 3 distinct values (1.0, 2.0, 3.0), got {cardinality}"
+    );
+
+    // Scan keeping blocks 0 and 1, deleting all of block 2.
+    let delta = tree
+        .node(tree.root_index())
+        .scan_gc(&|doc_id| doc_id <= ENTRIES_PER_BLOCK * 2)
+        .expect("should have GC work");
+
+    // Simulate parent writes after scan: add 1 entry with value 4.0 to
+    // the last block (block 2, still has room). This changes block 2's
+    // num_entries, triggering ignored_last_block = true during apply.
+    tree.add(n + 1, 4.0, false, 0);
+
+    // Apply GC delta.
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert!(
+        result.index_gc_info.ignored_last_block,
+        "last block should be ignored since its num_entries changed post-fork"
+    );
+
+    // After apply:
+    // - Block 0: all entries survive (value 1.0)
+    // - Block 1: all entries survive (value 2.0)
+    // - Block 2: delta was ignored (entries not deleted), plus post-fork entry (value 4.0)
+    // All four distinct values (1.0, 2.0, 3.0, 4.0) are present.
+    let cardinality = tree.root().range().unwrap().cardinality();
+    assert_eq!(
+        cardinality, 4,
+        "cardinality should reflect all 4 distinct values (1.0, 2.0, 3.0, 4.0), got {cardinality}"
+    );
 }
 
 // ============================================================================

@@ -15,7 +15,7 @@ pub use ffi::{
 use ffi::{IteratorStatus, RedisModule_Alloc, RedisModule_Free, ValidateStatus};
 use inverted_index::{RSIndexResult, t_docId};
 use query_term::RSQueryTerm;
-use std::{ffi::c_void, ptr};
+use std::{ffi::c_void, ptr, ptr::NonNull};
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -93,8 +93,24 @@ impl QueryIterator {
         Self(it)
     }
 
+    /// Create a wildcard iterator from an inverted index.
+    ///
+    /// # Safety
+    /// - `ii` must be a valid pointer to an `InvertedIndex` created with `Index_DocIdsOnly` flags.
+    /// - `sctx` must be a valid pointer to a `RedisSearchCtx`.
+    #[inline(always)]
+    pub unsafe fn new_wildcard(
+        ii: *const ffi::InvertedIndex,
+        sctx: NonNull<ffi::RedisSearchCtx>,
+        weight: f64,
+    ) -> Self {
+        // SAFETY: The caller guarantees that `ii` and `sctx` are valid pointers.
+        Self(unsafe { ffi::NewInvIndIterator_WildcardQuery(ii, sctx.as_ptr(), weight) })
+    }
+
     #[inline(always)]
     pub unsafe fn new_term(ii: *mut ffi::InvertedIndex) -> Self {
+        let term: *mut ffi::RSQueryTerm = Box::into_raw(RSQueryTerm::new(b"term", 1, 0)).cast();
         Self(unsafe {
             let field_mask_ffi = ffi::FieldMaskOrIndex {
                 __bindgen_anon_2: ffi::FieldMaskOrIndex__bindgen_ty_2 {
@@ -104,7 +120,7 @@ impl QueryIterator {
                 },
             };
 
-            ffi::NewInvIndIterator_TermQuery(ii, ptr::null(), field_mask_ffi, ptr::null_mut(), 1.0)
+            ffi::NewInvIndIterator_TermQuery(ii, ptr::null(), field_mask_ffi, term, 1.0)
         })
     }
 

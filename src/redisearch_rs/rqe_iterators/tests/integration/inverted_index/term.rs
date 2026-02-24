@@ -15,9 +15,16 @@ use ffi::{
 use field::FieldMaskOrIndex;
 use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice, full::Full};
 use query_term::RSQueryTerm;
-use rqe_iterators::{NoOpChecker, inverted_index::Term};
+use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Term};
 
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
+
+fn new_term() -> Box<RSQueryTerm> {
+    let mut term = RSQueryTerm::new(b"term", 1, 0);
+    term.idf = 5.0;
+    term.bm25_idf = 10.0;
+    term
+}
 
 fn expected_record(
     doc_id: t_docId,
@@ -68,7 +75,15 @@ impl TermBaseTest {
     {
         let reader = self.test.ii.reader();
 
-        Term::new(reader, NoOpChecker)
+        unsafe {
+            Term::new(
+                reader,
+                self.test.mock_ctx.sctx(),
+                new_term(),
+                1.0,
+                NoOpChecker,
+            )
+        }
     }
 }
 
@@ -77,6 +92,15 @@ impl TermBaseTest {
 fn term_read() {
     let test = TermBaseTest::new(100);
     let mut it = test.create_iterator();
+
+    // Read the first record and verify the term and weight are correct.
+    let record = it.read().unwrap().expect("expected at least one record");
+    assert_eq!(record.weight, 1.0);
+    let term = record.as_term().expect("expected term record").query_term();
+    let expected = new_term();
+    assert_eq!(term, Some(&*expected));
+
+    it.rewind();
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
@@ -93,7 +117,15 @@ fn term_skip_to() {
 fn term_filter() {
     let test = TermBaseTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new(reader, NoOpChecker);
+    let mut it = unsafe {
+        Term::new(
+            reader,
+            test.test.mock_ctx.sctx(),
+            new_term(),
+            1.0,
+            NoOpChecker,
+        )
+    };
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
@@ -162,7 +194,7 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            Term::new(reader, checker)
+            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker) }
         }
 
         fn create_iterator_wide(
@@ -177,7 +209,7 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            Term::new(reader, checker)
+            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker) }
         }
 
         fn mark_even_ids_expired(&mut self) {
@@ -268,7 +300,7 @@ mod not_miri {
         > {
             let field_mask = self.test.context.text_field_bit();
             let reader = self.test.context.term_inverted_index().reader(field_mask);
-            Term::new(reader, NoOpChecker)
+            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, NoOpChecker) }
         }
     }
 
