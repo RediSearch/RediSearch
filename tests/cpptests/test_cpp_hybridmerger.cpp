@@ -180,7 +180,7 @@ HybridLookupContext* CreateDummyLookupContext(size_t numUpstreams) {
   }
 
   // Create dummy tail lookup
-  RLookup *tailLookup = (RLookup*)rm_calloc(1, sizeof(RLookup));
+  RLookup *tailLookup = (RLookup*)rm_malloc(sizeof(RLookup));
   EXPECT_NE(tailLookup, nullptr);
   *tailLookup = RLookup_New();
   lookupCtx->tailLookup = tailLookup;
