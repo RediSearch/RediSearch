@@ -21,23 +21,18 @@ pub struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys. Overridden keys created through [`CursorMut::override_current`] increase
+    // of lookup keys. Overridden keys created through `CursorMut::override_current` increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     pub(crate) rowlen: u32,
 }
 
-/// A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
-///
-/// This types `Iterator` implementation skips all hidden keys, i.e. the keys
-/// with hidden flags, also including keys that been overridden.
-///
-/// If you need to obtain the hidden keys use [`Cursor::move_next`].
+/// A cursor over an [`RLookup`]'s key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over an [`crate::RLookup`]s key list with editing operations.
+/// A cursor over an [`RLookup`]'s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -107,13 +102,7 @@ impl<'a> KeyList<'a> {
         unsafe { Pin::new_unchecked(key) }
     }
 
-    /// Returns a [`Cursor`] starting at the first element.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over this list.
-    /// The returned Cursor's `Iterator` implementation skips hidden keys, i.e. the keys that have
-    /// been overridden.
-    ///
-    /// If you need to obtain the hidden keys use [`Cursor::move_next`].
+    /// Return a cursor over an [`RLookup`]'s key list.
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front");
@@ -124,9 +113,7 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    /// Returns a [`CursorMut`] starting at the first element.
-    ///
-    /// The [`CursorMut`] type can be used as Iterator over this list. In addition, it may be used to manipulate the list.
+    /// Return a cursor over an [`RLookup`]'s key list with editing operations.
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front_mut");
