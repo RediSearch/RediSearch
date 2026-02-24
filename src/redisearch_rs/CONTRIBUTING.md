@@ -38,7 +38,7 @@ Rust Unit tests use the regular Rust test harness and test runner. All regular R
 C code uses [`RedisModule_Log`](https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_log) to log messages
 while the Rust side uses the standard [`tracing`](https://docs.rs/tracing/latest/tracing/) crate, see below.
 
-The [`tracing_redismodule`](src/redisearch_rs/tracing_redismodule) crate provides a bridge between the two logging systems.
+The [`tracing_redismodule`](tracing_redismodule) crate provides a bridge between the two logging systems.
 It implements a tracing subscriber emitting traces and logs to the RedisModule logging system.
 This subscriber is automatically registered when the RediSearch module is loaded by the Redis server.
 
@@ -78,8 +78,8 @@ By default the log output will be colored to help with reading. The system alrea
 
 ### Logging in Tests
 
-[`tracing_redismodule`](src/redisearch_rs/tracing_redismodule) is not meant to be used in Rust tests.
-Instead, the [`redis_mock`](src/redisearch_rs/redis_mock) crate re-implements the `RedisModule_Log` so logs from C
+[`tracing_redismodule`](tracing_redismodule) is not meant to be used in Rust tests.
+Instead, the [`redis_mock`](redis_mock) crate re-implements the `RedisModule_Log` so logs from C
 are emitted using `tracing`.
 
 Tests can then use the [`test-log`](https://docs.rs/test-log/latest/test_log/) crate to easily initialize `tracing`
