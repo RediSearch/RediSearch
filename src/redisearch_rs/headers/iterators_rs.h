@@ -281,7 +281,7 @@ QueryIterator *NewProfileIterator(QueryIterator *child);
  *
  * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
  */
-QueryIterator *ProfileIterator_GetChild(QueryIterator *it);
+const QueryIterator *ProfileIterator_GetChild(const QueryIterator *it);
 
 /**
  * Get the profile counters from a profile iterator.

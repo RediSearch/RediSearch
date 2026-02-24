@@ -38,7 +38,9 @@ pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut Q
 ///
 /// 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ProfileIterator_GetChild(it: *mut QueryIterator) -> *mut QueryIterator {
+pub unsafe extern "C" fn ProfileIterator_GetChild(
+    it: *const QueryIterator,
+) -> *const QueryIterator {
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     let child: &QueryIterator = &*wrapper.inner.child();
