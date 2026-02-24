@@ -3221,9 +3221,19 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (sp->diskSpec && useSst) {
+    // If we're saving from the main process (not a fork), we need to acquire
+    // the read lock to ensure consistent access to the data structures.
+    // In a forked child process, the memory is a snapshot so no lock is needed.
+    bool inFork = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_IS_CHILD;
+    if (!inFork) {
+      IndexSpec_AcquireReadLock(sp);
+    }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
+    if (!inFork) {
+      IndexSpec_ReleaseWriteLock(sp);
+    }
   }
 }
 
@@ -4201,14 +4211,19 @@ void Indexes_EndLoading() {
 // Compaction FFI Functions (called by Rust during GC)
 // =============================================================================
 
-// Acquire IndexSpec write lock
+// Acquire IndexSpec read/write lock in exclusive mode
 void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
   pthread_rwlock_wrlock(&sp->rwlock);
 }
 
-// Release IndexSpec write lock
+// Release IndexSpec read/write
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
+}
+
+// Acquire IndexSpec read/write lock in shared mode
+void IndexSpec_AcquireReadLock(IndexSpec* sp) {
+  pthread_rwlock_rdlock(&sp->rwlock);
 }
 
 // Update a term's document count in the Serving Trie
