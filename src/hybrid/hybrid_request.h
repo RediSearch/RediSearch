@@ -71,6 +71,11 @@ typedef struct HybridRequest {
     // - timeout_callback: acquires lock and frees cursors if they were already created
     // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
     arrayof(struct Cursor*) cursors;
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
+    int kArgIndex;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
