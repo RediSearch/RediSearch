@@ -20,7 +20,7 @@ fn pushing_to_aggregate_result() {
     let num_second = RSIndexResult::numeric(100.0).doc_id(3);
     let virt_first = RSIndexResult::virt().doc_id(4);
 
-    let mut agg = RSAggregateResult::with_capacity(2);
+    let mut agg = RSAggregateResult::borrowed_with_capacity(2);
 
     assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
 

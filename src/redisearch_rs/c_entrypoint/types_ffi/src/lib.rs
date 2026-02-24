@@ -446,7 +446,7 @@ pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult)
 /// should return to Rust to free up any heap memory using [`AggregateResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static> {
-    RSAggregateResult::with_capacity(cap)
+    RSAggregateResult::borrowed_with_capacity(cap)
 }
 
 /// Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not

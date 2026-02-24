@@ -430,15 +430,15 @@ pub enum RSAggregateResult<'index> {
 }
 
 impl<'index> RSAggregateResult<'index> {
-    /// Create a new empty aggregate result with the given capacity
-    pub fn with_capacity(cap: usize) -> Self {
+    /// Create a new empty aggregate result (of the borrowed kind) with the given capacity
+    pub fn borrowed_with_capacity(cap: usize) -> Self {
         Self::Borrowed {
             records: SmallThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
     }
 
-    /// Create a new empty owned aggregate result with the given capacity
+    /// Create a new empty aggregate result (of the owned kind) with the given capacity
     pub fn owned_with_capacity(cap: usize) -> Self {
         Self::Owned {
             records: SmallThinVec::with_capacity(cap),
@@ -804,7 +804,7 @@ impl<'index> RSIndexResult<'index> {
     /// Create a new intersection index result with the given capacity
     pub fn intersect(cap: usize) -> Self {
         Self {
-            data: RSResultData::Intersection(RSAggregateResult::with_capacity(cap)),
+            data: RSResultData::Intersection(RSAggregateResult::borrowed_with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -812,7 +812,7 @@ impl<'index> RSIndexResult<'index> {
     /// Create a new union index result with the given capacity
     pub fn union(cap: usize) -> Self {
         Self {
-            data: RSResultData::Union(RSAggregateResult::with_capacity(cap)),
+            data: RSResultData::Union(RSAggregateResult::borrowed_with_capacity(cap)),
             ..Default::default()
         }
     }
