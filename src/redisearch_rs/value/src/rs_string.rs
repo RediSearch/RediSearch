@@ -39,9 +39,8 @@ pub struct RsString {
 }
 
 impl RsString {
-    /// Create an [`RsString`] from a `CString`. This string's length must not
-    /// be more than `u32::MAX` for compatibility with existing C code using
-    /// `RSValue` functionality.
+    /// Create an [`RsString`] from a `CString`. This string's length must not be more than
+    /// `u32::MAX` for compatibility with existing C code using `RSValue` functionality.
     ///
     /// # Panic
     ///
@@ -66,14 +65,15 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must not be NULL and must point to a valid c-string of `len+1` size.
+    /// 1. `ptr` must be a [valid], non-null pointer to a valid c-string of `len+1` size.
     /// 2. The size determined by `len` excludes the nul-terminator.
     /// 3. A nul-terminator is expected in memory at `ptr+len`.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
-        // Safety: ensured by caller (1.)
         debug_assert!(!ptr.is_null());
-        // Safety: ensured by caller (2.)
+        // Safety: ensured by caller (1., 2.)
         debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
@@ -90,9 +90,10 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
+    /// 1. `ptr` must be a [valid], non-null pointer to a valid string of `len` size.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn rm_alloc_string_without_nul_terminator(ptr: *const c_char, len: u32) -> Self {
-        // Safety: ensured by caller (1.)
         debug_assert!(!ptr.is_null());
 
         Self {
@@ -108,16 +109,17 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must not be NULL and must point to a valid string of `len` size.
+    /// 1. `ptr` must be a [valid], non-null pointer to a valid c-string of `len+1` size.
     /// 2. The size determined by `len` excludes the nul-terminator.
     /// 3. A nul-terminator is expected in memory at `ptr+len`.
     /// 4. The string pointed to by `ptr`/`len+1` must stay valid for as long as
     ///    this [`RsString`] is exists.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn borrowed_string(ptr: *const c_char, len: u32) -> Self {
-        // Safety: ensured by caller (1.)
         debug_assert!(!ptr.is_null());
-        // Safety: ensured by caller (2.)
+        // Safety: ensured by caller (1., 2.)
         debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
