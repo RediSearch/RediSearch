@@ -106,8 +106,7 @@ pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
 /// Therefore, this also returns an owned `RSIndexResult`.
 #[unsafe(no_mangle)]
 pub extern "C" fn NewHybridResult() -> *mut RSIndexResult<'static> {
-    let result = RSIndexResult::hybrid_metric();
-    Box::into_raw(Box::new(result.to_owned()))
+    Box::into_raw(Box::new(RSIndexResult::hybrid_metric()))
 }
 
 /// Allocate a new token record with a given term and weight. This result should be freed using

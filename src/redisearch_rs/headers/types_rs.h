@@ -355,7 +355,7 @@ typedef struct RSTermRecord_Owned_Body {
    * It borrows the term from another record.
    * The name of the variant, `Owned`, refers to the `offsets` field.
    */
-  RSQueryTerm *term;
+  const RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
