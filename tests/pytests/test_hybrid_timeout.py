@@ -345,63 +345,38 @@ def _test_hybrid_barrier_waits_for_delayed_shard(protocol):
 
     # --------------------------------------------------------------------------
     # Case 2: Timeout - ON_TIMEOUT FAIL
-    # --------------------------------------------------------------------------
-    config_cmd = ['CONFIG', 'SET', 'search-on-timeout', 'FAIL']
-    verify_command_OK_on_all_shards(env, *config_cmd)
-
-    cmd = ['FT.HYBRID', 'idx',
-           'SEARCH', 'unexistent_term',
-           'VSIM', '@embedding', '$BLOB', 'KNN', '2', 'K', '10',
-           'PARAMS', '2', 'BLOB', query_vec, 'TIMEOUT', '1']
-    query_result = []
-
-    t_query = threading.Thread(
-        target=run_hybrid_query_with_delayed_shard,
-        args=(env, cmd, query_result, sleep_duration),
-        daemon=True
-    )
-    t_query.start()
-    # Wait for query to complete (should take ~sleep_duration seconds)
-    t_query.join(timeout=sleep_duration + 5)
-
-    # Verify query completed with timeout error
-    env.assertEqual(len(query_result), 1,
-                    message="Query should have completed")
-    env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError),
-                   message=f"Expected ResponseError, got {type(query_result[0])}")
-    env.assertContains('Timeout limit was reached', str(query_result[0]))
-
-    # --------------------------------------------------------------------------
     # Case 3: Timeout - ON_TIMEOUT RETURN
     # --------------------------------------------------------------------------
     # Note: Even with RETURN policy, cursor mapping timeout returns an error
     # because the cursor mapping phase must complete successfully for the query
     # to proceed.
     # There are no partial results to return at this phase.
-    config_cmd = ['CONFIG', 'SET', 'search-on-timeout', 'RETURN']
-    verify_command_OK_on_all_shards(env, *config_cmd)
+    # --------------------------------------------------------------------------
+    for on_timeout_policy in ['FAIL', 'RETURN']:
+        config_cmd = ['CONFIG', 'SET', 'search-on-timeout', on_timeout_policy]
+        verify_command_OK_on_all_shards(env, *config_cmd)
 
-    cmd = ['FT.HYBRID', 'idx',
-           'SEARCH', 'unexistent_term',
-           'VSIM', '@embedding', '$BLOB', 'KNN', '2', 'K', '10',
-           'PARAMS', '2', 'BLOB', query_vec, 'TIMEOUT', '1']
-    query_result = []
+        cmd = ['FT.HYBRID', 'idx',
+            'SEARCH', 'unexistent_term',
+            'VSIM', '@embedding', '$BLOB', 'KNN', '2', 'K', '10',
+            'PARAMS', '2', 'BLOB', query_vec, 'TIMEOUT', '1']
+        query_result = []
 
-    t_query = threading.Thread(
-        target=run_hybrid_query_with_delayed_shard,
-        args=(env, cmd, query_result, sleep_duration),
-        daemon=True
-    )
-    t_query.start()
-    t_query.join(timeout=sleep_duration + 5)
+        t_query = threading.Thread(
+            target=run_hybrid_query_with_delayed_shard,
+            args=(env, cmd, query_result, sleep_duration),
+            daemon=True
+        )
+        t_query.start()
+        # Wait for query to complete (should take ~sleep_duration seconds)
+        t_query.join(timeout=sleep_duration + 5)
 
-    # Verify query completed with timeout error (even with RETURN policy)
-    # Cursor mapping timeout is a critical failure - no partial results possible
-    env.assertEqual(len(query_result), 1,
-                    message="Query should have completed")
-    env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError),
-                   message=f"Expected ResponseError, got {type(query_result[0])}")
-    env.assertContains('Timeout limit was reached', str(query_result[0]))
+        # Verify query completed with timeout error
+        env.assertEqual(len(query_result), 1,
+                        message="Query should have completed")
+        env.assertTrue(isinstance(query_result[0], redis.exceptions.ResponseError),
+                    message=f"Expected ResponseError, got {type(query_result[0])}")
+        env.assertContains('Timeout limit was reached', str(query_result[0]))
 
 
 @skip(cluster=False)
