@@ -67,8 +67,9 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:
       return "fork";
-    default:          // LCOV_EXCL_LINE cannot be reached
-      return "huh?";  // LCOV_EXCL_LINE cannot be reached
+    case GCPolicy_Disk: // LCOV_EXCL_LINE cannot be reached
+    default:            // LCOV_EXCL_LINE cannot be reached
+      return "huh?";    // LCOV_EXCL_LINE cannot be reached
   }
 }
 
