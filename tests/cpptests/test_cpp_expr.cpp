@@ -503,21 +503,21 @@ TEST_F(ExprTest, testEvalFuncCaseNested) {
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
-  ASSERT_STREQ("inner_true", RSValue_String_Get(res, NULL));
+  ASSERT_STREQ("inner_true", RSValue_String_GetNullTerminated(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(1, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
-  ASSERT_STREQ("nested_true", RSValue_String_Get(res, NULL));
+  ASSERT_STREQ("nested_true", RSValue_String_GetNullTerminated(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(0, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
-  ASSERT_STREQ("nested_false", RSValue_String_Get(res, NULL));
+  ASSERT_STREQ("nested_false", RSValue_String_GetNullTerminated(res, NULL));
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
@@ -529,7 +529,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
-  ASSERT_STREQ("false_branch", RSValue_String_Get(res, NULL));
+  ASSERT_STREQ("false_branch", RSValue_String_GetNullTerminated(res, NULL));
 
   ctx.assign("case(1, NULL, 'false_branch')");
   ASSERT_TRUE(ctx) << ctx.error();
@@ -601,7 +601,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
-  ASSERT_STREQ("string_result", RSValue_String_Get(res, NULL));
+  ASSERT_STREQ("string_result", RSValue_String_GetNullTerminated(res, NULL));
 
   // Test with complex expressions returning different types
   ctx.assign("case(1, 3.14 * 2, 'pi_doubled')");

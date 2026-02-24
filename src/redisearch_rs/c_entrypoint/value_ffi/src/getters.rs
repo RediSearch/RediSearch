@@ -114,7 +114,7 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
 /// Panics if the value is not a `String` type.
 /// Panics (in debug mode) if the string data might not be nul-terminated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_String_Get(
+pub unsafe extern "C" fn RSValue_String_GetNullTerminated(
     value: *const RsValue,
     lenp: *mut u32,
 ) -> *const c_char {
@@ -151,7 +151,7 @@ pub unsafe extern "C" fn RSValue_String_Get(
 ///
 /// Panics if the value is not a `String` type.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_String_GetTrusted(
+pub unsafe extern "C" fn RSValue_String_GetSlice(
     value: *const RsValue,
     lenp: *mut u32,
 ) -> *const c_char {
@@ -200,7 +200,7 @@ pub unsafe extern "C" fn RSValue_RedisString_Get(
 /// Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
 /// length to `len_ptr`.
 ///
-/// Unlike [`RSValue_String_Get`], this function handles all string variants (including
+/// Unlike [`RSValue_String_GetNullTerminated`], this function handles all string variants (including
 /// `RedisString`) and automatically dereferences `Ref` values and follows through the left
 /// element of `Trio` values. Returns null for non-string variants.
 ///

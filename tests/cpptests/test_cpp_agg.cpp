@@ -248,7 +248,7 @@ TEST_F(AggTest, testGroupSplit) {
     ASSERT_TRUE(RSValue_IsString(rv));
     bool foundValue = false;
     for (auto s : gen.values) {
-      if (!strcmp(RSValue_String_Get(rv, NULL), s)) {
+      if (!strcmp(RSValue_String_GetNullTerminated(rv, NULL), s)) {
         foundValue = true;
         break;
       }

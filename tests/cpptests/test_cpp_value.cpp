@@ -31,7 +31,7 @@ TEST_F(ValueTest, testBasic) {
   v = RSValue_NewString(str2, strlen(str2));
   ASSERT_EQ(RSValueType_String, RSValue_Type(v));
   uint32_t v_str_len;
-  const char *v_str = RSValue_String_Get(v, &v_str_len);
+  const char *v_str = RSValue_String_GetNullTerminated(v, &v_str_len);
   ASSERT_EQ(strlen(str), v_str_len);
   ASSERT_EQ(0, strcmp(str, v_str));
   RSValue_DecrRef(v);
@@ -46,13 +46,13 @@ TEST_F(ValueTest, testArray) {
 
   ASSERT_EQ(3, RSValue_ArrayLen(arr));
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
-  ASSERT_STREQ("foo", RSValue_String_Get(RSValue_ArrayItem(arr, 0), NULL));
+  ASSERT_STREQ("foo", RSValue_String_GetNullTerminated(RSValue_ArrayItem(arr, 0), NULL));
 
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 1)));
-  ASSERT_STREQ("bar", RSValue_String_Get(RSValue_ArrayItem(arr, 1), NULL));
+  ASSERT_STREQ("bar", RSValue_String_GetNullTerminated(RSValue_ArrayItem(arr, 1), NULL));
 
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 2)));
-  ASSERT_STREQ("baz", RSValue_String_Get(RSValue_ArrayItem(arr, 2), NULL));
+  ASSERT_STREQ("baz", RSValue_String_GetNullTerminated(RSValue_ArrayItem(arr, 2), NULL));
 
   RSValue_DecrRef(arr);
 }
