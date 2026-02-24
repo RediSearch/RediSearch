@@ -151,23 +151,6 @@ impl RsString {
         (self.ptr, self.len)
     }
 
-    /// Gets the string pointed to by `ptr`/`len` as a byte slice, with a debug
-    /// check on whether the string might not be nul-terminated.
-    ///
-    /// # Panic
-    ///
-    /// In debug builds, panics if the string is possibly not nul-terminated.
-    pub const fn as_bytes_checked(&self) -> &[u8] {
-        #[cfg(debug_assertions)]
-        assert!(
-            self.guaranteed_nul_terminated,
-            "as_bytes_checked() called on possibly non-nul-terminated string"
-        );
-
-        // SAFETY: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
-        unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
-    }
-
     /// Gets the string pointed to by `ptr`/`len` as a byte slice without ensuring nul-termination.
     ///
     /// Use this method when working with strings that may not be nul-terminated.
