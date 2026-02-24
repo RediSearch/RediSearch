@@ -412,7 +412,6 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- * 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
  *
  * # Panic
  *
@@ -429,7 +428,6 @@ void RSValue_SetNumber(struct RsValue *value, double n);
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- * 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
  *
  * # Panic
  *
