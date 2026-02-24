@@ -190,9 +190,10 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
         processHybridUnknownReplyType(cb_ctx, replyType);
     }
 
-    // we must notify the coordinator a response has arrived, even if it's an error
-    pthread_cond_signal(cb_ctx->completionCond);
     pthread_mutex_unlock(cb_ctx->mutex);
+    // we must notify the coordinator a response has arrived, even if it's an error
+    // Signal after unlocking to avoid thundering herd and improve performance
+    pthread_cond_signal(cb_ctx->completionCond);
 
     MRIteratorCallback_Done(ctx, 0);
     MRReply_Free(rep);
