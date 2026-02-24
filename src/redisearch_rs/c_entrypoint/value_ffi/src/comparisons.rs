@@ -57,7 +57,7 @@ pub unsafe extern "C" fn RSValue_Equal(
 pub unsafe extern "C" fn RSValue_BoolTest(value: *const RsValue) -> c_int {
     let shared_value = unsafe { SharedRsValue::from_raw(value) };
     let shared_value = ManuallyDrop::new(shared_value);
-    let value = shared_value.value().fully_dereferenced();
+    let value = shared_value.value().fully_dereferenced_ref();
 
     let result = match value {
         RsValue::Number(num) => *num != 0.0,
