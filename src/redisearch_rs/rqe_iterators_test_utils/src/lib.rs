@@ -14,6 +14,10 @@
 
 #[allow(clippy::undocumented_unsafe_blocks)]
 #[allow(clippy::multiple_unsafe_ops_per_block)]
+pub mod mock_context;
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[allow(clippy::multiple_unsafe_ops_per_block)]
 pub mod test_context;
 
+pub use mock_context::MockContext;
 pub use test_context::{GlobalGuard, TestContext};
