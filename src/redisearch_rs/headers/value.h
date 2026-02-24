@@ -215,19 +215,106 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  */
 struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
 
+/**
+ * Creates and returns a new **owned** [`RsValue::Number`] by parsing the given
+ * string as a floating-point number. Returns a null pointer if the string
+ * cannot be parsed.
+ *
+ * The caller retains ownership of `value`.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` functions, directly or indirectly.
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid], non-null pointer to a string buffer.
+ * 2. `value` must be [valid] for reads of `len` bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
 struct RsValue *RSValue_NewParsedNumber(const char *value, uint32_t len);
 
+/**
+ * Creates and returns a new **owned** [`RsValue::Number`] from an `i64`.
+ *
+ * The `i64` is cast to `f64`, which may lose precision for values outside
+ * the exact representable range of `f64`.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` functions, directly or indirectly.
+ */
 struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 
+/**
+ * Convert a value to a number, either returning the actual numeric values or by parsing
+ * a string into a number. Return 1 if the value is a number or a numeric string that can
+ * be converted, or 0 if not. The converted number is written to the `d` pointer.
+ *
+ * # Safety
+ *
+ * 1. `value` must be either null or point to a valid [`RsValue`] obtained from
+ *    an `RSValue_*` function.
+ * 2. `d` must be a [valid], non-null pointer to a `c_double`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
 int RSValue_ToNumber(const struct RsValue *value, double *d);
 
+/**
+ * Converts an [`RsValue`] to a string pointer with length, writing into `buf`
+ * when a numeric conversion is needed.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `len_ptr` must be a [valid], non-null pointer to a `size_t`.
+ * 3. `buf` must be a [valid] pointer to a writable buffer of at least `buflen` bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
 const char *RSValue_ConvertStringPtrLen(const struct RsValue *value,
                                         size_t *len_ptr,
                                         char *buf,
                                         size_t buflen);
 
+/**
+ * Converts an [`RsValue`] to a string and stores the result in `dst`.
+ *
+ * Automatically dereferences [`RsValue::Ref`] and [`RsValue::Trio`] types.
+ *
+ * - When `value` is an [`RsValue::String`], `dst` becomes a references to `value`.
+ * - When `value` is an [`RsValue::RedisString`], the content of the redis string is
+ *   made available as a `RsString::borrowed_string` and put in `dst`.
+ * - When `value` is an [`RsValue::Number`], it is converted into a string and put in `dst`.
+ * - Else, `dst` is set to point to an empty string.
+ *
+ * # Safety
+ *
+ * 1. `dst` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ * 2. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
+ */
 void RSValue_ToString(struct RsValue *dst, const struct RsValue *value);
 
+/**
+ * Formats the numeric value of an [`RsValue::Number`] as a string into the
+ * caller-provided buffer and returns the number of bytes written.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `buf` must be a [valid] pointer to a writable buffer of at least `buflen` bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ *
+ * # Panic
+ *
+ * Panics if `value` is not an [`RsValue::Number`].
+ */
 size_t RSValue_NumToString(const struct RsValue *value, char *buf, size_t buflen);
 
 /**
