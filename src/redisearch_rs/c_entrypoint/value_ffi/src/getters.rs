@@ -125,7 +125,7 @@ pub unsafe extern "C" fn RSValue_String_Get(
         panic!("Expected 'String' type");
     };
 
-    let (ptr, len) = str.as_ptr_len_checked();
+    let (ptr, len) = str.as_ptr_len_for_nul_terminated();
 
     // Safety: ensured by caller (2.)
     if let Some(lenp) = unsafe { lenp.as_mut() } {
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn RSValue_String_GetTrusted(
         panic!("Expected 'String' type");
     };
 
-    let (ptr, len) = str.as_ptr_len();
+    let (ptr, len) = str.as_ptr_len_for_slice();
 
     // Safety: ensured by caller (2.)
     if let Some(lenp) = unsafe { lenp.as_mut() } {
@@ -224,7 +224,7 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
 
     let (ptr, len) = match value {
         RsValue::String(str) => {
-            let (ptr, len) = str.as_ptr_len_checked();
+            let (ptr, len) = str.as_ptr_len_for_nul_terminated();
             (ptr, len as usize)
         }
         RsValue::RedisString(str) => str.as_ptr_len(),
