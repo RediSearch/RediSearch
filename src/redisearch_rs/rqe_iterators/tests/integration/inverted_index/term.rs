@@ -20,7 +20,7 @@ use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Term};
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
 fn new_term() -> Box<RSQueryTerm> {
-    let mut term = RSQueryTerm::new(b"term", 1, 0);
+    let mut term = RSQueryTerm::new("term", 1, 0);
     term.set_idf(5.0);
     term.set_bm25_idf(10.0);
     term
@@ -58,7 +58,7 @@ impl TermBaseTest {
             test: BaseTest::new(
                 flags,
                 Box::new(move |doc_id| {
-                    let mut term = RSQueryTerm::new(b"term", 1, 0);
+                    let mut term = RSQueryTerm::new("term", 1, 0);
                     term.set_idf(5.0);
                     term.set_bm25_idf(10.0);
                     // Use doc_id as field_mask so we can test FilterMaskReader
@@ -151,7 +151,7 @@ mod not_miri {
                 test: ExpirationTest::term(
                     flags,
                     Box::new(move |doc_id| {
-                        let mut term = RSQueryTerm::new(b"term", 1, 0);
+                        let mut term = RSQueryTerm::new("term", 1, 0);
                         term.set_idf(5.0);
                         term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter
@@ -279,7 +279,7 @@ mod not_miri {
                 test: RevalidateTest::new(
                     RevalidateIndexType::Term,
                     Box::new(move |doc_id| {
-                        let mut term = RSQueryTerm::new(b"term", 1, 0);
+                        let mut term = RSQueryTerm::new("term", 1, 0);
                         term.set_idf(5.0);
                         term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter.
