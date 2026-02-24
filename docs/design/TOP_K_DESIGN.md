@@ -180,18 +180,23 @@ A minimal trait that abstracts the score provider:
 ```rust
 /// A cursor over a score-ordered batch.
 ///
-/// The cursor yields entries sorted by doc_id within the batch, enabling
-/// efficient intersection against a child iterator.
+/// The cursor yields entries in score order.
+/// For filtered intersection, it must also support doc-id navigation via `skip_to`.
 pub trait ScoreBatch {
     fn next(&mut self) -> Option<(t_docId, f64)>;
+    /// Forward-only skip, equivalent to `RQEIterator::skip_to` semantics:
+    /// - Returns the first entry with doc_id >= target from the current position.
+    /// - Returns `None` if no such entry exists (cursor becomes exhausted).
+    /// - If it returns `Some(entry)`, a subsequent `next()` returns the following entry.
+    /// Implementations may use auxiliary state/indexes internally.
     fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
 }
 
 /// A source of scores for top-k collection.
 ///
 /// Implementations provide batches of results where:
-/// - Each batch is sorted by doc_id (for efficient intersection)
-/// - Batches are ordered by score (best scores come first)
+/// - Each batch is ordered by score (best score first for that source/order)
+/// - Batch cursors support `skip_to(doc_id)` for filtered intersection
 pub trait ScoreSource<'index> {
     type Batch: ScoreBatch;
 
@@ -470,12 +475,13 @@ fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStra
 
 ### D3: Comparator Handling
 
-**Decision:** Function pointer passed at construction.
+**Decision:** Function pointer passed at construction, with deterministic tie-breaking by `doc_id` ascending (independent of ASC/DESC score direction).
 
 **Rationale:**
 - Comparison only happens during heap operations (not hot intersection loop)
 - Function pointers can be inlined by LLVM in many cases
 - Simpler than const generics for ASC/DESC
+- Stable output ordering for equal scores
 
 ### D4: Unfiltered Fast Path
 
@@ -528,6 +534,15 @@ fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStra
 - Matches existing RediSearch Rust style (prefer static dispatch where concrete types are known at iterator-tree build time).
 - Keeps call sites simple and avoids vtable overhead in frequently invoked trait methods.
 - If compile time or binary size becomes an issue, dynamic dispatch can be evaluated with benchmarks later.
+
+### D9: Batch Cursor Ownership (v1)
+
+**Decision:** Use owning batch cursors in v1.
+
+**Rationale:**
+- Simpler and safer lifetime model across Rust/C FFI boundaries.
+- Reduces integration risk for initial rollout.
+- Borrowed-cursor optimizations can be evaluated later using benchmark data.
 
 ---
 
@@ -601,11 +616,30 @@ impl<'index> ScoreSource<'index> for VectorScoreSource {
 ```rust
 pub struct NumericScoreSource<'index> {
     numeric_index: &'index NumericIndex,
-    ranges: NumericRangeIterator,  // Sorted by value
+    ranges: NumericRangeIterator,  // Yielded in score order according to `ascending`
     current_range_idx: usize,
     range_batch_size: usize,
-    ascending: bool,
+    ascending: bool, // Set at construction from SORTBY ASC/DESC
     timeout_ctx: TimeoutCtx,
+}
+
+impl<'index> NumericScoreSource<'index> {
+    pub fn new(
+        numeric_index: &'index NumericIndex,
+        ranges: NumericRangeIterator,
+        ascending: bool, // from query's SORTBY direction
+        range_batch_size: usize,
+        timeout_ctx: TimeoutCtx,
+    ) -> Self {
+        Self {
+            numeric_index,
+            ranges,
+            current_range_idx: 0,
+            range_batch_size,
+            ascending,
+            timeout_ctx,
+        }
+    }
 }
 
 impl<'index> ScoreSource<'index> for NumericScoreSource<'index> {
@@ -674,25 +708,12 @@ Most high-level API choices are now fixed for v1:
 - Static dispatch for `TopKIterator<S: ScoreSource<'index>>`
 - Iterator-first batch API (`ScoreBatch` cursor, not `Vec<(doc_id, score)>`)
 - Vector supports `SwitchToAdhoc`; Numeric uses batches+retry only
+- Equal-score tie-breaker is `doc_id` ascending
+- Batch cursors are owning in v1
 
 The remaining questions are intentionally deferred until after parity and baseline benchmarks.
 
-### Q1: Batch Cursor Ownership
-
-```rust
-pub trait ScoreBatch {
-    fn next(&mut self) -> Option<(t_docId, f64)>;
-    fn skip_to(&mut self, target: t_docId) -> Option<(t_docId, f64)>;
-}
-```
-
-**Deferred question:** Should batch cursors own batch resources (simpler lifetime model) or borrow from source state (fewer moves/allocations)?
-
-**Trade-off:**
-- Owning cursor: simpler safety model across FFI boundaries
-- Borrowed cursor: potentially less overhead, but more complex lifetimes
-
-### Q2: Result Building
+### Q1: Result Building
 
 **Current design:** Source provides `build_result(doc_id, score) -> RSIndexResult` method.
 
@@ -708,7 +729,7 @@ fn build_aggregate_result(&self, doc_id: t_docId, score: f64, child: &RSIndexRes
 - Single method: Simpler trait, source decides internally
 - Multiple methods: More explicit, but TopK needs to know which to call
 
-### Q3: Const Generics for Performance-Critical Paths
+### Q2: Const Generics for Performance-Critical Paths
 
 **Deferred question:** Should we use const generics to eliminate branches in hot paths?
 
@@ -981,29 +1002,46 @@ fn bench_rust_vs_c_batches(c: &mut Criterion);
 
 ## Implementation Plan
 
-1. **Phase 1: Source-Specific Parity First (Low Risk Integration)**
-   - [ ] Implement shared utilities (`TopKHeap`, intersection helpers, common metrics structs)
-   - [ ] Implement unfiltered direct-yield path (single final batch, no heap collection)
-   - [ ] Port `VectorScoreSource` behavior and integrate behind existing query paths
-   - [ ] Port hybrid iterator C++ tests to Rust and add parity tests against C
-   - [ ] Keep Vector Adhoc-BF behavior and BATCHES→ADHOC switching
+### Delivery Order
 
-2. **Phase 2: Numeric Parity and Retry Correctness**
-   - [ ] Implement `NumericScoreSource` with proper range iteration
-   - [ ] Keep Numeric strategy to batches+retry (no adhoc mode in v1)
-   - [ ] Add **new tests for retry/SwitchToBatches** (currently untested in C)
-   - [ ] Add parity tests against C optimizer behavior
+1. Build stable shared primitives and state machine.
+2. Integrate vector path to parity (including BATCHES→ADHOC).
+3. Integrate numeric path to parity (batches+retry only).
+4. Validate parity/profile output, then optimize.
 
-3. **Phase 3: Consolidate into Generic `TopKIterator`**
-   - [ ] Finalize `ScoreSource` + `TopKIterator` shared boundary
-   - [ ] Migrate both sources to the shared iterator implementation
-   - [ ] Validate no behavioral regressions in profile output and result ordering
+### Ticket Breakdown (Digestible Tasks)
 
-4. **Phase 4: Performance and Optional Specialization**
-   - [ ] Benchmark against C and capture regressions/improvements
-   - [ ] Revisit deferred design questions (batch cursor ownership, const generics, result-builder split)
-   - [ ] Property-based tests
-   - [ ] Python flow test parity validation
+| ID | Task | Dependencies | Done Criteria |
+|----|------|--------------|---------------|
+| `T1` | **Implement `TopKHeap` utility** with ASC/DESC comparator support and capacity guarantees. | - | Unit tests for insert/replace/pop/capacity pass. |
+| `T2` | **Implement `TopKIterator` state machine skeleton** (`NotStarted`, `Collecting`, `Yielding`, `YieldingDirect`) and iterator lifecycle (`read`, `rewind`, `at_eof`, `current`). | `T1` | Iterator lifecycle tests pass; no mode-specific logic yet. |
+| `T3` | **Implement unfiltered direct-yield path** (no heap collection, consume single final batch cursor directly). | `T2` | Unfiltered tests pass, no heap mutation in unfiltered mode. |
+| `T4` | **Implement batches intersection engine** (alternating `read/skip_to`, child rewind per batch, strategy hooks). | `T2`, `T1` | Filtered intersection tests pass for disjoint/overlap/empty child cases. |
+| `T5` | **Implement adhoc-BF collection path** in `TopKIterator` (generic path used by vector source in v1). | `T2`, `T1` | Adhoc mode tests pass; early stop semantics validated. |
+| `T6` | **Implement `VectorScoreSource` batch cursor adapter** (`VecSimScoreBatchCursor`) and strategy logic (`Continue`, `SwitchToAdhoc`, `Stop`). | `T4`, `T5` | Vector unit tests + mode-switch tests pass; timeout behavior preserved. |
+| `T7` | **Integrate vector iterator path end-to-end** behind existing query planning path. | `T3`, `T4`, `T5`, `T6` | Existing hybrid flow tests/parity checks pass with Rust path enabled. |
+| `T8` | **Implement `NumericScoreSource` batch cursor adapter** (`NumericRangeBatchCursor`) with range expansion + retry via `SwitchToBatches`; no adhoc in v1. | `T4` | Numeric source tests pass; retry math includes division-by-zero guard. |
+| `T9` | **Integrate numeric iterator path end-to-end** behind existing optimizer query planning path. | `T3`, `T4`, `T8` | Numeric flow/parity tests pass for ASC/DESC and filtered cases. |
+| `T10` | **Revalidation/timeout correctness pass** for both sources (including rewind-after-timeout behavior and `VALIDATE_MOVED` handling policy). | `T7`, `T9` | Revalidation tests added; no regressions in timeout/retry behavior. |
+| `T11` | **Profile/metrics integration** (`num_batches`, `strategy_switches`, optional retry counters) and profile output parity checks. | `T7`, `T9` | Profile tests pass; expected modes/switches visible and stable. |
+| `T12` | **Cross-language parity suite** (Rust unit/integration + Python flow + selected C parity checks). | `T7`, `T9`, `T10`, `T11` | P0/P1 matrix is green in CI for both vector and numeric paths. |
+| `T13` | **Performance and deferred design decisions** (const generics, result-builder split) guided by benchmarks. | `T12` | Benchmark report produced; follow-up design decisions documented with data. |
+
+### Suggested Milestones
+
+| Milestone | Scope | Tasks |
+|-----------|-------|-------|
+| `M1` | Shared core complete | `T1`-`T5` |
+| `M2` | Vector parity complete | `T6`, `T7` |
+| `M3` | Numeric parity complete | `T8`, `T9`, `T10` |
+| `M4` | Validation + profiling complete | `T11`, `T12` |
+| `M5` | Performance decisions complete | `T13` |
+
+### Execution Notes
+
+- Keep feature flags or guarded planner switches during rollout, so vector/numeric paths can be enabled independently.
+- Land tests with each task (no deferred "big test PR" at the end).
+- Avoid mixing behavior changes and performance changes in the same task.
 
 ---
 
