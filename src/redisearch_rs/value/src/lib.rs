@@ -73,12 +73,9 @@ impl RsValue {
     }
 
     /// Returns the string bytes of the value, if it is a string type.
-    pub fn as_str_bytes(&self) -> Option<&[u8]> {
+    pub const fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
-            RsValue::RmAllocString(str) => Some(str.as_bytes()),
-            RsValue::ConstString(str) => Some(str.as_bytes()),
-            RsValue::RedisString(str) => Some(str.as_bytes()),
-            RsValue::String(str) => Some(str.as_str().as_bytes()),
+            RsValue::String(str) => Some(str.as_bytes()),
             _ => None,
         }
     }
