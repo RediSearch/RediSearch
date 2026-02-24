@@ -40,10 +40,15 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   switch (gcPolicy) {
     case GCPolicy_Fork:
+      RS_LOG_ASSERT(spec_ref->diskSpec == NULL, "Fork GC is not supported for disk indexes");
       ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
       break;
     case GCPolicy_Disk:
+      RS_LOG_ASSERT(SearchDisk_IsEnabled() && spec_ref->diskSpec, "Disk GC is not enabled");
       ret->gcCtx = DiskGC_New(spec_ref, &ret->callbacks);
+      break;
+    default:
+      RS_LOG_ASSERT(false, "Invalid GC policy");
       break;
   }
   return ret;
