@@ -984,14 +984,14 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
-static int periodicCb(void *privdata, bool force) {
+static bool periodicCb(void *privdata, bool force) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
 
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
-  // early termination might never change after index deletion and will cause periodicCb to always return 1,
+  // early termination might never change after index deletion and will cause periodicCb to always return true,
   // which will cause the GC to never stop rescheduling itself.
-  // If the index was deleted, we don't want to reschedule the GC, so we return 0.
+  // If the index was deleted, we don't want to reschedule the GC, so we return false.
   // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
   // the child process has a valid reference to the index.
   // If we were to try and revalidate the index after the fork, it might already be dropped and the child
@@ -1001,15 +1001,15 @@ static int periodicCb(void *privdata, bool force) {
   StrongRef early_check = IndexSpecRef_Promote(gc->index);
   if (!StrongRef_Get(early_check)) {
     // Index was deleted
-    return 0;
+    return false;
   }
 
   if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
-    return 1;
+    return true;
   }
 
-  int gcrv = 1;
+  bool gcrv = true;
   pid_t cpid;
   TimeSample ts;
 
@@ -1025,7 +1025,7 @@ static int periodicCb(void *privdata, bool force) {
   if (rc == -1) {
     RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
     IndexSpecRef_Release(early_check);
-    return 1;
+    return true;
   }
   gc->pipe_read_fd = pipefd[GC_READERFD];
   gc->pipe_write_fd = pipefd[GC_WRITERFD];
@@ -1044,7 +1044,7 @@ static int periodicCb(void *privdata, bool force) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     close(gc->pipe_read_fd);
     close(gc->pipe_write_fd);
-    return 1;
+    return true;
   }
 
   gc->execState = FGC_STATE_SCANNING;
@@ -1061,7 +1061,7 @@ static int periodicCb(void *privdata, bool force) {
     close(gc->pipe_read_fd);
     close(gc->pipe_write_fd);
 
-    return 1;
+    return true;
   }
 
   // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
@@ -1097,7 +1097,7 @@ static int periodicCb(void *privdata, bool force) {
     gc->execState = FGC_STATE_APPLYING;
     gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
     if (FGC_parentHandleFromChild(gc) == FGC_SPEC_DELETED) {
-      gcrv = 0;
+      gcrv = false;
     }
     close(gc->pipe_read_fd);
     // give the child some time to exit gracefully

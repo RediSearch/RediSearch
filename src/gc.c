@@ -71,7 +71,7 @@ static RedisModuleTimerID scheduleNext(GCContext *gc) {
 static void taskCallback(void* data) {
   GCContext* gc = data;
 
-  int ret = gc->callbacks.periodicCallback(gc->gcCtx, false);
+  bool ret = gc->callbacks.periodicCallback(gc->gcCtx, false);
 
   if (ret) { // The common case
     // The index was not freed. We need to reschedule the task.

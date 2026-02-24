@@ -34,7 +34,8 @@ typedef struct InfoGCStats {
 } InfoGCStats;
 
 typedef struct GCCallbacks {
-  int  (*periodicCallback)(void* gcCtx, bool force);
+  // Returns true if the GC should be rescheduled, false if the GC should be stopped.
+  bool (*periodicCallback)(void* gcCtx, bool force);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);

@@ -17,23 +17,23 @@
 #include <stdatomic.h>
 #include <time.h>
 
-static int periodicCb(void *privdata, bool force) {
+static bool periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
-    return 0;
+    return false;
   }
   if (!sp->diskSpec) {
     IndexSpecRef_Release(spec_ref);
-    return 1;
+    return true;
   }
 
   size_t num_docs_to_clean = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
   if (!force && num_docs_to_clean < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     atomic_fetch_add(&gc->deletedDocsFromLastRun, num_docs_to_clean);
     IndexSpecRef_Release(spec_ref);
-    return 1;
+    return true;
   }
 
   SearchDisk_RunGC(sp->diskSpec);
@@ -43,7 +43,7 @@ static int periodicCb(void *privdata, bool force) {
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
   IndexSpecRef_Release(spec_ref);
-  return 1;
+  return true;
 }
 
 static void onTerminateCb(void *privdata) {
