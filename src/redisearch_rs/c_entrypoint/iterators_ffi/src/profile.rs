@@ -10,7 +10,6 @@
 use ffi::{IteratorType_PROFILE_ITERATOR, QueryIterator};
 use rqe_iterators::profile::{Profile, ProfileCounters};
 use rqe_iterators_interop::RQEIteratorWrapper;
-use std::ffi::c_int;
 use std::ptr::NonNull;
 
 use crate::c2rust::CRQEIterator;
@@ -96,43 +95,4 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     wrapper.inner.wall_time_ns()
-}
-
-/// Get the read count from profile counters.
-///
-/// # Safety
-///
-/// 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ProfileCounters_GetReadCount(c: *const ProfileCounters) -> usize {
-    debug_assert!(!c.is_null());
-    // SAFETY: guaranteed by 1.
-    let counters = unsafe { &*c };
-    counters.read
-}
-
-/// Get the skip-to count from profile counters.
-///
-/// # Safety
-///
-/// 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ProfileCounters_GetSkipToCount(c: *const ProfileCounters) -> usize {
-    debug_assert!(!c.is_null());
-    // SAFETY: guaranteed by 1.
-    let counters = unsafe { &*c };
-    counters.skip_to
-}
-
-/// Get the EOF flag from profile counters.
-///
-/// # Safety
-///
-/// 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ProfileCounters_GetEof(c: *const ProfileCounters) -> c_int {
-    debug_assert!(!c.is_null());
-    // SAFETY: guaranteed by 1.
-    let counters = unsafe { &*c };
-    counters.eof as c_int
 }

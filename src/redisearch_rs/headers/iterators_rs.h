@@ -21,8 +21,23 @@ typedef enum MetricType {
 
 /**
  * Profile counters collected during query execution.
+ *
+ * This struct is `#[repr(C)]` so that C code can access its fields directly.
  */
-typedef struct ProfileCounters ProfileCounters;
+typedef struct ProfileCounters {
+  /**
+   * Number of `read()` calls made.
+   */
+  uintptr_t read;
+  /**
+   * Number of `skip_to()` calls made.
+   */
+  uintptr_t skip_to;
+  /**
+   * Whether the iterator reached EOF.
+   */
+  bool eof;
+} ProfileCounters;
 
 #ifdef __cplusplus
 extern "C" {
@@ -265,73 +280,6 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
 enum MetricType GetMetricType(QueryIterator *header);
 
 /**
- * Create a new profile iterator.
- *
- * # Safety
- *
- * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
- * 2. `child` must not be aliased.
- */
-QueryIterator *NewProfileIterator(QueryIterator *child);
-
-/**
- * Get the child iterator from a profile iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
- */
-const QueryIterator *ProfileIterator_GetChild(const QueryIterator *it);
-
-/**
- * Get the profile counters from a profile iterator.
- *
- * The returned pointer borrows from the iterator — it is valid as long as
- * the iterator is alive. The C caller only reads through this pointer.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
- */
-const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *it);
-
-/**
- * Get the accumulated wall time in nanoseconds from a profile iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
- */
-uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
-
-/**
- * Get the read count from profile counters.
- *
- * # Safety
- *
- * 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
- */
-uintptr_t ProfileCounters_GetReadCount(const struct ProfileCounters *c);
-
-/**
- * Get the skip-to count from profile counters.
- *
- * # Safety
- *
- * 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
- */
-uintptr_t ProfileCounters_GetSkipToCount(const struct ProfileCounters *c);
-
-/**
- * Get the EOF flag from profile counters.
- *
- * # Safety
- *
- * 1. `c` must be a valid non-null pointer obtained from [`ProfileIterator_GetCounters`].
- */
-int ProfileCounters_GetEof(const struct ProfileCounters *c);
-
-/**
  * Create a new non-optimized optional iterator.
  *
  * # Safety
@@ -370,6 +318,46 @@ QueryIterator *TakeOptionalNonOptimizedIteratorChild(QueryIterator *header);
  */
 void SetOptionalNonOptimizedIteratorChild(QueryIterator *header,
                                           QueryIterator *child);
+
+/**
+ * Create a new profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child` must not be aliased.
+ */
+QueryIterator *NewProfileIterator(QueryIterator *child);
+
+/**
+ * Get the child iterator from a profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+const QueryIterator *ProfileIterator_GetChild(const QueryIterator *it);
+
+/**
+ * Get the profile counters from a profile iterator.
+ *
+ * The returned pointer borrows from the iterator — it is valid as long as
+ * the iterator is alive. The C caller only reads through this pointer.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *it);
+
+/**
+ * Get the accumulated wall time in nanoseconds from a profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 
 /**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.

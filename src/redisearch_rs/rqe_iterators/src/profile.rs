@@ -20,7 +20,10 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 /// Profile counters collected during query execution.
+///
+/// This struct is `#[repr(C)]` so that C code can access its fields directly.
 #[derive(Debug, Default, Clone)]
+#[repr(C)]
 pub struct ProfileCounters {
     /// Number of `read()` calls made.
     pub read: usize,
