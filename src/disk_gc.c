@@ -36,7 +36,7 @@ static bool periodicCb(void *privdata, bool force) {
     return true;
   }
 
-  SearchDisk_RunGC(sp->diskSpec);
+  SearchDisk_RunGC(sp->diskSpec, sp);
 
   IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)num_docs_to_clean);
 
@@ -60,7 +60,7 @@ static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
   (void)gcCtx;
 }
 
-static void statsForInfoCb(const RedisModuleInfoCtx *ctx, void *gcCtx) {
+static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   (void)ctx;
   (void)gcCtx;
 }
