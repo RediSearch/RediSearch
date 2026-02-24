@@ -19,7 +19,6 @@ use value::{RsString, RsValue};
 ///
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
-/// 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
 ///
 /// # Panic
 ///
@@ -29,7 +28,7 @@ pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RsValue, n: c_double) {
     // Safety: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 
-    // Safety: ensured by caller (2.)
+    // Panics if more than 1 reference exists.
     shared_value.set_value(RsValue::Number(n));
 }
 
@@ -41,7 +40,6 @@ pub unsafe extern "C" fn RSValue_SetNumber(value: *mut RsValue, n: c_double) {
 ///
 /// 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function returning an owned [`RsValue`] object.
-/// 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
 ///
 /// # Panic
 ///
@@ -51,7 +49,7 @@ pub unsafe extern "C" fn RSValue_SetNull(value: *mut RsValue) {
     // Safety: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 
-    // Safety: ensured by caller (2.)
+    // Panics if more than 1 reference exists.
     shared_value.set_value(RsValue::Null);
 }
 
@@ -83,7 +81,8 @@ pub unsafe extern "C" fn RSValue_SetString(value: *mut RsValue, str: *mut c_char
     // Safety: ensured by caller (2., 3., 4.)
     let string = unsafe { RsString::rm_alloc_string(str, len) };
     let value = RsValue::String(string);
-    // Safety: ensured by caller (5.)
+
+    // Panics if more than 1 reference exists.
     shared_value.set_value(value);
 }
 
@@ -115,6 +114,7 @@ pub unsafe extern "C" fn RSValue_SetConstString(value: *mut RsValue, str: *const
     // Safety: ensured by caller (2., 3., 4.)
     let string = unsafe { RsString::borrowed_string(str, len) };
     let value = RsValue::String(string);
-    // Safety: ensured by caller (5.)
+
+    // Panics if more than 1 reference exists.
     shared_value.set_value(value);
 }
