@@ -224,7 +224,7 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
 
     let (ptr, len) = match value {
         RsValue::String(str) => {
-            let (ptr, len) = str.as_ptr_len_for_nul_terminated();
+            let (ptr, len) = str.as_ptr_len_for_slice();
             (ptr, len as usize)
         }
         RsValue::RedisString(str) => str.as_ptr_len(),
