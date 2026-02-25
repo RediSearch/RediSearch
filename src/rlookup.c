@@ -153,7 +153,7 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
     }
   }
   if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
-    key->_flags |= RLOOKUP_T_NUMERIC;
+    key->_flags |= RLOOKUP_F_NUMERIC;
   }
 }
 
@@ -790,7 +790,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     // `val` was created by `RedisModule_HashGet` and is owned by us.
     // This function might retain it, but it's thread-safe to free it afterwards without any locks
     // as it will hold the only reference to it after the next line.
-    rsv = hvalToValue(val, (RLookupKey_GetFlags(kk) & RLOOKUP_T_NUMERIC) ? RLOOKUP_C_DBL : RLOOKUP_C_STR);
+    rsv = hvalToValue(val, (RLookupKey_GetFlags(kk) & RLOOKUP_F_NUMERIC) ? RLOOKUP_C_DBL : RLOOKUP_C_STR);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strcmp(RLookupKey_GetPath(kk), UNDERSCORE_KEY)) {
     const RedisModuleString *keyName = RedisModule_GetKeyNameFromModuleKey(*keyobj);
@@ -934,7 +934,7 @@ static void RLookup_HGETALL_scan_callback(RedisModuleKey *key, RedisModuleString
   }
 
   RLookupCoerceType ctype = RLOOKUP_C_STR;
-  if (!pd->options->forceString && RLookupKey_GetFlags(rlk) & RLOOKUP_T_NUMERIC) {
+  if (!pd->options->forceString && RLookupKey_GetFlags(rlk) & RLOOKUP_F_NUMERIC) {
     ctype = RLOOKUP_C_DBL;
   }
   // This function will retain the value if it's a string. This is thread-safe because

@@ -275,7 +275,7 @@ typedef enum {
 /**
  * This key type is numeric
  */
-#define RLOOKUP_T_NUMERIC 0x1000
+#define RLOOKUP_F_NUMERIC 0x1000
 
 // Flags that are allowed to be passed to GetKey
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN | \
