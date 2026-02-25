@@ -240,7 +240,10 @@ jobs:
             --role-arn "$ROLE_ARN" \
             --role-session-name "GitHubActions" \
             --web-identity-token "$OIDC_TOKEN" \
-            --region "$AWS_REGION")
+            --region "$AWS_REGION") || {
+            echo "Failed to assume AWS role using OIDC"
+            exit 1
+          }
 
           AWS_ACCESS_KEY_ID=$(echo "$CREDS_JSON" | jq -r '.Credentials.AccessKeyId')
           AWS_SECRET_ACCESS_KEY=$(echo "$CREDS_JSON" | jq -r '.Credentials.SecretAccessKey')
