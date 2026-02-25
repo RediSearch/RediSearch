@@ -11,6 +11,9 @@
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
+// Manually added since not supported by bitflags
+#define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
+
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
