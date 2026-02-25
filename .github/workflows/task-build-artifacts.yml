@@ -124,6 +124,7 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
           # Execute the logic based on the detected platform
           CONTAINER="${{ needs.get-config.outputs.container }}"
@@ -134,8 +135,8 @@ jobs:
               # Configure the safe directory
               git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-              # Checkout
-              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+              # Checkout (using token for private repo access)
+              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
 
               # Initialize a Git repository
               git init
