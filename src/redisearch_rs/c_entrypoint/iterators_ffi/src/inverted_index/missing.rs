@@ -7,9 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![expect(dead_code)]
-#![expect(non_snake_case)]
-
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
@@ -44,25 +41,6 @@ impl MissingIterator<'_> {
         match self {
             MissingIterator::Encoded(m) => m.reader().flags(),
             MissingIterator::Raw(m) => m.reader().flags(),
-        }
-    }
-}
-
-impl<'index> MissingIterator<'index> {
-    /// Swap the reader's index pointer with the given inverted index.
-    ///
-    /// This is only used by C tests to trigger revalidation.
-    pub(super) fn swap_index(&mut self, ii: &'index inverted_index_ffi::InvertedIndex) {
-        match (self, ii) {
-            (MissingIterator::Encoded(m), inverted_index_ffi::InvertedIndex::DocIdsOnly(ii)) => {
-                let mut ii = ii;
-                m.reader_mut().swap_index(&mut ii);
-            }
-            (MissingIterator::Raw(m), inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii)) => {
-                let mut ii = ii;
-                m.reader_mut().swap_index(&mut ii);
-            }
-            _ => panic!("MissingIterator swap_index: encoding type mismatch"),
         }
     }
 }
@@ -151,6 +129,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 /// 5. `field_index` must be a valid index into `sctx.spec.fields`.
 /// 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
