@@ -1135,12 +1135,28 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
                           (self->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
 
   if (isHybridSubquery) {
-    // For hybrid subqueries: Use try-lock to avoid GIL deadlock.
+    // For hybrid subqueries: Use try-lock with retry to avoid GIL deadlock.
     // If a writer (e.g., HSET) holds the GIL and is waiting for a write lock on the spec
     // (blocked by another depleter's read lock), we would deadlock if we blocked here.
-    int gil_rc = RedisModule_ThreadSafeContextTryLock(sctx->redisCtx);
+    //
+    // We use retry with backoff to handle transient GIL contention (normal operation)
+    // while still detecting actual deadlocks (where retries consistently fail).
+    #define GIL_TRYLOCK_MAX_RETRIES 10
+    #define GIL_TRYLOCK_BACKOFF_US 100  // 100 microseconds between retries
+
+    int gil_rc = REDISMODULE_ERR;
+    for (int retry = 0; retry < GIL_TRYLOCK_MAX_RETRIES; retry++) {
+      gil_rc = RedisModule_ThreadSafeContextTryLock(sctx->redisCtx);
+      if (gil_rc == REDISMODULE_OK) {
+        break;  // Successfully acquired the GIL
+      }
+      // Brief sleep before retry to allow GIL holder to finish
+      usleep(GIL_TRYLOCK_BACKOFF_US);
+    }
+
     if (gil_rc != REDISMODULE_OK) {
-      // Failed to acquire GIL - likely a writer is holding it and waiting for the spec lock.
+      // Failed to acquire GIL after all retries - likely a deadlock scenario
+      // where a writer is holding the GIL and waiting for the spec lock.
       // Return error to avoid deadlock. The query will fail and client should retry.
       return RS_RESULT_ERROR;
     }

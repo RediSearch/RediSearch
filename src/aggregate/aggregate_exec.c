@@ -40,7 +40,9 @@ typedef struct {
   WeakRef spec_ref;
 } blockedClientReqCtx;
 
-static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
+// Returns true if the cursor was freed (either due to try-lock failure or completion).
+// Caller should not access cursor-derived data after this returns true.
+static bool runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 
 // Try to claim reply ownership, send error reply, and mark as replied.
@@ -1309,7 +1311,9 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 
 // For hybrid cursors: acquires spec read lock before executing cursor read.
 // For regular cursors: assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
-static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
+// Returns true if the cursor was freed (either due to try-lock failure or completion).
+// Caller should not access cursor-derived data (e.g., qctx) after this returns true.
+static bool runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
 
@@ -1325,9 +1329,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
       // Return error instead of crashing with stale iterator data
       RedisModule_ReplyWithError(reply->ctx,
         "Failed to acquire index lock for cursor read. A write operation may be in progress. Please retry.");
-      // Free the cursor since we can't continue
+      // Free the cursor since we can't continue.
+      // For hybrid cursors, this may release the last reference to the HybridRequest,
+      // which would free all AREQs and their qctx. Caller must not access qctx after this.
       Cursor_Free(cursor);
-      return;
+      return true;  // Cursor was freed
     }
   }
 
@@ -1354,9 +1360,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     Cursor_Free(cursor);
+    return true;  // Cursor was freed
   } else {
     // Update the idle timeout
     Cursor_Pause(cursor);
+    return false;  // Cursor is still alive (paused)
   }
 }
 
@@ -1423,15 +1431,20 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
     rs_wall_clock_init(&req->profileClocks.initClock); // Reset the clock for the current cursor read
   }
 
+  bool cursor_freed = false;
   if (req) {
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    runCursor(reply, cursor, count);
+    cursor_freed = runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
   } else {
     // TODO: run hybrid cursor - this needs to be implemented for the coordinator
   }
-  // Clear the error pointer to avoid dangling reference to the stack-allocated `status`
-  qctx->err = NULL;
+  // Clear the error pointer to avoid dangling reference to the stack-allocated `status`.
+  // For hybrid cursors, if cursor was freed (e.g., try-lock failure), the HybridRequest
+  // and all its AREQs may have been freed, making qctx a dangling pointer.
+  if (!cursor_freed) {
+    qctx->err = NULL;
+  }
   if (has_spec) {
     IndexSpecRef_Release(execution_ref);
   }
