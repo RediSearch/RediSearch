@@ -1785,15 +1785,16 @@ static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, Red
 
     if (num_locked == sync->num_depleters) {
       // All depleters successfully acquired their locks
-      // Keep holding the main thread's lock to protect the results that will be stored
-      // We'll release it after all depleters complete and results are safely stored
-      sync->index_released = true;  // Mark as "released" to prevent re-entry to this function
+      // Release the main thread's lock now - depleters have their own locks
+      // This prevents deadlock: SafeLoader needs GIL, Writer holds GIL waiting for write lock
+      RedisSearchCtx_UnlockSpec(nextThreadCtx);
+      sync->index_released = true;  // Mark as released to prevent re-entry
       return RS_RESULT_OK;
     } else if (any_failed) {
       // At least one depleter failed to acquire the lock
-      // Keep holding the main thread's lock to protect depleters that did acquire locks
-      // We'll release it after all depleters complete
-      sync->index_released = true;  // Mark as "released" to prevent re-entry to this function
+      // Release the main thread's lock - depleters that acquired locks will release theirs
+      RedisSearchCtx_UnlockSpec(nextThreadCtx);
+      sync->index_released = true;  // Mark as released to prevent re-entry
       return RS_RESULT_OK;  // Return OK to exit the wait loop, error will be detected later
     } else {
       // Not all safe depleter threads have taken the index lock yet. Wait for them
@@ -1984,15 +1985,9 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
     }
   }
 
-  // Release the main thread's lock now that all depleters have completed
-  // We kept the lock during depletion to protect the index data that depleters
-  // are reading and storing in their results arrays
-  if (sync->take_index_lock && sync->index_released) {
-    // index_released was set to true in WaitForDepletionToStart, but we didn't
-    // actually release the lock - we kept it to protect the depletion process
-    // Release it now that all depleters have completed
-    RedisSearchCtx_UnlockSpec(searchCtx);
-  }
+  // Note: The main thread's lock was already released in WaitForDepletionToStart
+  // after all depleters acquired their locks (or when any failed).
+  // This early release prevents deadlock with SafeLoader GIL acquisition.
 
   if (any_failed) {
     // At least one depleter failed to acquire the lock

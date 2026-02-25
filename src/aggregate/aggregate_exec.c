@@ -1307,29 +1307,9 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   return REDISMODULE_OK;
 }
 
-// For hybrid cursors: acquires spec read lock before executing cursor read.
-// For regular cursors: assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-
-  // For hybrid cursors, we need to acquire the lock before reading
-  // because the cursor may have been idle and the index may have been modified
-  bool is_hybrid = IsHybrid(req);
-  if (is_hybrid) {
-    // Try to acquire spec read lock before executing the cursor read
-    // If a writer is waiting, this will fail to prevent using stale iterator data
-    int lock_rc = RedisSearchCtx_TryLockSpecRead(sctx);
-    if (lock_rc != REDISMODULE_OK) {
-      // Failed to acquire lock - likely a writer is waiting
-      // Return error instead of crashing with stale iterator data
-      RedisModule_ReplyWithError(reply->ctx,
-        "Failed to acquire index lock for cursor read. A write operation may be in progress. Please retry.");
-      // Free the cursor since we can't continue
-      Cursor_Free(cursor);
-      return;
-    }
-  }
 
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // update timeout for current cursor read
@@ -1347,9 +1327,10 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   sendChunk(req, reply, num);
 
-  // Release the spec lock
-  // For hybrid cursors, we acquired it above
-  // For regular cursors, it was acquired by the caller
+  // Release the spec lock that was acquired before this function was called.
+  // For the first cursor read: lock was acquired in AREQ_BuildPipeline before calling AREQ_StartCursor.
+  // For subsequent cursor reads: lock is acquired/released per-result in handleSpecLockAndRevalidate,
+  // but this call is still needed because the lock may still be held if iteration didn't complete.
   RedisSearchCtx_UnlockSpec(sctx);
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
