@@ -11,6 +11,7 @@
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "vector_index.h"
+#include "rlookup_load_document.h"
 
 #include <string.h>
 
