@@ -1035,7 +1035,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   return rv;
 }
 
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr, QueryError *status) {
+int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr, QueryError *status) {
   SchemaRule *rule = spec->rule;
 
   // create rlookupkeys
@@ -1055,10 +1055,9 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   }
 
   // load
-  RedisSearchCtx sctx = { .redisCtx = ctx };
   RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
                             .nkeys = nkeys,
-                            .sctx = &sctx,
+                            .sctx = sctx,
                             .keyPtr = keyptr,
                             .type = rule->type,
                             .status = status,
