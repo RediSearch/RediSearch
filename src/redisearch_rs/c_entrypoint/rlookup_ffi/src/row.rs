@@ -326,7 +326,7 @@ pub unsafe extern "C" fn RLookupRow_Get(
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
-    row.get(key).map(|x| NonNull::new(x.as_raw()).unwrap())
+    row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
 }
 
 /// Returns the sorting vector for the row, or null if none exists.

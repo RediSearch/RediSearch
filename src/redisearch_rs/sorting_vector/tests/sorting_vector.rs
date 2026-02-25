@@ -67,7 +67,7 @@ fn out_of_bounds() -> Result<(), IndexOutOfBounds> {
 fn override_value() -> Result<(), IndexOutOfBounds> {
     let src = build_vector()?;
     let mut dst: RSSortingVector = RSSortingVector::new(1);
-    assert!(RSValueFFI::ptr_eq(&dst[0], &RSValueFFI::new_null()));
+    assert!(RSValueFFI::ptr_eq(&dst[0], &RSValueFFI::null_static()));
 
     for (idx, val) in src.iter().enumerate() {
         dst.try_insert_val(0, val.clone())?;
@@ -80,7 +80,7 @@ fn override_value() -> Result<(), IndexOutOfBounds> {
         *val = RSValueFFI::new_num(42.0)
     }
 
-    assert!(RSValueFFI::ptr_eq(&dst[0], &RSValueFFI::new_null()));
+    assert!(RSValueFFI::ptr_eq(&dst[0], &RSValueFFI::null_static()));
     Ok(())
 }
 

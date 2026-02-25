@@ -47,7 +47,7 @@ impl RSSortingVector {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
         Self {
-            values: vec![RSValueFFI::new_null(); len].into_boxed_slice(),
+            values: vec![RSValueFFI::null_static(); len].into_boxed_slice(),
         }
     }
 
@@ -108,7 +108,7 @@ impl RSSortingVector {
     /// Set a null value at the given index
     pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = RSValueFFI::new_null();
+        *spot = RSValueFFI::null_static();
         Ok(())
     }
 

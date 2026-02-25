@@ -59,7 +59,7 @@ impl RSValueFFI {
         Self(ptr)
     }
 
-    pub const fn as_raw(&self) -> *mut ffi::RSValue {
+    pub const fn as_ptr(&self) -> *mut ffi::RSValue {
         self.0.as_ptr()
     }
 
@@ -67,7 +67,7 @@ impl RSValueFFI {
         this.0 == other.0
     }
 
-    pub fn new_null() -> Self {
+    pub fn null_static() -> Self {
         // Safety: RSValue_NullStatic returns an immutable global ptr
         let val = unsafe { ffi::RSValue_NullStatic() };
         RSValueFFI(NonNull::new(val).expect("RSValue_NullStatic returned a null pointer"))

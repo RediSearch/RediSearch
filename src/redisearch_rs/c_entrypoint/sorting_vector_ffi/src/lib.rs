@@ -38,7 +38,7 @@ pub unsafe extern "C" fn RSSortingVector_Get(
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.as_ref().expect("vec must not be null") };
 
-    vec[idx].as_raw()
+    vec[idx].as_ptr()
 }
 
 /// Returns the length of the sorting vector.
