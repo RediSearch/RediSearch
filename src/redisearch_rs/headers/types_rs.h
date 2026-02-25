@@ -308,7 +308,7 @@ typedef struct RSOffsetVector {
   /**
    * Pointer to the borrowed offset data.
    */
-  uint8_t *data;
+  const uint8_t *data;
   uint32_t len;
 } RSOffsetVector;
 

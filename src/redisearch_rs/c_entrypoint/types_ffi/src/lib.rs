@@ -593,7 +593,7 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.data = data.cast::<u8>().cast_mut();
+    offsets.data = data.cast::<u8>();
     offsets.len = len;
 }
 

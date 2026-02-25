@@ -18,7 +18,7 @@ use std::{alloc::Layout, borrow::Borrow, fmt::Debug, marker::PhantomData, ptr};
 #[derive(Copy, Clone)]
 pub struct RSOffsetSlice<'index> {
     /// Pointer to the borrowed offset data.
-    pub data: *mut u8,
+    pub data: *const u8,
     pub len: u32,
     /// The data pointer does not carry a lifetime, so use a `PhantomData` to track it instead.
     _phantom: PhantomData<&'index ()>,
@@ -38,8 +38,7 @@ impl Debug for RSOffsetSlice<'_> {
             return write!(f, "RSOffsetSlice(null)");
         }
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let offsets =
-            unsafe { std::slice::from_raw_parts(self.data.cast_const(), self.len as usize) };
+        let offsets = unsafe { std::slice::from_raw_parts(self.data, self.len as usize) };
 
         write!(f, "RSOffsetSlice {offsets:?}")
     }
@@ -69,7 +68,7 @@ impl<'index> RSOffsetSlice<'index> {
             "offset slice length exceeds u32::MAX"
         );
         Self {
-            data: bytes.as_ptr().cast_mut(),
+            data: bytes.as_ptr(),
             len: bytes.len() as u32,
             _phantom: PhantomData,
         }
@@ -80,7 +79,7 @@ impl RSOffsetSlice<'_> {
     /// Create a new, empty offset slice.
     pub const fn empty() -> Self {
         Self {
-            data: ptr::null_mut(),
+            data: ptr::null(),
             len: 0,
             _phantom: PhantomData,
         }
