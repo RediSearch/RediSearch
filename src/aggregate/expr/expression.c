@@ -395,9 +395,9 @@ int EvalCtx_Eval(EvalCtx *r) {
   return ExprEval_Eval(&r->ee, r->res);
 }
 
-int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {
+int EvalCtx_EvalExpr(EvalCtx *r, const RSExpr *expr) {
   if (r->_expr && r->_own_expr) {
-    ExprAST_Free(r->_expr);
+    ExprAST_Free((RSExpr *)r->_expr);
   }
   r->_expr = expr;
   r->_own_expr = false;
@@ -407,7 +407,7 @@ int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {
 
 int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *expr) {
   if (r->_expr && r->_own_expr) {
-    ExprAST_Free(r->_expr);
+    ExprAST_Free((RSExpr *)r->_expr);
   }
   r->_expr = ExprAST_Parse(expr, r->ee.err);
   r->_own_expr = true;

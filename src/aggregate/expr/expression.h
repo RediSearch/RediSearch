@@ -143,7 +143,7 @@ typedef struct EvalCtx {
   QueryError status;
   ExprEval ee;
   RSValue *res;
-  RSExpr *_expr;
+  const RSExpr *_expr;
   bool _own_expr;
 } EvalCtx;
 
@@ -152,7 +152,7 @@ EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
 EvalCtx *EvalCtx_FromString(const HiddenString *exprstr);
 void EvalCtx_Destroy(EvalCtx *r);
 int EvalCtx_Eval(EvalCtx *r);
-int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);
+int EvalCtx_EvalExpr(EvalCtx *r, const RSExpr *expr);
 int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *exprstr);
 
 /**
