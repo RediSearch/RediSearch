@@ -51,7 +51,7 @@ pub unsafe extern "C" fn ProfileIterator_GetChild(
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     let child: &QueryIterator = &*wrapper.inner.child();
-    std::ptr::from_ref(child).cast_mut()
+    std::ptr::from_ref(child)
 }
 
 /// Get the profile counters from a profile iterator.
