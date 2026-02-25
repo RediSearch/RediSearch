@@ -300,10 +300,16 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
   return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex);
 }
 
-/* Open the tag index */
-TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing, RedisSearchDiskIndexSpec *diskSpec) {
+/* Open the tag index, returning NULL if it doesn't exist. */
+TagIndex *TagIndex_Open(const FieldSpec *spec) {
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
-  if (!spec->tagOpts.tagIndex && create_if_missing) {
+  return spec->tagOpts.tagIndex;
+}
+
+/* Open the tag index, creating it if it doesn't exist. */
+TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec) {
+  RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
+  if (!spec->tagOpts.tagIndex) {
     spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index);
   }
   return spec->tagOpts.tagIndex;
@@ -337,9 +343,9 @@ void TagIndex_Free(TagIndex *idx) {
   rm_free(idx);
 }
 
-size_t TagIndex_GetOverhead(FieldSpec *fs) {
+size_t TagIndex_GetOverhead(const FieldSpec *fs) {
   size_t overhead = 0;
-  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
+  TagIndex *idx = TagIndex_Open(fs);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
     if (idx->suffix) {
