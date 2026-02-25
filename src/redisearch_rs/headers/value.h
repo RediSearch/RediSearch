@@ -33,145 +33,283 @@ typedef enum RsValueType {
 } RsValueType;
 
 /**
+ * Opaque map structure used during map construction.
+ * Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
+ * before being finalized into an [`RsValue::Map`] via [`RSValue_NewMapFromBuilder`].
+ */
+typedef struct RSValueMapBuilder RSValueMapBuilder;
+
+/**
  * An actual [`RsValue`] object
  */
 typedef struct RsValue RsValue;
-
-/**
- * A shared RedisSearch dynamic value, backed by an `Arc<RsValue>`.
- */
-typedef struct SharedRsValue SharedRsValue;
-
-/**
- * A single entry of a [`RsValueMap`].
- */
-typedef struct RsValueMapEntry {
-  struct SharedRsValue key;
-  struct SharedRsValue value;
-} RsValueMapEntry;
-
-/**
- * An low-memory immutable structure that holds and manages a set of
- * T items.
- *
- * This collection's capacity is represented by an `u32` and the
- * collection itself is `#[repr(C, packed)]` so that it's size is just
- * 12 bytes.
- *
- * # Invariants
- * - (1) Can hold at most [`Self::MAX_CAPACITY`] items, which on 32-bit systems
- *   is less than `u32::MAX`. The reason for this is that when doing pointer
- *   addition, we must ensure we don't overflow `isize::MAX`.
- *   See [`NonNull::add`].
- */
-typedef struct PACKED RsValueCollection_RsValueMapEntry {
-  /**
-   * Pointer to a heap-allocated array of `Self::cap` items.
-   */
-  struct RsValueMapEntry *entries;
-  /**
-   * The number of items this collection can hold
-   */
-  uint32_t cap;
-} RsValueCollection_RsValueMapEntry;
-
-typedef struct RsValueCollection_RsValueMapEntry RsValueMap;
-
-/**
- * An low-memory immutable structure that holds and manages a set of
- * T items.
- *
- * This collection's capacity is represented by an `u32` and the
- * collection itself is `#[repr(C, packed)]` so that it's size is just
- * 12 bytes.
- *
- * # Invariants
- * - (1) Can hold at most [`Self::MAX_CAPACITY`] items, which on 32-bit systems
- *   is less than `u32::MAX`. The reason for this is that when doing pointer
- *   addition, we must ensure we don't overflow `isize::MAX`.
- *   See [`NonNull::add`].
- */
-typedef struct PACKED RsValueCollection_SharedRsValue {
-  /**
-   * Pointer to a heap-allocated array of `Self::cap` items.
-   */
-  struct SharedRsValue *entries;
-  /**
-   * The number of items this collection can hold
-   */
-  uint32_t cap;
-} RsValueCollection_SharedRsValue;
-
-typedef struct RsValueCollection_SharedRsValue RsValueArray;
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
 /**
- * Create a new, uninitialized [`RsValueMap`], reserving space for `cap`
- * entries. The map entries are uninitialized and must be set using [`RsValueMap_SetEntry`].
+ * Allocates an array of null pointers with space for `len` [`RsValue`] pointers.
+ *
+ * The returned buffer must be populated and then passed to [`RSValue_NewArrayFromBuilder`]
+ * to produce an array value.
  *
  * # Safety
- * - (1) All items of the returned [`RsValueMap`] must be initialized using
- *   [`RsValueMap_SetEntry`] prior to using it.
  *
- * @param cap the number of entries (key and value) the map needs to store
- * @returns an uninitialized `RsValueMap` of `cap` capacity.
+ * 1. The caller must eventually pass the returned pointer to [`RSValue_NewArrayFromBuilder`].
  */
-RsValueMap RsValueMap_AllocUninit(uint32_t cap);
+struct RsValue **RSValue_NewArrayBuilder(uint32_t len);
 
 /**
- * Set a key-value pair at a specific index in the map.
- * Takes ownership of both the key and value RSValues.
+ * Creates a heap-allocated array [`RsValue`] from existing values.
+ *
+ * Takes ownership of the `values` buffer and all [`RsValue`] pointers within it.
+ * The values will be freed when the array is freed.
  *
  * # Safety
- * - (1) `map` must be a valid pointer to an [`RsValueMap`] that
- *   has been created by [`RsValueMap_AllocUninit`] and
- *   that is valid for writes;
- * - (2) `i` must smaller than the capacity of the [`RsValueMap`],
- *   which cannot exceed [`u32::MAX`].
- * - (3) `key` and `value` must be valid pointers to [`RsValue`]
- *   obtained from [`SharedRsValue::into_raw`].
  *
- * @param map The map to modify
- * @param i The index where to set the entry (must be < map->len)
- * @param key The key RSValue (ownership is transferred to the map)
- * @param value The value RSValue (ownership is transferred to the map)
+ * 1. `values` must have been allocated via [`RSValue_NewArrayBuilder`] with
+ *    a capacity equal to `len`.
+ * 2. All `len` entries in `values` must have been filled with valid [`RsValue`] pointers.
  */
-void RsValueMap_SetEntry(RsValueMap *map,
-                         size_t i,
-                         const struct RsValue *key,
-                         const struct RsValue *value);
+struct RsValue *RSValue_NewArrayFromBuilder(struct RsValue **values, uint32_t len);
 
 /**
- * Allocates an uninitialized [`RsValueArray`].
+ * Returns the number of elements in an array [`RsValue`].
+ *
+ * If `value` is not an array, returns `0`.
  *
  * # Safety
- * See [`RsValueCollection::reserve_uninit`](value::collection::RsValueCollection::reserve_uninit)
  *
- * @param cap The desired capacity of the [`RsValueArray`]
- * @return An uninitialized `RsValueArray` of `cap` capacity
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  */
-RsValueArray RsValueArray_AllocUninit(uint32_t cap);
+uint32_t RSValue_ArrayLen(const struct RsValue *value);
 
 /**
- * Writes a value into the [`RsValueArray`] at `i`.
+ * Returns a pointer to the element at `index` in an array [`RsValue`].
+ *
+ * If `value` is not an array, returns a null pointer. The returned pointer
+ * is borrowed from the array and must not be freed by the caller.
  *
  * # Safety
- * - (1) `arr` must be a non-null pointer to an [`RsValueArray`] originating from
- *   [`RsValueArray_AllocUninit`];
- * - (2) `arr` must be unique;
- * - (3) `i` must not exceed the [`RsValueArray`]'s capacity, which cannot
- *   exceed [`u32::MAX`].
- * - (4) `value` must be a valid pointer to [`RsValue`]
- *   obtained from [`SharedRsValue::into_raw`].
  *
- * @param arr The array to modify
- * @param i The index at which to write the value
- * @param value the value that is to be written
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panics
+ *
+ * Panics if `index` greater than or equal to the array length.
  */
-void RsValueArray_SetEntry(RsValueArray *arr, size_t i, const struct RsValue *value);
+struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type undefined.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ */
+struct RsValue *RSValue_NewUndefined(void);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type null.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ */
+struct RsValue *RSValue_NewNull(void);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type number
+ * containing the given numeric value.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ */
+struct RsValue *RSValue_NewNumber(double value);
+
+/**
+ * Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
+ *
+ * Takes ownership of all three arguments.
+ *
+ * The caller must make sure to pass the returned [`RsValue`] to one of the
+ * ownership taking `RSValue_` methods, directly or indirectly.
+ *
+ * # Safety
+ *
+ * 1. All three arguments must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ */
+struct RsValue *RSValue_NewTrio(struct RsValue *left,
+                                struct RsValue *middle,
+                                struct RsValue *right);
+
+/**
+ * Gets the numeric value from an [`RsValue`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panic
+ *
+ * Panics if the value is not a number type.
+ */
+double RSValue_Number_Get(const struct RsValue *value);
+
+/**
+ * Borrows an immutable reference to the left value of a trio.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panic
+ *
+ * Panics if the value is not a trio type.
+ */
+const struct RsValue *RSValue_Trio_GetLeft(const struct RsValue *value);
+
+/**
+ * Borrows an immutable reference to the middle value of a trio.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panic
+ *
+ * Panics if the value is not a trio type.
+ */
+const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
+
+/**
+ * Borrows an immutable reference to the right value of a trio.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panic
+ *
+ * Panics if the value is not a trio type.
+ */
+const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
+
+/**
+ * Allocates a new, uninitialized [`RSValueMapBuilder`] with space for `len` entries.
+ *
+ * The map entries are uninitialized and must be set using [`RSValue_MapBuilderSetEntry`]
+ * before being finalized into an [`RsValue`] via [`RSValue_NewMapFromBuilder`].
+ *
+ * # Safety
+ *
+ * 1. All entries must be initialized via [`RSValue_MapBuilderSetEntry`] before
+ *    passing the map to [`RSValue_NewMapFromBuilder`].
+ */
+struct RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len);
+
+/**
+ * Sets a key-value pair at a specific index in the map.
+ *
+ * Takes ownership of both the `key` and `value` [`RsValue`] pointers.
+ *
+ * # Safety
+ *
+ * 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+ *    [`RSValue_NewMapBuilder`].
+ * 2. `key` and `value` must be valid pointers to [`RsValue`]
+ *
+ * # Panics
+ *
+ * Panics if `index` is greater than or equal to the map length.
+ */
+void RSValue_MapBuilderSetEntry(struct RSValueMapBuilder *map,
+                                size_t index,
+                                struct RsValue *key,
+                                struct RsValue *value);
+
+/**
+ * Creates a heap-allocated map [`RsValue`] from an [`RSValueMapBuilder`].
+ *
+ * Takes ownership of the map structure and all its entries. The [`RSValueMapBuilder`]
+ * pointer is consumed and must not be used after this call.
+ *
+ * # Safety
+ *
+ * 1. `map` must be a valid pointer to an [`RSValueMapBuilder`] created by
+ *    [`RSValue_NewMapBuilder`].
+ * 2. All entries in the map must have been initialized via [`RSValue_MapBuilderSetEntry`].
+ */
+struct RsValue *RSValue_NewMapFromBuilder(struct RSValueMapBuilder *map);
+
+/**
+ * Returns the number of key-value pairs in a map [`RsValue`].
+ *
+ * # Safety
+ *
+ * 1. `map` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ *
+ * # Panics
+ *
+ * Panics if `map` is not a map value.
+ */
+uint32_t RSValue_Map_Len(const struct RsValue *map);
+
+/**
+ * Retrieves a key-value pair from a map [`RsValue`] at a specific index.
+ *
+ * The returned key and value pointers are borrowed from the map and must
+ * not be freed by the caller.
+ *
+ * # Safety
+ *
+ * 1. `map` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `key` and `value` must be valid, non-null pointers to writable
+ *    `*mut RsValue` locations.
+ *
+ * # Panics
+ *
+ * - Panics if `map` is not a map value.
+ * - Panics if `index` is greater or equal to the map length.
+ */
+void RSValue_Map_GetEntry(const struct RsValue *map,
+                          uint32_t index,
+                          struct RsValue **key,
+                          struct RsValue **value);
+
+/**
+ * Converts an [`RsValue`] to a number type in-place.
+ *
+ * This clears the existing value and sets it to Number with the given value.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ * 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ */
+void RSValue_SetNumber(struct RsValue *value, double n);
+
+/**
+ * Converts an [`RsValue`] to null type in-place.
+ *
+ * This clears the existing value and sets it to Null.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
+ * 2. Only 1 reference is allowed to exist pointing to this [`RsValue`] object.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ */
+void RSValue_SetNull(struct RsValue *value);
 
 /**
  * Creates a heap-allocated `RsValue` wrapping a string.
@@ -245,14 +383,6 @@ const struct RsValue *SharedRsValue_NewCopiedString(const char *str, uint32_t le
 const struct RsValue *SharedRsValue_NewParsedNumber(const char *str, uintptr_t len);
 
 /**
- * Creates a heap-allocated `RsValue` containing a number.
- *
- * @param n The numeric value to wrap
- * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
- */
-const struct RsValue *SharedRsValue_NewNumber(double n);
-
-/**
  * Creates a heap-allocated `RsValue` containing a number from an int64.
  * This operation casts the passed `i64` to an `f64`, possibly losing information.
  *
@@ -262,50 +392,15 @@ const struct RsValue *SharedRsValue_NewNumber(double n);
 const struct RsValue *SharedRsValue_NewNumberFromInt64(int64_t dd);
 
 /**
- * Creates a heap-allocated `RsValue` array from existing values.
- * Takes ownership of the values (values will be freed when array is freed).
- *
- * @param vals The values array to use for the array (ownership is transferred)
- * @param len Number of values
- * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Array`
- */
-const struct RsValue *SharedRsValue_NewArray(RsValueArray vals);
-
-/**
- * Creates a heap-allocated RsValue of type RsValue_Map from an RsValueMap.
- * Takes ownership of the map structure and all its entries.
- *
- * @param map The RsValueMap to wrap (ownership is transferred)
- * @return A pointer to a heap-allocated RsValue of type RsValueType_Map
- */
-const struct RsValue *SharedRsValue_NewMap(RsValueMap map);
-
-/**
- * Creates a heap-allocated RsValue Trio from three RsValues.
- * Takes ownership of all three values.
+ * Decrement the reference count of the provided [`RsValue`] object. If this was
+ * the last available reference, it frees the data.
  *
  * # Safety
  *
- * - (1) `left`, `middle`, and `right` must be valid pointers to [`RsValue`]
- *   obtained from [`SharedRsValue::into_raw`].
- *
- * @param left The left value (ownership is transferred)
- * @param middle The middle value (ownership is transferred)
- * @param right The right value (ownership is transferred)
- * @return A pointer to a heap-allocated RsValue of type RsValueType_Trio
+ * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function returning an owned [`RsValue`] object.
  */
-const struct RsValue *SharedRsValue_NewTrio(const struct RsValue *left,
-                                            const struct RsValue *middle,
-                                            const struct RsValue *right);
-
-/**
- * Gets the `f64` wrapped by the `SharedRsValue`
- *
- * # Safety
- * - (1) `v` must be a valid pointer to [`RsValue`] obtained from [`SharedRsValue::into_raw`].
- * - (2) `v` must be a number value.
- */
-double SharedRsValue_Number_Get(const struct RsValue *v);
+void RSValue_DecrRef(const struct RsValue *value);
 
 /**
  * Returns the type of the given [`RsValue`].

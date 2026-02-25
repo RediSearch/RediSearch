@@ -217,9 +217,9 @@ run_env() {
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
-		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
+		{ $OP uv run python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
-		$OP python3 -m RLTest @$rltest_config
+		$OP uv run python3 -m RLTest @$rltest_config
 	fi
 
 	[[ $KEEP != 1 ]] && rm -f $rltest_config
@@ -326,9 +326,9 @@ run_tests() {
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
-		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
+		{ $OP uv run python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
-		$OP python3 -m RLTest @$rltest_config
+		$OP uv run python3 -m RLTest @$rltest_config
 	fi
 
 	[[ $KEEP != 1 ]] && rm -f $rltest_config

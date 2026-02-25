@@ -48,6 +48,7 @@ typedef struct ConcurrentCmdCtx {
   int options;
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
+  size_t numShards;                   // Number of shards in the cluster (captured from main thread)
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -99,6 +100,10 @@ rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(ConcurrentCmdCtx *cctx) {
   return cctx->coordStartTime;
 }
 
+size_t ConcurrentCmdCtx_GetNumShards(const ConcurrentCmdCtx *cctx) {
+  return cctx->numShards;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
@@ -108,6 +113,7 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   cmdCtx->argc = argc;
   cmdCtx->spec_ref = handlerCtx->spec_ref;
   cmdCtx->coordStartTime = handlerCtx->coordStartTime;
+  cmdCtx->numShards = handlerCtx->numShards;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
@@ -154,4 +160,13 @@ int ConcurrentSearch_resume() {
   }
   redisearch_thpool_resume_threads(threadpools_g[0]);
   return REDISMODULE_OK;
+}
+
+thpool_stats ConcurrentSearch_getStats() {
+  thpool_stats stats = {0};
+  if (!threadpools_g) {
+    return stats;
+  }
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_get_stats(threadpools_g[0]);
 }

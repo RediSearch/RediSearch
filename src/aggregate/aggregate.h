@@ -9,7 +9,6 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
-#include <stdbool.h>
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
@@ -22,13 +21,18 @@
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
 extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
+#include <stdatomic.h>
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -199,7 +203,16 @@ typedef enum {
 } QEStateFlags;
 
 
-typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
+
+// Reply state for coordinating replies between main thread (timeout callback) and background thread
+// Transitions: NOT_REPLIED -> REPLYING -> REPLIED
+typedef enum {
+  ReplyState_NotReplied = 0,  // No reply has been started yet
+  ReplyState_Replying = 1,    // A reply is currently in progress
+  ReplyState_Replied = 2,     // A reply has been completed
+} ReplyState;
+
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -257,21 +270,11 @@ typedef struct AREQ {
 
   RequestConfig reqConfig;
 
-  /** Time when command was received on coordinator in ns (for dispatch time tracking) */
-  rs_wall_clock_ns_t coordStartTime;
-
-  /** Dispatch time from coordinator to shard in ns (for timeout adjustment) for internal commands */
-  rs_wall_clock_ns_t coordDispatchTime;
-
   /** Cursor configuration */
   CursorConfig cursorConfig;
 
   /** Profile variables */
-  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
-  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
-  rs_wall_clock_ns_t profileQueueTime;          // Time spent waiting in workers thread pool queue
-  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
-  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+  ProfileClocks profileClocks;
 
   const char** requiredFields;
 
@@ -292,6 +295,17 @@ typedef struct AREQ {
   size_t prefixesOffset;
 
   ProfilePrinterCtx profileCtx;
+
+  // Timeout signaling flag for Run in Threads mode (set by timeout callback on main thread)
+  RS_Atomic(bool) timedOut;
+  // Reply ownership state, coordinates reply between main and background thread
+  // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
+  RS_Atomic(uint8_t) replyState;
+  // Flag to indicate whether to check for timeout using clock checks
+  bool skipTimeoutChecks;
+  // Reference count for shared ownership between QueryNode (timeout callback) and background thread.
+  // Initialized to 1. Free when reaches 0.
+  uint8_t refcount;
 } AREQ;
 
 /**
@@ -422,8 +436,8 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * like so:
  *
  * @code {.c}
- * RLookup lksrc;
- * RLookup lkdst;
+ * RLookup lksrc = RLookup_New();
+ * RLookup lkdst = RLookup_New();
  * const char *kname[] = {"foo", "bar", "baz"};
  * RLookupKey *srckeys[3];
  * RLookupKey *dstkeys[3];
@@ -455,7 +469,20 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
-void AREQ_Free(AREQ *req);
+
+/**
+ * Increment the reference count of the AREQ.
+ * @param req the request to increment
+ * @return the request (for chaining)
+ */
+AREQ *AREQ_IncrRef(AREQ *req);
+
+/**
+ * Decrement the reference count of the AREQ.
+ * If the reference count reaches 0, the request is freed.
+ * @param req the request to decrement
+ */
+void AREQ_DecrRef(AREQ *req);
 
 /**
  * Start the cursor on the current request
@@ -493,16 +520,31 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(size_t *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
-int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
 
 // From dist_aggregate.c
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
-void parseProfileExecOptions(AREQ *r, int execOptions);
+
+bool AREQ_TimedOut(AREQ *req);
+void AREQ_SetTimedOut(AREQ *req);
+
+static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
+  return !req->skipTimeoutChecks;
+}
+
+static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
+  req->skipTimeoutChecks = skipTimeoutChecks;
+  // Also propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  if (req->sctx) {
+    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+  }
+}
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
+#undef RS_Atomic
+
 }
 #endif
 #endif

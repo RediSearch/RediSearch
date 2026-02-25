@@ -17,7 +17,7 @@
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::SortedIdList,
+    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
     intersection::Intersection,
 };
 
@@ -31,7 +31,7 @@ use crate::utils::{Mock, MockRevalidateResult};
 /// - Some unique document IDs specific to that child
 ///
 /// This ensures the intersection of all children equals exactly the result set.
-fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<SortedIdList<'static>> {
+fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<IdListSorted<'static>> {
     let mut children = Vec::with_capacity(num_children);
     let mut next_unique_id: t_docId = 1;
 
@@ -49,7 +49,7 @@ fn create_children(num_children: usize, result_set: &[t_docId]) -> Vec<SortedIdL
         child_ids.sort();
         child_ids.dedup();
 
-        children.push(SortedIdList::new(child_ids));
+        children.push(IdListSorted::new(child_ids));
     }
 
     children
@@ -341,8 +341,8 @@ fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
 #[test]
 fn empty_result_set() {
     // When the intersection has no common documents, should immediately EOF
-    let child1 = SortedIdList::new(vec![1, 2, 3]);
-    let child2 = SortedIdList::new(vec![4, 5, 6]);
+    let child1 = IdListSorted::new(vec![1, 2, 3]);
+    let child2 = IdListSorted::new(vec![4, 5, 6]);
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -354,9 +354,9 @@ fn empty_result_set() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn single_element_result_set() {
-    let child1 = SortedIdList::new(vec![1, 5, 10]);
-    let child2 = SortedIdList::new(vec![5, 15, 20]);
-    let child3 = SortedIdList::new(vec![3, 5, 25]);
+    let child1 = IdListSorted::new(vec![1, 5, 10]);
+    let child2 = IdListSorted::new(vec![5, 15, 20]);
+    let child3 = IdListSorted::new(vec![3, 5, 25]);
 
     let mut ii = Intersection::new(vec![child1, child2, child3]);
 
@@ -373,8 +373,8 @@ fn single_element_result_set() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn skip_to_exact_match() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-    let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
+    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
+    let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -392,8 +392,8 @@ fn skip_to_exact_match() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn skip_to_not_found() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-    let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
+    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
+    let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -416,7 +416,7 @@ fn skip_to_not_found() {
 /// C-Code: Equivalent to C++ TestIntersectionWithNoChild
 #[test]
 fn no_children() {
-    let children: Vec<SortedIdList<'static>> = vec![];
+    let children: Vec<IdListSorted<'static>> = vec![];
     let mut ii = Intersection::new(children);
 
     // Should immediately return EOF
@@ -437,7 +437,7 @@ fn no_children() {
 #[cfg_attr(miri, ignore)]
 fn single_child() {
     let doc_ids = vec![10, 20, 30, 40, 50];
-    let child = SortedIdList::new(doc_ids.clone());
+    let child = IdListSorted::new(doc_ids.clone());
     let mut ii = Intersection::new(vec![child]);
 
     // Should read all documents from the single child
@@ -462,8 +462,8 @@ fn single_child() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn skip_to_past_eof() {
-    let child1 = SortedIdList::new(vec![10, 20, 30]);
-    let child2 = SortedIdList::new(vec![10, 20, 30]);
+    let child1 = IdListSorted::new(vec![10, 20, 30]);
+    let child2 = IdListSorted::new(vec![10, 20, 30]);
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -488,8 +488,8 @@ fn skip_to_past_eof() {
 #[cfg_attr(miri, ignore)]
 fn skip_to_sequential() {
     let doc_ids = vec![10, 20, 30, 40, 50];
-    let child1 = SortedIdList::new(doc_ids.clone());
-    let child2 = SortedIdList::new(doc_ids.clone());
+    let child1 = IdListSorted::new(doc_ids.clone());
+    let child2 = IdListSorted::new(doc_ids.clone());
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -515,8 +515,8 @@ fn skip_to_sequential() {
 #[cfg_attr(miri, ignore)]
 fn interleaved_read_and_skip_to() {
     let doc_ids = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-    let child1 = SortedIdList::new(doc_ids.clone());
-    let child2 = SortedIdList::new(doc_ids.clone());
+    let child1 = IdListSorted::new(doc_ids.clone());
+    let child2 = IdListSorted::new(doc_ids.clone());
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -556,13 +556,13 @@ fn many_children() {
     let doc_ids = vec![100, 200, 300, 400, 500];
     let num_children = 50;
 
-    let children: Vec<SortedIdList<'static>> = (0..num_children)
+    let children: Vec<IdListSorted<'static>> = (0..num_children)
         .map(|i| {
             // Each child has the common docs + some unique ones
             let mut ids = doc_ids.clone();
             ids.push(i as t_docId + 1); // Unique to this child
             ids.sort();
-            SortedIdList::new(ids)
+            IdListSorted::new(ids)
         })
         .collect();
 
@@ -852,8 +852,8 @@ fn revalidate_some_children_moved_to_eof() {
 #[test]
 #[cfg_attr(miri, ignore)]
 fn current_after_operations() {
-    let child1 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
-    let child2 = SortedIdList::new(vec![10, 20, 30, 40, 50]);
+    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
+    let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -909,8 +909,8 @@ fn current_after_operations() {
 #[cfg_attr(miri, ignore)]
 fn large_doc_id_gaps() {
     let sparse_ids = vec![1, 1_000_000, 2_000_000, 10_000_000];
-    let child1 = SortedIdList::new(sparse_ids.clone());
-    let child2 = SortedIdList::new(sparse_ids.clone());
+    let child1 = IdListSorted::new(sparse_ids.clone());
+    let child2 = IdListSorted::new(sparse_ids.clone());
 
     let mut ii = Intersection::new(vec![child1, child2]);
 
@@ -946,9 +946,9 @@ fn large_doc_id_gaps() {
 #[cfg_attr(miri, ignore)]
 fn overlapping_children_ids() {
     // Create children with significant overlap but different unique IDs
-    let child1 = SortedIdList::new(vec![1, 2, 3, 5, 10, 15, 20, 25, 30]);
-    let child2 = SortedIdList::new(vec![2, 3, 5, 7, 10, 12, 15, 20, 30, 35]);
-    let child3 = SortedIdList::new(vec![3, 5, 8, 10, 15, 18, 20, 30, 40]);
+    let child1 = IdListSorted::new(vec![1, 2, 3, 5, 10, 15, 20, 25, 30]);
+    let child2 = IdListSorted::new(vec![2, 3, 5, 7, 10, 12, 15, 20, 30, 35]);
+    let child3 = IdListSorted::new(vec![3, 5, 8, 10, 15, 18, 20, 30, 40]);
 
     let mut ii = Intersection::new(vec![child1, child2, child3]);
 
@@ -1045,9 +1045,9 @@ fn revalidate_move_before_read() {
 #[test]
 fn num_estimated_is_minimum() {
     // Create children with different sizes
-    let child1 = SortedIdList::new(vec![1, 2, 3, 4, 5]); // 5 elements
-    let child2 = SortedIdList::new(vec![1, 2, 3]); // 3 elements (smallest)
-    let child3 = SortedIdList::new(vec![1, 2, 3, 4, 5, 6, 7]); // 7 elements
+    let child1 = IdListSorted::new(vec![1, 2, 3, 4, 5]); // 5 elements
+    let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements (smallest)
+    let child3 = IdListSorted::new(vec![1, 2, 3, 4, 5, 6, 7]); // 7 elements
 
     let ii = Intersection::new(vec![child1, child2, child3]);
 
@@ -1073,9 +1073,9 @@ fn children_sorted_by_estimated() {
     let medium_child = vec![100, 200, 300, 400, 500, 600, 700];
 
     // The order we pass them shouldn't matter - they should be sorted internally
-    let child1 = SortedIdList::new(large_child);
-    let child2 = SortedIdList::new(small_child);
-    let child3 = SortedIdList::new(medium_child);
+    let child1 = IdListSorted::new(large_child);
+    let child2 = IdListSorted::new(small_child);
+    let child3 = IdListSorted::new(medium_child);
 
     let mut ii = Intersection::new(vec![child1, child2, child3]);
 

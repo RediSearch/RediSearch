@@ -234,6 +234,11 @@
                 "token": "GEO"
               },
               {
+                "name": "geoshape",
+                "type": "pure-token",
+                "token": "GEOSHAPE"
+              },
+              {
                 "name": "vector",
                 "type": "pure-token",
                 "token": "VECTOR"
@@ -1917,7 +1922,7 @@
     "group": "search"
   },
   "FT.PROFILE": {
-    "summary": "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
+    "summary": "Performs a `FT.SEARCH`, `FT.AGGREGATE`, or `FT.HYBRID` command and collects performance information",
     "complexity": "O(N)",
     "arguments": [
       {
@@ -1938,6 +1943,11 @@
             "name": "aggregate",
             "type": "pure-token",
             "token": "AGGREGATE"
+          },
+          {
+            "name": "hybrid",
+            "type": "pure-token",
+            "token": "HYBRID"
           }
         ]
       },
@@ -2088,6 +2098,13 @@
                     "type": "integer",
                     "token": "EF_RUNTIME",
                     "optional": true
+                  },
+                  {
+                    "name": "shard_k_ratio",
+                    "type": "double",
+                    "token": "SHARD_K_RATIO",
+                    "optional": true,
+                    "since": "8.6.1"
                   },
                   {
                     "name": "yield_score_as",

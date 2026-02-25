@@ -15,6 +15,7 @@
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
@@ -34,6 +35,7 @@
 #include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
+#include "query_error.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -57,6 +59,37 @@ void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP) {
 bool QueryDebugCtx_HasDebugRP(void) {
   return globalDebugCtx.query.debugRP != NULL;
 }
+
+#ifdef ENABLE_ASSERT
+// Global coordinator reduce debug context (separate from DebugCTX since it uses atomics)
+static CoordReduceDebugCtx globalCoordReduceDebugCtx = {0};
+
+bool CoordReduceDebugCtx_IsPaused(void) {
+  return atomic_load(&globalCoordReduceDebugCtx.pause);
+}
+
+void CoordReduceDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalCoordReduceDebugCtx.pause, pause);
+}
+
+int CoordReduceDebugCtx_GetPauseBeforeN(void) {
+  return atomic_load(&globalCoordReduceDebugCtx.pauseBeforeN);
+}
+
+void CoordReduceDebugCtx_SetPauseBeforeN(int n) {
+  atomic_store(&globalCoordReduceDebugCtx.pauseBeforeN, n);
+  // Reset reduce count when setting a new pause point
+  atomic_store(&globalCoordReduceDebugCtx.reduceCount, 0);
+}
+
+void CoordReduceDebugCtx_IncrementReduceCount(void) {
+  atomic_fetch_add(&globalCoordReduceDebugCtx.reduceCount, 1);
+}
+
+int CoordReduceDebugCtx_GetReduceCount(void) {
+  return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
+}
+#endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
@@ -584,11 +617,17 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!tagIndex) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    goto end;
+  }
+
+  // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (tagIndex->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
@@ -661,7 +700,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
     // Field was not initialized yet
     if (!idx) {
@@ -790,13 +829,22 @@ DEBUG_COMMAND(GCForceInvoke) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-      ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
-  GCContext_ForceInvoke(sp->gc, bc);
-  return REDISMODULE_OK;
+  if (sp->diskSpec) {
+    SearchDisk_RunGC(sp->diskSpec, sp);
+    RedisModule_ReplyWithSimpleString(ctx, "DONE");
+    return REDISMODULE_OK;
+  } else if (sp->gc) {
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(
+        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
+    GCContext_ForceInvoke(sp->gc, bc);
+    return REDISMODULE_OK;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
+  }
 }
 
 DEBUG_COMMAND(GCForceBGInvoke) {
@@ -809,7 +857,8 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -826,7 +875,8 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   // Make sure there is no pending timer
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
@@ -846,7 +896,8 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   if (sp->gc->timerID) {
     return RedisModule_ReplyWithError(ctx, "GC is already running periodically");
@@ -908,7 +959,8 @@ DEBUG_COMMAND(ttl) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -938,7 +990,8 @@ DEBUG_COMMAND(ttlPause) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -974,7 +1027,8 @@ DEBUG_COMMAND(ttlExpire) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!(sp->flags & Index_Temporary)) {
@@ -1013,7 +1067,8 @@ DEBUG_COMMAND(setMonitorExpiration) {
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   MonitorExpirationOptions options = {0};
@@ -1122,11 +1177,17 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
 
   // Field was not initialized yet
   if (!idx) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
+    goto end;
+  }
+
+  // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
+  if (idx->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
@@ -1508,7 +1569,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 
 /**
- * FT.DEBUG COORD_THREADS [PAUSE / RESUME ]
+ * FT.DEBUG COORD_THREADS [PAUSE / RESUME / STATS]
  *
  */
 DEBUG_COMMAND(CoordThreadsSwitch) {
@@ -1531,6 +1592,13 @@ DEBUG_COMMAND(CoordThreadsSwitch) {
     }
   } else if (!strcasecmp(op, "is_paused")) {
     return RedisModule_ReplyWithLongLong(ctx, ConcurrentSearch_isPaused());
+  } else if (!strcasecmp(op, "stats")) {
+    thpool_stats stats = ConcurrentSearch_getStats();
+    START_POSTPONED_LEN_ARRAY(num_stats_fields);
+    REPLY_WITH_LONG_LONG("totalJobsDone", stats.total_jobs_done, ARRAY_LEN_VAR(num_stats_fields));
+    REPLY_WITH_LONG_LONG("totalPendingJobs", stats.total_pending_jobs, ARRAY_LEN_VAR(num_stats_fields));
+    END_POSTPONED_LEN_ARRAY(num_stats_fields);
+    return REDISMODULE_OK;
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'COORD_THREADS' subcommand");
   }
@@ -1697,7 +1765,8 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!sp->scanner) {
@@ -1825,7 +1894,8 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!sp->scanner) {
@@ -2028,6 +2098,80 @@ DEBUG_COMMAND(getIsRPPaused) {
   return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
 }
 
+#ifdef ENABLE_ASSERT
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REDUCE <N>
+ * N=0: no pause
+ * N=-1: pause after the last result is reduced
+ * N>0: pause before the Nth result is reduced (1-based)
+ */
+DEBUG_COMMAND(setPauseBeforeReduce) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  long long n;
+  if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_REDUCE'");
+  }
+
+  CoordReduceDebugCtx_SetPauseBeforeN((int)n);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_COORD_REDUCE_PAUSED
+ */
+DEBUG_COMMAND(getIsCoordReducePaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, CoordReduceDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_COORD_REDUCE_RESUME
+ */
+DEBUG_COMMAND(setCoordReduceResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!CoordReduceDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Coordinator reduce is not paused");
+  }
+
+  CoordReduceDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_COORD_REDUCE_COUNT
+ */
+DEBUG_COMMAND(getCoordReduceCount) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
+}
+#endif
+
 /**
  * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
  */
@@ -2078,7 +2222,7 @@ DEBUG_COMMAND(queryController) {
   }
   const char *op = RedisModule_StringPtrLen(argv[2], NULL);
 
-  // Check here all background indexing possible commands
+  // Query pause RP commands
   if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
     return setPauseRPResume(ctx, argv + 1, argc - 1);
   }
@@ -2088,6 +2232,21 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("PRINT_RP_STREAM", op)) {
     return printRPStream(ctx, argv + 1, argc - 1);
   }
+#ifdef ENABLE_ASSERT
+  // Coordinator reduce pause commands (only available with ENABLE_ASSERT)
+  if (!strcmp("SET_PAUSE_BEFORE_REDUCE", op)) {
+    return setPauseBeforeReduce(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_COORD_REDUCE_PAUSED", op)) {
+    return getIsCoordReducePaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_COORD_REDUCE_RESUME", op)) {
+    return setCoordReduceResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
+    return getCoordReduceCount(ctx, argv + 1, argc - 1);
+  }
+#endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
 }
 
@@ -2154,6 +2313,47 @@ DEBUG_COMMAND(VecSimMockTimeout) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
+  }
+}
+
+/**
+ * FT.DEBUG DISK_IO_CONTROL <enable|disable|status>
+ *
+ * Control async disk I/O behavior for testing and debugging.
+ * - enable: Enable async I/O (default)
+ * - disable: Disable async I/O, use sync path instead
+ * - status: Show current async I/O status
+ */
+DEBUG_COMMAND(DiskIOControl) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp("enable", op)) {
+    // Check if disk is available first
+    if (!SearchDisk_IsAsyncIOSupported()) {
+      return RedisModule_ReplyWithError(ctx, "Async I/O is not supported (disk API not available or disk doesn't support async I/O)");
+    }
+    SearchDisk_SetAsyncIOEnabled(true);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O enabled");
+  } else if (!strcasecmp("disable", op)) {
+    SearchDisk_SetAsyncIOEnabled(false);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK - Async I/O disabled");
+  } else if (!strcasecmp("status", op)) {
+    bool flagEnabled = SearchDisk_GetAsyncIOEnabled();
+    bool diskSupported = SearchDisk_IsAsyncIOSupported();
+
+    if (!diskSupported) {
+      return RedisModule_ReplyWithSimpleString(ctx, "Async I/O: not supported by disk");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, flagEnabled ? "Async I/O: enabled" : "Async I/O: disabled");
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'DISK_IO_CONTROL'. Use: enable, disable, or status");
   }
 }
 
@@ -2292,6 +2492,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
+                               {"DISK_IO_CONTROL", DiskIOControl},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers}, // Register test scorers
                                /**
                                 * The following commands are for debugging distributed search/aggregation.

@@ -137,6 +137,9 @@ parse_arguments() {
       QUICK=*)
         QUICK="${arg#*=}"
         ;;
+      TEST_TIMEOUT=*)
+        TEST_TIMEOUT="${arg#*=}"
+        ;;
       SA=*)
         SA="${arg#*=}"
         ;;
@@ -729,8 +732,8 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ "$RUN_MIRI" == "1" ]]; then
-    RUST_TEST_COMMAND="miri test "
-    RUST_TEST_OPTIONS="--profile=$RUST_PROFILE"
+    RUST_TEST_COMMAND="miri nextest run"
+    RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   elif [[ "$SAN" == "address" ]]; then
     # We must rebuild the Rust standard library to get sanitizer coverage
     # for its functions.

@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 ffi.workspace = true
+c_ffi_utils.workspace = true
 document.workspace = true
 enumflags2.workspace = true
 libc.workspace = true
@@ -35,6 +36,17 @@ default-features = true
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 value = { workspace = true, features = ["test_utils"] }
+
+# Crate required to invoke C symbols
+rlookup = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+redis_mock.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[features]
+unittest = []
 
 [lints]
 workspace = true

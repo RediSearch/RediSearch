@@ -16,14 +16,20 @@ extern "C" {
 #include "hybrid/hybrid_request.h"
 #include "rmr/command.h"
 #include "dist_plan.h"
+#include "profile/options.h"
+#include "vector_index.h"
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
 
 // For testing purposes
+// numShards is passed from the main thread to ensure thread-safe access
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams);
+                            IndexSpec *sp,
+                            const VectorQuery *vq,
+                            size_t numShards);
 
 #ifdef __cplusplus
 }

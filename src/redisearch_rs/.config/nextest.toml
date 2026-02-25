@@ -1,0 +1,8 @@
+[profile.default]
+slow-timeout = { period = "2s", terminate-after = 8 }
+fail-fast = false
+
+[profile.default-miri]
+# `miri` is a _lot_ slower.
+slow-timeout = { period = "10s", terminate-after = 4 }
+fail-fast = false

@@ -49,6 +49,13 @@ extern "C" {
 
 class IndexTest : public ::testing::Test {};
 
+// Helper: create a query term for use with NewInvIndIterator_TermQuery.
+// Ownership is transferred to the iterator.
+static RSQueryTerm *makeTestQueryTerm() {
+  RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+  return NewQueryTerm(&tok, 1);
+}
+
 static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
   RSOffsetVector ret = {0};
   char *data = (char *) VVW_GetByteData(vvw);
@@ -102,11 +109,11 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr1) = offsetsFromVVW(vw);
+  tr1->data.term.borrowed.offsets = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr2) = offsetsFromVVW(vw2);
+  tr2->data.term.borrowed.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
@@ -128,7 +135,7 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr3) = offsetsFromVVW(vw3);
+  tr3->data.term.borrowed.offsets = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
@@ -266,8 +273,9 @@ TEST_F(IndexTest, testUnion) {
     // printf("Reading!\n");
     QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
     FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-    irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
-    irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
+    MockQueryEvalCtx mockQctx(10, 10);
+    irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
+    irs[1] = NewInvIndIterator_TermQuery(w2, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
     IteratorsConfig config{};
     iteratorsConfig_init(&config);
     QueryIterator *ui = NewUnionIterator(irs, 2, 0, 1, QN_UNION, NULL, &config);
@@ -319,9 +327,10 @@ TEST_F(IndexTest, testWeight) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, fieldMaskOrIndex, nullptr, 0.5);
+  MockQueryEvalCtx mockQctx(10, 10);
+  irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, fieldMaskOrIndex, makeTestQueryTerm(), 0.5);
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
+  irs[1] = NewInvIndIterator_TermQuery(w2, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
   QueryIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
@@ -358,8 +367,10 @@ TEST_F(IndexTest, testNot) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
+  MockQueryEvalCtx mockQctx(16, 16);
+  irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
+  MockQueryEvalCtx mockQctx2(10, 10);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -380,7 +391,8 @@ TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
+  MockQueryEvalCtx mockQctx(10, 10);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -609,8 +621,9 @@ TEST_F(IndexTest, testIntersection) {
 
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
-  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
+  MockQueryEvalCtx mockQctx(100000, 100000);
+  irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
+  irs[1] = NewInvIndIterator_TermQuery(w2, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
 
   int count = 0;
   QueryIterator *ii = NewIntersectionIterator(irs, 2, -1, 0, 1);
@@ -699,8 +712,10 @@ TEST_F(IndexTest, testHybridVector) {
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  // Create a mock context for timeout configuration
+  MockQueryEvalCtx mockQctx(max_id, max_id);
   // Run simple top k query.
-  HybridIteratorParams hParams = {.sctx=NULL,
+  HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
                                   .index = index,
                                   .dim = d,
                                   .elementType = t,
@@ -737,7 +752,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Test in hybrid mode.
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  QueryIterator *ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   hParams.childIt = ir;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -784,7 +799,7 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
@@ -1201,9 +1216,9 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
+  ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
-  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
+  ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
 #endif
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
@@ -1431,7 +1446,8 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Test that we can read them back
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(idx, nullptr, f, nullptr, 1);
+  MockQueryEvalCtx mockQctx(100, 50);
+  QueryIterator *ir = NewInvIndIterator_TermQuery(idx, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   for (t_docId id = 1; id < 100; id += 2) {
     ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
     ASSERT_EQ(id, ir->lastDocId);
@@ -1511,8 +1527,10 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   // Mock the WILDCARD_ITERATOR consideration
   QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
 
+  // Create a mock context for timeout configuration
+  MockQueryEvalCtx mockQctx(max_id, max_id);
   HybridIteratorParams hParams = {
-    .sctx = NULL,
+    .sctx = &mockQctx.sctx,
     .index = NULL,
     .dim = d,
     .elementType = VecSimType_FLOAT32,

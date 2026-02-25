@@ -149,9 +149,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case loaded_cmd:
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
-      key = RedisModule_CreateStringFromString(ctx, key);
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
-      RedisModule_FreeString(ctx, key);
+      if (!IS_SST_RDB_IN_PROCESS(ctx)) {
+        key = RedisModule_CreateStringFromString(ctx, key);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
+        RedisModule_FreeString(ctx, key);
+      }
       break;
 
     case hset_cmd:
@@ -161,7 +163,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrbyfloat_cmd:
     case hdel_cmd:
     case hexpired_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      if (!IS_SST_RDB_IN_PROCESS(ctx)) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      }
+
       break;
 
 /********************************************************
@@ -182,7 +187,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
 
     case change_cmd:
@@ -196,7 +201,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (kType == DocumentType_Unsupported) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
       } else {
         // todo: here we will open the key again, we can optimize it by
         //       somehow passing the key pointer

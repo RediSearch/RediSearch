@@ -32,34 +32,19 @@ size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   return IndexReader_NumEstimated(it->reader);
 }
 
-static ValidateStatus NumericCheckAbort(QueryIterator *base) {
-  NumericInvIndIterator *nit = (NumericInvIndIterator *)base;
-  InvIndIterator *it = (InvIndIterator *)base;
-
-  if (!it->sctx) {
-    return VALIDATE_OK;
-  }
-
-  // sctx and rt should always be set, except in some tests.
-  RS_ASSERT(nit->rt);
-  if (nit->rt->revisionId != nit->revisionId) {
-    // The numeric tree was either completely deleted or a node was split or removed.
-    // The cursor is invalidated.
-    return VALIDATE_ABORTED;
-  }
-
-  return VALIDATE_OK;
-}
-
 static ValidateStatus TermCheckAbort(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  if (!it->sctx) {
+  // Skip validation if search context is not set up for term lookup.
+  // This happens in tests that don't have a full spec with keysDict.
+  if (!it->sctx || !it->sctx->spec || !it->sctx->spec->keysDict) {
     return VALIDATE_OK;
   }
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
   // sctx and term should always be set, except in some tests.
   RS_ASSERT(term);
-  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, term->len, false, NULL);
+  size_t len;
+  const char *str = QueryTerm_GetStrAndLen(term, &len);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, str, len, false, NULL);
   if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
@@ -77,24 +62,15 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   }
   size_t sz;
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
-  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, term->str, term->len, false, &sz);
+  size_t len;
+  const char *str = QueryTerm_GetStrAndLen(term, &len);
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, str, len, false, &sz);
   if (idx == TRIEMAP_NOTFOUND || !IndexReader_IsIndex(it->base.reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
     // for this specific inverted index.
 
-    return VALIDATE_ABORTED;
-  }
-  return VALIDATE_OK;
-}
-
-static ValidateStatus WildcardCheckAbort(QueryIterator *base) {
-  // Check if the wildcard iterator is still valid
-  InvIndIterator *wi = (InvIndIterator *)base;
-  RS_ASSERT(wi->sctx && wi->sctx->spec);
-
-  if (!IndexReader_IsIndex(wi->reader, wi->sctx->spec->existingDocs)) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -411,40 +387,17 @@ static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, enum IteratorT
   return InitInvIndIterator(it, it_type, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
 }
 
-QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
-                                              const NumericFilter *flt, const NumericRangeTree *rt, double rangeMin, double rangeMax) {
-  RS_ASSERT(idx);
-  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
-
-  if (flt) {
-    decoderCtx = (IndexDecoderCtx){.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
-  }
-
-  NumericInvIndIterator *numIt = rm_calloc(1, sizeof(*numIt));
-  // Initialize the iterator first
-  InitInvIndIterator(&numIt->base, INV_IDX_NUMERIC_ITERATOR, idx, NewNumericResult(), fieldCtx, sctx, &decoderCtx, NumericCheckAbort);
-
-  if (rt) {
-    numIt->revisionId = rt->revisionId;
-    numIt->rt = rt;
-  }
-
-  numIt->rangeMin = rangeMin;
-  numIt->rangeMax = rangeMax;
-
-  QueryIterator *ret = &numIt->base.base;
-  return ret;
-}
-
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight) {
+  RS_ASSERT(term);
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
-  if (term && sctx) {
-    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+  if (sctx) {
+    QueryTerm_SetIDFs(term,
+                      CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)),
+                      CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -469,8 +422,9 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
-    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    QueryTerm_SetIDFs(term,
+                      CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)),
+                      CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -489,20 +443,6 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   return InitInvIndIterator(&it->base, INV_IDX_TAG_ITERATOR, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
 }
 
-QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
-  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  record->freq = 1;
-
-  InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  InitInvIndIterator(it, INV_IDX_WILDCARD_ITERATOR, idx, record, &fieldCtx, sctx, &decoderCtx, WildcardCheckAbort);
-  return &it->base;
-}
-
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {
   FieldFilterContext fieldCtx = {
     .field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex},
@@ -513,23 +453,4 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
   record->freq = 1;
 
   return NewInvIndIterator(idx, INV_IDX_MISSING_ITERATOR, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
-}
-
-/******************************* Accessors *******************************/
-
-IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it) {
-  return IndexReader_Flags(it->reader);
-}
-
-const NumericFilter * NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it) {
-    const InvIndIterator *base = &it->base;
-    return IndexReader_NumericFilter(base->reader);
-}
-
-double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it) {
-  return it->rangeMin;
-}
-
-double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it) {
-  return it->rangeMax;
 }

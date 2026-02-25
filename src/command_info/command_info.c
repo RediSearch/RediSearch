@@ -244,6 +244,11 @@ int SetFtCreateInfo(RedisModuleCommand *cmd) {
                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
               },
               {
+                .name = "geoshape",
+                .token = "GEOSHAPE",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
                 .name = "vector",
                 .token = "VECTOR",
                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
@@ -2151,7 +2156,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
 int SetFtProfileInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
-    .summary = "Performs a `FT.SEARCH` or `FT.AGGREGATE` command and collects performance information",
+    .summary = "Performs a `FT.SEARCH`, `FT.AGGREGATE`, or `FT.HYBRID` command and collects performance information",
     .complexity = "O(N)",
     .args = (RedisModuleCommandArg[]){
       {
@@ -2171,6 +2176,11 @@ int SetFtProfileInfo(RedisModuleCommand *cmd) {
           {
             .name = "aggregate",
             .token = "AGGREGATE",
+            .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+          },
+          {
+            .name = "hybrid",
+            .token = "HYBRID",
             .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
           },
           {0}
@@ -2340,6 +2350,13 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .name = "ef_runtime",
                     .token = "EF_RUNTIME",
                     .type = REDISMODULE_ARG_TYPE_INTEGER,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
+                  {
+                    .name = "shard_k_ratio",
+                    .token = "SHARD_K_RATIO",
+                    .since = "8.6.1",
+                    .type = REDISMODULE_ARG_TYPE_DOUBLE,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
                   {

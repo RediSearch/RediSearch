@@ -793,6 +793,99 @@ mod optional_iterator_revalidate_test {
     }
 }
 
+mod optional_iterator_revalidate_after_abort {
+    use super::*;
+
+    const MAX_DOC_ID: t_docId = 20;
+    const WEIGHT: f64 = 2.;
+
+    /// After child abort + a second revalidate, the child is `None` and
+    /// `revalidate` should return `Ok` immediately.
+    #[test]
+    fn test_revalidate_twice_after_abort() {
+        let child = utils::Mock::new([5, 10, 15]);
+        let mut data = child.data();
+        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+
+        // Position on a virtual result (doc 1)
+        let doc = it.read().unwrap().unwrap();
+        assert_eq!(doc.doc_id, 1);
+
+        // First revalidate with abort: child is dropped
+        data.set_revalidate_result(utils::MockRevalidateResult::Abort);
+        let status = it.revalidate().unwrap();
+        assert!(matches!(status, RQEValidateStatus::Ok));
+
+        // Second revalidate: child is None, should return Ok immediately
+        let status = it.revalidate().unwrap();
+        assert!(matches!(status, RQEValidateStatus::Ok));
+
+        // Should still be able to read (all virtual)
+        let doc = it.read().unwrap().unwrap();
+        assert_eq!(doc.doc_id, 2);
+        assert_eq!(doc.weight, 0.);
+    }
+
+    /// After child abort, skip_to should still work (all virtual results).
+    /// When child is `None`, the skip_to falls through to the virtual result path.
+    #[test]
+    fn test_skip_to_after_abort() {
+        let child = utils::Mock::new([5, 10, 15]);
+        let mut data = child.data();
+        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+
+        // Position on a virtual result
+        let doc = it.read().unwrap().unwrap();
+        assert_eq!(doc.doc_id, 1);
+
+        // Abort the child
+        data.set_revalidate_result(utils::MockRevalidateResult::Abort);
+        let _ = it.revalidate().unwrap();
+
+        // skip_to with child=None should yield a virtual Found result
+        match it.skip_to(8).unwrap().unwrap() {
+            SkipToOutcome::Found(result) => {
+                assert_eq!(result.doc_id, 8);
+                assert_eq!(result.weight, 0.);
+            }
+            SkipToOutcome::NotFound(r) => panic!("unexpected NotFound: {r:?}"),
+        }
+
+        // Continue reading - all virtual
+        let doc = it.read().unwrap().unwrap();
+        assert_eq!(doc.doc_id, 9);
+        assert_eq!(doc.weight, 0.);
+    }
+
+    /// After child abort, rewind should work correctly with child=None.
+    #[test]
+    fn test_rewind_after_abort() {
+        let child = utils::Mock::new([5, 10, 15]);
+        let mut data = child.data();
+        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+
+        // Read several docs
+        for _ in 0..5 {
+            let _ = it.read().unwrap().unwrap();
+        }
+        assert_eq!(it.last_doc_id(), 5);
+
+        // Abort the child
+        data.set_revalidate_result(utils::MockRevalidateResult::Abort);
+        let _ = it.revalidate().unwrap();
+
+        // Rewind with child=None
+        it.rewind();
+        assert_eq!(it.last_doc_id(), 0);
+        assert!(!it.at_eof());
+
+        // Should produce all virtual results after rewind
+        let result = it.read().unwrap().unwrap();
+        assert_eq!(result.doc_id, 1);
+        assert_eq!(result.weight, 0.);
+    }
+}
+
 mod optional_iterator_non_sequential_reads {
     use super::*;
 

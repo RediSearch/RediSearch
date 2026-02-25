@@ -56,13 +56,13 @@ typedef enum {
 
 // Assumes the spec is locked.
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
-            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded, uint64_t blocksDenied) {
+            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded, bool ignoredLastBlock) {
   sctx->spec->stats.numRecords -= recordsRemoved;
   sctx->spec->stats.invertedSize += bytesAdded;
   sctx->spec->stats.invertedSize -= bytesCollected;
   gc->stats.totalCollected += bytesCollected;
   gc->stats.totalCollected -= bytesAdded;
-  gc->stats.gcBlocksDenied += blocksDenied;
+  gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 
 // Buff shouldn't be NULL.
@@ -341,10 +341,11 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
+  RS_ASSERT(sctx->spec->diskSpec == NULL);
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX);
+      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX, NULL);
       if (!tagIdx) {
         continue;
       }
@@ -497,7 +498,7 @@ error:
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork) {
-  if (info->info.blocks_ignored == 0) {
+  if (!info->info.ignored_last_block) {
     hll_set_registers(&range->hll, info->registersWithLastBlock, NR_REG_SIZE);
     if (blocksSinceFork == 0) {
       return; // No blocks were added since the fork. We're done
@@ -536,7 +537,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   currNode->range->invertedIndexSize += info->bytes_allocated;
   currNode->range->invertedIndexSize -= info->bytes_freed;
 
-  FGC_updateStats(gc, sctx, info->entries_removed, info->bytes_freed, info->bytes_allocated, info->blocks_ignored);
+  FGC_updateStats(gc, sctx, info->entries_removed, info->bytes_freed, info->bytes_allocated, info->ignored_last_block);
 
   resetCardinality(ninfo, currNode->range, blocksSinceFork);
 }
@@ -610,7 +611,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
   }
 
-  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
 
@@ -773,7 +774,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
     RS_LOG_ASSERT_FMT(fs, "tag field '%.*s' not found in index during GC", (int)fieldNameLen, fieldName);
-    tagIdx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+    tagIdx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
 
     if (tagIdx->uniqueId != tagUniqueId) {
@@ -802,7 +803,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       }
     }
 
-    FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+    FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
@@ -868,7 +869,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     info.bytes_freed += InvertedIndex_MemUsage(idx);
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
-  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
 
@@ -933,7 +934,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }
-  FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+  FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
 
 cleanup:
   rm_free(empty_indicator);
@@ -977,8 +978,21 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
-  // Debug log the memory ratio
-  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  // Check if we are a slave/replica
+  bool isSlave = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SLAVE;
+  float used_memory_ratio = 0;
+  if (!isSlave) {
+    // On master, use the original unified logic
+    used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  } else {
+    // On slaves, only consider max_process_mem
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+    size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+    size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL);
+    RedisModule_FreeServerInfo(ctx, info);
+
+    used_memory_ratio = max_process_mem ? (float)used_memory / (float)max_process_mem : 0;
+  }
   RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f", used_memory_ratio);
 
   return used_memory_ratio > 1;

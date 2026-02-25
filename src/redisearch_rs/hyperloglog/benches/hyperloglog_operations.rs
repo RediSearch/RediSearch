@@ -7,13 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::hash::Hasher;
+use std::{hash::Hasher, hint::black_box};
 
 use criterion::{
-    BenchmarkGroup, Criterion, Throughput, black_box, criterion_group, criterion_main,
-    measurement::WallTime,
+    BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main, measurement::WallTime,
 };
-use hyperloglog::{CFnvHasher, HyperLogLog, HyperLogLog10, Murmur3Hasher};
+use hyperloglog::{CFnvHasher, HyperLogLog, HyperLogLog10, Murmur3Hasher, WyHasher};
 
 // Benchmark-only hasher wrappers (not used in production)
 
@@ -101,39 +100,11 @@ impl hash32::Hasher for FxHasher {
     }
 }
 
-/// WyHash hasher wrapper (truncated to 32 bits).
-struct WyHasher(wyhash::WyHash);
-
-impl Default for WyHasher {
-    fn default() -> Self {
-        Self(wyhash::WyHash::with_seed(0))
-    }
-}
-
-impl Hasher for WyHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0.finish()
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.write(bytes);
-    }
-}
-
-impl hash32::Hasher for WyHasher {
-    #[inline]
-    fn finish32(&self) -> u32 {
-        self.0.finish() as u32
-    }
-}
-
 const CARDINALITIES: &[u32] = &[100, 1000, 10000, 100000];
 const HASHER_NAMES: &[&str] = &["fnv", "murmur3", "xxhash32", "ahash", "fxhash", "wyhash"];
 
 fn measure_accuracy<H: hash32::Hasher + Default>(n: u32) -> (usize, f64) {
-    let mut hll: HyperLogLog10<H> = HyperLogLog::new();
+    let mut hll: HyperLogLog10<[u8; 4], H> = HyperLogLog::new();
     for i in 0..n {
         hll.add(&i.to_le_bytes());
     }
@@ -148,7 +119,7 @@ fn bench_add(c: &mut Criterion) {
         name: &str,
     ) {
         group.bench_function(name, |b| {
-            let mut hll: HyperLogLog10<H> = HyperLogLog::new();
+            let mut hll: HyperLogLog10<[u8; 4], H> = HyperLogLog::new();
             let mut i = 0u32;
             b.iter(|| {
                 hll.add(black_box(&i.to_le_bytes()));
@@ -174,7 +145,7 @@ fn bench_count(c: &mut Criterion) {
         b.iter_batched(
             || {
                 // Setup: create HyperLogLog with data, cache not yet computed
-                let mut hll: HyperLogLog10<CFnvHasher> = HyperLogLog::new();
+                let mut hll: HyperLogLog10<[u8; 4], CFnvHasher> = HyperLogLog::new();
                 for i in 0..10000u32 {
                     hll.add(&i.to_le_bytes());
                 }
@@ -195,8 +166,8 @@ fn bench_merge(c: &mut Criterion) {
     group.bench_function("fnv", |b| {
         b.iter_batched(
             || {
-                let mut hll1: HyperLogLog10<CFnvHasher> = HyperLogLog::new();
-                let mut hll2: HyperLogLog10<CFnvHasher> = HyperLogLog::new();
+                let mut hll1: HyperLogLog10<[u8; 4], CFnvHasher> = HyperLogLog::new();
+                let mut hll2: HyperLogLog10<[u8; 4], CFnvHasher> = HyperLogLog::new();
                 for i in 0..1000u32 {
                     hll1.add(&i.to_le_bytes());
                     hll2.add(&(i + 500).to_le_bytes());

@@ -208,9 +208,9 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.hybridParams = &hybridParams;
   cmd.tailPlan = &hreq->tailPipeline->ap;
   cmd.reqConfig = &hreq->reqConfig;
-  cmd.coordDispatchTime = &hreq->coordDispatchTime;
+  cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
-  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false);
+  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
@@ -266,7 +266,7 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 

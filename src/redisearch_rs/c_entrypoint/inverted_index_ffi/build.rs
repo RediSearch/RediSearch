@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbinden;
+use build_utils::run_cbindgen;
 
 fn main() {
-    run_cbinden("../../headers/inverted_index.h").unwrap();
+    run_cbindgen("../../headers/inverted_index.h").unwrap();
 }

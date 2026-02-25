@@ -12,10 +12,10 @@
 #include "hybrid/hybrid_lookup_context.h"
 
 
-static void pushDepleter(QueryProcessingCtx *qctx, ResultProcessor *depleter) {
-  depleter->upstream = qctx->endProc;
-  depleter->parent = qctx;
-  qctx->endProc = depleter;
+static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  rp->upstream = qctx->endProc;
+  rp->parent = qctx;
+  qctx->endProc = rp;
 }
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
@@ -51,7 +51,10 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
       ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-      pushDepleter(qctx, depleter);
+      pushResultProcessor(qctx, depleter);
+      if (qctx->isProfile) {
+        pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));
+      }
   }
 
   // Release the sync reference as depleters now hold their own references
@@ -81,7 +84,6 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     HybridPipelineParams *hybridParams,
     RLookup **lookups,
     QueryError *status) {
-
     // The score alias for text is not part of a step to be distributed at this present time
     // We need to open the alias in the distributed lookup
     AREQ *searchReq = hreq->requests[SEARCH_INDEX];
@@ -91,8 +93,8 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     RLookup *tailLookup = AGPLN_GetLookup(HybridRequest_TailAGGPlan(hreq), NULL, AGPLN_GETLOOKUP_FIRST);
-    // Init lookup since we dont call buildQueryPart
-    RLookup_Init(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
+    // Set the spec cache since we dont call buildQueryPart
+    RLookup_SetCache(tailLookup, IndexSpec_GetSpecCache(hreq->sctx->spec));
 
     int rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, hybridParams);
     if (rc != REDISMODULE_OK) {

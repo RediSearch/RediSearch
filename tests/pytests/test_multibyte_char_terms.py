@@ -1597,6 +1597,7 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
 # The following code points are not supported by Unicode 9.0.0
 # Reference https://www.unicode.org/Public/9.0.0/ucd/UnicodeData.txt
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS = set(range(0x1C90, 0x1D00))
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x1C89)  # Cyrillic Capital Letter TJE (post-9.0)
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x2C2F)
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xA7B8, 0xA7F7))
 # Surrogate pairs (always invalid in Unicode)
@@ -1608,6 +1609,7 @@ UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFE)
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFF)
 
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10570, 0x10600))
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10D40, 0x10D90))  # Garay script (Unicode 16.0)
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x16B90, 0x16F00))
 
 # Noncharacters in each plane

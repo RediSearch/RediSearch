@@ -163,3 +163,38 @@ def testTagIntersectionWithRawDocIdEncoding():
     res = env.cmd('ft.search', 'idx', '@t1:{B} @t2:{Z}', 'NOCONTENT', 'LIMIT', 0, 0)
     expected = len([i for i in range(1000) if i % 2 == 1 and i % 3 != 0 and i % 5 != 0])
     env.assertEqual(res[0], expected, message=res)
+
+
+@skip(cluster=True)
+def testWildcardWithRawDocIdEncoding():
+    """Test wildcard queries with RAW_DOCID_ENCODING enabled.
+
+    When INDEXALL is ENABLE and RAW_DOCID_ENCODING is true, the
+    existingDocs inverted index uses RawDocIdsOnly encoding. The
+    optimized wildcard iterator must handle this encoding correctly.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 RAW_DOCID_ENCODING true FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('ft.create', 'idx', 'INDEXALL', 'ENABLE',
+               'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Add documents
+    num_docs = 100
+    for i in range(num_docs):
+        env.expect('hset', f'doc{i}', 't', 'hello').equal(1)
+
+    # Wildcard query should return all documents
+    res = env.cmd('ft.search', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 0)
+    env.assertEqual(res[0], num_docs)
+
+    # Delete half the documents
+    for i in range(0, num_docs, 2):
+        env.expect('del', f'doc{i}').equal(1)
+
+    # Wildcard should reflect deletions
+    res = env.cmd('ft.search', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 0)
+    env.assertEqual(res[0], num_docs // 2)
+
+    # Run GC and verify wildcard still works
+    forceInvokeGC(env, 'idx')
+    res = env.cmd('ft.search', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 0)
+    env.assertEqual(res[0], num_docs // 2)

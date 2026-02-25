@@ -10,12 +10,9 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-mod fork_gc;
+pub mod fork_gc;
 
-use std::{
-    ffi::{c_char, c_void},
-    fmt::Debug,
-};
+use std::ffi::{c_char, c_void};
 
 use ffi::{
     DocTable_Exists, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
@@ -24,6 +21,7 @@ use ffi::{
 };
 
 use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
+pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
     FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _, NumericFilter,
@@ -48,61 +46,6 @@ pub extern "C" fn TotalIIBlocks() -> usize {
     IndexBlock::total_blocks()
 }
 
-/// An opaque inverted index structure. The actual implementation is determined at runtime based on
-/// the index flags provided when creating the index. This allows us to have a single interface for
-/// all index types while still being able to optimize the storage and performance for each index
-/// type.
-pub enum InvertedIndex {
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    Full(FieldMaskTrackingIndex<Full>),
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    FullWide(FieldMaskTrackingIndex<FullWide>),
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    FreqsFields(FieldMaskTrackingIndex<FreqsFields>),
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    FreqsFieldsWide(FieldMaskTrackingIndex<FreqsFieldsWide>),
-    FreqsOnly(inverted_index::InvertedIndex<FreqsOnly>),
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    FieldsOnly(FieldMaskTrackingIndex<FieldsOnly>),
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    FieldsOnlyWide(FieldMaskTrackingIndex<FieldsOnlyWide>),
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    FieldsOffsets(FieldMaskTrackingIndex<FieldsOffsets>),
-    // Needs to track the field masks because it has the `StoreFieldFlags` flag set
-    FieldsOffsetsWide(FieldMaskTrackingIndex<FieldsOffsetsWide>),
-    OffsetsOnly(inverted_index::InvertedIndex<OffsetsOnly>),
-    FreqsOffsets(inverted_index::InvertedIndex<FreqsOffsets>),
-    DocumentIdOnly(inverted_index::InvertedIndex<DocIdsOnly>),
-    RawDocumentIdOnly(inverted_index::InvertedIndex<RawDocIdsOnly>),
-    // Needs to track the entries count because it has the `StoreNumeric` flag set
-    Numeric(EntriesTrackingIndex<Numeric>),
-    NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
-}
-
-impl Debug for InvertedIndex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Full(ii) => f.debug_tuple("Full").field(ii).finish(),
-            Self::FullWide(ii) => f.debug_tuple("FullWide").field(ii).finish(),
-            Self::FreqsFields(ii) => f.debug_tuple("FreqsFields").field(ii).finish(),
-            Self::FreqsFieldsWide(ii) => f.debug_tuple("FreqsFieldsWide").field(ii).finish(),
-            Self::FreqsOnly(ii) => f.debug_tuple("FreqsOnly").field(ii).finish(),
-            Self::FieldsOnly(ii) => f.debug_tuple("FieldsOnly").field(ii).finish(),
-            Self::FieldsOnlyWide(ii) => f.debug_tuple("FieldsOnlyWide").field(ii).finish(),
-            Self::FieldsOffsets(ii) => f.debug_tuple("FieldsOffsets").field(ii).finish(),
-            Self::FieldsOffsetsWide(ii) => f.debug_tuple("FieldsOffsetsWide").field(ii).finish(),
-            Self::OffsetsOnly(ii) => f.debug_tuple("OffsetsOnly").field(ii).finish(),
-            Self::FreqsOffsets(ii) => f.debug_tuple("FreqsOffsets").field(ii).finish(),
-            Self::DocumentIdOnly(ii) => f.debug_tuple("DocumentIdOnly").field(ii).finish(),
-            Self::RawDocumentIdOnly(ii) => f.debug_tuple("RawDocumentIdOnly").field(ii).finish(),
-            Self::Numeric(ii) => f.debug_tuple("Numeric").field(ii).finish(),
-            Self::NumericFloatCompression(ii) => {
-                f.debug_tuple("NumericFloatCompression").field(ii).finish()
-            }
-        }
-    }
-}
-
 // Macro to make calling the methods on the inner index easier
 macro_rules! ii_dispatch {
     ($self:expr, $method:ident $(, $args:expr)*) => {
@@ -118,8 +61,8 @@ macro_rules! ii_dispatch {
             InvertedIndex::FieldsOffsetsWide(ii) => ii.$method($($args),*),
             InvertedIndex::OffsetsOnly(ii) => ii.$method($($args),*),
             InvertedIndex::FreqsOffsets(ii) => ii.$method($($args),*),
-            InvertedIndex::DocumentIdOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::RawDocumentIdOnly(ii) => ii.$method($($args),*),
+            InvertedIndex::DocIdsOnly(ii) => ii.$method($($args),*),
+            InvertedIndex::RawDocIdsOnly(ii) => ii.$method($($args),*),
             InvertedIndex::Numeric(ii) => ii.$method($($args),*),
             InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
         }
@@ -227,11 +170,11 @@ pub extern "C" fn NewInvertedIndex_Ex(
             InvertedIndex::FreqsOffsets(inverted_index::InvertedIndex::<FreqsOffsets>::new(flags))
         }
         (DOC_IDS_ONLY_MASK, false, _) => {
-            InvertedIndex::DocumentIdOnly(inverted_index::InvertedIndex::<DocIdsOnly>::new(flags))
+            InvertedIndex::DocIdsOnly(inverted_index::InvertedIndex::<DocIdsOnly>::new(flags))
         }
-        (DOC_IDS_ONLY_MASK, true, _) => InvertedIndex::RawDocumentIdOnly(
-            inverted_index::InvertedIndex::<RawDocIdsOnly>::new(flags),
-        ),
+        (DOC_IDS_ONLY_MASK, true, _) => {
+            InvertedIndex::RawDocIdsOnly(inverted_index::InvertedIndex::<RawDocIdsOnly>::new(flags))
+        }
         (NUMERIC_MASK, _, false) => {
             InvertedIndex::Numeric(EntriesTrackingIndex::<Numeric>::new(flags))
         }
@@ -456,8 +399,8 @@ pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_
         InvertedIndex::FreqsOnly(_)
         | InvertedIndex::OffsetsOnly(_)
         | InvertedIndex::FreqsOffsets(_)
-        | InvertedIndex::DocumentIdOnly(_)
-        | InvertedIndex::RawDocumentIdOnly(_)
+        | InvertedIndex::DocIdsOnly(_)
+        | InvertedIndex::RawDocIdsOnly(_)
         | InvertedIndex::Numeric(_)
         | InvertedIndex::NumericFloatCompression(_) => 0,
     }
@@ -490,8 +433,8 @@ pub unsafe extern "C" fn InvertedIndex_NumEntries(ii: *const InvertedIndex) -> u
         | InvertedIndex::FieldsOffsetsWide(_)
         | InvertedIndex::OffsetsOnly(_)
         | InvertedIndex::FreqsOffsets(_)
-        | InvertedIndex::DocumentIdOnly(_)
-        | InvertedIndex::RawDocumentIdOnly(_) => 0,
+        | InvertedIndex::DocIdsOnly(_)
+        | InvertedIndex::RawDocIdsOnly(_) => 0,
     }
 }
 
@@ -825,8 +768,8 @@ pub enum IndexReader<'index_and_filter> {
     ),
     OffsetsOnly(inverted_index::IndexReaderCore<'index_and_filter, OffsetsOnly>),
     FreqsOffsets(inverted_index::IndexReaderCore<'index_and_filter, FreqsOffsets>),
-    DocumentIdOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly>),
-    RawDocumentIdOnly(inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly>),
+    DocIdsOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly>),
+    RawDocIdsOnly(inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly>),
     Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric>),
     NumericFiltered(
         FilterNumericReader<
@@ -872,8 +815,8 @@ macro_rules! ir_dispatch {
             IndexReader::FieldsOffsetsWide(ii) => ii.$method($($args),*),
             IndexReader::OffsetsOnly(ii) => ii.$method($($args),*),
             IndexReader::FreqsOffsets(ii) => ii.$method($($args),*),
-            IndexReader::DocumentIdOnly(ii) => ii.$method($($args),*),
-            IndexReader::RawDocumentIdOnly(ii) => ii.$method($($args),*),
+            IndexReader::DocIdsOnly(ii) => ii.$method($($args),*),
+            IndexReader::RawDocIdsOnly(ii) => ii.$method($($args),*),
             IndexReader::Numeric(ii) => ii.$method($($args),*),
             IndexReader::NumericFiltered(ii) => ii.$method($($args),*),
             IndexReader::NumericGeoFiltered(ii) => ii.$method($($args),*),
@@ -882,6 +825,84 @@ macro_rules! ir_dispatch {
             IndexReader::NumericGeoFilteredFloatCompression(ii) => ii.$method($($args),*),
         }
     };
+}
+
+impl<'index_and_filter> IndexReader<'index_and_filter> {
+    /// Get the flags associated with this index reader.
+    pub fn flags(&self) -> IndexFlags {
+        ir_dispatch!(self, flags)
+    }
+
+    /// Swap the inverted index of the reader with the given inverted index. This is only used
+    /// by some C tests to trigger revalidation on the reader.
+    pub const fn swap_index(&mut self, ii: &'index_and_filter InvertedIndex) {
+        match (self, ii) {
+            (IndexReader::Full(ir), InvertedIndex::Full(ii)) => ir.swap_index(&mut ii.inner()),
+            (IndexReader::FullWide(ir), InvertedIndex::FullWide(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::FreqsFields(ir), InvertedIndex::FreqsFields(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::FreqsFieldsWide(ir), InvertedIndex::FreqsFieldsWide(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::FreqsOnly(ir), InvertedIndex::FreqsOnly(ii)) => {
+                let mut ii = ii;
+                ir.swap_index(&mut ii)
+            }
+            (IndexReader::FieldsOnly(ir), InvertedIndex::FieldsOnly(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::FieldsOnlyWide(ir), InvertedIndex::FieldsOnlyWide(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::FieldsOffsets(ir), InvertedIndex::FieldsOffsets(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::FieldsOffsetsWide(ir), InvertedIndex::FieldsOffsetsWide(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::OffsetsOnly(ir), InvertedIndex::OffsetsOnly(ii)) => {
+                let mut ii = ii;
+                ir.swap_index(&mut ii)
+            }
+            (IndexReader::FreqsOffsets(ir), InvertedIndex::FreqsOffsets(ii)) => {
+                let mut ii = ii;
+                ir.swap_index(&mut ii)
+            }
+            (IndexReader::DocIdsOnly(ir), InvertedIndex::DocIdsOnly(ii)) => {
+                let mut ii = ii;
+                ir.swap_index(&mut ii)
+            }
+            (IndexReader::RawDocIdsOnly(ir), InvertedIndex::RawDocIdsOnly(ii)) => {
+                let mut ii = ii;
+                ir.swap_index(&mut ii)
+            }
+            (IndexReader::Numeric(ir), InvertedIndex::Numeric(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::NumericFiltered(ir), InvertedIndex::Numeric(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (IndexReader::NumericGeoFiltered(ir), InvertedIndex::Numeric(ii)) => {
+                ir.swap_index(&mut ii.inner())
+            }
+            (
+                IndexReader::NumericFloatCompression(ir),
+                InvertedIndex::NumericFloatCompression(ii),
+            ) => ir.swap_index(&mut ii.inner()),
+            (
+                IndexReader::NumericFilteredFloatCompression(ir),
+                InvertedIndex::NumericFloatCompression(ii),
+            ) => ir.swap_index(&mut ii.inner()),
+            (
+                IndexReader::NumericGeoFilteredFloatCompression(ir),
+                InvertedIndex::NumericFloatCompression(ii),
+            ) => ir.swap_index(&mut ii.inner()),
+            _ => {}
+        }
+    }
 }
 
 /// Create a new inverted index reader for the given inverted index and filter. The returned pointer
@@ -933,8 +954,8 @@ pub unsafe extern "C" fn NewIndexReader(
         }
         (InvertedIndex::OffsetsOnly(ii), _) => IndexReader::OffsetsOnly(ii.reader()),
         (InvertedIndex::FreqsOffsets(ii), _) => IndexReader::FreqsOffsets(ii.reader()),
-        (InvertedIndex::DocumentIdOnly(ii), _) => IndexReader::DocumentIdOnly(ii.reader()),
-        (InvertedIndex::RawDocumentIdOnly(ii), _) => IndexReader::RawDocumentIdOnly(ii.reader()),
+        (InvertedIndex::DocIdsOnly(ii), _) => IndexReader::DocIdsOnly(ii.reader()),
+        (InvertedIndex::RawDocIdsOnly(ii), _) => IndexReader::RawDocIdsOnly(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::None) => IndexReader::Numeric(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) if filter.is_numeric_filter() => {
             IndexReader::NumericFiltered(FilterNumericReader::new(filter, ii.reader()))
@@ -1023,14 +1044,17 @@ pub unsafe extern "C" fn IndexReader_NumEstimated(ir: *const IndexReader) -> u64
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+/// - `ii` must be either NULL or a valid pointer to an `InvertedIndex` instance.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexReader_IsIndex(
     ir: *const IndexReader,
     ii: *const InvertedIndex,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
-    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    if ii.is_null() {
+        return false;
+    }
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &*ir };
@@ -1058,10 +1082,8 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
         }
         (IndexReader::OffsetsOnly(ir), InvertedIndex::OffsetsOnly(ii)) => ir.is_index(ii),
         (IndexReader::FreqsOffsets(ir), InvertedIndex::FreqsOffsets(ii)) => ir.is_index(ii),
-        (IndexReader::DocumentIdOnly(ir), InvertedIndex::DocumentIdOnly(ii)) => ir.is_index(ii),
-        (IndexReader::RawDocumentIdOnly(ir), InvertedIndex::RawDocumentIdOnly(ii)) => {
-            ir.is_index(ii)
-        }
+        (IndexReader::DocIdsOnly(ir), InvertedIndex::DocIdsOnly(ii)) => ir.is_index(ii),
+        (IndexReader::RawDocIdsOnly(ir), InvertedIndex::RawDocIdsOnly(ii)) => ir.is_index(ii),
         (IndexReader::Numeric(ir), InvertedIndex::Numeric(ii)) => ir.is_index(ii.inner()),
         (IndexReader::NumericFiltered(ir), InvertedIndex::Numeric(ii)) => ir.is_index(ii.inner()),
         (IndexReader::NumericGeoFiltered(ir), InvertedIndex::Numeric(ii)) => {
@@ -1184,7 +1206,7 @@ pub unsafe extern "C" fn IndexReader_Flags(ir: *const IndexReader) -> IndexFlags
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &*ir };
 
-    ir_dispatch!(ir, flags)
+    ir.flags()
 }
 
 /// Get a pointer to the numeric filter used by the index reader. If the index reader does not use
@@ -1219,90 +1241,8 @@ pub unsafe extern "C" fn IndexReader_NumericFilter(ir: *const IndexReader) -> *c
         | IndexReader::FieldsOffsetsWide(_)
         | IndexReader::OffsetsOnly(_)
         | IndexReader::FreqsOffsets(_)
-        | IndexReader::DocumentIdOnly(_)
-        | IndexReader::RawDocumentIdOnly(_) => std::ptr::null(),
-    }
-}
-
-/// Swap the inverted index of the reader with the given inverted index. This is only used by some
-/// C tests to trigger revalidation on the reader.
-///
-/// # Safety
-///
-/// The following invariant must be upheld when calling this function:
-/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_SwapIndex(ir: *mut IndexReader, ii: *const InvertedIndex) {
-    debug_assert!(!ir.is_null(), "ir must not be null");
-    debug_assert!(!ii.is_null(), "ii must not be null");
-
-    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
-    let ir = unsafe { &mut *ir };
-
-    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
-    let ii = unsafe { &*ii };
-
-    match (ir, ii) {
-        (IndexReader::Full(ir), InvertedIndex::Full(ii)) => ir.swap_index(&mut ii.inner()),
-        (IndexReader::FullWide(ir), InvertedIndex::FullWide(ii)) => ir.swap_index(&mut ii.inner()),
-        (IndexReader::FreqsFields(ir), InvertedIndex::FreqsFields(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::FreqsFieldsWide(ir), InvertedIndex::FreqsFieldsWide(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::FreqsOnly(ir), InvertedIndex::FreqsOnly(ii)) => {
-            let mut ii = ii;
-            ir.swap_index(&mut ii)
-        }
-        (IndexReader::FieldsOnly(ir), InvertedIndex::FieldsOnly(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::FieldsOnlyWide(ir), InvertedIndex::FieldsOnlyWide(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::FieldsOffsets(ir), InvertedIndex::FieldsOffsets(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::FieldsOffsetsWide(ir), InvertedIndex::FieldsOffsetsWide(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::OffsetsOnly(ir), InvertedIndex::OffsetsOnly(ii)) => {
-            let mut ii = ii;
-            ir.swap_index(&mut ii)
-        }
-        (IndexReader::FreqsOffsets(ir), InvertedIndex::FreqsOffsets(ii)) => {
-            let mut ii = ii;
-            ir.swap_index(&mut ii)
-        }
-        (IndexReader::DocumentIdOnly(ir), InvertedIndex::DocumentIdOnly(ii)) => {
-            let mut ii = ii;
-            ir.swap_index(&mut ii)
-        }
-        (IndexReader::RawDocumentIdOnly(ir), InvertedIndex::RawDocumentIdOnly(ii)) => {
-            let mut ii = ii;
-            ir.swap_index(&mut ii)
-        }
-        (IndexReader::Numeric(ir), InvertedIndex::Numeric(ii)) => ir.swap_index(&mut ii.inner()),
-        (IndexReader::NumericFiltered(ir), InvertedIndex::Numeric(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::NumericGeoFiltered(ir), InvertedIndex::Numeric(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (IndexReader::NumericFloatCompression(ir), InvertedIndex::NumericFloatCompression(ii)) => {
-            ir.swap_index(&mut ii.inner())
-        }
-        (
-            IndexReader::NumericFilteredFloatCompression(ir),
-            InvertedIndex::NumericFloatCompression(ii),
-        ) => ir.swap_index(&mut ii.inner()),
-        (
-            IndexReader::NumericGeoFilteredFloatCompression(ir),
-            InvertedIndex::NumericFloatCompression(ii),
-        ) => ir.swap_index(&mut ii.inner()),
-        _ => {}
+        | IndexReader::DocIdsOnly(_)
+        | IndexReader::RawDocIdsOnly(_) => std::ptr::null(),
     }
 }
 

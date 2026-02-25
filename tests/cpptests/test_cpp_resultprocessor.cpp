@@ -54,7 +54,7 @@ class ResultProcessorTest : public ::testing::Test {};
 
 TEST_F(ResultProcessorTest, testProcessorChain) {
   QueryProcessingCtx qitr = {0};
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   processor1Ctx *p = new processor1Ctx();
   p->counter = 0;
   p->Next = p1_Next;
@@ -74,7 +74,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
     count++;
     ASSERT_EQ(count, SearchResult_GetDocId(&r));
     ASSERT_EQ(count, SearchResult_GetScore(&r));
-    RSValue *v = RLookup_GetItem(p->kout, SearchResult_GetRowData(&r));
+    RSValue *v = RLookupRow_Get(p->kout, SearchResult_GetRowData(&r));
     ASSERT_TRUE(v != NULL);
     ASSERT_EQ(RSValueType_Number, RSValue_Type(v));
     ASSERT_EQ(count, RSValue_Number_Get(v));

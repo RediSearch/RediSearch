@@ -97,6 +97,64 @@ int Trie_DeleteRunes(Trie *t, const rune *runes, size_t len) {
   return rc;
 }
 
+// Forward declaration for the internal rune-based function
+static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta);
+
+TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta) {
+  if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
+    return TRIE_DECR_NOT_FOUND;
+  }
+  runeBuf buf;
+  size_t runeLen = len;
+  rune *runes = runeBufFill(s, len, &buf, &runeLen);
+  if (!runes) {
+    return TRIE_DECR_NOT_FOUND;
+  }
+  TrieDecrResult rc = Trie_DecrementNumDocsRunes(t, runes, runeLen, delta);
+  runeBufFree(&buf);
+  return rc;
+}
+
+static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta) {
+  if (!runes || len == 0 || len >= TRIE_INITIAL_STRING_LEN) {
+    return TRIE_DECR_NOT_FOUND;
+  }
+
+  // Find the node for this term
+  TrieNode *node = TrieNode_Get(t->root, runes, len, true, NULL);
+  if (!node) {
+    return TRIE_DECR_NOT_FOUND;
+  }
+
+  // Only terminal nodes represent actual terms in the trie.
+  // Non-terminal nodes are internal split/prefix nodes and should not be modified.
+  // TrieNode_Delete only succeeds on terminal nodes, so we must check this first
+  // to avoid corrupting numDocs on non-terminal nodes.
+  if (!__trieNode_isTerminal(node)) {
+    return TRIE_DECR_NOT_FOUND;
+  }
+
+  // Decrement numDocs, clamping to 0 to avoid underflow
+  if (delta >= node->numDocs) {
+    node->numDocs = 0;
+  } else {
+    node->numDocs -= delta;
+  }
+
+  // If numDocs reached 0, delete the node
+  if (node->numDocs == 0) {
+    int deleted = TrieNode_Delete(t->root, runes, len, t->freecb);
+    if (deleted) {
+      t->size -= 1;
+      return TRIE_DECR_DELETED;
+    }
+    // Node was already deleted or couldn't be deleted
+    return TRIE_DECR_UPDATED;
+  }
+
+  return TRIE_DECR_UPDATED;
+}
+
 void TrieSearchResult_Free(TrieSearchResult *e) {
   if (e->str) {
     rm_free(e->str);

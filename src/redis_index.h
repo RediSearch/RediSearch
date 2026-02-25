@@ -16,6 +16,10 @@
 #include "spec.h"
 #include "iterators/iterator_api.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Open an inverted index reader on a redis DMA string, for a specific term.
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
  */
@@ -38,5 +42,9 @@ int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void
  * Format redis key for a term.
  */
 RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

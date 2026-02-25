@@ -45,7 +45,6 @@ impl Bencher {
 
     pub fn bench(&self, c: &mut Criterion) {
         self.read_dense(c);
-        self.read_sparse(c);
         self.skip_to_dense(c);
         self.skip_to_sparse(c);
         self.read_id_list_ratios(c);
@@ -81,39 +80,6 @@ impl Bencher {
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         // touch fields to avoid elision
-                        black_box(current.doc_id);
-                        black_box(current.weight);
-                        black_box(current.freq);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.finish();
-    }
-
-    fn read_sparse(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Optional - Read Sparse");
-
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_optional_virtual_only(Self::LARGE_MAX, Self::WEIGHT),
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.bench_function("Rust", |b| {
-            b.iter_batched_ref(
-                || Optional::new(Self::LARGE_MAX, Self::WEIGHT, Empty),
-                |it| {
-                    while let Ok(Some(current)) = it.read() {
                         black_box(current.doc_id);
                         black_box(current.weight);
                         black_box(current.freq);

@@ -55,6 +55,88 @@ def get_search_field_info(type: str, count: int, index_errors: int = 0, **kwargs
 def field_info_to_dict(info):
   return {key: value for field in info.split(',') for key, value in [field.split('=')]}
 
+@skip(redis_less_than='7.9.227')
+def testInfoModulesInfoOnZeroIndexesConfig(env):
+  conns = env.getOSSMasterNodesConnectionList() if env.isCluster() else [env.getConnection()]
+
+  # Expected INFO MODULES output shape (minimal vs full):
+  #
+  # +---------------------------------+----------------------+----------------------+
+  # | search-_info-on-zero-indexes    | number of indices: 0 | number of indices: >0|
+  # +---------------------------------+----------------------+----------------------+
+  # | ON                              | full                 | full                 |
+  # | OFF                             | minimal              | full                 |
+  # +---------------------------------+----------------------+----------------------+
+  #
+  # minimal = only version/indexes/runtime_configurations sections (metrics suppressed)
+  # full    = metrics sections are present (representative subset), even if values are 0
+
+  # Representative sections emitted by INFO MODULES when metrics are not in "minimal" suppression mode.
+  # (We keep this list intentionally small since other tests validate the full INFO MODULES content.)
+  _REPRESENTATIVE_METRICS_SECTIONS = [
+    'search_fields_statistics',
+    'search_memory',
+    'search_queries',
+    'search_warnings_and_errors',
+    'search_multi_threading',
+    'search_dialect_statistics',
+  ]
+
+  def _assert_minimal_info_on_zero_indexes(info):
+    env.assertTrue('search_version' in info, message="version section should always exist")
+    env.assertTrue('search_indexes' in info, message="indexes section should always exist")
+    env.assertEqual(info['search_indexes']['search_number_of_indexes'], '0')
+    env.assertTrue('search_runtime_configurations' in info, message="runtime_configurations section should always exist")
+    env.assertEqual(info['search_runtime_configurations']['search_info_on_zero_indexes'], 'OFF')
+    for section in _REPRESENTATIVE_METRICS_SECTIONS:
+      env.assertFalse(section in info, message=f"{section} should be suppressed when there are zero indexes and config is OFF")
+
+  def _assert_full_info(info, expected_info_on_zero_indexes):
+    env.assertTrue('search_version' in info, message="version section should always exist")
+    env.assertTrue('search_indexes' in info, message="indexes section should always exist")
+    env.assertTrue('search_runtime_configurations' in info, message="runtime_configurations section should always exist")
+    env.assertEqual(info['search_runtime_configurations']['search_info_on_zero_indexes'], expected_info_on_zero_indexes)
+    # Prove we are not in the "minimal" suppression mode.
+    for section in _REPRESENTATIVE_METRICS_SECTIONS:
+      env.assertTrue(section in info, message=f"{section} should be emitted when full info is expected")
+
+  # When `search-_info-on-zero-indexes` is disabled (default), and there are no indexes, RediSearch
+  # should emit only the version/indexes/runtime_configurations sections (index metrics sections
+  # like fields_statistics/memory/etc are suppressed).
+  allShards_set_info_on_zero_indexes(env, False)
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    _assert_minimal_info_on_zero_indexes(info)
+
+  # With an index, INFO MODULES should include the metrics sections even if the config is OFF.
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  waitForIndex(env, 'idx')
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    env.assertEqual(info['search_indexes']['search_number_of_indexes'], '1')
+    _assert_full_info(info, 'OFF')
+
+  # Drop the index - should go back to suppression.
+  env.expect('FT.DROPINDEX', 'idx').ok()
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    _assert_minimal_info_on_zero_indexes(info)
+
+  # When enabled, metrics should be emitted even when there are no indexes (and runtime_configurations
+  # should reflect that this is ON).
+  allShards_set_info_on_zero_indexes(env, True)
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    _assert_full_info(info, 'ON')
+
+  # With an index, metrics should still be emitted.
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  waitForIndex(env, 'idx')
+  for conn in conns:
+    info = info_modules_to_dict(conn)
+    env.assertEqual(info['search_indexes']['search_number_of_indexes'], '1')
+    _assert_full_info(info, 'ON')
+
 def testInfoModulesBasic(env):
   conn = env.getConnection()
 
@@ -568,6 +650,9 @@ def test_redis_info_modules_vecsim():
 
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
+
   # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run interval
   # is > 8h (5 minutes is the hard limit for a test).
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
@@ -755,13 +840,13 @@ class testWarningsAndErrorsStandalone:
 
     # Test timeout error in FT.SEARCH
     self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 1))
 
     # Test timeout error in FT.AGGREGATE
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     info_dict = info_modules_to_dict(self.env)
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err + 2))
 
@@ -1121,7 +1206,7 @@ class testWarningsAndErrorsCluster:
 
     # Test timeout error in FT.SEARCH (shards)
     self.env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     # Shards: +1 each
     for shardId in range(1, self.env.shardsCount + 1):
       info_dict = info_modules_to_dict(self.env.getConnection(shardId))
@@ -1134,12 +1219,12 @@ class testWarningsAndErrorsCluster:
 
     # Test timeout error in FT.AGGREGATE (shards only via INTERNAL_ONLY)
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('Timeout limit was reached')
+                    'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     # Shards: +1 each again (total +2)
     for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2), msg=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be {base_err_shards[shardId] + 2}")
-
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2),
+                           message=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be +2 total")
     # Coord: +2
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 2),
@@ -1147,12 +1232,12 @@ class testWarningsAndErrorsCluster:
 
     # Test timeout error in FT.AGGREGATE (coordinator)
     self.env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*',
-                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+                    'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     # Shards: +3 (timeout is returned by the coord, but each shard still times out)
     for shardId in range(1, self.env.shardsCount + 1):
-      shard_conn = self.env.getConnection(shardId)
-      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3), msg=f"Shard {shardId} AGG coordinator timeout error should be {base_err_shards[shardId] + 3}")
-
+      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
+      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3),
+                           message=f"Shard {shardId} AGG coordinator timeout error should be +3 total")
     # Coord: +3
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 3),
@@ -1511,6 +1596,9 @@ class testWarningsAndErrorsCluster:
                            message=f"Shard {shardId} has wrong coordinator warnings/errors section after no-error hybrid query")
 
 def test_errors_and_warnings_init(env):
+  # This test validates INFO MODULES metrics initialization with zero indexes.
+  allShards_set_info_on_zero_indexes(env, True)
+
   # Verify fields in metric are initialized properly
   info_dict = info_modules_to_dict(env)
   for metric in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
@@ -1785,6 +1873,8 @@ def _test_pending_jobs_metrics(env, command_type):
     # --- STEP 1: SETUP ---
     # Configure WORKERS (we just need workers enabled, e.g., 2)
     run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '2')
+    # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+    allShards_set_info_on_zero_indexes(env, True)
 
     # Define variables
     num_vectors = 10 * env.shardsCount  # Number of vectors to index (creates low priority jobs)
@@ -2106,6 +2196,8 @@ def test_total_docs_indexed_metric_SA(env):
 @skip(cluster=True)
 def test_total_docs_indexed_by_field_type_SA(env):
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   # Helper to get all field-type metrics
   def get_field_metrics():
@@ -2248,6 +2340,8 @@ def test_total_docs_indexed_by_field_type_SA(env):
 def test_total_terms_indexed_text_fields(env):
   """Test that TEXT field metric counts unique terms indexed per document, not total documents."""
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   def get_text_metric():
     info = conn.execute_command('INFO', 'MODULES')
@@ -2321,6 +2415,8 @@ def test_total_terms_indexed_text_fields(env):
 def test_total_indexing_ops_multi_value_json(env):
   """Test that multi-value JSON indexing properly increments field metrics."""
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   def get_field_metrics():
     info = conn.execute_command('INFO', 'MODULES')
@@ -2384,6 +2480,8 @@ def test_total_indexing_ops_multi_value_json(env):
 def test_json_null_fields(env):
   """Test that JSON NULL fields do not increment field indexing statistics."""
   conn = getConnectionByEnv(env)
+  # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+  allShards_set_info_on_zero_indexes(env, True)
 
   def get_field_metrics():
     info = conn.execute_command('INFO', 'MODULES')
@@ -2502,3 +2600,169 @@ def test_coord_dispatch_time_metric():
   query_vector = np.array([1.0, 1.0], dtype=np.float32).tobytes()
   env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello0', 'VSIM', '@v', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
   dispatch_times_per_shard = verify_per_shard_dispatch_times_increased('FT.HYBRID', dispatch_times_per_shard)
+
+
+@skip(cluster=True)
+def test_vecsim_hnsw_tiered_info_metrics():
+  """
+  Test the new vector index metrics: direct_hnsw_insertions and flat_buffer_size.
+  Covers:
+  - Non-tiered indexes return 0 for tiered-specific metrics (INFO MODULES and FT.INFO)
+  - Flat buffer size tracking across multiple indexes
+  - Direct insertions when flat buffer is full
+  - Cumulative behavior of direct insertions counter
+  - Key deletions and index drops
+  - FT.INFO field statistics for individual indexes
+  """
+  buffer_limit = 10
+  env = Env(moduleArgs=f'WORKERS 2 TIERED_HNSW_BUFFER_LIMIT {buffer_limit}')
+  conn = getConnectionByEnv(env)
+  dim = 4
+
+  def get_field_stats(idx):
+    """Get field statistics as a dict for the first field of an index."""
+    ft_info = index_info(env, idx)
+    return to_dict(ft_info['field statistics'][0])
+
+  # --- Test 1: Non-tiered (FLAT) index returns 0 for tiered-specific metrics ---
+  env.expect('FT.CREATE', 'idx_flat', 'PREFIX', '1', 'flat:', 'SCHEMA', 'vec', 'VECTOR', 'FLAT', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+  for i in range(5):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'flat:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], 0)
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0)
+
+  # Verify FT.INFO for FLAT index also returns 0 for tiered-specific metrics
+  field_stats = get_field_stats('idx_flat')
+  env.assertEqual(field_stats['direct_hnsw_insertions'], 0)
+  env.assertEqual(field_stats['flat_buffer_size'], 0)
+
+  # --- Test 2: Flat buffer tracking across multiple indexes ---
+  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+
+  env.expect('FT.CREATE', 'idx_hnsw1', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw1:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+  env.expect('FT.CREATE', 'idx_hnsw2', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw2:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+  # Insert vectors into first index up to buffer limit
+  for i in range(buffer_limit):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  # Insert vectors into second index (partial fill)
+  vectors_in_idx2 = 5
+  for i in range(vectors_in_idx2):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw2:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit + vectors_in_idx2,
+                  message="Flat buffer should aggregate across indexes")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], 0,
+                  message="No direct insertions yet")
+
+  # Verify FT.INFO for individual indexes
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['flat_buffer_size'], buffer_limit)
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], 0)
+  field_stats2 = get_field_stats('idx_hnsw2')
+  env.assertEqual(field_stats2['flat_buffer_size'], vectors_in_idx2)
+  env.assertEqual(field_stats2['direct_hnsw_insertions'], 0)
+
+  # --- Test 3: Direct insertions to idx1 when buffer is full ---
+  extra_vectors = 5
+  for i in range(buffer_limit, buffer_limit + extra_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], extra_vectors,
+                  message="Extra vectors should be counted as direct insertions")
+
+  # Verify FT.INFO shows direct insertions for idx_hnsw1
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], extra_vectors)
+  env.assertEqual(field_stats1['flat_buffer_size'], buffer_limit)
+
+  # --- Test 4: Direct insertions are cumulative - insert more vector to idx1 ---
+  more_vectors = 3
+  for i in range(buffer_limit + extra_vectors, buffer_limit + extra_vectors + more_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw1:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  total_direct = extra_vectors + more_vectors
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions should be cumulative")
+
+  # Verify FT.INFO shows cumulative direct insertions
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], total_direct)
+
+  # --- Test 5: Key deletions reduce flat buffer size ---
+  # Delete some keys from idx2 (which has vectors in flat buffer)
+  deleted_keys = 3
+  for i in range(deleted_keys):
+    conn.execute_command('DEL', f'hnsw2:{i}')
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit + vectors_in_idx2 - deleted_keys,
+                  message="Flat buffer size should decrease after key deletions")
+  # Direct insertions counter should not change
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions should not decrease after deletions")
+
+  # --- Test 6: Dropping an index reduces flat buffer size ---
+  env.expect('FT.DROPINDEX', 'idx_hnsw2').ok()
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], buffer_limit,
+                  message="Flat buffer size should decrease after dropping index")
+
+  # --- Test 7: After draining, flat buffer empties but direct insertions preserved ---
+  env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0,
+                  message="Flat buffer should be empty after draining")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct,
+                  message="Direct insertions count should be preserved after draining")
+
+  # Verify FT.INFO after draining
+  field_stats1 = get_field_stats('idx_hnsw1')
+  env.assertEqual(field_stats1['flat_buffer_size'], 0,
+                  message="FT.INFO flat buffer should be empty after draining")
+  env.assertEqual(field_stats1['direct_hnsw_insertions'], total_direct,
+                  message="FT.INFO direct insertions should be preserved after draining")
+
+  # --- Test 8: Direct insertions when WORKERS=0 (no tiered buffering) ---
+  # Change workers to 0 at runtime - this disables tiered indexing
+  env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
+
+  # Create a new HNSW index after workers are disabled
+  env.expect('FT.CREATE', 'idx_hnsw_no_workers', 'SKIPINITIALSCAN', 'PREFIX', '1', 'hnsw_nw:', 'SCHEMA', 'vec', 'VECTOR', 'HNSW', '6',
+             'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+  # Insert vectors - should go directly to HNSW since workers=0
+  workers_0_vectors = 7
+  for i in range(workers_0_vectors):
+    vector = np.random.rand(dim).astype(np.float32).tobytes()
+    conn.execute_command('HSET', f'hnsw_nw:{i}', 'vec', vector)
+
+  info = env.cmd('INFO', 'MODULES')
+  env.assertEqual(info['search_tiered_index_frontend_buffer_size'], 0,
+                  message="Flat buffer should remain 0 when WORKERS=0")
+  env.assertEqual(info['search_hnsw_direct_main_thread_insertions'], total_direct + workers_0_vectors,
+                  message="Direct insertions should increase when WORKERS=0")
+
+  # Verify FT.INFO for the new index shows direct insertions and no flat buffer
+  field_stats_nw = get_field_stats('idx_hnsw_no_workers')
+  env.assertEqual(field_stats_nw['flat_buffer_size'], 0,
+                  message="FT.INFO flat buffer should be 0 when WORKERS=0")
+  env.assertEqual(field_stats_nw['direct_hnsw_insertions'], workers_0_vectors,
+                  message="FT.INFO should show direct insertions when WORKERS=0")

@@ -17,7 +17,6 @@
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/numeric_filter.h"
 #include "src/forward_index.h"
 
 class BM_IndexIterator : public benchmark::Fixture {
@@ -29,7 +28,6 @@ public:
     InvertedIndex *index;
     QueryIterator *iterator;
     std::unique_ptr<MockQueryEvalCtx> q_mock;
-    NumericFilter *numericFilter;
 
     void SetUp(::benchmark::State &state) {
         if (!initialized) {
@@ -37,7 +35,6 @@ public:
             initialized = true;
         }
         q_mock = std::make_unique<MockQueryEvalCtx>();
-        numericFilter = nullptr;
 
         std::mt19937 rng(46);
         std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
@@ -63,8 +60,8 @@ public:
 
         // Create an index with the specified flags
         createIndex(flags);
-        // Create an iterator based on the flags.
-        createIterator(flags);
+        RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+        iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NewQueryTerm(&tok, 1), 1.0);
     }
     void TearDown(::benchmark::State &state) {
         if (iterator) {
@@ -74,10 +71,6 @@ public:
         if (index) {
             InvertedIndex_Free(index);
             index = nullptr;
-        }
-        if (numericFilter) {
-            NumericFilter_Free(numericFilter);
-            numericFilter = nullptr;
         }
         ids.clear();
         RSGlobalConfig.invertedIndexRawDocidEncoding = false;
@@ -93,12 +86,7 @@ public:
         size_t dummy;
         index = NewInvertedIndex(flags, &dummy);
 
-        if (flags == Index_StoreNumeric) {
-            // Populate the index with numeric data
-            for (size_t i = 0; i < ids.size(); ++i) {
-                InvertedIndex_WriteNumericEntry(index, ids[i], static_cast<double>(i));
-            }
-        } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
+        if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
             // Populate the index with document IDs only
             for (size_t i = 0; i < ids.size(); ++i) {
                 RSIndexResult rec = {.docId = ids[i], .data = {.tag = RSResultData_Virtual}};
@@ -121,17 +109,6 @@ public:
             }
         }
     }
-
-    void createIterator(IndexFlags flags) {
-        // Create an iterator based on the flags
-        if (flags == Index_StoreNumeric) {
-            FieldFilterContext fieldCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = 0}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-            iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
-        } else {
-            iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, nullptr, 1.0);
-        }
-    }
-
 };
 bool BM_IndexIterator::initialized = false;
 
@@ -150,7 +127,6 @@ bool BM_IndexIterator::initialized = false;
         Index_StoreFreqs | Index_StoreTermOffsets,                                                  \
         Index_DocIdsOnly,                                                                           \
         Index_DocIdsOnly | Index_Temporary,                                                         \
-        Index_StoreNumeric,                                                                         \
     }, {                                                                                            \
         false,                                                                                      \
         true                                                                                        \

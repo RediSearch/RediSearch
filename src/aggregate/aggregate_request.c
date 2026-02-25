@@ -16,7 +16,7 @@
 #include <rmutil/util.h>
 #include "ext/default.h"
 #include "extension.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
@@ -673,7 +673,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
         .keySpaceVersion = &req->keySpaceVersion,
-        .coordDispatchTime = &req->coordDispatchTime,
+        .coordDispatchTime = &req->profileClocks.coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -1036,7 +1036,18 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
+  atomic_store_explicit(&req->timedOut, false, memory_order_relaxed);
+  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_relaxed);
+  req->refcount = 1;  // Initial reference
   return req;
+}
+
+bool AREQ_TimedOut(AREQ *req) {
+  return atomic_load_explicit(&req->timedOut, memory_order_acquire);
+}
+
+void AREQ_SetTimedOut(AREQ *req) {
+  atomic_store_explicit(&req->timedOut, true, memory_order_release);
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
@@ -1091,6 +1102,17 @@ static bool IsNeededDepleter(AREQ *req) {
   return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
 }
 
+// This function should only be called from the main thread (calling RunInThread() is not thread safe)
+// AREQ execution flags are not set when this function is called currently
+static bool shouldCheckInPipelineTimeout(AREQ *req) {
+  // We should check for timeout in pipeline only if timeout is > 0
+  // and when the policy is RETURN or the policy is FAIL, without workers.
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
+          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+
+}
+
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
@@ -1131,7 +1153,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
     .keySpaceVersion = &req->keySpaceVersion,
-    .coordDispatchTime = &req->coordDispatchTime,
+    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
   if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
@@ -1149,6 +1171,9 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
+
+  // Check if we should check for timeout in pipeline
+  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(req));
 
   return REDISMODULE_OK;
 
@@ -1295,11 +1320,17 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
-  // Set vector node as ast->root and use setFilterNode for proper filter integration
-  // setFilterNode handles both KNN (child relationship) and RANGE (intersection) properly
+  // Set vector node as ast->root and use SetFilterNode for proper filter integration.
+  // SetFilterNode handles both KNN (child relationship) and RANGE (intersection) properly.
+  // For RANGE queries without explicit FILTER, we skip filter integration to keep
+  // the vector node as root directly, preserving BY_SCORE ordering from the iterator.
+  RS_LOG_ASSERT(!(pvd->skipFilterIntegration && ast->root != NULL),
+                "ast->root should be NULL when skipFilterIntegration is true");
   QueryNode *oldRoot = ast->root;
   ast->root = vecNode;
-  SetFilterNode(ast, oldRoot);
+  if (!pvd->skipFilterIntegration) {
+    SetFilterNode(ast, oldRoot);
+  }
 
   return REDISMODULE_OK;
 }
@@ -1372,9 +1403,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   unsigned long dialectVersion = req->reqConfig.dialectVersion;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
-  if (rv != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+  // For RANGE queries without explicit FILTER (skipFilterIntegration=true), we
+  // can skip parsing the wildcard query "*" since we'll immediately replace
+  // ast->root with the vector node anyway. This avoids allocating and freeing a
+  // wildcard node unnecessarily.
+  bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
+
+  if (!skipParse) {
+    int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
+    if (rv != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if (req->parsedVectorData) {
@@ -1419,7 +1458,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 }
 
 
-void AREQ_Free(AREQ *req) {
+static void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
@@ -1500,7 +1539,16 @@ void AREQ_Free(AREQ *req) {
   rm_free(req);
 }
 
+AREQ *AREQ_IncrRef(AREQ *req) {
+  __atomic_fetch_add(&req->refcount, 1, __ATOMIC_RELAXED);
+  return req;
+}
 
+void AREQ_DecrRef(AREQ *req) {
+  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_ACQ_REL)) {
+    AREQ_Free(req);
+  }
+}
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);

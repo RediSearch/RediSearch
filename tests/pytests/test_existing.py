@@ -115,3 +115,52 @@ def testOptimized():
     # Reschedule the gc - add a job to the queue
     env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+@skip(cluster=True)
+def test_wildcard_cursor_gc_null_existing_docs():
+    """Reproduces a crash when GC frees existingDocs (sets it to NULL) while a
+    wildcard cursor is still open. WildcardCheckAbort passes existingDocs to
+    IndexReader_IsIndex without a NULL check, causing a NULL pointer
+    dereference on the next cursor read."""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 0")
+    conn = getConnectionByEnv(env)
+
+    # Create an index with INDEXALL so wildcard queries use existingDocs.
+    env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE', 'ON', 'HASH',
+               'SCHEMA', 't', 'TEXT').ok()
+
+    # Stop periodic GC so we control exactly when it runs.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+
+    # Populate the index with enough documents to span multiple cursor reads.
+    n_docs = 20
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc{i}', 't', 'hello')
+
+    # Open a wildcard cursor, reading only 1 result at a time.
+    # This creates a wildcard iterator backed by existingDocs.
+    res, cid = env.cmd('FT.AGGREGATE', 'idx', '*',
+                       'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '1')
+    n = len(res) - 1
+    env.assertTrue(cid != 0)
+
+    # Delete ALL documents so that existingDocs becomes empty.
+    for i in range(n_docs):
+        conn.execute_command('DEL', f'doc{i}')
+
+    # Force GC — this will free existingDocs and set it to NULL.
+    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+
+    # Read the cursor again. This triggers WildcardCheckAbort, which
+    # dereferences the now-NULL existingDocs pointer → crash without fix.
+    while cid:
+        res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+        n += len(res) - 1
+
+    # After GC cleaned all docs, we should not get additional results.
+    env.assertEqual(n, 1)
+
+    # Reschedule the gc - add a job to the queue
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')

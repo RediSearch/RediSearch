@@ -10,17 +10,13 @@
 mod key;
 mod key_list;
 
-use crate::bindings::{FieldSpecOption, FieldSpecOptions, IndexSpecCache};
-#[cfg(debug_assertions)]
-use crate::rlookup_id::RLookupId;
+use crate::{
+    IndexSpec, OpaqueRLookupRow,
+    bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+};
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
-use std::{
-    borrow::Cow,
-    ffi::CStr,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-};
+use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut};
@@ -45,14 +41,9 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
-/// cbindgen:no-export
 #[derive(Debug)]
-#[repr(C)]
 pub struct RLookup<'a> {
-    /// RLookup fields exposed to C.
-    // Because we must be able to re-interpret pointers to `RLookup` to `RLookupHeader`
-    // THIS MUST BE THE FIRST FIELD DONT MOVE IT
-    header: RLookupHeader<'a>,
+    keys: KeyList<'a>,
 
     // Flags/options
     options: RLookupOptions,
@@ -60,32 +51,9 @@ pub struct RLookup<'a> {
     // If present, then GetKey will consult this list if the value is not found in
     // the existing list of keys.
     index_spec_cache: Option<IndexSpecCache>,
-
-    #[cfg(debug_assertions)]
-    id: RLookupId,
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct RLookupHeader<'a> {
-    keys: KeyList<'a>,
 }
 
 // ===== impl RLookup =====
-
-impl<'a> Deref for RLookup<'a> {
-    type Target = RLookupHeader<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl<'a> DerefMut for RLookup<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.header
-    }
-}
 
 impl Default for RLookup<'_> {
     fn default() -> Self {
@@ -96,24 +64,36 @@ impl Default for RLookup<'_> {
 impl<'a> RLookup<'a> {
     pub fn new() -> Self {
         Self {
-            header: RLookupHeader {
-                keys: KeyList::new(),
-            },
+            keys: KeyList::new(),
             options: RLookupOptions::empty(),
             index_spec_cache: None,
-            #[cfg(debug_assertions)]
-            id: RLookupId::next(),
         }
     }
 
-    pub fn init(&mut self, spcache: Option<IndexSpecCache>) {
-        // C-CODE: used memset to zero initialize,
-        // We behave the same way in release, but add a debug assert to catch misuses.
-        if self.index_spec_cache.is_some() {
-            debug_assert!(false, "RLookup already initialized with an IndexSpecCache");
-            *self = Self::new();
-        }
+    /// Set the [`IndexSpecCache`] associated with this [`RLookup`].
+    ///
+    /// # Panics
+    ///
+    /// Panics this lookup already has an index spec cache.
+    pub fn set_cache(&mut self, spcache: Option<IndexSpecCache>) {
+        debug_assert!(
+            self.index_spec_cache.is_none(),
+            "cannot replace an existing index_spec_cache"
+        );
+
         self.index_spec_cache = spcache;
+    }
+
+    pub fn disable_options(&mut self, options: RLookupOptions) {
+        self.options &= !options;
+    }
+
+    pub fn enable_options(&mut self, options: RLookupOptions) {
+        self.options |= options;
+    }
+
+    pub const fn has_index_spec_cache(&self) -> bool {
+        self.index_spec_cache.is_some()
     }
 
     pub fn find_field_in_spec_cache(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
@@ -180,11 +160,6 @@ impl<'a> RLookup<'a> {
         self.keys.cursor_front_mut()
     }
 
-    #[cfg(debug_assertions)]
-    pub const fn id(&self) -> RLookupId {
-        self.id
-    }
-
     // ===== Get key for reading (create only if in schema and sortable) =====
 
     /// Gets a key by its name from the lookup table, if not found it uses the schema as a fallback to search the key.
@@ -222,7 +197,7 @@ impl<'a> RLookup<'a> {
 
         // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
         if self.options.contains(RLookupOption::AllowUnresolved) {
-            let mut key = RLookupKey::new(self, name, flags);
+            let mut key = RLookupKey::new(name, flags);
             key.flags |= RLookupKeyFlag::Unresolved;
 
             let key = self.keys.push(key);
@@ -263,7 +238,7 @@ impl<'a> RLookup<'a> {
             return Err(name);
         }
 
-        let mut key = RLookupKey::new(self, name, flags);
+        let mut key = RLookupKey::new(name, flags);
         key.update_from_field_spec(fs);
         Ok(key)
     }
@@ -297,7 +272,7 @@ impl<'a> RLookup<'a> {
         } else {
             // B. we didn't find the key in the lookup table:
             // create a new key with the name and flags
-            let key = RLookupKey::new(self, name.clone(), flags | RLookupKeyFlag::QuerySrc);
+            let key = RLookupKey::new(name.clone(), flags | RLookupKeyFlag::QuerySrc);
             self.keys.push(key);
         };
 
@@ -361,7 +336,6 @@ impl<'a> RLookup<'a> {
             }
         } else {
             let key = RLookupKey::new(
-                self,
                 name.clone(),
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
             );
@@ -371,7 +345,6 @@ impl<'a> RLookup<'a> {
         // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
         // See <https://github.com/rust-lang/rust/issues/54663>
         let mut cursor = self
-            .header
             .keys
             .find_by_name_mut(&name)
             .expect("key should have been created above");
@@ -413,81 +386,126 @@ impl<'a> RLookup<'a> {
     }
 
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
-    pub(crate) const fn get_row_len(&self) -> u32 {
-        self.header.keys.rowlen
+    pub const fn get_row_len(&self) -> u32 {
+        self.keys.rowlen
+    }
+
+    pub fn load_rule_fields(
+        &mut self,
+        search_ctx: &mut ffi::RedisSearchCtx,
+        dst_row: &mut OpaqueRLookupRow,
+        index_spec: &'a IndexSpec,
+        key: &CStr,
+        status: &mut ffi::QueryError,
+    ) -> i32 {
+        let keys = create_keys_from_spec(index_spec);
+        let pushed_keys = keys.into_iter().map(|k| self.keys.push(k)).collect();
+        load_specific_keys(
+            self,
+            search_ctx,
+            dst_row,
+            index_spec,
+            key,
+            pushed_keys,
+            status,
+        )
     }
 }
 
+fn create_keys_from_spec<'a>(index_spec: &'a IndexSpec) -> Vec<RLookupKey<'a>> {
+    // TODO: Consider returning `impl Iterator` in order to avoid the `collect()` allocation below, refer to Jira ticket MOD-13907.
+    let rule = index_spec.rule();
+    let field_specs = index_spec.field_specs();
+    rule.filter_fields_index()
+        .iter()
+        .zip(rule.filter_fields())
+        .map(|(&index, filter_field)| create_key_from_data(index, filter_field, field_specs))
+        .collect::<Vec<_>>()
+}
+
+fn create_key_from_data<'a>(
+    index: i32,
+    filter_field: &'a CStr,
+    field_specs: &'a [FieldSpec],
+) -> RLookupKey<'a> {
+    const NO_MATCH: i32 = -1;
+    if NO_MATCH == index {
+        RLookupKey::new(filter_field, RLookupKeyFlags::empty())
+    } else {
+        let index = usize::try_from(index).expect("index must be positive and fit into usize");
+        let field_spec = &field_specs[index];
+        let field_name = field_spec.field_name().into_secret_value();
+        let path = field_spec.field_path().into_secret_value();
+
+        RLookupKey::new_with_path(field_name, path, RLookupKeyFlags::empty())
+    }
+}
+
+fn load_specific_keys<'a>(
+    lookup: &mut RLookup<'a>,
+    search_ctx: &mut ffi::RedisSearchCtx,
+    dst_row: &mut OpaqueRLookupRow,
+    index_spec: &IndexSpec,
+    key: &CStr,
+    keys: Vec<Pin<&mut RLookupKey>>,
+    status: &mut ffi::QueryError,
+) -> i32 {
+    let lookup = lookup.as_opaque_mut_ptr().cast::<ffi::RLookup>();
+    let dst_row = ptr::from_mut(dst_row).cast::<ffi::RLookupRow>();
+
+    let mut keys = keys
+        .into_iter()
+        .map(|k| {
+            // Safety: `ffi::RLookupLoadOptions` requires a mutable pointer to the key array. We have full control over these keys as we handle them in the keylist. The following statements are not optimal, but will have to do for now.
+            let k = unsafe { Pin::into_inner_unchecked(k.into_ref()) };
+            ptr::from_ref(k).cast::<ffi::RLookupKey>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut options = ffi::RLookupLoadOptions {
+        keys: keys.as_mut_ptr(),
+        nkeys: keys.len(),
+        sctx: ptr::from_mut(search_ctx),
+        keyPtr: key.as_ptr(),
+        type_: index_spec.rule().type_(),
+        status: ptr::from_mut(status),
+        forceLoad: true,
+        mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+        dmd: ptr::null(),
+        forceString: false,
+    };
+
+    // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.
+    unsafe { ffi::loadIndividualKeys(lookup, dst_row, &mut options) }
+}
+
+pub mod opaque {
+    use super::RLookup;
+    use c_ffi_utils::opaque::Size;
+    /// An opaque lookup which can be passed by value to C.
+    ///
+    /// The size and alignment of this struct must match the Rust `RLookup`
+    /// structure exactly.
+    #[repr(C, align(8))]
+    pub struct OpaqueRLookup(Size<40>);
+
+    c_ffi_utils::opaque!(RLookup<'_>, OpaqueRLookup);
+}
+
 #[cfg(test)]
+#[allow(clippy::undocumented_unsafe_blocks)]
 mod tests {
     use super::*;
-
+    #[cfg_attr(miri, allow(unused))]
+    use crate::bindings::FieldSpecBuilder;
+    use crate::bindings::rs_array;
     use enumflags2::make_bitflags;
     use std::ffi::CString;
-    #[cfg(not(miri))]
     use std::mem::MaybeUninit;
-    use std::ptr::{self, NonNull};
+    use std::ptr;
 
     #[cfg(not(miri))]
     use proptest::prelude::*;
-
-    // Compile time check to ensure that `RLookup` can safely be re-interpreted as `RLookupHeader` (has the same
-    // layout at the beginning).
-    const _: () = {
-        // RLookup is larger than RLookupHeader because it has additional Rust fields
-        assert!(std::mem::size_of::<RLookup>() >= std::mem::size_of::<RLookupHeader>());
-        assert!(std::mem::align_of::<RLookup>() == std::mem::align_of::<RLookupHeader>());
-
-        assert!(
-            ::std::mem::offset_of!(RLookup, header.keys)
-                == ::std::mem::offset_of!(RLookupHeader, keys)
-        );
-    };
-
-    #[test]
-    fn rlookup_init() {
-        let mut rlookup = RLookup::new();
-
-        let spcache = Box::new(ffi::IndexSpecCache {
-            fields: ptr::null_mut(),
-            nfields: 0,
-            refcount: 1,
-        });
-        let spcache =
-            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
-
-        rlookup.init(Some(spcache));
-
-        assert!(rlookup.index_spec_cache.is_some());
-    }
-
-    #[test]
-    #[cfg_attr(debug_assertions, should_panic)]
-    fn rlookup_no_reinit() {
-        let mut rlookup = RLookup::new();
-
-        let spcache = Box::new(ffi::IndexSpecCache {
-            fields: ptr::null_mut(),
-            nfields: 0,
-            refcount: 1,
-        });
-        let spcache =
-            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
-
-        rlookup.init(Some(spcache));
-        assert!(rlookup.index_spec_cache.is_some());
-
-        let spcache = Box::new(ffi::IndexSpecCache {
-            fields: ptr::null_mut(),
-            nfields: 0,
-            refcount: 1,
-        });
-        let spcache =
-            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
-
-        // this should panic
-        rlookup.init(Some(spcache));
-    }
 
     // Assert that we can successfully write keys to the rlookup
     #[test]
@@ -551,7 +569,7 @@ mod tests {
 
         let mut rlookup = RLookup::new();
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
@@ -560,8 +578,6 @@ mod tests {
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
-        assert_eq!(retrieved_key.name, key_name.as_ptr());
-        assert_eq!(retrieved_key.path, field_name.as_ptr());
         assert_eq!(retrieved_key.path().as_ref().unwrap().as_ref(), field_name);
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
@@ -569,19 +585,18 @@ mod tests {
 
     // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_key_load_override_no_field_in_cache() {
         // setup:
         let key_name = c"key_no_cache";
         let field_name = c"name_in_doc";
 
-        // we don't use the cache
-        let empty_field_array = [];
-        let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup
@@ -593,8 +608,6 @@ mod tests {
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
-        assert_eq!(retrieved_key.name, key_name.as_ptr());
-        assert_eq!(retrieved_key.path, field_name.as_ptr());
         assert_eq!(retrieved_key.path().as_ref().unwrap().as_ref(), field_name);
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
@@ -609,49 +622,36 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
-        let field_name = key_name;
-        arr[0].fieldName =
-            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-        let field_path = cache_field_name;
-        arr[0].fieldPath =
-            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-        arr[0].set_options(ffi::FieldSpecOptions_FieldSpec_Sortable);
-        arr[0].sortIdx = 12;
-        let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
+            .with_field_name(key_name)
+            .with_sort_idx(12)
+            .with_options(make_bitflags!(FieldSpecOption::{
+                Sortable
+            }))
+            .finish()]);
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup
             .get_key_load(
                 key_name,
-                field_name,
+                cache_field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
-        assert_eq!(retrieved_key.name, key_name.as_ptr());
-        assert_eq!(retrieved_key.path, cache_field_name.as_ptr());
         assert_eq!(
             retrieved_key.path().as_ref().unwrap().as_ref(),
             cache_field_name
         );
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
-
-        // cleanup
-        unsafe {
-            ffi::HiddenString_Free(arr[0].fieldName, false);
-        }
-        unsafe {
-            ffi::HiddenString_Free(arr[0].fieldPath, false);
-        }
     }
 
     #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
@@ -662,42 +662,29 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
-        let field_name = key_name;
-        arr[0].fieldName =
-            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-        let field_path = cache_field_name;
-        arr[0].fieldPath =
-            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-        arr[0].set_options(
-            ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
-        );
-        arr[0].sortIdx = 12;
-        let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
+            .with_field_name(key_name)
+            .with_sort_idx(12)
+            .with_options(make_bitflags!(FieldSpecOption::{
+                Sortable | Unf
+            }))
+            .finish()]);
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup.get_key_load(
             key_name,
-            field_name,
+            cache_field_name,
             make_bitflags!(RLookupKeyFlag::Override),
         );
 
         // we should access the sorting vector instead
         assert!(retrieved_key.is_none());
-
-        // cleanup
-        unsafe {
-            ffi::HiddenString_Free(arr[0].fieldName, false);
-        }
-        unsafe {
-            ffi::HiddenString_Free(arr[0].fieldPath, false);
-        }
     }
 
     #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
@@ -708,55 +695,41 @@ mod tests {
         let cache_field_name = c"name_in_doc";
 
         // Let's create a cache with one field spec
-        let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
-        let field_name = key_name;
-        arr[0].fieldName =
-            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-        let field_path = cache_field_name;
-        arr[0].fieldPath =
-            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-        arr[0].set_options(
-            ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
-        );
-        arr[0].sortIdx = 12;
-        let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+        let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
+            .with_field_name(key_name)
+            .with_sort_idx(12)
+            .with_options(make_bitflags!(FieldSpecOption::{
+                Sortable | Unf
+            }))
+            .finish()]);
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
-        let key = RLookupKey::new(&rlookup, key_name, RLookupKeyFlags::empty());
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup
             .get_key_load(
                 key_name,
-                field_name,
+                cache_field_name,
                 make_bitflags!(RLookupKeyFlag::{Override | ForceLoad}),
             )
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
-        assert_eq!(retrieved_key.name, key_name.as_ptr());
-        assert_eq!(retrieved_key.path, cache_field_name.as_ptr());
         assert_eq!(
             retrieved_key.path().as_ref().unwrap().as_ref(),
             cache_field_name
         );
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
-
-        // cleanup
-        unsafe {
-            ffi::HiddenString_Free(arr[0].fieldName, false);
-        }
-        unsafe {
-            ffi::HiddenString_Free(arr[0].fieldPath, false);
-        }
     }
 
     // Assert the the cases in which None is returned also the key could be found
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_key_load_returns_none_although_key_is_available() {
         // setup:
         let key_name = c"key_no_cache";
@@ -768,14 +741,12 @@ mod tests {
         ];
 
         for flag in key_flags {
-            // we don't use the cache
-            let empty_field_array = [];
-            let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+            let spcache = IndexSpecCache::from_fields([]);
 
             let mut rlookup = RLookup::new();
-            rlookup.init(Some(spcache));
+            rlookup.set_cache(Some(spcache));
 
-            let key = RLookupKey::new(&rlookup, key_name, flag.into());
+            let key = RLookupKey::new(key_name, flag.into());
 
             rlookup.keys.push(key);
 
@@ -802,17 +773,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_load_key_on_empty_rlookup_and_cache() {
         // setup:
         let key_name = c"key_no_cache";
         let field_name = c"name_in_doc";
 
-        // we don't use the cache
-        let empty_field_array = [];
-        let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -831,17 +801,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn rlookup_get_load_key_name_equals_field_name() {
         // setup:
         let key_name = c"key_no_cache";
         let field_name = c"key_no_cache";
 
-        // we don't use the cache
-        let empty_field_array = [];
-        let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+        let spcache = IndexSpecCache::from_fields([]);
 
         let mut rlookup = RLookup::new();
-        rlookup.init(Some(spcache));
+        rlookup.set_cache(Some(spcache));
 
         let retrieved_key = rlookup
             .get_key_load(
@@ -1075,31 +1044,6 @@ mod tests {
         assert!(!dest_key_after_src2.flags.contains(RLookupKeyFlag::Hidden));
     }
 
-    #[test]
-    #[cfg(debug_assertions)]
-    fn rlookup_returns_branded_keys() {
-        let mut rlookup = RLookup::new();
-
-        rlookup.options.set(RLookupOption::AllowUnresolved, true);
-        {
-            let key = rlookup
-                .get_key_read(c"foo", RLookupKeyFlags::empty())
-                .unwrap();
-            assert_eq!(key.rlookup_id(), rlookup.id());
-        }
-        rlookup.options.set(RLookupOption::AllowUnresolved, false);
-
-        let key = rlookup
-            .get_key_write(c"bar", RLookupKeyFlags::empty())
-            .unwrap();
-        assert_eq!(key.rlookup_id(), rlookup.id());
-
-        let key = rlookup
-            .get_key_load(c"baz", c"field", RLookupKeyFlags::empty())
-            .unwrap();
-        assert_eq!(key.rlookup_id(), rlookup.id());
-    }
-
     #[cfg(not(miri))]
     proptest! {
          // assert that a key can in the keylist can be retrieved by its name
@@ -1109,7 +1053,7 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let key = RLookupKey::new(&rlookup, &name, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
 
              rlookup.keys.push(key);
 
@@ -1133,7 +1077,7 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let key = RLookupKey::new(&rlookup, &name, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
              rlookup.keys.push(key);
 
              let not_key = rlookup
@@ -1150,55 +1094,38 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let mut arr = unsafe {
-                 [
-                     MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
-                 ]
-             };
+             let spcache = IndexSpecCache::from_fields([
+                 FieldSpecBuilder::new(&path)
+                 .with_field_name(&name)
+                 .with_sort_idx(sort_idx)
+                 .with_options(make_bitflags!(FieldSpecOption::{
+                     Sortable | Unf
+                 }))
+                 .finish()
+             ]);
 
-             let field_name = name.as_c_str();
-             arr[0].fieldName =
-                 unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-             let field_path = path.as_c_str();
-             arr[0].fieldPath =
-                 unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-             arr[0].set_options(
-                 ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
-             );
-             arr[0].sortIdx = sort_idx;
-
-             let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
-
-             rlookup.init(Some(spcache));
+             rlookup.set_cache(Some(spcache));
 
              // the first call will load from the index spec cache
              let key = rlookup
                  .get_key_read(&name, RLookupKeyFlags::empty()).unwrap();
 
-             prop_assert_eq!(key.name, name.as_ptr());
-             prop_assert_eq!(key.name().as_ref(), name.as_c_str());
-             prop_assert_eq!(key.path, path.as_ptr());
-             prop_assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
+             assert_eq!(key.name().as_ref(), name.as_c_str());
+             assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
 
              // the second call will load from the keylist
              // to ensure this we zero out the cache
-             rlookup.index_spec_cache = None;
+             // NB: we need to keep the spec cache alive here for the scope of this test
+             // otherwise the underlying hidden strings that the keys borrow their names from are freed
+             // and we use-after-free. In production code this cannot happen as - once set - the spec cache
+             // will never be removed from the rlookup.
+             let _spec_cache = rlookup.index_spec_cache.take();
 
              let key = rlookup
                  .get_key_read(&name, RLookupKeyFlags::empty())
                  .unwrap();
-             prop_assert_eq!(key.name, name.as_ptr());
-             prop_assert_eq!(key.name().as_ref(), name.as_c_str());
-             prop_assert_eq!(key.path, path.as_ptr());
-             prop_assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
-
-             // cleanup
-             unsafe {
-                 ffi::HiddenString_Free(arr[0].fieldName, false);
-             }
-             unsafe {
-                 ffi::HiddenString_Free(arr[0].fieldPath, false);
-             }
+             assert_eq!(key.name().as_ref(), name.as_c_str());
+             assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
          }
 
         // Assert that, even though there is a key in the list AND a a field space in the cache, we won't load the key
@@ -1217,32 +1144,19 @@ mod tests {
              let mut rlookup = RLookup::new();
 
              // push a key to the keylist
-             let key = RLookupKey::new(&rlookup, &name1, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
              rlookup.keys.push(key);
 
              // push a field spec to the cache
-             let mut arr = unsafe {
-                 [
-                     MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
-                 ]
-             };
-
-             let field_name = name2.as_c_str();
-             arr[0].fieldName =
-                 unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-
-             let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+             let spcache = IndexSpecCache::from_fields([
+                 FieldSpecBuilder::new(&name2).finish()
+             ]);
 
              // set the cache as the rlookup cache
-             rlookup.init(Some(spcache));
+             rlookup.set_cache(Some(spcache));
 
              let not_key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty());
              prop_assert!(not_key.is_none());
-
-             // cleanup
-             unsafe {
-                 ffi::HiddenString_Free(arr[0].fieldName, false);
-             }
          }
 
         // Assert that, even though there is a key in the list AND a a field space in the cache, we won't load the key
@@ -1260,25 +1174,17 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             let key = RLookupKey::new(&rlookup, &name1, RLookupKeyFlags::empty());
+             let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
 
              rlookup.keys.push(key);
 
              // push a field spec to the cache
-             let mut arr = unsafe {
-                 [
-                     MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
-                 ]
-             };
-
-             let field_name = name2.as_c_str();
-             arr[0].fieldName =
-                 unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-
-             let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+             let spcache = IndexSpecCache::from_fields([
+                 FieldSpecBuilder::new(&name2).finish()
+             ]);
 
              // set the cache as the rlookup cache
-             rlookup.init(Some(spcache));
+             rlookup.set_cache(Some(spcache));
 
              // set the AllowUnresolved option to allow unresolved keys in this rlookup
              rlookup.options.set(RLookupOption::AllowUnresolved, true);
@@ -1289,11 +1195,66 @@ mod tests {
              prop_assert_eq!(key.name().as_ref(), wrong_name.as_c_str());
              prop_assert_eq!(key.path, wrong_name.as_ptr());
              prop_assert!(key.path().is_none());
-
-             // cleanup
-             unsafe {
-                 ffi::HiddenString_Free(arr[0].fieldName, false);
-             }
         }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    fn create_keys_from_spec() {
+        // Arrange
+        let mut index_spec = unsafe { MaybeUninit::<ffi::IndexSpec>::zeroed().assume_init() };
+
+        let mut schema_rule = unsafe { MaybeUninit::<ffi::SchemaRule>::zeroed().assume_init() };
+        let mut filter_fields_index = [-1, 0, 1];
+        schema_rule.filter_fields_index = filter_fields_index.as_mut_ptr();
+        schema_rule.filter_fields =
+            rs_array([c"ff0", c"ff1", c"ff2"].map(|str| str.as_ptr().cast_mut()));
+
+        index_spec.rule = ptr::from_mut(&mut schema_rule);
+
+        let mut field_specs = [
+            field_spec(c"fn0", c"fp0"),
+            field_spec(c"fn1", c"fp1"),
+            field_spec(c"fn2", c"fp2"),
+        ];
+        index_spec.fields = field_specs.as_mut_ptr();
+        index_spec.numFields = field_specs.len().try_into().unwrap();
+
+        let index_spec = unsafe { IndexSpec::from_raw(&raw const index_spec) };
+
+        // Act
+        let actual = super::create_keys_from_spec(index_spec);
+
+        // Assert
+        assert_eq!(actual.len(), 3);
+
+        assert_eq!(actual[0].name(), c"ff0");
+        assert_eq!(actual[0].path(), &None);
+
+        assert_eq!(actual[1].name(), c"fn0");
+        assert_eq!(actual[1].path(), &Some(c"fp0".into()));
+
+        assert_eq!(actual[2].name(), c"fn1");
+        assert_eq!(actual[2].path(), &Some(c"fp1".into()));
+
+        // Clean up
+        unsafe { ffi::array_free(schema_rule.filter_fields.cast()) };
+        for fs in field_specs {
+            unsafe {
+                ffi::HiddenString_Free(fs.fieldName, false);
+            }
+            unsafe {
+                ffi::HiddenString_Free(fs.fieldPath, false);
+            }
+        }
+    }
+
+    fn field_spec(field_name: &CStr, field_path: &CStr) -> ffi::FieldSpec {
+        let mut res = unsafe { MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init() };
+        res.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        res.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        res
     }
 }

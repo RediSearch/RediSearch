@@ -85,7 +85,7 @@ class ParseHybridTest : public ::testing::Test {
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
-    result.coordDispatchTime = &hybridRequest->coordDispatchTime;
+    result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
 
   void TearDown() override {
@@ -127,7 +127,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -137,22 +137,24 @@ class ParseHybridTest : public ::testing::Test {
 
 };
 
-#define parseCommand(args) ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed";
+#define parseCommand(args) do { \
+  ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed"; \
+} while(0)
 
 
-#define assertLinearScoringCtx(Weight0, Weight1) { \
+#define assertLinearScoringCtx(Weight0, Weight1) do { \
   ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
   ASSERT_EQ(result.hybridParams->scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
   ASSERT_TRUE(result.hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
-}
+} while(0)
 
-#define assertRRFScoringCtx(Constant, Window) { \
+#define assertRRFScoringCtx(Constant, Window) do { \
   ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->rrfCtx.constant, Constant); \
   ASSERT_EQ(result.hybridParams->scoringCtx->rrfCtx.window, Window); \
-}
+} while(0)
 
 
 TEST_F(ParseHybridTest, testBasicValidInput) {
@@ -573,7 +575,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeBasic) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
     "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
@@ -581,12 +583,12 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for basic RANGE query with filter
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
@@ -607,6 +609,8 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.5);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
@@ -618,19 +622,19 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
-  // Parse hybrid request
+  // Parse hybrid request - no explicit VSIM FILTER clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.8", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for RANGE query with EPSILON
+  // Verify AST structure for RANGE query without explicit VSIM FILTER
+  // The vector node is the root directly (no PHRASE/intersection needed)
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
-  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
+  QueryNode *vn = vecReq->ast.root;
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
@@ -644,6 +648,8 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
+  // RANGE queries in FT.HYBRID without explicit VSIM FILTER use BY_SCORE,
+  // so the iterator returns results sorted by distance.
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Verify BLOB parameter was correctly resolved (parameter resolution test)
@@ -666,6 +672,73 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_TRUE(foundEpsilon);
 }
 
+TEST_F(ParseHybridTest, testVsimRangeWithFilter) {
+  // Parse hybrid request with RANGE and FILTER clause
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5",
+    "FILTER", "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  AREQ* vecReq = result.vector;
+
+  // Verify AST structure for RANGE query with FILTER
+  // Unlike KNN (where vector is root), RANGE with FILTER creates a PHRASE node
+  // as root with the filter and vector node as children
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE);
+
+  // Use findVectorNodeChild to locate the vector node within the PHRASE
+  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
+  ASSERT_TRUE(vn != NULL);
+  ASSERT_EQ(vn->type, QN_VECTOR);
+
+  // Verify QueryNode structure
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode);
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_SCORE_AS specified
+
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
+  ASSERT_EQ(vq->range.radius, 0.5);
+  // RANGE queries with explicit FILTER use BY_ID ordering because the filter
+  // creates a PHRASE node which uses an intersection iterator with SkipTo.
+  // SkipTo requires child iterators to be sorted by document ID.
+  ASSERT_EQ(vq->range.order, BY_ID);
+
+  // Verify BLOB parameter was correctly resolved
+  const char* expectedBlob = TEST_BLOB_DATA;
+  size_t expectedBlobLen = strlen(expectedBlob);
+  ASSERT_TRUE(vq->range.vector != NULL);
+  ASSERT_EQ(vq->range.vecLen, expectedBlobLen);
+  ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
+
+  // Verify the filter is also present in the PHRASE node
+  // The PHRASE should have at least 2 children: filter node and vector node
+  ASSERT_GE(QueryNode_NumChildren(vecReq->ast.root), 2);
+
+  // Find and verify the filter node (should be a UNION containing TOKEN nodes
+  // for "hello")
+  bool foundFilter = false;
+  for (size_t i = 0; i < QueryNode_NumChildren(vecReq->ast.root); ++i) {
+    QueryNode* child = vecReq->ast.root->children[i];
+    if (child && child->type == QN_UNION) {
+      // This is the filter node - verify it contains the expected tokens
+      ASSERT_GE(QueryNode_NumChildren(child), 1);
+      ASSERT_EQ(child->children[0]->type, QN_TOKEN);
+      ASSERT_STREQ(child->children[0]->tn.str, "hello");
+      foundFilter = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(foundFilter);
+}
+
 TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "_NUM_SSTRING");
@@ -673,7 +746,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Should fail as external command";
   QueryError_ClearError(&status);
 
@@ -706,7 +779,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true);
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK) << "Should succeed as internal command";
   QueryError_ClearError(&status);
 
@@ -714,7 +787,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   ASSERT_TRUE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
 
   // Verify _COORD_DISPATCH_TIME was parsed and stored
-  EXPECT_EQ(hybridRequest->coordDispatchTime, 1000000) << "Coordinator dispatch time should be set";
+  EXPECT_EQ(hybridRequest->profileClocks.coordDispatchTime, 1000000) << "Coordinator dispatch time should be set";
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
@@ -729,10 +802,19 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
-  ASSERT_STREQ(QueryError_GetUserError(&status), expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
+
+  // Errors now include a stable prefix (e.g. "SEARCH_FOO ...") for uniqueness.
+  // To keep tests stable, allow either exact match or "contains" match when the
+  // test asserts only the detail portion.
+  const char *user_error = QueryError_GetUserError(&status);
+  ASSERT_TRUE(user_error != nullptr);
+  if (strcmp(user_error, expected_detail) != 0) {
+    ASSERT_NE(std::string(user_error).find(expected_detail), std::string::npos)
+        << "parsing error: " << user_error;
+  }
 
   // Clean up
   QueryError_ClearError(&status);
@@ -776,7 +858,7 @@ TEST_F(ParseHybridTest, testMissingSecondSearchArgument) {
 TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
   // Test invalid syntax: FT.HYBRID <index> SEARCH hello SEARCH world (should fail)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SEARCH", "world");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `SEARCH` in SEARCH");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `SEARCH` in SEARCH");
 }
 
 // VSIM parsing error tests
@@ -802,7 +884,7 @@ TEST_F(ParseHybridTest, testVsimVectorFieldMissingAtPrefix) {
 TEST_F(ParseHybridTest, testBlobWithoutParams) {
   // Test using $BLOB without PARAMS section - should fail
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10");
-  testErrorCode(args, QUERY_ERROR_CODE_NO_PARAM, "No such parameter `BLOB`");
+  testErrorCode(args, QUERY_ERROR_CODE_NO_PARAM, "Parameter not found `BLOB`");
 }
 
 TEST_F(ParseHybridTest, testDirectVector) {
@@ -874,7 +956,8 @@ TEST_F(ParseHybridTest, testKNNDuplicateYieldDistanceAs) {
       "KNN", "2", "K", "10",
       "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM,
+                "Duplicate YIELD_SCORE_AS argument");
 }
 
 TEST_F(ParseHybridTest, testKNNCountingYieldDistanceAs) {
@@ -884,19 +967,19 @@ TEST_F(ParseHybridTest, testKNNCountingYieldDistanceAs) {
     "VSIM", "@vector", "$BLOB",
       "KNN", "4", "K", "10", "YIELD_SCORE_AS", "v_score",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `YIELD_SCORE_AS` in KNN");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
   // Test KNN with EPSILON (should be RANGE-only)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `EPSILON` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `EPSILON` in KNN");
 }
 
 TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
   // Test with wrong argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "\"hello\"", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "FILTER", "@text:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `FILTER` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `FILTER` in KNN");
 }
 
 // RANGE parsing error tests
@@ -944,7 +1027,8 @@ TEST_F(ParseHybridTest, testRangeDuplicateYieldDistanceAs) {
       "RANGE", "2", "RADIUS", "0.5",
       "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM,
+                "Duplicate YIELD_SCORE_AS argument");
 }
 
 TEST_F(ParseHybridTest, testRangeCountingYieldDistanceAs) {
@@ -954,13 +1038,13 @@ TEST_F(ParseHybridTest, testRangeCountingYieldDistanceAs) {
     "VSIM", "@vector", "$BLOB",
       "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS", "v_score",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `YIELD_SCORE_AS` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `YIELD_SCORE_AS` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
   // Test RANGE with EF_RUNTIME (should be KNN-only)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `EF_RUNTIME` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `EF_RUNTIME` in RANGE");
 }
 
 // NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
@@ -1245,13 +1329,13 @@ TEST_F(ParseHybridTest, testDialectInSearchSubquery) {
 TEST_F(ParseHybridTest, testDialectInVectorKNNSubquery) {
   // Test DIALECT in vector KNN subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `DIALECT` in KNN");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `DIALECT` in KNN");
 }
 
 TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
   // Test DIALECT in vector RANGE subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument `DIALECT` in RANGE");
+  testErrorCode(args, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument `DIALECT` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testDialectInTail) {
@@ -1337,4 +1421,323 @@ TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidRange) {
 TEST_F(ParseHybridTest, testHybridSubqueriesCountInvalidKeyword) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "2", "INVALID_KEYWORD", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "2");
   testErrorCode(args,  QUERY_ERROR_CODE_SYNTAX, "SEARCH keyword is required");
+}
+
+// ============================================================================
+// SHARD_K_RATIO TESTS
+// ============================================================================
+
+TEST_F(ParseHybridTest, testShardKRatioValidMinValue) {
+  // Test valid minimum SHARD_K_RATIO value (0.1)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.1",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.1);
+}
+
+TEST_F(ParseHybridTest, testShardKRatioValidMidValue) {
+  // Test valid mid-range SHARD_K_RATIO value (0.5)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.5",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.5);
+}
+
+TEST_F(ParseHybridTest, testShardKRatioValidMaxValue) {
+  // Test valid maximum SHARD_K_RATIO value (1.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "1.0",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
+}
+
+// Passing SHARD_K_RATIO as a parameter is not yet supported.
+// This test should be updated once it is supported. MOD-12915
+TEST_F(ParseHybridTest, testShardKRatioValidFromParams) {
+  // Test valid maximum SHARD_K_RATIO value (1.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "$RATIO",
+    "PARAMS", "4", "BLOB", TEST_BLOB_DATA, "$RATIO", "0.75");
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value '$RATIO'");
+}
+
+// Passing SHARD_K_RATIO as a parameter is not yet supported.
+// This test should be updated once it is supported. MOD-12915
+TEST_F(ParseHybridTest, testShardKRatioInvalidFromParams) {
+  // Test valid maximum SHARD_K_RATIO value (1.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "$RATIO",
+    "PARAMS", "4", "BLOB", TEST_BLOB_DATA, "RATIO", "8.1");
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value '$RATIO'");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioInvalidBelowMin) {
+  // Test invalid SHARD_K_RATIO value at exclusive minimum (must be > 0.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.0",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value: Shard k ratio must be greater than 0 and at most 1 (got 0)");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioInvalidAboveMax) {
+  // Test invalid SHARD_K_RATIO value above maximum (> 1.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "1.5",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value: Shard k ratio must be greater than 0 and at most 1 (got 1.5)");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioInvalidNegative) {
+  // Test invalid negative SHARD_K_RATIO value
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "-0.5",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value: Shard k ratio must be greater than 0 and at most 1 (got -0.5)");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioInvalidNonNumeric) {
+  // Test invalid non-numeric SHARD_K_RATIO value
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "invalid",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value 'invalid'");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioMissingValue) {
+  // Test missing SHARD_K_RATIO value
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_INVAL,
+    "Invalid shard k ratio value 'PARAMS'");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioMissingValueAtEnd) {
+  // Test missing SHARD_K_RATIO value
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS,
+    "Missing argument value for SHARD_K_RATIO");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioWrongPosition) {
+  // Test missing SHARD_K_RATIO value at end of command (no PARAMS after it)
+  // NOTE: Current implementation doesn't loop to check for SHARD_K_RATIO after PARAMS,
+  // so it's reported as "Unknown argument" instead of "Missing argument value"
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "2", "K", "10",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
+    "SHARD_K_RATIO");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS,
+    "SHARD_K_RATIO: Unknown argument");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioDuplicate) {
+  // Test duplicate SHARD_K_RATIO argument - proper duplicate detection via
+  // looping through optional args.
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+      "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "SHARD_K_RATIO", "0.5",
+        "SHARD_K_RATIO", "0.7",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_DUP_PARAM,
+    "Duplicate SHARD_K_RATIO argument");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioWithFilter) {
+  // Test SHARD_K_RATIO with KNN query and FILTER
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.8",
+      "FILTER", "@title:world",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.8);
+}
+
+TEST_F(ParseHybridTest, testShardKRatiowithFilterAndPostFilter) {
+  // Test SHARD_K_RATIO with KNN query, FILTER, and POST-FILTER
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.8",
+      "FILTER", "@title:(world)",
+    "FILTER", "@__key:doc:1",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.8);
+
+  // Verify that the vector node is the child of the filter node
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(QueryNode_NumChildren(vn), 1);
+  ASSERT_EQ(vn->children[0]->type, QN_UNION);
+  ASSERT_EQ(vn->children[0]->children[0]->type, QN_TOKEN);
+  ASSERT_STREQ(vn->children[0]->children[0]->tn.str, "world");
+  ASSERT_STREQ(vn->children[0]->children[1]->tn.str, "+world");
+
+  // Verify the post-filter
+  // Post-filters are stored in the tail pipeline, not in the vector AST
+  const AGGPlan *tailPlan = result.tailPlan;
+  ASSERT_NE(tailPlan, nullptr) << "Tail plan should not be NULL";
+
+  // Check that a FILTER step exists in the tail plan
+  ASSERT_TRUE(AGPLN_HasStep(tailPlan, PLN_T_FILTER))
+    << "Post-filter should be present in tail plan";
+
+  // Find the FILTER step
+  const PLN_BaseStep *filterStep = AGPLN_FindStep(tailPlan, nullptr, nullptr, PLN_T_FILTER);
+  ASSERT_NE(filterStep, nullptr)
+    << "Post-filter step should be found in tail plan";
+  ASSERT_EQ(filterStep->type, PLN_T_FILTER)
+    << "Step should be of type PLN_T_FILTER";
+
+  // Cast to PLN_MapFilterStep to access the filter expression
+  const auto *mapFilterStep = (const PLN_MapFilterStep *)filterStep;
+  ASSERT_NE(mapFilterStep->expr, nullptr) << "Filter expression should not be NULL";
+
+  // Verify the expression content
+  size_t exprLen = 0;
+  const char *exprStr = HiddenString_GetUnsafe(mapFilterStep->expr, &exprLen);
+  ASSERT_NE(exprStr, nullptr) << "Expression string should not be NULL";
+  ASSERT_GT(exprLen, 0) << "Expression length should be greater than 0";
+  ASSERT_STREQ(exprStr, "@__key:doc:1") << "Post-filter expression should match expected value";
+}
+
+TEST_F(ParseHybridTest, testShardKRatioAfterYieldScoreAs) {
+  // Test SHARD_K_RATIO combined with YIELD_SCORE_AS
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB",
+      "KNN", "2", "K", "10",
+      "YIELD_SCORE_AS", "my_score",
+      "SHARD_K_RATIO", "0.75",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS,
+    "SHARD_K_RATIO: Unknown argument");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioBeforeYieldScoreAs) {
+  // Test SHARD_K_RATIO combined with YIELD_SCORE_AS
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello",
+    "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "SHARD_K_RATIO", "0.75",
+    "YIELD_SCORE_AS", "my_score",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 0.75);
+
+  // YIELD_SCORE_AS is stored in QueryNode opts.distField (not in parsedVectorData)
+  const QueryNode *vn = vecReq->ast.root;
+  ASSERT_STREQ(vn->opts.distField, "my_score");
+}
+
+TEST_F(ParseHybridTest, testShardKRatioDefaultValue) {
+  // Test default SHARD_K_RATIO when not specified (should be 1.0)
+  RMCK::ArgvList args(
+    ctx, "FT.HYBRID", index_name.c_str(),
+    "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
+    "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  parseCommand(args);
+
+  const AREQ* vecReq = result.vector;
+  ASSERT_TRUE(vecReq->ast.root != nullptr);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  const VectorQuery *vq = vecReq->ast.root->vn.vq;
+  // Default should be 1.0 (DEFAULT_SHARD_WINDOW_RATIO - no optimization)
+  ASSERT_DOUBLE_EQ(vq->knn.shardWindowRatio, 1.0);
 }

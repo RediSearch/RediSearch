@@ -59,6 +59,7 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
  * @param index Pointer to the index to close
  */
 void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
+// Note: Internally calls disk->basic.closeIndexSpec(disk_db, index) to allow metrics cleanup
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
@@ -82,7 +83,7 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 // Index API wrappers
 
 /**
- * @brief Index a document in the disk database
+ * @brief Index a term for fulltext search
  *
  * @param index Pointer to the index
  * @param term Term to associate the document with
@@ -92,7 +93,19 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
  * @param freq Frequency of the term in the document
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+
+/**
+ * @brief Index multiple tag values for a document
+ *
+ * @param index Pointer to the index
+ * @param values Array of tag values to associate the document with
+ * @param numValues Number of tag values in the array
+ * @param docId Document ID to index
+ * @param fieldIndex Field index for the tag field
+ * @return true if successful, false otherwise
+ */
+bool SearchDisk_IndexTags(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -106,21 +119,48 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
 void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
 
 /**
+ * @brief Run a GC compaction cycle on the disk index
+ *
+ * Synchronously runs a full compaction on the inverted index column family,
+ * removing entries for deleted documents. Applies the compaction delta to
+ * update in-memory structures via FFI calls to the provided C IndexSpec.
+ *
+ * @param index Pointer to the disk index
+ * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ */
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
+
+/**
  * @brief Create an IndexIterator for a term in the inverted index
  *
  * This function creates a full IndexIterator that wraps the disk API and can be used
+ * in RediSearch query execution pipelines. It allocates the RSQueryTerm internally
+ * and handles cleanup on failure.
+ *
+ * @param index Pointer to the index
+ * @param tok Pointer to the token (contains term string) (token information is copied into the term, caller keeps ownership of the token)
+ * @param tokenId Token ID for the term
+ * @param fieldMask Field mask indicating which fields are present
+ * @param weight Weight for the term (used in scoring)
+ * @param idf Inverse document frequency for the term
+ * @param bm25_idf BM25 inverse document frequency for the term
+ * @return Pointer to the IndexIterator, or NULL on error
+ */
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+
+/**
+ * @brief Create a tag IndexIterator for a specific tag value
+ *
+ * This function creates a tag IndexIterator that wraps the disk API and can be used
  * in RediSearch query execution pipelines.
  *
  * @param index Pointer to the index
- * @param term Term to iterate over
- * @param termLen Length of the term
- * @param fieldMask Field mask indicating which fields are present
+ * @param tok Pointer to the token (contains tag value string)
+ * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
- * @param idf IDF for the term (used in scoring)
- * @param bm25_idf BM25 IDF for the term (used in scoring)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
 
 /**
  * @brief Create an IndexIterator for all the existing documents
@@ -202,6 +242,79 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
+// Async Read Pool API
+
+/**
+ * @brief Create an async read pool for batched document metadata reads
+ *
+ * @param handle Handle to the index
+ * @param max_concurrent Maximum number of concurrent pending reads
+ * @return Opaque handle to the pool, or NULL on error
+ */
+RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent);
+
+/**
+ * @brief Add an async read request to the pool
+ *
+ * @param pool Pool handle from SearchDisk_CreateAsyncReadPool
+ * @param docId Document ID to read
+ * @param user_data Generic user data to associate with this read (returned in AsyncReadResult)
+ * @return true if added, false if pool is at capacity
+ */
+bool SearchDisk_AddAsyncRead(RedisSearchDiskAsyncReadPool pool, t_docId docId, uint64_t user_data);
+
+/**
+ * @brief Poll the pool for ready results
+ *
+ * Returns two arrays: successful reads with DMDs, and failed reads with just user_data.
+ *
+ * @param pool Pool handle
+ * @param timeout_ms 0 for non-blocking, >0 to wait
+ * @param results Buffer to fill with successful AsyncReadResult structures
+ * @param results_capacity Size of results buffer
+ * @param failed_user_data Buffer to fill with user_data from failed reads
+ * @param failed_capacity Size of failed_user_data buffer
+ * @param expiration_point Current time for expiration check.
+ * @return Number of pending reads after the poll
+ */
+uint16_t SearchDisk_PollAsyncReads(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms, arrayof(AsyncReadResult) results, arrayof(uint64_t) failed_user_data, const t_expirationTimePoint *expiration_point);
+
+/**
+ * @brief Free the async read pool
+ *
+ * @param pool Pool handle
+ */
+void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool);
+
+/**
+ * @brief Check if async I/O is supported by the underlying storage engine
+ *
+ * This checks whether the disk backend has async I/O capability.
+ * Note: This does NOT check the global async I/O enabled flag - use
+ * SearchDisk_GetAsyncIOEnabled() for that. Both must be true for async I/O to be used.
+ *
+ * @return true if the disk backend supports async I/O operations, false otherwise
+ */
+bool SearchDisk_IsAsyncIOSupported();
+
+/**
+ * @brief Enable or disable async I/O globally
+ *
+ * This allows runtime control of async I/O behavior for testing and debugging.
+ * Note: This only affects new queries; existing queries continue with their
+ * original configuration.
+ *
+ * @param enabled true to enable async I/O, false to disable
+ */
+void SearchDisk_SetAsyncIOEnabled(bool enabled);
+
+/**
+ * @brief Get the current async I/O enabled state
+ *
+ * @return true if async I/O is enabled, false otherwise
+ */
+bool SearchDisk_GetAsyncIOEnabled();
+
 /**
  * @brief Check if the search disk module is enabled from configuration
  *
@@ -252,19 +365,22 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
 // Metrics API wrappers
 
 /**
- * @brief Collect metrics for the doc_table column family
+ * @brief Collect metrics for an index and store them in the disk context
+ *
+ * Collects metrics for both doc_table and inverted_index column families
+ * and stores them in an internal map keyed by the index pointer.
  *
  * @param index Pointer to the index spec
- * @param metrics Pointer to the metrics structure to populate
- * @return true if successful, false on error
+ * @return The total memory used by this index's disk components
  */
-bool SearchDisk_CollectDocTableMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Collect metrics for the inverted_index (fulltext) column family
+ * @brief Output aggregated disk metrics to Redis INFO
  *
- * @param index Pointer to the index spec
- * @param metrics Pointer to the metrics structure to populate
- * @return true if successful, false on error
+ * Iterates over all collected index metrics, aggregates them, and outputs
+ * to the Redis INFO context.
+ *
+ * @param ctx Redis module info context
  */
-bool SearchDisk_CollectTextInvertedIndexMetrics(RedisSearchDiskIndexSpec* index, DiskColumnFamilyMetrics* metrics);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);

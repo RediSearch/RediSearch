@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use build_utils::run_cbinden;
+use build_utils::run_cbindgen;
 
 fn main() {
-    run_cbinden("../../headers/query_error.h").unwrap();
+    run_cbindgen("../../headers/query_error.h").unwrap();
 }

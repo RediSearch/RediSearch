@@ -25,6 +25,7 @@ buffer.workspace = true
 criterion.workspace = true
 ffi.workspace = true
 inverted_index.workspace = true
+query_term.workspace = true
 itertools.workspace = true
 redis_mock.workspace = true
 workspace_hack.workspace = true
