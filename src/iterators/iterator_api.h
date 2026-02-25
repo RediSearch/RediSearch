@@ -71,7 +71,7 @@ typedef struct QueryIterator {
   RSIndexResult *current;
 
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */
-  size_t (*NumEstimated)(struct QueryIterator *self);
+  size_t (*NumEstimated)(const struct QueryIterator *self);
 
   /** Read the next entry from the iterator.
    *  On a successful read, the iterator must:

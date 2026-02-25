@@ -27,8 +27,8 @@ void InvIndIterator_Rewind(QueryIterator *base) {
   IndexReader_Reset(it->reader);
 }
 
-size_t InvIndIterator_NumEstimated(QueryIterator *base) {
-  InvIndIterator *it = (InvIndIterator *)base;
+size_t InvIndIterator_NumEstimated(const QueryIterator *base) {
+  const InvIndIterator *it = (const InvIndIterator *)base;
   return IndexReader_NumEstimated(it->reader);
 }
 

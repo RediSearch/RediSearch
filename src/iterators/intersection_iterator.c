@@ -177,8 +177,8 @@ static IteratorStatus II_SkipTo(QueryIterator *base, t_docId docId) {
   return rc;
 }
 
-static size_t II_NumEstimated(QueryIterator *base) {
-  IntersectionIterator *it = (IntersectionIterator *)base;
+static size_t II_NumEstimated(const QueryIterator *base) {
+  const IntersectionIterator *it = (const IntersectionIterator *)base;
   return it->num_expected;
 }
 

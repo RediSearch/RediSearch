@@ -8,10 +8,9 @@
 */
 
 use ffi::{
-    IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
+    t_docId, IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
-    t_docId,
 };
 use inverted_index::RSIndexResult;
 use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -205,7 +204,7 @@ extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIt
 }
 
 extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
-    base: *mut QueryIterator,
+    base: *const QueryIterator,
 ) -> usize {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());

@@ -32,8 +32,8 @@ static void NI_Free(QueryIterator *base) {
   rm_free(base);
 }
 
-static size_t NI_NumEstimated(QueryIterator *base) {
-  NotIterator *ni = (NotIterator *)base;
+static size_t NI_NumEstimated(const QueryIterator *base) {
+  const NotIterator *ni = (const NotIterator *)base;
   return ni->wcii ? ni->wcii->NumEstimated(ni->wcii) : ni->maxDocId;
 }
 

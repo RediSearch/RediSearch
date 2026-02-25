@@ -33,8 +33,8 @@ static inline double getSuccessRatio(const OptimizerIterator *optIt) {
 }
 
 
-static size_t OPT_NumEstimated(QueryIterator *self) {
-  OptimizerIterator *opt = (OptimizerIterator *)self;
+static size_t OPT_NumEstimated(const QueryIterator *self) {
+  const OptimizerIterator *opt = (const OptimizerIterator *)self;
   return MIN(opt->child->NumEstimated(opt->child) ,
               opt->numericIter->NumEstimated(opt->numericIter));
 }

@@ -43,7 +43,7 @@ void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const Pr
       REPLY_KVSTR_SAFE("Term", QueryTerm_GetStr(term));
     }
   } else if (readerFlags & Index_StoreNumeric) {
-    NumericInvIndIterator *numIt = (NumericInvIndIterator *)it;
+    const NumericInvIndIterator *numIt = (const NumericInvIndIterator *)it;
     const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(numIt);
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
