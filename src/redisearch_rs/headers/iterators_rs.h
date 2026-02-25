@@ -4,6 +4,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
@@ -28,11 +29,11 @@ typedef struct ProfileCounters {
   /**
    * Number of `read()` calls made.
    */
-  uintptr_t read;
+  size_t read;
   /**
    * Number of `skip_to()` calls made.
    */
-  uintptr_t skip_to;
+  size_t skip_to;
   /**
    * Whether the iterator reached EOF.
    */
@@ -228,7 +229,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx,
  */
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
                                            double *metric_list,
-                                           uintptr_t num,
+                                           size_t num,
                                            enum MetricType type_);
 
 /**
@@ -244,7 +245,7 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
  */
 QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids,
                                               double *metric_list,
-                                              uintptr_t num,
+                                              size_t num,
                                               enum MetricType type_);
 
 /**
