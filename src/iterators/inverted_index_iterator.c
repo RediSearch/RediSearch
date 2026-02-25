@@ -53,26 +53,6 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   return VALIDATE_OK;
 }
 
-static ValidateStatus MissingCheckAbort(QueryIterator *base) {
-  // Check if the missing iterator is still valid
-  InvIndIterator *mi = (InvIndIterator *)base;
-  RS_ASSERT(mi->sctx && mi->sctx->spec);
-  RS_ASSERT(mi->sctx->spec->missingFieldDict);
-  RS_ASSERT(mi->sctx->spec->numFields > mi->filterCtx.field.index);
-
-  const HiddenString *fieldName = mi->sctx->spec->fields[mi->filterCtx.field.index].fieldName;
-  const InvertedIndex *missingII = dictFetchValue(mi->sctx->spec->missingFieldDict, fieldName);
-
-  if (!IndexReader_IsIndex(mi->reader, missingII)) {
-    // The inverted index was collected entirely by GC.
-    // All the documents that were inside were deleted and new ones were added.
-    // We will not continue reading those new results and instead abort reading
-    // for this specific inverted index.
-    return VALIDATE_ABORTED;
-  }
-  return VALIDATE_OK;
-}
-
 static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
   // Here we should apply the specifics of Term, Tag and Numeric
 
@@ -391,16 +371,4 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
   return InitInvIndIterator(&it->base, INV_IDX_TAG_ITERATOR, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
-}
-
-QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex},
-    .predicate = FIELD_EXPIRATION_PREDICATE_MISSING, // Missing predicate
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
-  record->freq = 1;
-
-  return NewInvIndIterator(idx, INV_IDX_MISSING_ITERATOR, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
 }

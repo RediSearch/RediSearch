@@ -103,8 +103,9 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
  * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
  * 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
- * 4. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR and INV_IDX_TERM_ITERATOR), its `reader`
- *    field must be a valid non-NULL pointer to an `IndexReader`.
+ * 4. If `it` iterator type is IteratorType_INV_IDX_MISSING_ITERATOR, it has been created using `NewInvIndIterator_MissingQuery`.
+ * 5. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR, INV_IDX_TERM_ITERATOR,
+ *    and INV_IDX_MISSING_ITERATOR), its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
  *
  * # Returns
  *
@@ -127,6 +128,36 @@ IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
  *    iterator's underlying index type.
  */
 void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
+
+/**
+ * Creates a new missing-field inverted index iterator.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the missing-field inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_index` - The index of the field in `spec.fields` whose missing documents are tracked.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `spec.missingFieldDict`
+ *    lookup.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `field_index` must be a valid index into `sctx.spec.fields`.
+ * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+ */
+QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx,
+                                              const RedisSearchCtx *sctx,
+                                              t_fieldIndex field_index);
 
 /**
  * Creates a new numeric inverted index iterator for querying numeric fields.
