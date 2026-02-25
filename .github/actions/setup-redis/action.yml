@@ -12,7 +12,7 @@ inputs:
   redis-ref:
     description: 'Git ref to checkout for Redis'
     required: false
-    default: 'RediSearchDisk'
+    default: 'rsd_big2_8.4'
   checkout-path:
     description: 'Path to checkout Redis to'
     required: false

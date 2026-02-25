@@ -15,6 +15,7 @@ use crate::{
 use super::{
     InvertedIndexKey,
     block_traits::{ArchivedBlock, ArchivedDocument, IndexConfig, SerializableBlock},
+    generic_index,
 };
 
 /// A generic merge operator that works with any block type implementing IndexConfig.
@@ -47,8 +48,11 @@ where
               existing_value: Option<&[u8]>,
               operand_list: &MergeOperands|
               -> Option<MergeResult> {
+            // SpeedB's DoMergeValues passes the full user key (prefix + delimiter + doc_id).
+            // Strip the fixed-size doc_id suffix to recover just the prefix.
+            let prefix = generic_index::strip_doc_id_suffix(key);
             let merge_inner = Self::full_merge_inner(deleted_ids.clone(), &callbacks);
-            merge_inner(key, existing_value, operand_list.into_iter())
+            merge_inner(prefix, existing_value, operand_list.into_iter())
                 .map(|(data, key)| (data, Some(key)))
         }
     }

@@ -27,6 +27,14 @@ use crate::key_traits::AsKeyExt;
 // Re-export for internal use by term and tag modules
 pub(crate) use super::deleted_ids::DeletedIdsStore;
 
+/// Maximum byte size for merge accumulation during compaction.
+///
+/// When SpeedB encounters entries with the same prefix during compaction,
+/// it accumulates them up to this size limit before invoking the merge operator.
+/// This enables the merge operator to filter deleted document IDs and consolidate
+/// blocks during compaction. See [`speedb::Options::set_merge_accum_limit`].
+const MERGE_ACCUMULATION_SIZE_LIMIT: usize = 1024;
+
 /// Key structure for inverted index entries.
 ///
 /// Key format: `prefix + delimiter (0x00) + doc_id (8 bytes big-endian)`

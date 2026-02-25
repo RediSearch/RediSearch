@@ -73,7 +73,7 @@ impl TagIndexConfig {
         let mut cf_options = SpeedbDbOptions::default();
 
         cf_options.set_disable_auto_compactions(true);
-        cf_options.set_merge_values(true);
+        cf_options.set_merge_accum_limit(super::MERGE_ACCUMULATION_SIZE_LIMIT);
 
         // Tag indexes use a merge operator for handling deleted IDs
         cf_options.set_merge_operator_associative(
@@ -82,6 +82,7 @@ impl TagIndexConfig {
                 deleted_ids.clone(),
                 NoOpCallbacks,
             ),
+            true,
         );
 
         cf_options.set_prefix_extractor(prefix_extractor);

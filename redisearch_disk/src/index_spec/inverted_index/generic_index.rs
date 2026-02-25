@@ -1,5 +1,5 @@
 use ffi::t_docId;
-use speedb::{ColumnFamilyDescriptor, WriteOptions};
+use speedb::{BottommostLevelCompaction, ColumnFamilyDescriptor, CompactOptions, WriteOptions};
 use std::time::Instant;
 
 use crate::{
@@ -110,14 +110,19 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
     }
 
     /// Triggers a full compaction on this index's column family.
+    ///
+    /// Uses `BottommostLevelCompaction::Force` to prevent trivial moves that
+    /// would skip the compaction iterator and bypass the merge operator.
     pub fn compact_full(&self) {
         tracing::info!(
             cf = %self.cf_name,
             "Starting full compaction on inverted index column family"
         );
         let start = Instant::now();
+        let mut compact_opts = CompactOptions::default();
+        compact_opts.set_bottommost_level_compaction(BottommostLevelCompaction::Force);
         self.database
-            .compact_range_cf(&self.cf, None::<&[u8]>, None::<&[u8]>);
+            .compact_range_cf_opt(&self.cf, None::<&[u8]>, None::<&[u8]>, &compact_opts);
         let elapsed_ms = start.elapsed().as_millis() as u64;
         self.compaction_metrics.record(CompactionMetrics {
             cycles: 1,

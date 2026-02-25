@@ -12,7 +12,7 @@ use redisearch_disk::{
     key_traits::AsKeyExt,
     value_traits::ValueExt,
 };
-use speedb::{DB, IteratorMode};
+use speedb::{BottommostLevelCompaction, CompactOptions, DB, IteratorMode};
 use tempfile::TempDir;
 
 // Test that compaction merges postings list blocks and applies aggregation (deletion filtering).
@@ -98,8 +98,10 @@ fn test_compaction_aggregation() {
     // Delete an ID to verify it is filtered out
     deleted_ids.mark_deleted(3);
 
-    // Trigger compaction
-    db.compact_range_cf(&cf_handle, None::<&[u8]>, None::<&[u8]>);
+    // Trigger compaction (Force bottommost to prevent trivial moves that skip the merge operator)
+    let mut compact_opts = CompactOptions::default();
+    compact_opts.set_bottommost_level_compaction(BottommostLevelCompaction::Force);
+    db.compact_range_cf_opt(&cf_handle, None::<&[u8]>, None::<&[u8]>, &compact_opts);
 
     // Verify that the two block are now one block with 4 documents
     let value = db.get_cf(&cf_handle, key.as_key()).unwrap().unwrap();
@@ -141,21 +143,29 @@ fn test_compaction_aggregation() {
     // Delete the last ID in the block to ensure compaction uses the correct ID for the new key
     deleted_ids.mark_deleted(7);
 
-    // Trigger compaction again
-    db.compact_range_cf(&cf_handle, None::<&[u8]>, None::<&[u8]>);
+    // Trigger compaction again (Force bottommost to prevent trivial moves)
+    let mut compact_opts = CompactOptions::default();
+    compact_opts.set_bottommost_level_compaction(BottommostLevelCompaction::Force);
+    db.compact_range_cf_opt(&cf_handle, None::<&[u8]>, None::<&[u8]>, &compact_opts);
 
-    // Verify the keys in the column family are correct
-    let keys = db
+    // Verify the keys in the column family are correct.
+    // Merge accumulation merges all same-prefix entries into a single block,
+    // so both blocks are combined. After filtering doc 7, the remaining docs
+    // are {1,2,4,5,6} under a single key with last_doc_id = 6.
+    let entries: Vec<_> = db
         .iterator_cf(&cf_handle, IteratorMode::Start)
         .flatten()
-        .map(|(key, _value)| key.to_vec())
-        .collect::<Vec<_>>();
+        .collect();
 
+    assert_eq!(entries.len(), 1);
     assert_eq!(
-        keys,
-        vec![
-            InvertedIndexKey::new("term", Some(5)).as_key(),
-            InvertedIndexKey::new("term", Some(6)).as_key(),
-        ]
+        entries[0].0.to_vec(),
+        InvertedIndexKey::new("term", Some(6)).as_key(),
+    );
+
+    let archive = PostingsListBlock::archive_from_speedb_value(&entries[0].1);
+    assert_eq!(
+        archive.iter().map(Document::from).collect::<Vec<_>>(),
+        vec![doc1, doc2, doc4, doc5, doc6]
     );
 }

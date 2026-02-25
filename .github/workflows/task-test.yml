@@ -268,7 +268,7 @@ jobs:
           path: Redis
           token: ${{ steps.checkout.outputs.token }}
           fetch-depth: 1
-          ref: RediSearchDisk
+          ref: rsd_big2_8.4
           submodules: recursive
 
       - name: Checkout Redis (bash)
@@ -278,7 +278,7 @@ jobs:
         run: |
           REPO_URL="https://x-access-token:${TOKEN}@github.com/redislabsdev/Redis.git"
           DEST_DIR="Redis"
-          git clone --depth 1 --branch RediSearchDisk --recurse-submodules $REPO_URL $DEST_DIR
+          git clone --depth 1 --branch rsd_big2_8.4 --recurse-submodules $REPO_URL $DEST_DIR
 
       - name: Restore Cached Redis Installation
         if: steps.node20.outputs.supported == 'true'

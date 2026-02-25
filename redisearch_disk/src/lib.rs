@@ -1370,6 +1370,7 @@ extern "C" fn vector_create_index(
             "EdgeListMergeOperator",
             EdgeListMergeOperator::full_merge_fn(),
             EdgeListMergeOperator::partial_merge_fn(),
+            true,
         );
         if database.create_cf(&cf_name, &cf_options).is_err() {
             error!("vector_create_index: failed to create CF");

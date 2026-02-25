@@ -54,6 +54,7 @@ fn create_temp_db_with_merge_operator() -> (TempDir, speedb::DB) {
         "EdgeListMergeOperator",
         EdgeListMergeOperator::full_merge_fn(),
         EdgeListMergeOperator::partial_merge_fn(),
+        true,
     );
 
     let db = speedb::DB::open(&opts, &path).unwrap();

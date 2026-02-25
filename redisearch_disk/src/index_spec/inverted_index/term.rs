@@ -73,7 +73,7 @@ impl block_traits::IndexConfig for TermIndexConfig {
         let mut cf_options = SpeedbDbOptions::default();
 
         cf_options.set_disable_auto_compactions(true);
-        cf_options.set_merge_values(true);
+        cf_options.set_merge_accum_limit(super::MERGE_ACCUMULATION_SIZE_LIMIT);
 
         // Term indexes require a merge operator for handling deleted IDs
         cf_options.set_merge_operator_associative(
@@ -82,6 +82,7 @@ impl block_traits::IndexConfig for TermIndexConfig {
                 config.deleted_ids.clone(),
                 config.collector,
             ),
+            true,
         );
 
         cf_options.set_prefix_extractor(prefix_extractor);
