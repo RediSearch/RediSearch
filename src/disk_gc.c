@@ -17,7 +17,7 @@
 #include <stdatomic.h>
 #include <time.h>
 
-// TODO: update stats with the number of documents cleaned
+// TODO: update stats with the number of documents cleaned - MOD-14199
 static bool periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
