@@ -604,8 +604,9 @@ PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printOptionalIt) {
+  // Cast is safe: PrintIteratorChildProfile only reads from the child iterator.
   PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
-    GetOptionalIteratorChild(root), "OPTIONAL");
+    (QueryIterator *)GetOptionalIteratorChild(root), "OPTIONAL");
 }
 
 PRINT_PROFILE_FUNC(printProfileIt) {
