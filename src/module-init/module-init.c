@@ -107,7 +107,6 @@ static inline const char* RS_GetExtraVersion() {
 }
 
 int RS_Initialized = 0;
-int RS_IsMock = 0;
 RedisModuleCtx *RSDummyContext = NULL;
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
@@ -221,13 +220,4 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)TimedOut_WithCtx);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
   return REDISMODULE_OK;
-}
-
-void DepleterPool_ThreadPoolDestroy(void) {
-  if (depleterPool != NULL) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    redisearch_thpool_destroy(depleterPool);
-    depleterPool = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
-  }
 }

@@ -505,20 +505,11 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 }
 
 
-// Production shutdown handler - for disk persistence environments.
-// Uses stored SST state to determine if disk data should be deleted.
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
+  // Delete disk data if the last RDB operation was not SST persistent
   bool deleteDiskData = !WasLastRdbOperationSstPersistent();
   RediSearch_CleanupModule(deleteDiskData);
-  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
-}
-
-// Sanitizer shutdown handler - for sanitizer/valgrind environments.
-// Full cleanup with no disk data deletion.
-void SanitizerShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_SanitizerCleanupModule();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
@@ -583,12 +574,9 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   }
 
   if (getenv("RS_GLOBAL_DTORS")) {
-    // Sanitizer mode - full cleanup with no disk data deletion
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown (sanitizer mode)");
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, SanitizerShutdownEvent);
-  } else {
-    // Production 
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown (production mode)");
+    // clear resources when the server exits
+    // used only with sanitizer or valgrind
+    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
   }
 

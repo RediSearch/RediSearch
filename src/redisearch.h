@@ -71,7 +71,7 @@ extern "C" {
 #define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
 #define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
 
-extern int RS_IsMock;
+#define RS_IsMock (!RedisModule_CreateTimer)
 
 /* A payload object is set either by a query expander or by the user, and can be used to process
  * scores. For examples, it can be a feature vector that is then compared to a feature vector
