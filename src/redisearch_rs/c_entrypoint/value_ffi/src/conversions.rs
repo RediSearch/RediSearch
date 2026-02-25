@@ -9,7 +9,7 @@
 
 use crate::util::{expect_shared_value, expect_value};
 use libc::size_t;
-use std::ffi::{CString, c_char, c_double, c_int};
+use std::ffi::{c_char, c_double, c_int};
 use value::util::{num_to_str, str_to_float};
 use value::{RsString, RsValue, SharedRsValue};
 
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
             if n < buflen {
                 (buf as *const _, n)
             } else {
-                (b"\0".as_ptr() as *const _, 0)
+                (b"".as_ptr() as *const _, 0)
             }
         }
         RsValue::String(string) => {
@@ -93,7 +93,7 @@ pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
             (ptr, len as usize)
         }
         RsValue::RedisString(string) => string.as_ptr_len(),
-        _ => (b"\0".as_ptr() as *const _, 0),
+        _ => (b"".as_ptr() as *const _, 0),
     };
 
     *len_ptr = len;
@@ -145,12 +145,14 @@ pub unsafe extern "C" fn RSValue_ToString(dst: *mut RsValue, value: *const RsVal
             let mut buf = [0u8; 32];
             // `num_to_str` formatting should fit well within the 32 byte sized buffer.
             let len = num_to_str(*number, &mut buf);
-            let cstring = CString::new(&buf[..(len as usize)]).unwrap();
-            RsValue::String(RsString::cstring(cstring))
+            let boxed_slice = buf[..(len as usize)].to_vec().into_boxed_slice();
+            RsValue::String(RsString::from_boxed_slice(boxed_slice))
+            // let cstring = CString::new(&buf[..(len as usize)]).unwrap();
+            // RsValue::String(RsString::cstring(cstring))
         }
         _ => {
             // Safety: It is safe to use an empty here.
-            let string = unsafe { RsString::borrowed_string(b"\0".as_ptr().cast(), 0) };
+            let string = unsafe { RsString::borrowed_string(b"".as_ptr().cast(), 0) };
             RsValue::String(string)
         }
     };

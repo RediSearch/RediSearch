@@ -10,7 +10,7 @@
 #![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
-use std::ffi::{CString, c_char};
+use std::ffi::c_char;
 use value::RsString;
 
 mock_or_stub_missing_redis_c_symbols!();
@@ -40,29 +40,29 @@ fn rm_alloc_raw(s: &str) -> (*mut c_char, u32) {
     (ptr, len as u32)
 }
 
-#[test]
-fn cstring_as_ptr_len_for_nul_terminated() {
-    let s = RsString::cstring(CString::new("hello").unwrap());
-    let (ptr, len) = s.as_ptr_len_for_nul_terminated();
-    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    assert_eq!(bytes, b"hello");
-    assert_eq!(len, 5);
-}
+// #[test]
+// fn cstring_as_ptr_len_for_nul_terminated() {
+//     let s = RsString::cstring(CString::new("hello").unwrap());
+//     let (ptr, len) = s.as_ptr_len_for_nul_terminated();
+//     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+//     assert_eq!(bytes, b"hello");
+//     assert_eq!(len, 5);
+// }
 
-#[test]
-fn cstring_as_ptr_len_for_slice() {
-    let s = RsString::cstring(CString::new("hello").unwrap());
-    let (ptr, len) = s.as_ptr_len_for_slice();
-    let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    assert_eq!(bytes, b"hello");
-    assert_eq!(len, 5);
-}
+// #[test]
+// fn cstring_as_ptr_len_for_slice() {
+//     let s = RsString::cstring(CString::new("hello").unwrap());
+//     let (ptr, len) = s.as_ptr_len_for_slice();
+//     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+//     assert_eq!(bytes, b"hello");
+//     assert_eq!(len, 5);
+// }
 
-#[test]
-fn cstring_as_bytes() {
-    let s = RsString::cstring(CString::new("hello").unwrap());
-    assert_eq!(s.as_bytes(), b"hello");
-}
+// #[test]
+// fn cstring_as_bytes() {
+//     let s = RsString::cstring(CString::new("hello").unwrap());
+//     assert_eq!(s.as_bytes(), b"hello");
+// }
 
 // miri ignored because `RedisModule_Free` is not supported.
 #[test]

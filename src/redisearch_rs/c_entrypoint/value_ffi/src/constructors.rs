@@ -8,7 +8,7 @@
 */
 
 use ffi::RedisModuleString;
-use std::ffi::{CString, c_char, c_double};
+use std::ffi::{c_char, c_double};
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
 use value::util::str_to_float;
@@ -208,9 +208,13 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     let slice = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len as usize) };
 
     // Safety: ensured by caller (3.)
-    let cstring = unsafe { CString::from_vec_unchecked(slice.to_vec()) };
+    // let cstring = unsafe { CString::from_vec_unchecked(slice.to_vec()) };
+    let vec = slice.to_vec();
+    // vec.push(0);
+    let boxed_slice = vec.into_boxed_slice();
 
-    let string = RsString::cstring(cstring);
+    // let string = RsString::cstring(cstring);
+    let string = RsString::from_boxed_slice(boxed_slice);
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw().cast_mut()

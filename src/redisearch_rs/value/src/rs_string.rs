@@ -8,7 +8,7 @@
 */
 
 use ffi::RedisModule_Free;
-use std::ffi::{CString, c_char};
+use std::ffi::c_char;
 use std::fmt;
 
 enum RsStringKind {
@@ -39,17 +39,31 @@ pub struct RsString {
 }
 
 impl RsString {
-    /// Create an [`RsString`] from a `CString`. This string's length must not be more than
-    /// `u32::MAX` for compatibility with existing C code using `RSValue` functionality.
-    ///
-    /// # Panic
-    ///
-    /// Panics when the size is larger than `u32::MAX`.
-    pub fn cstring(str: CString) -> Self {
-        let len = str.count_bytes();
-        assert!(len <= u32::MAX as usize);
+    // /// Create an [`RsString`] from a `CString`. This string's length must not be more than
+    // /// `u32::MAX` for compatibility with existing C code using `RSValue` functionality.
+    // ///
+    // /// # Panic
+    // ///
+    // /// Panics when the size is larger than `u32::MAX`.
+    // pub fn cstring(str: CString) -> Self {
+    //     let len = str.count_bytes();
+    //     assert!(len <= u32::MAX as usize);
 
-        let ptr = str.into_raw();
+    //     let ptr = str.into_raw();
+
+    //     Self {
+    //         ptr,
+    //         len: len as u32,
+    //         kind: RsStringKind::RustAlloc,
+    //         #[cfg(debug_assertions)]
+    //         guaranteed_nul_terminated: true,
+    //     }
+    // }
+
+    pub fn from_boxed_slice(boxed_slice: Box<[u8]>) -> Self {
+        let len = boxed_slice.len();
+        assert!(len <= u32::MAX as usize);
+        let ptr = Box::into_raw(boxed_slice).cast();
 
         Self {
             ptr,
@@ -167,7 +181,13 @@ impl Drop for RsString {
         match self.kind {
             RsStringKind::RustAlloc => {
                 // SAFETY: `self.ptr` was created by `CString::into_raw` and has not been freed.
-                drop(unsafe { CString::from_raw(self.ptr as *mut _) });
+                // drop(unsafe { CString::from_raw(self.ptr as *mut _) });
+                drop(unsafe {
+                    Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                        self.ptr.cast::<u8>().cast_mut(),
+                        self.len as usize,
+                    ))
+                });
             }
             RsStringKind::RmAlloc => {
                 // SAFETY: Accessing a global function pointer initialized during module load.
