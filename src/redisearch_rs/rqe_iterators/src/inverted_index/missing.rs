@@ -125,13 +125,6 @@ where
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader
     }
-
-    /// Get a mutable reference to the underlying reader.
-    ///
-    /// This is used by C tests to swap the index pointer for revalidation testing.
-    pub const fn reader_mut(&mut self) -> &mut IndexReaderCore<'index, E> {
-        &mut self.it.reader
-    }
 }
 
 impl<'index, E, C> RQEIterator<'index> for Missing<'index, E, C>

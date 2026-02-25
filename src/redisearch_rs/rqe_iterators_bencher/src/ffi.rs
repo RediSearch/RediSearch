@@ -102,23 +102,6 @@ impl QueryIterator {
         })
     }
 
-    /// Creates a new missing-field inverted index iterator via the C path.
-    ///
-    /// # Safety
-    ///
-    /// `idx` must be a valid pointer to a DocIdsOnly inverted index.
-    /// `sctx` must be a valid pointer to a `RedisSearchCtx` with valid `spec`
-    /// and `missingFieldDict`.
-    /// `field_index` must be a valid index into `sctx.spec.fields`.
-    #[inline(always)]
-    pub unsafe fn new_missing(
-        idx: *const ffi::InvertedIndex,
-        sctx: *const ffi::RedisSearchCtx,
-        field_index: ffi::t_fieldIndex,
-    ) -> Self {
-        Self(unsafe { ffi::NewInvIndIterator_MissingQuery(idx, sctx, field_index) })
-    }
-
     /// Creates a new intersection iterator from child ID list iterators.
     ///
     /// # Arguments
