@@ -257,7 +257,7 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
  * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
  * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
  */
-enum MetricType GetMetricType(QueryIterator *header);
+enum MetricType GetMetricType(const QueryIterator *header);
 
 /**
  * Create a new non-optimized optional iterator.
