@@ -113,15 +113,15 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
       HybridRequest_SynchronizeLookupKeys(hreq);
     }
 
-    // Open the key outside the RLOOKUP_OPT_UNRESOLVED_OK scope so it won't be marked as unresolved
+    // Open the key outside the RLOOKUP_OPT_ALLOWUNRESOLVED scope so it won't be marked as unresolved
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, hybridParams->aggregationParams.common.scoreAlias, status);
     if (QueryError_HasError(status)) {
       return NULL;
     }
 
-    RLookup_EnableOptions(tailLookup, RLOOKUP_OPT_UNRESOLVED_OK);
+    RLookup_EnableOptions(tailLookup, RLOOKUP_OPT_ALLOWUNRESOLVED);
     rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
-    RLookup_DisableOptions(tailLookup, RLOOKUP_OPT_UNRESOLVED_OK);
+    RLookup_DisableOptions(tailLookup, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
     if (rc != REDISMODULE_OK) {
       // The error is set at the tail, copy it into status
