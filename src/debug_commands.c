@@ -881,6 +881,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   // Make sure there is no pending timer
   if (sp->gc->timerID) {
     RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
+    sp->gc->timerID = 0;
   }
   if (sp->gc->monitorTimerID) {
     RedisModule_StopTimer(RSDummyContext, sp->gc->monitorTimerID, NULL);
