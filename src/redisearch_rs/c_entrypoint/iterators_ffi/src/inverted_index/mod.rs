@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod missing;
 mod numeric;
 mod term;
 mod wildcard;
