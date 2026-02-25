@@ -53,10 +53,8 @@ size_t GetNumShards_UnSafe();
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 
-/** Cleans up all globals in the module.
- *  @param deleteDiskData If true, delete disk data when freeing indexes.
- */
-void RediSearch_CleanupModule(bool deleteDiskData);
+/** Cleans up all globals in the module */
+void RediSearch_CleanupModule(void);
 
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

@@ -19,7 +19,6 @@
 #include "asm_state_machine.h"
 #include "src/coord/rmr/redis_cluster.h"
 #include "cursor.h"
-#include "search_disk.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -507,9 +506,7 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  // Delete disk data if the last RDB operation was not SST persistent
-  bool deleteDiskData = !WasLastRdbOperationSstPersistent();
-  RediSearch_CleanupModule(deleteDiskData);
+  RediSearch_CleanupModule();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 

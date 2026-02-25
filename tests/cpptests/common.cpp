@@ -25,7 +25,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
   RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
-  return RediSearch_InitModuleInternal(ctx, true);
+  return RediSearch_InitModuleInternal(ctx);
 }
 
 }
@@ -40,7 +40,7 @@ class MyEnvironment : public ::testing::Environment {
 
   virtual void TearDown() {
     RMCK_Shutdown();
-    RediSearch_SanitizerCleanupModule();
+    RediSearch_CleanupModule();
   }
 };
 

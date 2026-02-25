@@ -1785,7 +1785,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
 extern dict *legacySpecDict, *legacySpecRules;
 
-void RediSearch_CleanupModule(bool deleteDiskData) {
+void RediSearch_CleanupModule(void) {
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
@@ -1793,7 +1793,7 @@ void RediSearch_CleanupModule(bool deleteDiskData) {
   invoked = 1;
 
   // First free all indexes
-  Indexes_Free(specDict_g, deleteDiskData);
+  Indexes_Free(specDict_g, false);
   dictRelease(specDict_g);
   specDict_g = NULL;
 

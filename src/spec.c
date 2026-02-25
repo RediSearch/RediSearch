@@ -1803,12 +1803,13 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskCtx).
+  // For new indexes (FT.CREATE), we don't delete before open since there's nothing to delete.
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
+    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type, false);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -3328,20 +3329,21 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   }
 
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
+  // If SST persistence was NOT used, delete existing disk data before opening
+  // since there's no SST data to restore from (stale data must be cleared).
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    const bool deleteBeforeOpen = !useSst;
+    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, deleteBeforeOpen);
     IndexSpec_PopulateVectorDiskParams(sp);
     if (!sp->diskSpec) {
       goto cleanup;
     }
   }
 
-  // Check if we are using SST files with this RDB.
-  // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
-  // assume it was not set in when the RDB was saved as well.
+  // Get context for logging
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
 
   // Load the disk-related index data if we are on disk and the save flow used
@@ -3522,7 +3524,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    // Legacy RDB does not have SST persistence, so always delete before opening.
+    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, false);
     // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
     // data in this version of RDB (encver).
     if (!sp->diskSpec) {
