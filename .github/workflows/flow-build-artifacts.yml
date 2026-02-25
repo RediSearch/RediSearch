@@ -19,7 +19,8 @@ on:
           - mariner:2
           - azurelinux:3
           - alpine:3.22
-          - macos
+          - macos-15
+          - macos-26
         description: 'Platform to build on. Use "all" to build on all'
         default: all
       architecture:
