@@ -1926,6 +1926,10 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   StrongRef_Release(spec_ref);
 }
 
+size_t Indexes_Count() {
+  return dictSize(specDict_g);
+}
+
 void Indexes_Free(dict *d) {
   // free the schema dictionary this way avoid iterating over it for each combination of
   // spec<-->prefix

@@ -176,6 +176,9 @@ typedef struct {
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
   // If true, monitor document and field expiration for new indexes.
   bool monitorExpiration;
+  // If false, suppress emitting RediSearch INFO metrics when there are no indexes.
+  // (We still emit the "version" section, and we never suppress crash-report info.)
+  bool infoEmitOnZeroIndexes;
 } RSConfig;
 
 typedef enum {
@@ -354,6 +357,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
     .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
     .monitorExpiration = true,                                                 \
+    .infoEmitOnZeroIndexes = false,                                            \
   }
 
 #define REDIS_ARRAY_LIMIT 7

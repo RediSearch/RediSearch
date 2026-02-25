@@ -1760,6 +1760,8 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
 
 @skip(cluster=True)
 def test_mod_12807(env:Env):
+  # This test reads INFO MODULES metrics after dropping the only index. Ensure INFO MODULES is in full mode.
+  shard_set_info_on_zero_indexes(env, True)
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('HSET', 'doc1', 't', 'foo bar baz').equal(1)
   env.expect('HSET', 'doc2', 't', 'foo baz').equal(1)
