@@ -665,7 +665,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     if (!initialized) {
       fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
-      rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+      // Cast is safe: openNumericOrGeoIndex only mutates fs when create_if_missing is true.
+      rt = openNumericOrGeoIndex(sctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
       initialized = true;
     }
 
@@ -772,7 +773,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
-    FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
+    const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
     RS_LOG_ASSERT_FMT(fs, "tag field '%.*s' not found in index during GC", (int)fieldNameLen, fieldName);
     tagIdx = TagIndex_Open(fs);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
