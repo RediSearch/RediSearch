@@ -219,7 +219,18 @@ ensure_cmake_configured() {
   local profile="${1:-Debug}"
   if [ ! -f "${BUILD_DIR}/CMakeCache.txt" ]; then
     echo "[configure] CMake configure (profile=${profile})"
-    cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" ${CMAKE_ARGS:-}
+
+    # Build CMake arguments
+    local cmake_args="${CMAKE_ARGS:-}"
+
+    # Handle ENABLE_ASSERT environment variable (matches RediSearch behavior)
+    # When set to 1, enables RS_ASSERT/RS_LOG_ASSERT macros in RediSearch
+    if [[ "${ENABLE_ASSERT:-}" == "1" ]]; then
+      cmake_args="${cmake_args} -DENABLE_ASSERT=ON"
+      echo "[configure] ENABLE_ASSERT=ON (assertions enabled)"
+    fi
+
+    cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE="${profile}" ${cmake_args}
   fi
 }
 

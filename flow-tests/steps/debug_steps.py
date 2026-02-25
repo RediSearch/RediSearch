@@ -53,3 +53,18 @@ def verify_deleted_ids(redis_env, index, ids):
     expected_ids = sorted([int(id_str.strip()) for id_str in ids[1:-1].split(',')])
     actual_ids = sorted(result)
     redis_env.assertEqual(actual_ids, expected_ids)
+
+
+@then('the ENABLE_ASSERT debug commands should be available')
+def verify_enable_assert_is_enabled(redis_env):
+    """
+    Verify ENABLE_ASSERT is enabled by checking if debug commands are available.
+
+    The QUERY_CONTROLLER debug commands are only available when ENABLE_ASSERT=1
+    is set at compile time. If this test fails, the build was not configured
+    with ENABLE_ASSERT enabled.
+    """
+    try:
+        redis_env.cmd('_FT.DEBUG', 'QUERY_CONTROLLER', 'GET_IS_COORD_REDUCE_PAUSED')
+    except Exception as e:
+        redis_env.fail(f"ENABLE_ASSERT is not enabled in this build. Debug command failed: {e}")

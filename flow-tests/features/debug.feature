@@ -34,3 +34,7 @@ Feature: Debug commands on Flex
     When I delete the document "doc1"
     And I delete the document "doc5"
     Then the deleted-ids for "idx" should be [1, 2, 4, 5]
+
+  Scenario: ENABLE_ASSERT is enabled in the build
+    Given the RediSearchDisk module is loaded
+    Then the ENABLE_ASSERT debug commands should be available

@@ -126,6 +126,11 @@ option(BUILD_TESTS "Build vecsim_disk tests" ON)
 # inherit from HNSWSerializer, requiring the serializer library to be built.
 set(VECSIM_BUILD_TESTS OFF CACHE BOOL "Build vecsim tests" FORCE)
 
+# Enable assertions in RediSearch. When ON, RS_ASSERT/RS_LOG_ASSERT macros are active.
+# Automatically enabled in Debug builds (matching RediSearch behavior).
+# Can be explicitly enabled for Release builds via -DENABLE_ASSERT=ON or ENABLE_ASSERT=1 env var.
+option(ENABLE_ASSERT "Enable assertions in RediSearch" OFF)
+
 # Include RediSearch - this creates a static library named 'redisearch'
 add_subdirectory(deps/RediSearch)
 
