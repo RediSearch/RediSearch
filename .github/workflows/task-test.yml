@@ -254,7 +254,7 @@ jobs:
 
       - name: Run sccache-cache
         if: ${{ !contains(fromJSON('["amazonlinux:2", "mariner:2"]'), needs.get-config.outputs.container) }}
-        uses: mozilla-actions/sccache-action@v0.0.8
+        uses: mozilla-actions/sccache-action@v0.0.9
         env:
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
