@@ -1310,18 +1310,6 @@ static int RMCK_KillForkChild(int child_pid) {
   return waitpid(child_pid, NULL, 0);
 }
 
-/** Timer mocks - no-op implementations for test environment */
-static RedisModuleTimerID RMCK_CreateTimer(RedisModuleCtx *ctx, mstime_t period,
-                                           RedisModuleTimerProc callback, void *data) {
-  // Return a dummy non-zero timer ID
-  return 1;
-}
-
-static int RMCK_StopTimer(RedisModuleCtx *ctx, RedisModuleTimerID id, void **data) {
-  if (data) *data = NULL;
-  return REDISMODULE_OK;
-}
-
 static int RMCK_AddACLCategory(RedisModuleCtx *ctx, const char *category) {
   // Nothing for the mock.
   return REDISMODULE_OK;
@@ -1541,8 +1529,6 @@ static void registerApis() {
   REGISTER_API(SendChildHeartbeat);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
-  REGISTER_API(CreateTimer);
-  REGISTER_API(StopTimer);
   REGISTER_API(AddACLCategory);
   REGISTER_API(SetCommandACLCategories);
   REGISTER_API(SetCommandInfo);
