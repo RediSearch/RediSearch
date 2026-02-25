@@ -879,7 +879,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   // Make sure there is no pending timer
-  if (sp->gc->timerID > 1) {
+  if (sp->gc->timerID) {
     RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
   }
   if (sp->gc->monitorTimerID) {
