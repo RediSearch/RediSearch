@@ -650,6 +650,15 @@ impl TestContext {
         }
     }
 
+    /// Get a raw pointer to the missing-field inverted index suitable for FFI.
+    /// Panics if this is not a missing context.
+    pub fn missing_index_ptr(&self) -> *const ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Missing { inverted_index, .. } => inverted_index.as_ptr(),
+            _ => panic!("TestContext is not a Missing context"),
+        }
+    }
+
     /// Get the missing-field (doc-ids-only) inverted index for this context.
     /// Returns a reference to the FFI inverted index wrapper.
     /// Panics if this is not a missing context.
