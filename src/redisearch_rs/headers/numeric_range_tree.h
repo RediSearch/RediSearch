@@ -289,10 +289,12 @@ typedef struct CompactIfSparseResult {
 typedef struct NumericGcNodeEntry {
   /**
    * The node's slab position.
+   * The first half of a [`NodeIndex`].
    */
   uint32_t node_position;
   /**
    * The node's slab generation.
+   * The second half of a [`NodeIndex`].
    */
   uint32_t node_generation;
   /**

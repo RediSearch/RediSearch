@@ -51,8 +51,10 @@ pub unsafe extern "C" fn NumericRangeTree_CompactIfSparse(
 #[repr(C)]
 pub struct NumericGcNodeEntry {
     /// The node's slab position.
+    /// The first half of a [`NodeIndex`].
     pub node_position: u32,
     /// The node's slab generation.
+    /// The second half of a [`NodeIndex`].
     pub node_generation: u32,
     /// Pointer to the serialized entry data (msgpack delta + HLL registers).
     pub data: *const u8,
