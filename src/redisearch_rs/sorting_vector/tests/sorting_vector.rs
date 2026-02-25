@@ -16,6 +16,7 @@ use sorting_vector::{IndexOutOfBounds, RSSortingVector};
 use value::RSValueFFI;
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn creation() {
     let vector: RSSortingVector = RSSortingVector::new(10);
     assert_eq!(vector.len(), 10);
@@ -36,6 +37,7 @@ fn build_vector() -> Result<RSSortingVector, IndexOutOfBounds> {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn insert() -> Result<(), IndexOutOfBounds> {
     let vector: &mut RSSortingVector = &mut build_vector()?;
 
@@ -50,6 +52,7 @@ fn insert() -> Result<(), IndexOutOfBounds> {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn out_of_bounds() -> Result<(), IndexOutOfBounds> {
     let mut vector = build_vector()?;
 
@@ -60,6 +63,7 @@ fn out_of_bounds() -> Result<(), IndexOutOfBounds> {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn override_value() -> Result<(), IndexOutOfBounds> {
     let src = build_vector()?;
     let mut dst: RSSortingVector = RSSortingVector::new(1);
@@ -81,6 +85,7 @@ fn override_value() -> Result<(), IndexOutOfBounds> {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn memory_size() -> Result<(), IndexOutOfBounds> {
     let empty = RSSortingVector::new(0);
     let size = empty.get_memory_size();
