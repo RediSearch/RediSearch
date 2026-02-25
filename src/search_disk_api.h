@@ -159,8 +159,10 @@ typedef struct IndexDiskAPI {
    *
    * @param index Pointer to the disk index
    * @param user_data Opaque pointer to the C IndexSpec (used for FFI callbacks)
+   *
+   * @return Number of deletedIDs removed from the disk index
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
+  size_t (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
