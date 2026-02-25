@@ -429,7 +429,7 @@ typedef struct {
   DocumentType type;
 
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
-  const RLookupKey *const *keys;
+  const RLookupKey **keys;
 
   /** Number of keys in keys array */
   size_t nkeys;
