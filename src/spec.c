@@ -3225,14 +3225,15 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
     // the read lock to ensure consistent access to the data structures.
     // In a forked child process, the memory is a snapshot so no lock is needed.
     bool inFork = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_IS_CHILD;
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
     if (!inFork) {
-      IndexSpec_AcquireReadLock(sp);
+      RedisSearchCtx_LockSpecRead(&sctx);
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
     if (!inFork) {
-      IndexSpec_ReleaseWriteLock(sp);
+      RedisSearchCtx_UnlockSpec(&sctx);
     }
   }
 }
@@ -4219,11 +4220,6 @@ void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
 // Release IndexSpec read/write
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
-}
-
-// Acquire IndexSpec read/write lock in shared mode
-void IndexSpec_AcquireReadLock(IndexSpec* sp) {
-  pthread_rwlock_rdlock(&sp->rwlock);
 }
 
 // Update a term's document count in the Serving Trie
