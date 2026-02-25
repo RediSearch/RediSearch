@@ -1430,6 +1430,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   } else {
     // TODO: run hybrid cursor - this needs to be implemented for the coordinator
   }
+  // Clear the error pointer to avoid dangling reference to the stack-allocated `status`
+  qctx->err = NULL;
   if (has_spec) {
     IndexSpecRef_Release(execution_ref);
   }

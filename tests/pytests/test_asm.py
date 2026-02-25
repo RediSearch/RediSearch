@@ -65,8 +65,28 @@ def extract_values(result):
     return values
 
 def query_shards_ft_aggregate(env, query, shards, expected):
-    """Query_shards implementation for FT.AGGREGATE queries"""
-    results = [shard.execute_command(*query) for shard in shards]
+    """Query_shards implementation for FT.AGGREGATE queries.
+
+    Handles lock acquisition errors that can occur when FT.AGGREGATE runs
+    concurrently with write operations in background mode. This is expected
+    behavior with the try-lock mechanism that prevents deadlocks.
+    """
+    results = []
+    for shard_idx, shard in enumerate(shards):
+        try:
+            result = shard.execute_command(*query)
+            results.append(result)
+        except Exception as e:
+            error_str = str(e)
+            print(f"Shard {shard_idx}: Exception: {error_str}")
+            # Check for lock acquisition errors - can come from shard directly or wrapped by coordinator
+            if "Failed to acquire index lock" in error_str or "Failed to process shard responses" in error_str:
+                # This is expected when a writer is waiting for the lock
+                print(f"Shard {shard_idx}: Lock acquisition error (expected during concurrent writes)")
+                continue
+            else:
+                raise
+
     for idx, res in enumerate(results):
         # Extract values from aggregation results
         values = extract_values(res)

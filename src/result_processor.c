@@ -968,6 +968,10 @@ typedef struct RPSafeLoader {
 
   // Search context
   RedisSearchCtx *sctx;
+
+  // Request flags - used to identify if this is a hybrid subquery
+  // (QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY or QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
+  uint32_t reqflags;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1123,8 +1127,28 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   bool isQueryProfile = rp->parent->isProfile;
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
-  // Then, lock Redis to guarantee safe access to Redis keyspace
-  RedisModule_ThreadSafeContextLock(sctx->redisCtx);
+
+  // Check if this is a hybrid subquery - these run with depleters in background
+  // and can cause GIL deadlock if we block waiting for the GIL while another
+  // depleter still holds the spec read lock and a writer is waiting for it.
+  bool isHybridSubquery = (self->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) ||
+                          (self->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
+
+  if (isHybridSubquery) {
+    // For hybrid subqueries: Use try-lock to avoid GIL deadlock.
+    // If a writer (e.g., HSET) holds the GIL and is waiting for a write lock on the spec
+    // (blocked by another depleter's read lock), we would deadlock if we blocked here.
+    int gil_rc = RedisModule_ThreadSafeContextTryLock(sctx->redisCtx);
+    if (gil_rc != REDISMODULE_OK) {
+      // Failed to acquire GIL - likely a writer is holding it and waiting for the spec lock.
+      // Return error to avoid deadlock. The query will fail and client should retry.
+      return RS_RESULT_ERROR;
+    }
+  } else {
+    // For non-hybrid queries: Use blocking lock (original behavior).
+    // This is safe because non-hybrid queries don't have the multi-depleter scenario.
+    RedisModule_ThreadSafeContextLock(sctx->redisCtx);
+  }
 
   rpSafeLoader_Load(self);
 
@@ -1163,7 +1187,7 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
   rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
@@ -1174,6 +1198,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->sctx = sctx;
+  sl->reqflags = reqflags;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1226,7 +1251,7 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
   *outStateflags |= QEXEC_S_HAS_LOAD;
   if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPSafeLoader_New(sctx, reqflags, lk, keys, nkeys, forceLoad);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
     return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad);
@@ -1248,6 +1273,9 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
+  // Plain loaders converted to safe loaders are not hybrid subqueries,
+  // so set reqflags to 0 (no try-lock needed for GIL acquisition)
+  sl->reqflags = 0;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1680,7 +1708,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     }
     lock_acquired = true;
     // Increment the counter to signal we have the lock
-    atomic_fetch_add(&sync->num_locked, 1);
+    atomic_fetch_add(&sync->num_locked, 1) + 1;
   }
 
   // Deplete the pipeline into the `self->results` array.
