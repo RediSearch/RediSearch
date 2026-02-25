@@ -87,7 +87,7 @@ jobs:
           platform_configs = {
               "macos": {
                   "aarch64": {
-                      'env': 'macos-latest',
+                      'env': 'macos-26',    # TODO: Revert to 'macos-latest' when 26 becomes the default
                       'name': 'macOS ARM64'
                   }
               },
