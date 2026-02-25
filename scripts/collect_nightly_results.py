@@ -444,6 +444,11 @@ def parse_failure_from_logs(log_content, job_name):
     }
 
 
+def get_run_url(repo, run_id):
+    """Generate GitHub Actions run URL."""
+    return f"https://github.com/{repo}/actions/runs/{run_id}"
+
+
 def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None, workflow_name="merge_queue"):
     """Download logs for failed jobs and analyze failure reasons."""
     failed_runs = [r for r in runs if r["conclusion"] == "failure"]
@@ -626,7 +631,9 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
 
                 for run_id in sorted(branch_runs[branch].keys()):
                     failures = branch_runs[branch][run_id]
-                    f.write(f"\n Run {run_id} (branch: {branch}) - {len(failures)} failed job(s)\n")
+                    run_url = get_run_url(repo, run_id)
+                    f.write(f"\n Run: {run_url}\n")
+                    f.write(f" {len(failures)} failed job(s)\n")
 
                     for failure in failures:
                         full_job_name = failure['full_job_name']
@@ -662,7 +669,8 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
             f.write("=" * 80 + "\n\n")
 
             for item in failure_analysis:
-                f.write(f"Run ID: {item['run_id']}\n")
+                run_url = get_run_url(repo, item['run_id'])
+                f.write(f"Run: {run_url}\n")
                 f.write(f"Branch: {item['branch']}\n")
                 f.write(f"Job: {item['job_name']}\n")
                 f.write(f"Full Job Name: {item['full_job_name']}\n")
