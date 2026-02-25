@@ -532,7 +532,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
   bool forceLoad = sctx && isSpecJson(sctx->spec) && (sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
-  uint32_t loadFlags = forceLoad ? RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
+  uint32_t loadFlags = forceLoad ? RLOOKUP_F_FORCELOAD : RLOOKUP_F_NOFLAGS;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;

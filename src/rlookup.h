@@ -240,7 +240,7 @@ typedef enum {
 /**
  * Request that the key is returned for loading even if it is already loaded.
  */
-#define RLOOKUP_F_FORCE_LOAD 0x40
+#define RLOOKUP_F_FORCELOAD 0x40
 
 /**
  * This key is unresolved. Its source needs to be derived from elsewhere
@@ -279,9 +279,9 @@ typedef enum {
 
 // Flags that are allowed to be passed to GetKey
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN | \
-                               RLOOKUP_F_FORCE_LOAD)
+                               RLOOKUP_F_FORCELOAD)
 // Flags do not persist to the key, they are just options to GetKey()
-#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCELOAD)
 
 /**
  * Get a RLookup key for a given name.
