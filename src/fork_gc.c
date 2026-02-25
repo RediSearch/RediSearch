@@ -998,6 +998,24 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
+#define FGC_GIL_TRYLOCK_ATTEMPTS 200
+#define FGC_GIL_TRYLOCK_SLEEP_US 500
+
+static bool FGC_AcquireGILWithRetry(RedisModuleCtx *ctx) {
+  if (!RedisModule_ThreadSafeContextTryLock) {
+    RedisModule_ThreadSafeContextLock(ctx);
+    return true;
+  }
+
+  for (int attempt = 0; attempt < FGC_GIL_TRYLOCK_ATTEMPTS; ++attempt) {
+    if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
+      return true;
+    }
+    usleep(FGC_GIL_TRYLOCK_SLEEP_US);
+  }
+  return false;
+}
+
 static int periodicCb(void *privdata) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
@@ -1047,8 +1065,15 @@ static int periodicCb(void *privdata) {
   gc->pollfd_read[0].fd = gc->pipe_read_fd;
   gc->pollfd_read[0].events = POLLIN;
 
-  // We need to acquire the GIL to use the fork api
-  RedisModule_ThreadSafeContextLock(ctx);
+  // We need to acquire the GIL to use the fork API.
+  // Use bounded retries to avoid waiting forever during shutdown.
+  if (!FGC_AcquireGILWithRetry(ctx)) {
+    RedisModule_Log(ctx, "warning", "ForkGC failed to acquire GIL before fork, skipping cycle");
+    IndexSpecRef_Release(early_check);
+    close(gc->pipe_read_fd);
+    close(gc->pipe_write_fd);
+    return 1;
+  }
 
   // Check if we are out of memory before even trying to fork
   if (isOutOfMemory(ctx)) {
@@ -1120,12 +1145,11 @@ static int periodicCb(void *privdata) {
         usleep(500);
       }
     }
-    // KillForkChild must be called when holding the GIL
-    // otherwise it might cause a pipe leak and eventually run
-    // out of file descriptor
-    RedisModule_ThreadSafeContextLock(ctx);
-    RedisModule_KillForkChild(cpid);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    // Defer any lingering child cleanup to the monitor callback,
+    // which runs on the main thread with the GIL.
+    if (waitpid(cpid, NULL, WNOHANG) == 0) {
+      __atomic_store_n(&gc->childPidToKill, cpid, __ATOMIC_RELEASE);
+    }
 
     if (gcrv) {
       gcrv = VecSim_CallTieredIndexesGC(gc->index);
@@ -1142,6 +1166,14 @@ static int periodicCb(void *privdata) {
   gc->stats.lastRunTimeMs = msRun;
 
   return gcrv;
+}
+
+static void postJobCb(void *privdata) {
+  ForkGC *gc = privdata;
+  pid_t cpid = __atomic_exchange_n(&gc->childPidToKill, 0, __ATOMIC_ACQ_REL);
+  if (cpid > 0) {
+    RedisModule_KillForkChild(cpid);
+  }
 }
 
 #if defined(__has_feature)
@@ -1239,6 +1271,7 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
 
   callbacks->onTerm = onTerminateCb;
   callbacks->periodicCallback = periodicCb;
+  callbacks->postJobCallback = postJobCb;
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;

@@ -506,7 +506,11 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  if (getenv("RS_GLOBAL_DTORS")) {
+    RediSearch_SanitizerCleanupModule();
+  } else {
+    RediSearch_Shutdown();
+  }
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
@@ -570,12 +574,8 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 
-  if (getenv("RS_GLOBAL_DTORS")) {
-    // clear resources when the server exits
-    // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
-  }
+  RedisModule_Log(ctx, "notice", "%s", "Subscribe to shutdown events");
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
 
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);

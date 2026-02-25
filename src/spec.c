@@ -2030,14 +2030,12 @@ void IndexSpec_Free(IndexSpec *spec) {
   // This function might be called from any thread, and we cannot deal with timers without the GIL.
   // At this point we should have already stopped the timer.
   RS_ASSERT(!spec->isTimerSet);
-  // Stop and destroy garbage collector
-  // We can't free it now, because it either runs at the moment or has a timer set which we can't
-  // deal with without the GIL.
-  // It will free itself when it discovers that the index was freed.
-  // On the worst case, it just finishes the current run and will schedule another run soon.
-  // In this case the GC will be freed on the next run, in `forkGcRunIntervalSec` seconds.
+
+  // GC timers/resources are stopped on the main thread in Indexes_Free before
+  // removing the index from globals.
   if (RS_IsMock && spec->gc) {
     GCContext_StopMock(spec->gc);
+    spec->gc = NULL;
   }
 
   // Free stopwords list (might use global pointer to default list)
@@ -2141,6 +2139,10 @@ void Indexes_Free(dict *d, bool deleteDiskData) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (deleteDiskData && spec && spec->diskSpec) {
       SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+    }
+    if (spec && spec->gc && !RS_IsMock) {
+      GCContext_Stop(spec->gc);
+      spec->gc = NULL;
     }
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }

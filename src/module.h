@@ -54,7 +54,10 @@ void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 
 /** Cleans up all globals in the module */
+void RediSearch_Shutdown(void);
+void RediSearch_SanitizerCleanupModule(void);
 void RediSearch_CleanupModule(void);
+void DepleterPool_ThreadPoolDestroy(void);
 
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

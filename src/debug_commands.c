@@ -879,7 +879,13 @@ DEBUG_COMMAND(GCStopFutureRuns) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   // Make sure there is no pending timer
-  RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
+  if (sp->gc->timerID > 1) {
+    RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
+  }
+  if (sp->gc->monitorTimerID) {
+    RedisModule_StopTimer(RSDummyContext, sp->gc->monitorTimerID, NULL);
+    sp->gc->monitorTimerID = 0;
+  }
   // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
   sp->gc->timerID = 0;
   RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));

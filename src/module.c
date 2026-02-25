@@ -1785,7 +1785,33 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
 extern dict *legacySpecDict, *legacySpecRules;
 
-void RediSearch_CleanupModule(void) {
+void DepleterPool_ThreadPoolDestroy(void) {
+  if (depleterPool) {
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    redisearch_thpool_destroy(depleterPool);
+    depleterPool = NULL;
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
+}
+
+void RediSearch_Shutdown(void) {
+  static int invoked = 0;
+  if (invoked || !RS_Initialized) {
+    return;
+  }
+  invoked = 1;
+
+  // Main-thread shutdown path: each index stops its own GC context in Indexes_Free.
+  if (specDict_g) {
+    Indexes_Free(specDict_g, false);
+  }
+
+  // Production path: only wait for/destroy GC pool to avoid deadlocks on other pools.
+  GC_ThreadPoolDestroy();
+  MR_FreeCluster();
+}
+
+void RediSearch_SanitizerCleanupModule(void) {
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
@@ -1814,6 +1840,7 @@ void RediSearch_CleanupModule(void) {
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
   // free thread pools
+  DepleterPool_ThreadPoolDestroy();
   GC_ThreadPoolDestroy();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
@@ -1835,6 +1862,11 @@ void RediSearch_CleanupModule(void) {
   RediSearch_LockDestory();
 
   IndexError_GlobalCleanup();
+}
+
+void RediSearch_CleanupModule(void) {
+  // Backwards-compatible alias to sanitizer flow.
+  RediSearch_SanitizerCleanupModule();
 }
 
 // A reducer that just merges N sets of strings by chaining them into one big array with no
@@ -4472,18 +4504,8 @@ void setHiredisAllocators(){
 
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  RediSearch_Shutdown();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
-}
-
-void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
-  // To be called after `Initialize_ServerEventNotifications` as callbacks are overridden.
-  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
-    // clear resources when the server exits
-    // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, Coordinator_ShutdownEvent);
-  }
 }
 
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {
@@ -4574,8 +4596,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Init the aggregation thread pool
   DIST_THREADPOOL = ConcurrentSearch_CreatePool(clusterConfig.coordinatorPoolSize);
-
-  Initialize_CoordKeyspaceNotifications(ctx);
 
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
     // Running against a Redis version that does not support module ACL protection
