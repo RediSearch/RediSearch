@@ -21,23 +21,18 @@ pub struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys. Overridden keys created through [`CursorMut::override_current`] increase
+    // of lookup keys. Overridden keys created through `CursorMut::override_current` increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     pub(crate) rowlen: u32,
 }
 
-/// A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
-///
-/// This types `Iterator` implementation skips all hidden keys, i.e. the keys
-/// with hidden flags, also including keys that been overridden.
-///
-/// If you need to obtain the hidden keys use [`Cursor::move_next`].
+/// A cursor over an [`RLookup`][crate::RLookup]'s key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over an [`crate::RLookup`]s key list with editing operations.
+/// A cursor over an [`RLookup`][crate::RLookup]'s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -65,7 +60,7 @@ impl<'a> KeyList<'a> {
         'a: 'b,
     {
         #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push before");
+        self.assert_valid("KeyList::push (before)");
 
         key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
 
@@ -98,7 +93,7 @@ impl<'a> KeyList<'a> {
         self.rowlen += 1;
 
         #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push after");
+        self.assert_valid("KeyList::push (after)");
 
         // Safety: we have allocated the memory above, this pointer is safe to dereference.
         let key = unsafe { ptr.as_mut() };
@@ -107,13 +102,7 @@ impl<'a> KeyList<'a> {
         unsafe { Pin::new_unchecked(key) }
     }
 
-    /// Returns a [`Cursor`] starting at the first element.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over this list.
-    /// The returned Cursor's `Iterator` implementation skips hidden keys, i.e. the keys that have
-    /// been overridden.
-    ///
-    /// If you need to obtain the hidden keys use [`Cursor::move_next`].
+    /// Return a cursor over an [`RLookup`]'s key list.
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front");
@@ -124,9 +113,7 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    /// Returns a [`CursorMut`] starting at the first element.
-    ///
-    /// The [`CursorMut`] type can be used as Iterator over this list. In addition, it may be used to manipulate the list.
+    /// Return a cursor over an [`RLookup`]'s key list with editing operations.
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front_mut");
@@ -181,22 +168,22 @@ impl<'a> KeyList<'a> {
         let Some(head) = self.head else {
             assert!(
                 self.tail.is_none(),
-                "{ctx}if the linked list's head is null, the tail must also be null"
+                "{ctx} - if the linked list's head is null, the tail must also be null"
             );
             assert_eq!(
                 self.rowlen, 0,
-                "{ctx}if a linked list's head is null, its length must be 0"
+                "{ctx} - if a linked list's head is null, its length must be 0"
             );
             return;
         };
 
         assert_ne!(
             self.rowlen, 0,
-            "{ctx}if a linked list's head is not null, its length must be greater than 0"
+            "{ctx} - if a linked list's head is not null, its length must be greater than 0"
         );
         assert_ne!(
             self.tail, None,
-            "{ctx}if the linked list has a head, it must also have a tail"
+            "{ctx} - if the linked list has a head, it must also have a tail"
         );
 
         let tail = self.tail.unwrap();
@@ -211,12 +198,12 @@ impl<'a> KeyList<'a> {
             assert_eq!(
                 NonNull::from(&head.next),
                 NonNull::from(&tail.next),
-                "{ctx}if the head and tail nodes are the same, their links must be the same"
+                "{ctx} - if the head and tail nodes are the same, their links must be the same"
             );
             assert_eq!(
                 head.next(),
                 None,
-                "{ctx}if the linked list has only one node, it must not be linked"
+                "{ctx} - if the linked list has only one node, it must not be linked"
             );
             return;
         }
@@ -234,7 +221,7 @@ impl<'a> KeyList<'a> {
 
         assert!(
             self.rowlen <= actual_len,
-            "{ctx}linked list's rowlen was greater than its actual length"
+            "{ctx} - linked list's rowlen was greater than its actual length"
         );
     }
 }

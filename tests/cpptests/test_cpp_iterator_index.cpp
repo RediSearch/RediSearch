@@ -259,7 +259,6 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
 typedef enum RevalidateIndexType {
     REVALIDATE_INDEX_TYPE_TERM_QUERY,
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
     REVALIDATE_INDEX_TYPE_MISSING_QUERY,
 } RevalidateIndexType;
 
@@ -333,9 +332,6 @@ protected:
                 break;
             case REVALIDATE_INDEX_TYPE_TAG_QUERY:
                 SetupTagIndex();
-                break;
-            case REVALIDATE_INDEX_TYPE_WILDCARD_QUERY:
-                SetupWildcardIndex();     // Wildcard query version
                 break;
             case REVALIDATE_INDEX_TYPE_MISSING_QUERY:
                 SetupMissingIndex();      // Missing query version
@@ -464,36 +460,6 @@ private:
         iterator = NewInvIndIterator_TagQuery(tagInvIdx, tagIdx, sctx, tagFieldMaskOrIndex, tagQueryTerm, 1.0);
     }
 
-    void SetupWildcardIndex() {
-        // Create IndexSpec for TEXT field (wildcard uses existingDocs index)
-        const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = QueryError_Default();
-        StrongRef ref = IndexSpec_ParseC("wildcard_idx", args, sizeof(args) / sizeof(const char *), &err);
-        spec = (IndexSpec *)StrongRef_Get(ref);
-        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-        ASSERT_TRUE(spec);
-
-        // Add the spec to the global dictionary so it can be found by name
-        Spec_AddToDict(spec->own_ref.rm);
-
-        // Create RedisSearchCtx
-        sctx = NewSearchCtxC(ctx, "wildcard_idx", false);
-        ASSERT_TRUE(sctx != nullptr);
-
-        // Create the existingDocs index that wildcard iterator expects
-        size_t memsize;
-        spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &memsize);
-
-        // Populate with document data for wildcard matching
-        for (size_t i = 0; i < n_docs; ++i) {
-            RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(spec->existingDocs, &rec);
-        }
-
-        // Create wildcard iterator using the existingDocs index
-        iterator = NewInvIndIterator_WildcardQuery(spec->existingDocs, sctx, 1.0);
-    }
-
     void SetupMissingIndex() {
         // Create IndexSpec for TEXT field (missing uses any field type)
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
@@ -546,10 +512,6 @@ public:
         return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY;
     }
 
-    bool IsWildcardIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_WILDCARD_QUERY;
-    }
-
     bool IsMissingIterator() const {
         return GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
     }
@@ -557,7 +519,6 @@ public:
     bool IsQueryIterator() const {
         return GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY ||
                GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_WILDCARD_QUERY ||
                GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
     }
 };
@@ -565,7 +526,6 @@ public:
 INSTANTIATE_TEST_SUITE_P(InvIndIteratorRevalidate, InvIndIteratorRevalidateTest, ::testing::Values(
     REVALIDATE_INDEX_TYPE_TERM_QUERY,
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
     REVALIDATE_INDEX_TYPE_MISSING_QUERY
 ));
 
@@ -624,7 +584,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
         // be returned by the lookup functions. This simulates the case where the
         // index was garbage collected and recreated.
 
-        if (IsTermIterator() || IsTagIterator() || IsWildcardIterator() || IsMissingIterator()) {
+        if (IsTermIterator() || IsTagIterator() || IsMissingIterator()) {
             // For term and tag iterators, we can simulate index disappearance by
             // setting the iterator's idx pointer to a different value than what
             // the lookup would return. This simulates the GC scenario.

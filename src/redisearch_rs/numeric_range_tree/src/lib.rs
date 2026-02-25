@@ -87,3 +87,6 @@ pub use tree::{
     TrimEmptyLeavesResult,
 };
 pub use unique_id::TreeUniqueId;
+
+#[cfg(feature = "test_utils")]
+pub mod test_utils;

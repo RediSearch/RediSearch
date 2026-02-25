@@ -347,7 +347,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         for val in self.dyn_values.iter().flatten() {
             assert!(
                 val.refcount() >= 1,
-                "{ctx} RSValue refcount must not be zero"
+                "{ctx} - RSValue refcount must not be zero"
             );
         }
     }

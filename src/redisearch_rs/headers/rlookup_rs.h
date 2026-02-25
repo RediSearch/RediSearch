@@ -600,6 +600,33 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                QueryError *status);
 
 /**
+ * Return an iterator over an [`RLookup`]'s key list.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RLookupIterator RLookup_Iter(const struct RLookup *lookup);
+
+/**
+ * Return an iterator over an [`RLookup`]'s key list with editing operations.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 3. The caller must treat the returned `current` pointer as pinned. Specifically
+ *    a. Not move (memcpy/memmove) out of the pointer.
+ *    b. The pointed-to value must remain at its original address in memory and never be relocated.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
+
+/**
  * Returns a newly created [`RLookupRow`].
  */
 struct RLookupRow RLookupRow_New(void);

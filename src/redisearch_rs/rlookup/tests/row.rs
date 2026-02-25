@@ -9,14 +9,16 @@
 
 #![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Mock or stub the ones that aren't provided by the line above
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use sorting_vector::RSSortingVector;
 use std::{
     ffi::CString,
-    mem::offset_of,
     ops::{Deref, DerefMut},
-    ptr::NonNull,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 use value::{RSValueMock, RSValueTrait};
 
@@ -928,21 +930,4 @@ fn write_fields_key_missing_in_dst_should_create() {
 
     assert_eq!(src_row.get(src_key1).unwrap().as_num(), Some(100.0));
     assert_eq!(src_row.get(src_key2).unwrap().as_num(), Some(200.0));
-}
-
-/// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
-#[unsafe(no_mangle)]
-extern "C" fn IndexSpecCache_Decref(spcache: Option<NonNull<ffi::IndexSpecCache>>) {
-    let spcache = spcache.expect("`spcache` must not be null");
-    let refcount = unsafe {
-        spcache
-            .byte_add(offset_of!(ffi::IndexSpecCache, refcount))
-            .cast::<usize>()
-    };
-
-    let refcount = unsafe { AtomicUsize::from_ptr(refcount.as_ptr()) };
-
-    if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
-        drop(unsafe { Box::from_raw(spcache.as_ptr()) });
-    }
 }

@@ -76,17 +76,6 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   return VALIDATE_OK;
 }
 
-static ValidateStatus WildcardCheckAbort(QueryIterator *base) {
-  // Check if the wildcard iterator is still valid
-  InvIndIterator *wi = (InvIndIterator *)base;
-  RS_ASSERT(wi->sctx && wi->sctx->spec);
-
-  if (!IndexReader_IsIndex(wi->reader, wi->sctx->spec->existingDocs)) {
-    return VALIDATE_ABORTED;
-  }
-  return VALIDATE_OK;
-}
-
 static ValidateStatus MissingCheckAbort(QueryIterator *base) {
   // Check if the missing iterator is still valid
   InvIndIterator *mi = (InvIndIterator *)base;
@@ -452,20 +441,6 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
   return InitInvIndIterator(&it->base, INV_IDX_TAG_ITERATOR, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
-}
-
-QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
-  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  record->freq = 1;
-
-  InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  InitInvIndIterator(it, INV_IDX_WILDCARD_ITERATOR, idx, record, &fieldCtx, sctx, &decoderCtx, WildcardCheckAbort);
-  return &it->base;
 }
 
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {

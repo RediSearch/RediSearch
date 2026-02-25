@@ -12,7 +12,7 @@
 use numeric_range_tree::{NodeGcDelta, NumericRangeTree};
 use rstest::rstest;
 
-use super::helpers::{
+use numeric_range_tree::test_utils::{
     DEEP_TREE_ENTRIES, ENTRIES_PER_BLOCK, SPLIT_TRIGGER, build_tree, gc_all_ranges,
     scan_all_node_deltas, scan_node_delta, scan_node_delta_with_hll,
 };

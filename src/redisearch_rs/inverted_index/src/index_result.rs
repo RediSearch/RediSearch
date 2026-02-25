@@ -282,7 +282,7 @@ pub enum RSTermRecord<'index> {
         ///
         /// It borrows the term from another record.
         /// The name of the variant, `Owned`, refers to the `offsets` field.
-        term: *mut RSQueryTerm,
+        term: Option<&'index RSQueryTerm>,
 
         /// The encoded offsets in which the term appeared in the document
         ///
@@ -333,24 +333,14 @@ impl<'index> RSTermRecord<'index> {
     pub fn query_term(&self) -> Option<&RSQueryTerm> {
         match self {
             RSTermRecord::Borrowed { term, .. } => term.as_deref(),
-            RSTermRecord::Owned { term, .. } => {
-                if term.is_null() {
-                    None
-                } else {
-                    // SAFETY: `Owned::term` is either null or points to a valid
-                    // `RSQueryTerm` owned by the source `Borrowed` variant.
-                    Some(unsafe { &**term })
-                }
-            }
+            RSTermRecord::Owned { term, .. } => *term,
         }
     }
 
     /// Create an owned copy of this term record, allocating new memory for the offsets, but reusing the term.
-    pub fn to_owned(&self) -> RSTermRecord<'static> {
+    pub fn to_owned<'a>(&'a self) -> RSTermRecord<'a> {
         RSTermRecord::Owned {
-            term: self
-                .query_term()
-                .map_or(ptr::null_mut(), |t| ptr::from_ref(t).cast_mut()),
+            term: self.query_term(),
             offsets: match self {
                 RSTermRecord::Borrowed { offsets, .. } => offsets.to_owned(),
                 RSTermRecord::Owned { offsets, .. } => offsets.as_slice().to_owned(),
@@ -432,7 +422,7 @@ pub enum RSAggregateResult<'index> {
         /// The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
         /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
         /// own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
-        records: SmallThinVec<Box<RSIndexResult<'static>>>,
+        records: SmallThinVec<Box<RSIndexResult<'index>>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -440,9 +430,17 @@ pub enum RSAggregateResult<'index> {
 }
 
 impl<'index> RSAggregateResult<'index> {
-    /// Create a new empty aggregate result with the given capacity
-    pub fn with_capacity(cap: usize) -> Self {
+    /// Create a new empty aggregate result (of the borrowed kind) with the given capacity
+    pub fn borrowed_with_capacity(cap: usize) -> Self {
         Self::Borrowed {
+            records: SmallThinVec::with_capacity(cap),
+            kind_mask: RSResultKindMask::empty(),
+        }
+    }
+
+    /// Create a new empty aggregate result (of the owned kind) with the given capacity
+    pub fn owned_with_capacity(cap: usize) -> Self {
+        Self::Owned {
             records: SmallThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
         }
@@ -563,7 +561,10 @@ impl<'index> RSAggregateResult<'index> {
     }
 
     /// Create an owned copy of this aggregate result, allocating new memory for the records.
-    pub fn to_owned(&self) -> RSAggregateResult<'static> {
+    ///
+    /// The returned aggregate result will have the same lifetime as the original one,
+    /// since it may borrow terms from the original result.
+    pub fn to_owned<'a>(&'a self) -> RSAggregateResult<'a> {
         match self {
             RSAggregateResult::Borrowed { records, kind_mask } => {
                 let mut new_records = SmallThinVec::with_capacity(records.len());
@@ -597,11 +598,9 @@ impl<'index> RSAggregateResult<'index> {
             }
         }
     }
-}
 
-impl RSAggregateResult<'static> {
     /// Add a heap owned child to the aggregate result and update the kind mask
-    pub fn push_boxed(&mut self, child: Box<RSIndexResult<'static>>) {
+    pub fn push_boxed(&mut self, child: Box<RSIndexResult<'index>>) {
         match self {
             RSAggregateResult::Borrowed { .. } => {
                 panic!("Cannot push a borrowed child to an owned aggregate result");
@@ -614,7 +613,7 @@ impl RSAggregateResult<'static> {
     }
 
     /// Get a mutable reference to the child at the given index, if it exists
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut RSIndexResult<'static>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut RSIndexResult<'index>> {
         match self {
             RSAggregateResult::Borrowed { .. } => {
                 panic!("Cannot get a mutable reference to a borrowed aggregate result");
@@ -719,7 +718,9 @@ impl RSResultData<'_> {
     }
 
     /// Create an owned copy of this result data, allocating new memory for the contained data.
-    pub fn to_owned(&self) -> RSResultData<'static> {
+    ///
+    /// The returned data may borrow the term from the original data.
+    pub fn to_owned<'a>(&'a self) -> RSResultData<'a> {
         match self {
             Self::Union(agg) => RSResultData::Union(agg.to_owned()),
             Self::Intersection(agg) => RSResultData::Intersection(agg.to_owned()),
@@ -803,7 +804,7 @@ impl<'index> RSIndexResult<'index> {
     /// Create a new intersection index result with the given capacity
     pub fn intersect(cap: usize) -> Self {
         Self {
-            data: RSResultData::Intersection(RSAggregateResult::with_capacity(cap)),
+            data: RSResultData::Intersection(RSAggregateResult::borrowed_with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -811,7 +812,7 @@ impl<'index> RSIndexResult<'index> {
     /// Create a new union index result with the given capacity
     pub fn union(cap: usize) -> Self {
         Self {
-            data: RSResultData::Union(RSAggregateResult::with_capacity(cap)),
+            data: RSResultData::Union(RSAggregateResult::borrowed_with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -819,7 +820,7 @@ impl<'index> RSIndexResult<'index> {
     /// Create a new hybrid metric index result
     pub fn hybrid_metric() -> Self {
         Self {
-            data: RSResultData::HybridMetric(RSAggregateResult::with_capacity(2)),
+            data: RSResultData::HybridMetric(RSAggregateResult::owned_with_capacity(2)),
             weight: 1.0,
             ..Default::default()
         }
@@ -1156,7 +1157,9 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// Create an owned copy of this index result, allocating new memory for the contained data.
-    pub fn to_owned(&self) -> RSIndexResult<'static> {
+    ///
+    /// The returned result may borrow the term data from the original result.
+    pub fn to_owned<'a>(&'a self) -> RSIndexResult<'a> {
         let metrics = if !self.metrics.is_null() {
             // SAFETY: we know metric is a valid pointer to `RSYieldableMetric` because we created
             // it in a constructor. We also know it is not NULL because of the check above.
@@ -1175,9 +1178,7 @@ impl<'index> RSIndexResult<'index> {
             weight: self.weight,
         }
     }
-}
 
-impl RSIndexResult<'static> {
     /// If this is an aggregate result, then add a heap owned child to it. Also updates the
     /// following of this record:
     /// - The document ID will inherit the new child added
@@ -1187,7 +1188,7 @@ impl RSIndexResult<'static> {
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
-    pub fn push_boxed(&mut self, child: Box<RSIndexResult<'static>>) {
+    pub fn push_boxed(&mut self, child: Box<RSIndexResult<'index>>) {
         match &mut self.data {
             RSResultData::Union(agg)
             | RSResultData::Intersection(agg)

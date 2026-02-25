@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
@@ -116,9 +116,18 @@ enum WildcardIterator<'index> {
     Raw(Wildcard<'index, RawDocIdsOnly>),
 }
 
+impl Debug for WildcardIterator<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let variant = match self {
+            WildcardIterator::Encoded(_) => "Encoded",
+            WildcardIterator::Raw(_) => "Raw",
+        };
+        write!(f, "WildcardIterator({variant})")
+    }
+}
+
 impl WildcardIterator<'_> {
     /// Get the flags from the underlying reader.
-    #[allow(dead_code)]
     fn flags(&self) -> ffi::IndexFlags {
         match self {
             WildcardIterator::Encoded(w) => w.reader().flags(),
@@ -503,7 +512,8 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
-/// 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+/// 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
+/// 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
@@ -525,10 +535,17 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             };
             wrapper.inner.flags()
         }
+        ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
+            // SAFETY: 3. the wildcard iterator is in Rust.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<WildcardIterator<'static>>::ref_from_header_ptr(it.cast())
+            };
+            wrapper.inner.flags()
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 3.
+            // SAFETY: 4.
             let reader_ref = unsafe { &*reader };
             reader_ref.flags()
         }
@@ -612,9 +629,11 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
 /// # Safety
 ///
 /// 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
-/// 2. If `it` is a C iterator, its `reader` field must be a valid non-NULL
+/// 2. If `it` iterator type is `IteratorType_INV_IDX_WILDCARD_ITERATOR`, it has been created
+///    using `NewInvIndIterator_WildcardQuery`.
+/// 3. If `it` is a C iterator, its `reader` field must be a valid non-NULL
 ///    pointer to an `IndexReader`.
-/// 3. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
+/// 4. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
 ///    iterator's underlying index type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
@@ -633,13 +652,16 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
                 "Numeric iterators use revision ID for revalidation, not index swapping"
             );
         }
+        ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
+            unimplemented!("Wildcard iterator is tested in Rust which does no use index swapping")
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 2. guarantees reader is valid.
+            // SAFETY: 3. guarantees reader is valid.
             let reader_ref = unsafe { &mut *reader };
             let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
-            // SAFETY: 3. guarantees ii is valid and matching.
+            // SAFETY: 4. guarantees ii is valid and matching.
             let ii_ref = unsafe { &*ii };
             reader_ref.swap_index(ii_ref);
         }
@@ -669,7 +691,7 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
 /// 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery_Rs(
+pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
     weight: f64,

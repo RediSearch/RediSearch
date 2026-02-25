@@ -127,8 +127,9 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  *
  * @param index Pointer to the disk index
  * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ * @return Number of deleted document IDs removed from the disk index
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
