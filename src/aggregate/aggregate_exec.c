@@ -1307,13 +1307,12 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   return REDISMODULE_OK;
 }
 
+// Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // update timeout for current cursor read
-  SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
+  SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   // Reset Reply state
   atomic_store_explicit(&req->syncCtx.replyState, ReplyState_NotReplied, memory_order_release);
 
@@ -1326,12 +1325,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   req->cursorConfig.chunkSize = num;
 
   sendChunk(req, reply, num);
-
-  // Release the spec lock that was acquired before this function was called.
-  // For the first cursor read: lock was acquired in AREQ_BuildPipeline before calling AREQ_StartCursor.
-  // For subsequent cursor reads: lock is acquired/released per-result in handleSpecLockAndRevalidate,
-  // but this call is still needed because the lock may still be held if iteration didn't complete.
-  RedisSearchCtx_UnlockSpec(sctx);
+  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
   if (req->stateflags & QEXEC_S_ITERDONE) {
     Cursor_Free(cursor);
