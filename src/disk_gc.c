@@ -17,6 +17,7 @@
 #include <stdatomic.h>
 #include <time.h>
 
+// TODO: update stats with the number of documents cleaned
 static bool periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
@@ -29,16 +30,13 @@ static bool periodicCb(void *privdata, bool force) {
     return true;
   }
 
-  size_t num_docs_to_clean = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
+  size_t num_docs_to_clean = atomic_load(&gc->deletedDocsFromLastRun);
   if (!force && num_docs_to_clean < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
-    atomic_fetch_add(&gc->deletedDocsFromLastRun, num_docs_to_clean);
     IndexSpecRef_Release(spec_ref);
     return true;
   }
 
   SearchDisk_RunGC(sp->diskSpec, sp);
-
-  // TODO: update stats with the number of documents cleaned
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
