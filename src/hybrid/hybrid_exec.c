@@ -499,6 +499,14 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         }
         return REDISMODULE_ERR;
       }
+    } else {
+      // When not using background depletion, prefetch each cursor to initialize iterator state.
+      // This reads initial results while the spec lock is held, buffering them for the first
+      // FT.CURSOR READ. Without this, iterators have uninitialized state which causes crashes
+      // when the index is modified between cursor creation and the first read.
+      for (size_t i = 0; i < array_len(cursors); i++) {
+        AREQ_PrefetchCursor(cursors[i]);
+      }
     }
     replyWithCursors(replyCtx, cursors);
     array_free(cursors);

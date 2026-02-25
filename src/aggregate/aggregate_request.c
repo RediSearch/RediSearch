@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
+#include "aggregate_exec_common.h"
 #include "reducer.h"
 
 #include <query.h>
@@ -1545,6 +1546,11 @@ static void AREQ_Free(AREQ *req) {
   if (req->parsedVectorData) {
     ParsedVectorData_Free(req->parsedVectorData);
     req->parsedVectorData = NULL;
+  }
+  // Free prefetched results if not consumed (cursor freed before first read)
+  if (req->prefetchedResults) {
+    destroyResults(req->prefetchedResults);
+    req->prefetchedResults = NULL;
   }
 
   rm_free(req->args);

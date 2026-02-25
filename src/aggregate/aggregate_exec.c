@@ -42,6 +42,7 @@ typedef struct {
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
+static void prefetchCursorInternal(AREQ *req, size_t num);
 
 // Try to claim reply ownership, send error reply, and mark as replied.
 // Returns true if we replied, false if someone else owns the reply.
@@ -422,7 +423,16 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_2_err;
     }
 
-    startPipeline(req, rp, &results, &r, &rc);
+    // Check for prefetched results from cursor initialization (FT.HYBRID WITHCURSOR on shards)
+    if (req->prefetchedResults) {
+      results = req->prefetchedResults;
+      rc = req->prefetchedResultsRc;
+      req->prefetchedResults = NULL;  // Transfer ownership, will be freed by finishSendChunk
+      // Recalculate totalResults from prefetched results
+      qctx->totalResults = array_len(results);
+    } else {
+      startPipeline(req, rp, &results, &r, &rc);
+    }
 
     if (!AREQ_TryClaimReply(req)) {
       // Timeout callback owns reply - skip to cleanup without replying
@@ -617,7 +627,16 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_3_err;
     }
 
-    startPipeline(req, rp, &results, &r, &rc);
+    // Check for prefetched results from cursor initialization (FT.HYBRID WITHCURSOR on shards)
+    if (req->prefetchedResults) {
+      results = req->prefetchedResults;
+      rc = req->prefetchedResultsRc;
+      req->prefetchedResults = NULL;  // Transfer ownership, will be freed by finishSendChunk
+      // Recalculate totalResults from prefetched results
+      qctx->totalResults = array_len(results);
+    } else {
+      startPipeline(req, rp, &results, &r, &rc);
+    }
 
     if (!AREQ_TryClaimReply(req)) {
       // Timeout callback owns reply - skip to cleanup without replying
@@ -1333,6 +1352,74 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
     // Update the idle timeout
     Cursor_Pause(cursor);
   }
+}
+
+/**
+ * Prefetch cursor results by reading initial results without sending them.
+ * This initializes the iterator state, allowing safe revalidation on cursor reads.
+ *
+ * Used by FT.HYBRID WITHCURSOR on shards: cursors are created and their IDs returned
+ * without reading any data. Later FT.CURSOR READ calls would fail if the index was
+ * modified because the iterator state was never initialized. This function reads
+ * results to initialize the iterator, buffering them for the first cursor read.
+ *
+ * @param req The aggregate request to prefetch
+ * @param num Number of results to read (0 = use default chunk size)
+ */
+static void prefetchCursorInternal(AREQ *req, size_t num) {
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+
+  // Use default chunk size if not specified
+  if (!num) {
+    num = req->cursorConfig.chunkSize;
+    if (!num) {
+      num = RSGlobalConfig.cursorReadSize;
+    }
+  }
+  req->cursorConfig.chunkSize = num;
+
+  // Set up pipeline context
+  QEFlags reqFlags = AREQ_RequestFlags(req);
+  if (!(reqFlags & QEXEC_F_IS_CURSOR) && !(reqFlags & QEXEC_F_IS_SEARCH)) {
+    num = req->maxAggregateResults;
+  }
+  if (sctx->spec) {
+    IndexSpec_IncrActiveQueries(sctx->spec);
+  }
+
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  qctx->resultLimit = num;
+  ResultProcessor *rp = qctx->endProc;
+
+  // Read results into the prefetched buffer using AggregateResults
+  int rc = RS_RESULT_OK;
+  req->prefetchedResults = AggregateResults(rp, &rc);
+  req->prefetchedResultsRc = rc;
+
+  if (sctx->spec) {
+    IndexSpec_DecrActiveQueries(sctx->spec);
+  }
+
+  // Check if iteration is done
+  if (rc == RS_RESULT_EOF || rc == RS_RESULT_ERROR || rc == RS_RESULT_TIMEDOUT) {
+    req->stateflags |= QEXEC_S_ITERDONE;
+  }
+
+  // Reset total results - will be recalculated on actual cursor read
+  qctx->totalResults = 0;
+}
+
+/**
+ * Prefetch cursor results for FT.HYBRID. This is the external interface called from hybrid_exec.c.
+ * Reads initial results to initialize iterator state, then releases the spec lock.
+ *
+ * @param cursor The cursor to prefetch
+ */
+void AREQ_PrefetchCursor(Cursor *cursor) {
+  AREQ *req = cursor->execState;
+  prefetchCursorInternal(req, 0);
+  // Release the spec lock (held since pipeline build)
+  RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
 }
 
 static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {

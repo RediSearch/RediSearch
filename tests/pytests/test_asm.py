@@ -21,7 +21,7 @@ RANDOM_WORDS = [
 ]
 
 def get_expected(env, query, query_type: str = 'FT.SEARCH', protocol=2):
-    if query_type == 'FT.AGGREGATE.WITHCURSOR':
+    if query_type == 'FT.AGGREGATE.WITHCURSOR' or query_type == 'FT.AGGREGATE.WITHCURSOR.TEXT':
         expected = []
         cursor_result = env.cmd(*query)
         cursor_id = cursor_result[1]
@@ -40,7 +40,7 @@ def query_shards(env, query, shards, expected, query_type: str = 'FT.SEARCH'):
         return query_shards_hybrid(env, query, shards, expected)
     elif query_type == 'FT.AGGREGATE' or query_type == 'FT.AGGREGATE.KNN':
         return query_shards_ft_aggregate(env, query, shards, expected)
-    elif query_type == 'FT.AGGREGATE.WITHCURSOR':
+    elif query_type == 'FT.AGGREGATE.WITHCURSOR' or query_type == 'FT.AGGREGATE.WITHCURSOR.TEXT':
         return query_shards_ft_aggregate_withcursor(env, query, shards, expected)
     else:
         return query_shards_ft_search(env, query, shards, expected)
@@ -529,6 +529,11 @@ def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_upd
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n')
     elif query_type == 'FT.AGGREGATE.WITHCURSOR':
         query = ('FT.AGGREGATE', 'idx', '@n:[69 1420]', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n', 'WITHCURSOR', 'COUNT', 10)
+    elif query_type == 'FT.AGGREGATE.WITHCURSOR.TEXT':
+        # FT.AGGREGATE with cursor AND text term - tests if the Rust Term iterator revalidation bug affects aggregate queries
+        # This query includes a text term which uses the Rust Term iterator (unlike numeric-only queries)
+        # Use "document" which appears in ALL documents' text field: "document {i} content ... data"
+        query = ('FT.AGGREGATE', 'idx', f'@n:[69 1420] @text:(document)', 'SORTBY', 2, '@n', 'ASC', 'LIMIT', 0, n_docs, 'LOAD', 1, 'n', 'WITHCURSOR', 'COUNT', 10)
     elif query_type == 'FT.AGGREGATE.KNN':
         # FT.AGGREGATE with KNN - more complex query with APPLY and LOAD to test if the race condition affects it too
         query_vector = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0], dtype=np.float32).tobytes()
@@ -658,6 +663,26 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates():
 def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_text_import_slot_range_parallel_updates():
+    """FT.AGGREGATE with cursor AND text term - tests if the Rust Term iterator revalidation bug affects aggregate queries.
+
+    This test is expected to CRASH if the hypothesis is correct: the Rust Term iterator is missing
+    the should_abort() check in revalidate(), which causes it to call skip_to() on invalid data
+    when the index has been modified between cursor creation and cursor read.
+
+    The numeric-only variant (test_ft_aggregate_withcursor_import_slot_range_parallel_updates) passes
+    because it only uses Numeric iterators which have should_abort() implemented.
+    """
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR.TEXT', parallel_updates=True)
+
+@skip(cluster=False, min_shards=2)
+def test_ft_aggregate_withcursor_text_import_slot_range_parallel_updates_BG():
+    """FT.AGGREGATE with cursor AND text term in background mode - tests if the bug affects BG queries too."""
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
+    import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR.TEXT', parallel_updates=True)
 
 @skip(cluster=False, min_shards=2)
 def test_ft_aggregate_knn_import_slot_range_parallel_updates():
