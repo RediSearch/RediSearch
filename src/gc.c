@@ -22,6 +22,7 @@
 #include "util/logging.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
+#define GC_TIMER_ID_NONE 0
 
 typedef struct GCDebugTask {
   GCContext* gc;
@@ -98,7 +99,7 @@ static void monitorTimerCallback(RedisModuleCtx* ctx, void* data);
 // Main thread (has GIL): Called at GC interval to start a GC job
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
   GCContext* gc = data;
-  gc->timerID = 0;  // Timer fired, clear it
+  gc->timerID = GC_TIMER_ID_NONE;  // Timer fired, clear it
 
   if (__atomic_load_n(&gc->shutdownRequested, __ATOMIC_ACQUIRE)) {
     return;
@@ -168,13 +169,14 @@ static void monitorTimerCallback(RedisModuleCtx* ctx, void* data) {
 }
 
 void GCContext_StartNow(GCContext* gc) {
-  RS_LOG_ASSERT_FMT(gc->timerID == 0, "GC %p: StartNow called while GC is already running", gc);
+  RS_LOG_ASSERT_FMT(gc->timerID == GC_TIMER_ID_NONE &&
+                    !__atomic_load_n(&gc->jobRunning, __ATOMIC_ACQUIRE),
+                    "GC %p: StartNow called while GC is already running", gc);
 
   // Start GC job immediately
   __atomic_store_n(&gc->shutdownRequested, false, __ATOMIC_RELAXED);
   __atomic_store_n(&gc->jobRunning, true, __ATOMIC_RELAXED);
   __atomic_store_n(&gc->lastResult, 1, __ATOMIC_RELAXED);
-  gc->timerID = 1;  // Mark as active (non-zero)
   redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH);
 
   // Start monitor timer
@@ -185,7 +187,7 @@ void GCContext_Start(GCContext* gc) {
   __atomic_store_n(&gc->shutdownRequested, false, __ATOMIC_RELAXED);
   gc->monitorTimerID = 0;
   gc->timerID = scheduleNext(gc);
-  if (gc->timerID == 0) {
+  if (gc->timerID == GC_TIMER_ID_NONE) {
     RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
   }
 }
@@ -197,10 +199,10 @@ void GCContext_Stop(GCContext* gc) {
   __atomic_store_n(&gc->shutdownRequested, true, __ATOMIC_RELEASE);
 
   // Stop timers
-  if (gc->timerID > 1) {
+  if (gc->timerID != GC_TIMER_ID_NONE) {
     RedisModule_StopTimer(RSDummyContext, gc->timerID, NULL);
   }
-  gc->timerID = 0;
+  gc->timerID = GC_TIMER_ID_NONE;
 
   if (gc->monitorTimerID) {
     RedisModule_StopTimer(RSDummyContext, gc->monitorTimerID, NULL);
