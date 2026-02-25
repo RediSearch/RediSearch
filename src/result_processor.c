@@ -1975,15 +1975,11 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
   }
 
   // Check if any depleter failed to acquire the lock
-  // This can happen when a writer (e.g., RESTORE) is waiting for the spec write lock
-  bool any_failed = false;
-  for (size_t i = 0; i < count; i++) {
-    RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
-    if (safeDepleter->last_rc == RS_RESULT_ERROR) {
-      any_failed = true;
-      break;
-    }
-  }
+  // This can happen when a writer (e.g., RESTORE) is waiting for the spec write
+  // lock.
+  // Use the atomic flag which is only set on actual lock failures, not upstream
+  // errors
+  bool any_failed = atomic_load(&sync->any_failed);
 
   // Note: The main thread's lock was already released in WaitForDepletionToStart
   // after all depleters acquired their locks (or when any failed).
