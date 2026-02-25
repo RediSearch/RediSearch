@@ -60,7 +60,7 @@ impl<'a> KeyList<'a> {
         'a: 'b,
     {
         #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push before");
+        self.assert_valid("KeyList::push (before)");
 
         key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
 
@@ -93,7 +93,7 @@ impl<'a> KeyList<'a> {
         self.rowlen += 1;
 
         #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push_after");
+        self.assert_valid("KeyList::push (after)");
 
         // Safety: we have allocated the memory above, this pointer is safe to dereference.
         let key = unsafe { ptr.as_mut() };
