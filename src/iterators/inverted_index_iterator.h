@@ -43,10 +43,6 @@ typedef struct {
   const TagIndex *tagIdx; // not const, may reopen on revalidation
 } TagInvIndIterator;
 
-// Returns an iterator for a missing index - revalidate the missing index was not deleted
-// Result is a virtual result with a weight of 0.0, and a field mask of RS_FIELDMASK_ALL
-QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex);
-
 // Returns an iterator for a tag index, suitable for queries
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                           RSQueryTerm *term, double weight);
