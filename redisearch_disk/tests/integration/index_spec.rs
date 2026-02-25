@@ -170,8 +170,14 @@ fn compact_text_inverted_index_removes_deleted_documents() {
         );
     }
 
-    // Trigger compaction directly via IndexSpec method
-    index.compact_text_inverted_index();
+    // Trigger compaction directly via IndexSpec method.
+    // Pass null pointer for c_index_spec since we're in a pure Rust test
+    // and can't call the real C FFI functions. The compaction will still
+    // remove deleted docs from the inverted index, but delta application
+    // (updating C structures) will be skipped.
+    // SAFETY: We pass a null pointer which is handled safely by the function
+    // (it logs a warning and skips delta application).
+    unsafe { index.compact_text_inverted_index(std::ptr::null_mut::<ffi::IndexSpec>()) };
 
     // Verify deleted docs are removed
     let docs_after = collect_term_doc_ids(&index, term);

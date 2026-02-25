@@ -370,9 +370,28 @@ impl DocTable {
         self.last_document_id.load(Ordering::Relaxed)
     }
 
-    /// Returns a reference to the deleted IDs store.
+    /// Returns the count of deleted document IDs.
     pub fn deleted_ids_len(&self) -> u64 {
         self.deleted_ids.len()
+    }
+
+    /// Returns a reference to the deleted IDs store.
+    pub fn deleted_ids(&self) -> &DeletedIdsStore {
+        &self.deleted_ids
+    }
+
+    /// Removes multiple document IDs from the deleted set.
+    ///
+    /// This is called after compaction to remove document IDs that have been
+    /// fully compacted from disk and no longer need to be tracked.
+    ///
+    /// # Arguments
+    /// * `doc_ids` - Slice of document IDs to remove from the deleted set
+    ///
+    /// # Returns
+    /// The number of document IDs that were present and removed
+    pub fn remove_compacted_doc_ids(&self, doc_ids: &[ffi::t_docId]) -> usize {
+        self.deleted_ids.remove_batch(doc_ids.iter().copied())
     }
 
     /// Saves the index spec disk-related state to RDB.

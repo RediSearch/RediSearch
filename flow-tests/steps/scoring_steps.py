@@ -240,6 +240,18 @@ def verify_all_docs_have_score(redis_env, request, expected_score):
             message=f"Expected score {expected_score} for '{doc_id}', got {actual_score}")
 
 
+@then(parsers.parse('all documents should have approximate score {expected_score:f}'))
+def verify_all_docs_have_approximate_score(redis_env, request, expected_score):
+    """Verify all documents have approximately the specified score (tolerance 0.01)."""
+    scored_results = request.node.scored_results
+    tolerance = 0.01  # Larger tolerance for approximate comparison
+
+    for doc_id, data in scored_results.items():
+        actual_score = data['score']
+        redis_env.assertAlmostEqual(actual_score, expected_score, delta=tolerance,
+            message=f"Expected approximate score {expected_score:.3f} for '{doc_id}', got {actual_score:.3f}")
+
+
 @then(parsers.parse('all documents should have the expected TFIDF IDF score for {total_docs:d} total docs and {term_docs:d} term docs'))
 def verify_tfidf_idf_score(redis_env, request, total_docs, term_docs):
     """Verify all documents have the expected TFIDF IDF score.

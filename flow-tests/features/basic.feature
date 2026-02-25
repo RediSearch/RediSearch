@@ -82,3 +82,18 @@ Feature: RediSearchDisk Basic Functionality
     When I search the index "idx" for "original"
     Then the results should be empty
 
+  Scenario: Index and search documents with UTF-8 content
+    Given the RediSearchDisk module is loaded
+    When I create an index "idx" with schema field "content" as TEXT
+    And I add a document "doc1" with field "content" set to "café au lait"
+    And I add a document "doc2" with field "content" set to "naïve approach"
+    And I add a document "doc3" with field "content" set to "München weather"
+    And I add a document "doc4" with field "content" set to "日本語 text"
+    And I search the index "idx" for "café"
+    Then the only result should be "doc1"
+    When I search the index "idx" for "naïve"
+    Then the only result should be "doc2"
+    When I search the index "idx" for "München"
+    Then the only result should be "doc3"
+    When I search the index "idx" for "日本語"
+    Then the only result should be "doc4"

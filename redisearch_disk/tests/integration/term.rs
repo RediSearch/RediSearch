@@ -1,10 +1,11 @@
 use pretty_assertions::assert_eq;
 use redisearch_disk::{
+    compaction::CompactionDeltaCollector,
     index_spec::{
         deleted_ids::DeletedIdsStore,
         inverted_index::{
             InvertedIndexKey, TermIndexConfig,
-            block_traits::{ArchivedBlock, IndexConfig, SerializableBlock},
+            block_traits::{ArchivedBlock, IndexConfig, SerializableBlock, TermIndexCfConfig},
             term::{Document, Metadata, PostingsListBlock},
         },
     },
@@ -19,7 +20,9 @@ use tempfile::TempDir;
 #[test]
 fn test_compaction_aggregation() {
     let deleted_ids = DeletedIdsStore::new();
-    let cf_descriptor = TermIndexConfig::cf_descriptor(Some(deleted_ids.clone()));
+    let collector = CompactionDeltaCollector::new();
+    let config = TermIndexCfConfig::new(deleted_ids.clone(), collector);
+    let cf_descriptor = TermIndexConfig::cf_descriptor(config);
 
     let path = TempDir::new().unwrap();
     let mut opts = speedb::Options::default();

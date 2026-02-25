@@ -12,7 +12,7 @@ use super::{
     generic_index::GenericInvertedIndex, generic_merge_operator::GenericMergeOperator,
     generic_reader,
 };
-
+use crate::compaction::NoOpCallbacks;
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
 
@@ -67,7 +67,7 @@ impl TagIndexConfig {
         let prefix_extractor = SliceTransform::create(
             Self::PREFIX_EXTRACTOR_NAME,
             generic_index::strip_doc_id_suffix,
-            Some(generic_index::has_doc_id_suffix),
+            Some(generic_index::has_potentially_doc_id_suffix),
         );
 
         let mut cf_options = SpeedbDbOptions::default();
@@ -75,9 +75,13 @@ impl TagIndexConfig {
         cf_options.set_disable_auto_compactions(true);
         cf_options.set_merge_values(true);
 
+        // Tag indexes use a merge operator for handling deleted IDs
         cf_options.set_merge_operator_associative(
             Self::MERGE_OPERATOR_NAME,
-            GenericMergeOperator::<Self>::full_merge_fn(deleted_ids),
+            GenericMergeOperator::<Self, NoOpCallbacks>::full_merge_fn(
+                deleted_ids.clone(),
+                NoOpCallbacks,
+            ),
         );
 
         cf_options.set_prefix_extractor(prefix_extractor);
@@ -98,13 +102,13 @@ impl TagIndexConfig {
 impl block_traits::IndexConfig for TagIndexConfig {
     type SerializableBlock = TagPostingsListBlock;
     type ArchivedBlock = archive::ArchivedTagBlock;
+    type CfConfig = Option<DeletedIdsStore>;
 
     // Not used directly - each tag field has its own CF via TagInvertedIndex::cf_name()
     const COLUMN_FAMILY_NAME: &'static str = "tags";
 
-    fn cf_descriptor(deleted_ids: Option<DeletedIdsStore>) -> ColumnFamilyDescriptor {
-        let deleted_ids =
-            deleted_ids.expect("Tag index requires DeletedIdsStore for merge operator");
+    fn cf_descriptor(config: Self::CfConfig) -> ColumnFamilyDescriptor {
+        let deleted_ids = config.expect("Tag index requires DeletedIdsStore for merge operator");
         ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, Self::cf_options(deleted_ids))
     }
 }

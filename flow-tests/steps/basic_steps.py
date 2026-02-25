@@ -19,6 +19,14 @@ def create_index_single_field(redis_env, index_name, field_name, field_type):
     """Create an index with a single field."""
     redis_env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', field_name, field_type).ok()
 
+
+@given(parsers.parse('I create an index "{index_name}" with schema field "{field_name}" as {field_type} NOSTEM'))
+@when(parsers.parse('I create an index "{index_name}" with schema field "{field_name}" as {field_type} NOSTEM'))
+def create_index_single_field_nostem(redis_env, index_name, field_name, field_type):
+    """Create an index with a single field with NOSTEM (no stemming)."""
+    redis_env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', field_name, field_type, 'NOSTEM').ok()
+
+
 # Usage example:
 #    When I create an index "idx" with fields:
 #      | field    | type |

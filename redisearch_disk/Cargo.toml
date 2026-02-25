@@ -31,6 +31,7 @@ speedb = { path = "../deps/rust-speedb" }
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"
 tracing = "0.1.42"
+trie_rs = { path = "../deps/RediSearch/src/redisearch_rs/trie_rs" }
 tokio = { version = "1.49.0", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]

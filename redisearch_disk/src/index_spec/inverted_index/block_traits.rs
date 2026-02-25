@@ -1,3 +1,4 @@
+use crate::compaction::CompactionDeltaCollector;
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 use speedb::ColumnFamilyDescriptor;
@@ -94,6 +95,27 @@ pub trait SerializableBlock {
     fn serialize(&self) -> Vec<u8>;
 }
 
+/// Configuration for term index column family creation.
+/// Bundles parameters needed to create the column family descriptor.
+pub struct TermIndexCfConfig {
+    /// Store for tracking deleted document IDs.
+    /// Required for term indexes to filter out deleted documents during merge.
+    pub deleted_ids: DeletedIdsStore,
+    /// Collector for tracking compaction deltas.
+    /// The merge operator records removed documents during compaction.
+    pub collector: CompactionDeltaCollector,
+}
+
+impl TermIndexCfConfig {
+    /// Creates a new config with the given deleted_ids store and collector.
+    pub fn new(deleted_ids: DeletedIdsStore, collector: CompactionDeltaCollector) -> Self {
+        Self {
+            deleted_ids,
+            collector,
+        }
+    }
+}
+
 /// Configuration trait for inverted index types.
 /// This allows different index types (term, tag) to specify their column family name,
 /// block types, and how to create their column family descriptor.
@@ -104,10 +126,16 @@ pub trait IndexConfig {
     /// The type of archived block used for reading (e.g., ArchivedBlock, ArchivedTagBlock)
     type ArchivedBlock: ArchivedBlock;
 
+    /// The configuration type for creating the column family descriptor.
+    /// Each index type can specify its own configuration requirements.
+    /// For example, TermIndexConfig uses TermIndexCfConfig (with deleted_ids and collector),
+    /// while TagIndexConfig may use a simpler type like ().
+    type CfConfig;
+
     /// The name of the column family for this index type
     const COLUMN_FAMILY_NAME: &'static str;
 
     /// Creates a column family descriptor for this index type.
-    /// Implementations can configure merge operators and other options as needed.
-    fn cf_descriptor(deleted_ids: Option<DeletedIdsStore>) -> ColumnFamilyDescriptor;
+    /// The `config` parameter provides all necessary configuration specific to this index type.
+    fn cf_descriptor(config: Self::CfConfig) -> ColumnFamilyDescriptor;
 }

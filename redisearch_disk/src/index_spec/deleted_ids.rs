@@ -58,6 +58,23 @@ impl DeletedIds {
         self.ids.remove(doc_id)
     }
 
+    /// Removes multiple document IDs from the deleted set.
+    ///
+    /// This is more efficient than calling `remove` repeatedly as it only
+    /// acquires the lock once.
+    ///
+    /// # Arguments
+    /// * `doc_ids` - An iterator of document IDs (or references) to remove from the deleted set
+    ///
+    /// # Returns
+    /// The number of document IDs that were present and removed
+    pub fn remove_batch(&mut self, doc_ids: impl IntoIterator<Item = t_docId>) -> usize {
+        doc_ids
+            .into_iter()
+            .filter(|doc_id| self.ids.remove(*doc_id))
+            .count()
+    }
+
     /// Returns the count of deleted document IDs.
     ///
     /// # Returns
@@ -170,6 +187,20 @@ impl DeletedIdsStore {
 
     pub fn remove(&self, doc_id: t_docId) -> bool {
         self.0.write().unwrap().remove(doc_id)
+    }
+
+    /// Removes multiple document IDs from the deleted set.
+    ///
+    /// This is more efficient than calling `remove` repeatedly as it only
+    /// acquires the lock once.
+    ///
+    /// # Arguments
+    /// * `doc_ids` - An iterator of document IDs (or references) to remove from the deleted set
+    ///
+    /// # Returns
+    /// The number of document IDs that were present and removed
+    pub fn remove_batch(&self, doc_ids: impl IntoIterator<Item = t_docId>) -> usize {
+        self.0.write().unwrap().remove_batch(doc_ids)
     }
 
     /// Returns the count of deleted document IDs.

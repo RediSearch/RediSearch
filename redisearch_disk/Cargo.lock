@@ -1601,6 +1601,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "trie_rs",
 ]
 
 [[package]]
@@ -1720,6 +1721,7 @@ dependencies = [
  "inverted_index",
  "libc",
  "query_error",
+ "query_term",
  "redis_mock",
  "thiserror",
  "types_ffi",
@@ -2727,6 +2729,7 @@ dependencies = [
  "quote 1.0.44",
  "rand",
  "rand_chacha",
+ "redis-module",
  "regex",
  "regex-automata",
  "regex-syntax",

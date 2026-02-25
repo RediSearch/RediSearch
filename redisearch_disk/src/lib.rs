@@ -1,9 +1,11 @@
+pub mod compaction;
 pub mod database;
 pub mod disk_context;
 pub mod document_id_key;
 pub mod index_spec;
 pub mod info_sink;
 pub mod key_traits;
+
 pub mod metrics;
 pub mod utils;
 pub mod value_traits;
@@ -20,10 +22,10 @@ use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_TERM_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR, MetricsDiskAPI,
-    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RSQueryTerm, RSToken,
-    RedisModuleCtx, RedisModuleInfoCtx, RedisSearchDisk, RedisSearchDiskAPI,
-    RedisSearchDiskIndexSpec, ThrottleCB, VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI,
-    t_docId, t_fieldIndex, t_fieldMask,
+    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata,
+    RSQueryTerm as FfiRSQueryTerm, RSToken, RedisModuleCtx, RedisModuleInfoCtx, RedisSearchDisk,
+    RedisSearchDiskAPI, RedisSearchDiskIndexSpec, ThrottleCB, VecSimDiskContext, VecSimParamsDisk,
+    VectorDiskAPI, t_docId, t_fieldIndex, t_fieldMask,
 };
 use rqe_iterators_interop::RQEIteratorWrapper;
 
@@ -315,24 +317,37 @@ extern "C" fn index_spec_mark_to_be_deleted(index: *mut RedisSearchDiskIndexSpec
 /// Runs a GC compaction cycle on the disk index.
 ///
 /// Synchronously runs a full compaction on the fulltext inverted index column family,
-/// removing entries for deleted documents.
+/// removing entries for deleted documents, and applies the compaction delta to update
+/// in-memory structures via FFI calls on the C IndexSpec.
 ///
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
-extern "C" fn index_spec_run_gc(index: *mut RedisSearchDiskIndexSpec) {
-    // Safety: See safety point 1 above.
-    let index = unsafe { IndexSpec::try_as_ref(index) };
+/// 2. `c_index_spec` must be a valid pointer to a C `IndexSpec` struct.
+unsafe extern "C" fn index_spec_run_gc(
+    index: *mut RedisSearchDiskIndexSpec,
+    c_index_spec: *mut c_void,
+) {
+    // SAFETY: See safety point 1 above.
+    let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
+        warn!("index_spec_run_gc called with null index pointer, skipping");
+        return;
+    };
 
-    if let Some(index) = index {
-        debug!(
-            index_name = index.name(),
-            "running GC compaction on disk index"
-        );
-        index.compact_text_inverted_index();
-        index.compact_tag_inverted_indexes();
-    } else {
-        warn!("index_spec_run_gc called with null pointer, skipping");
+    // Check for null c_index_spec pointer to avoid undefined behavior.
+    if c_index_spec.is_null() {
+        warn!("index_spec_run_gc called with null c_index_spec pointer, skipping");
+        return;
     }
+
+    debug!(
+        index_name = index.name(),
+        "running GC compaction with delta application"
+    );
+
+    // SAFETY: See safety point 2 above - c_index_spec must be valid.
+    // We cast from c_void to the typed ffi::IndexSpec pointer.
+    unsafe { index.compact_text_inverted_index(c_index_spec.cast::<ffi::IndexSpec>()) };
+    index.compact_tag_inverted_indexes();
 }
 
 /// Saves index spec's disk-related state to RDB.
@@ -684,10 +699,11 @@ extern "C" fn index_spec_put_doc(
 /// # Safety
 /// 1. `index` must have been returned from [`index_spec_open`].
 /// 2. `query_term` must be a valid pointer to an `RSQueryTerm` created by `NewQueryTerm`.
-///    The `RSQueryTerm` is owned by the iterator and will be freed when the iterator is freed.
+///    Ownership of the `RSQueryTerm` is transferred to the iterator and will be freed when the
+///    iterator is freed. The caller must NOT call `Term_Free` on the pointer after this call.
 extern "C" fn index_spec_new_term_iterator(
     index: *mut RedisSearchDiskIndexSpec,
-    query_term: *mut RSQueryTerm,
+    query_term: *mut FfiRSQueryTerm,
     field_mask: t_fieldMask,
     weight: f64,
 ) -> *mut QueryIterator {

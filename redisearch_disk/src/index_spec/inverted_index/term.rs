@@ -9,9 +9,10 @@ use std::mem::size_of;
 use std::ops::Deref;
 
 use super::{
-    DeletedIdsStore, InvertedIndexKey, PostingsListReader, block_traits, block_traits::IndexConfig,
-    generic_index, generic_merge_operator::GenericMergeOperator, generic_reader,
+    InvertedIndexKey, PostingsListReader, block_traits, block_traits::IndexConfig, generic_index,
+    generic_merge_operator::GenericMergeOperator, generic_reader,
 };
+use crate::compaction::CompactionDeltaCollector;
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
 
@@ -58,14 +59,15 @@ impl TermIndexConfig {
 impl block_traits::IndexConfig for TermIndexConfig {
     type SerializableBlock = PostingsListBlock;
     type ArchivedBlock = archive::ArchivedBlock;
+    type CfConfig = block_traits::TermIndexCfConfig;
 
     const COLUMN_FAMILY_NAME: &'static str = "fulltext";
 
-    fn cf_descriptor(deleted_ids: Option<DeletedIdsStore>) -> ColumnFamilyDescriptor {
+    fn cf_descriptor(config: Self::CfConfig) -> ColumnFamilyDescriptor {
         let prefix_extractor = SliceTransform::create(
             Self::PREFIX_EXTRACTOR_NAME,
             generic_index::strip_doc_id_suffix,
-            Some(generic_index::has_doc_id_suffix),
+            Some(generic_index::has_potentially_doc_id_suffix),
         );
 
         let mut cf_options = SpeedbDbOptions::default();
@@ -74,11 +76,12 @@ impl block_traits::IndexConfig for TermIndexConfig {
         cf_options.set_merge_values(true);
 
         // Term indexes require a merge operator for handling deleted IDs
-        let deleted_ids =
-            deleted_ids.expect("Term index requires DeletedIdsStore for merge operator");
         cf_options.set_merge_operator_associative(
             Self::MERGE_OPERATOR_NAME,
-            GenericMergeOperator::<Self>::full_merge_fn(deleted_ids.clone()),
+            GenericMergeOperator::<Self, CompactionDeltaCollector>::full_merge_fn(
+                config.deleted_ids.clone(),
+                config.collector,
+            ),
         );
 
         cf_options.set_prefix_extractor(prefix_extractor);
@@ -111,6 +114,11 @@ impl InvertedIndex {
                 TermIndexConfig::COLUMN_FAMILY_NAME,
             ),
         }
+    }
+
+    /// Creates a column family descriptor for the inverted index.
+    pub fn cf_descriptor(config: block_traits::TermIndexCfConfig) -> ColumnFamilyDescriptor {
+        generic_index::GenericInvertedIndex::<TermIndexConfig>::cf_descriptor(config)
     }
 
     /// Inserts a document ID into the postings list for the given term and for

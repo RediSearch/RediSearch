@@ -5,7 +5,12 @@ use speedb::{
     merge_operator::{MergeFn, MergeResult},
 };
 
-use crate::{debug, index_spec::deleted_ids::DeletedIdsStore, key_traits::AsKeyExt};
+use crate::{
+    compaction::{MergeCallbacks, NoOpCallbacks},
+    debug,
+    index_spec::deleted_ids::DeletedIdsStore,
+    key_traits::AsKeyExt,
+};
 
 use super::{
     InvertedIndexKey,
@@ -17,23 +22,32 @@ use super::{
 ///
 /// The merge operator filters out deleted document IDs during compaction,
 /// merging multiple blocks into a single block while respecting the deleted IDs store.
-pub struct GenericMergeOperator<Config> {
-    _phantom: PhantomData<Config>,
+///
+/// The `Callback` type parameter allows customizing behavior during merge:
+/// - Use `NoOpCallbacks` for simple merging without delta tracking
+/// - Use `CompactionDeltaCollector` to record removals for compaction delta building
+pub struct GenericMergeOperator<Config, Callbacks = NoOpCallbacks> {
+    _phantom: PhantomData<(Config, Callbacks)>,
 }
 
-impl<Config> GenericMergeOperator<Config>
+impl<Config, Callbacks> GenericMergeOperator<Config, Callbacks>
 where
     Config: IndexConfig,
+    Callbacks: MergeCallbacks,
     for<'a> <Config::ArchivedBlock as ArchivedBlock>::Document<'a>:
         Into<<Config::SerializableBlock as SerializableBlock>::Document>,
 {
     /// Create a function that performs a full merge given the passed [`DeletedIdsStore`]
-    pub fn full_merge_fn(deleted_ids: DeletedIdsStore) -> impl MergeFn + Clone {
+    /// and callback for tracking merge events.
+    pub fn full_merge_fn(
+        deleted_ids: DeletedIdsStore,
+        callbacks: Callbacks,
+    ) -> impl MergeFn + Clone {
         move |key: &[u8],
               existing_value: Option<&[u8]>,
               operand_list: &MergeOperands|
               -> Option<MergeResult> {
-            let merge_inner = Self::full_merge_inner(deleted_ids.clone());
+            let merge_inner = Self::full_merge_inner(deleted_ids.clone(), &callbacks);
             merge_inner(key, existing_value, operand_list.into_iter())
                 .map(|(data, key)| (data, Some(key)))
         }
@@ -50,6 +64,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn full_merge_inner<'operand, TOperandsIter>(
         deleted_ids: DeletedIdsStore,
+        callbacks: &Callbacks,
     ) -> impl Fn(&[u8], Option<&[u8]>, TOperandsIter) -> Option<(Vec<u8>, Vec<u8>)>
     where
         TOperandsIter: Iterator<Item = &'operand [u8]>,
@@ -58,6 +73,15 @@ where
               existing_value: Option<&[u8]>,
               operand_list: TOperandsIter|
               -> Option<(Vec<u8>, Vec<u8>)> {
+            // Validate UTF-8 - terms must be valid UTF-8 for InvertedIndexKey construction (Keys come without the docID suffix, have been transformed by the caller)
+            let term = match std::str::from_utf8(key) {
+                Ok(s) => s,
+                Err(_) => {
+                    debug!("Term is not valid UTF-8, cannot perform merge");
+                    return None;
+                }
+            };
+
             let mut merged_block =
                 Config::SerializableBlock::with_capacity(operand_list.size_hint().0);
 
@@ -82,6 +106,8 @@ where
                     &mut merged_block,
                     &deleted_ids,
                     &op_archived_block,
+                    term,
+                    callbacks,
                 ) {
                     block_last_doc_id = Some(last_pushed_doc_id);
                 }
@@ -103,6 +129,8 @@ where
                         &mut merged_block,
                         &deleted_ids,
                         &existing_archived_block,
+                        term,
+                        callbacks,
                     ) {
                         block_last_doc_id = Some(last_pushed_doc_id);
                     }
@@ -111,11 +139,15 @@ where
 
             if merged_block.is_empty() {
                 debug!("Merged block is empty after filtering out deleted IDs");
+                // Note: We don't track term emptiness here because a term can span
+                // multiple blocks. The merge operator only sees individual blocks,
+                // so emptying one block doesn't mean the term is empty. Term deletion
+                // is detected when applying the compaction delta to the trie - if a
+                // term's doc count reaches 0, the trie returns TRIE_DECR_DELETED.
                 return None;
             }
 
-            let prefix = str::from_utf8(key).unwrap();
-            let new_key = InvertedIndexKey::new(prefix, block_last_doc_id);
+            let new_key = InvertedIndexKey::new(term, block_last_doc_id);
 
             let data = merged_block.serialize();
             Some((data, new_key.as_key()))
@@ -127,15 +159,20 @@ where
         block: &mut Config::SerializableBlock,
         deleted_ids: &DeletedIdsStore,
         archived_block: &Config::ArchivedBlock,
+        term: &str,
+        callbacks: &Callbacks,
     ) -> Option<u64> {
         let mut last_pushed_doc_id = None;
 
         for archived_doc in archived_block.iter() {
             let doc_id = archived_doc.doc_id();
-            if !deleted_ids.is_deleted(doc_id) {
-                block.push(archived_doc.into());
-                last_pushed_doc_id = Some(doc_id);
+            if deleted_ids.is_deleted(doc_id) {
+                // Notify callback about the removal
+                callbacks.on_doc_removed(term, doc_id);
+                continue;
             }
+            block.push(archived_doc.into());
+            last_pushed_doc_id = Some(doc_id);
         }
 
         last_pushed_doc_id
@@ -147,7 +184,7 @@ mod tests {
     use ffi::t_docId;
     use pretty_assertions::assert_eq;
 
-    use super::GenericMergeOperator;
+    use super::{GenericMergeOperator, NoOpCallbacks};
     use crate::index_spec::{
         deleted_ids::{DeletedIds, DeletedIdsStore},
         inverted_index::{
@@ -263,7 +300,10 @@ mod tests {
 
         let existing_block = existing.map(|docs| create_block::<Config>(docs));
 
-        let full_merge = GenericMergeOperator::<Config>::full_merge_inner(deleted_ids);
+        let full_merge = GenericMergeOperator::<Config, NoOpCallbacks>::full_merge_inner(
+            deleted_ids,
+            &NoOpCallbacks,
+        );
         let merged_result =
             full_merge(key, existing_block.as_deref(), operand_refs.iter().copied());
 
@@ -286,6 +326,9 @@ mod tests {
     }
 
     // ==================== Term Block Tests ====================
+
+    // SpeedB calls the merge operator with keys without the doc_id suffix (prefix-only).
+    // The key format is: [term/tag bytes] (just the term or tag, no delimiter or doc_id).
 
     #[test]
     fn test_term_basic_merge() {

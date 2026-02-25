@@ -1,5 +1,5 @@
 use ffi::t_docId;
-use speedb::WriteOptions;
+use speedb::{ColumnFamilyDescriptor, WriteOptions};
 use std::time::Instant;
 
 use crate::{
@@ -25,7 +25,7 @@ pub fn strip_doc_id_suffix(src: &[u8]) -> &[u8] {
 }
 
 /// Returns whether `src` is long enough to contain a doc_id suffix.
-pub fn has_doc_id_suffix(src: &[u8]) -> bool {
+pub fn has_potentially_doc_id_suffix(src: &[u8]) -> bool {
     src.len() >= InvertedIndexKey::DOC_ID_KEY_SIZE
 }
 
@@ -76,6 +76,11 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
     /// Returns a reference to the column family handle.
     pub fn cf_handle(&self) -> &ColumnFamilyGuard {
         &self.cf
+    }
+
+    /// Creates a column family descriptor for this inverted index type.
+    pub fn cf_descriptor(config: Config::CfConfig) -> ColumnFamilyDescriptor {
+        Config::cf_descriptor(config)
     }
 
     /// Inserts a document into the postings list for the given item (prefix).
@@ -160,13 +165,15 @@ mod tests {
     }
 
     #[test]
-    fn test_has_doc_id_suffix() {
+    fn test_has_potentially_doc_id_suffix() {
         // With delimiter, DOC_ID_KEY_SIZE is 9 bytes (1 delimiter + 8 doc_id)
-        assert!(has_doc_id_suffix(
+        assert!(has_potentially_doc_id_suffix(
             b"term\x00\x00\x00\x00\x00\x00\x00\x00\x01"
         ));
-        assert!(has_doc_id_suffix(b"\x00\x00\x00\x00\x00\x00\x00\x00\x01")); // just 9 bytes (delimiter + doc_id)
-        assert!(!has_doc_id_suffix(b"short")); // less than 9 bytes
-        assert!(!has_doc_id_suffix(b"")); // empty
+        assert!(has_potentially_doc_id_suffix(
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x01"
+        )); // just 9 bytes (delimiter + doc_id)
+        assert!(!has_potentially_doc_id_suffix(b"short")); // less than 9 bytes
+        assert!(!has_potentially_doc_id_suffix(b"")); // empty
     }
 }
