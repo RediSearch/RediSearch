@@ -15,7 +15,7 @@
 #include "rmalloc.h"
 #include "sortable.h"
 #include "buffer.h"
-#include "sorting_vector.h"
+#include "sortable.h"
 
 /* Normalize sorting string for storage. This folds everything to unicode equivalent strings. The
  * allocated return string needs to be freed later */
