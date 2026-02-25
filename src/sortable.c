@@ -13,7 +13,6 @@
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
 #include "rmalloc.h"
-#include "sortable.h"
 #include "buffer.h"
 #include "sortable.h"
 
