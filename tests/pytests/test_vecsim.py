@@ -665,6 +665,7 @@ def test_memory_info():
         env.assertEqual(cur_vecsim_memory, cur_redisearch_memory)
 
 
+@skip(cluster=True)
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
@@ -744,6 +745,7 @@ def test_hybrid_query_batches_mode_with_text():
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
+@skip(cluster=True)
 def test_hybrid_query_batches_mode_with_tags():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
@@ -816,6 +818,7 @@ def test_hybrid_query_batches_mode_with_tags():
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
+@skip(cluster=True)
 def test_hybrid_query_with_numeric():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -870,6 +873,7 @@ def test_hybrid_query_with_numeric():
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
+@skip(cluster=True)
 def test_hybrid_query_with_geo():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
@@ -904,6 +908,7 @@ def test_hybrid_query_with_geo():
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
+@skip(cluster=True)
 def test_hybrid_query_batches_mode_with_complex_queries():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
