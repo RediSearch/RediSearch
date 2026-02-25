@@ -406,7 +406,7 @@ impl<'a> RLookupKey<'a> {
     pub(crate) fn assert_valid(&self, tail: &Self, ctx: &str) {
         assert!(
             !self.flags.intersects(TRANSIENT_FLAGS),
-            "{ctx}key flags must not contain transient ({TRANSIENT_FLAGS:?}) flags. Found {:?}.",
+            "{ctx} - key flags must not contain transient ({TRANSIENT_FLAGS:?}) flags. Found {:?}.",
             self.flags
         );
 
@@ -415,23 +415,23 @@ impl<'a> RLookupKey<'a> {
 
             assert!(
                 ptr::eq(self.name, self._name.as_ptr()),
-                "{ctx}`key.name` did not match `key._name`. ({self:?})",
+                "{ctx} - `key.name` did not match `key._name`. ({self:?})",
             );
             if let Some(path) = self._path.as_ref() {
                 assert!(
                     ptr::eq(self.path, path.as_ptr()),
-                    "{ctx}`key._path` is present, but `key.path` did not match `key._path`. ({self:?})"
+                    "{ctx} - `key._path` is present, but `key.path` did not match `key._path`. ({self:?})"
                 );
             } else {
                 assert!(
                     ptr::eq(self.path, self._name.as_ptr()),
-                    "{ctx}`key._path` is not present, but `key.path` did not match `key._name`. ({self:?})"
+                    "{ctx} - `key._path` is not present, but `key.path` did not match `key._name`. ({self:?})"
                 );
             }
             assert_eq!(
                 self.name_len,
                 self._name.count_bytes(),
-                "{ctx}`key.name_len` did not match `key._name` length"
+                "{ctx} - `key.name_len` did not match `key._name` length"
             );
         }
 
@@ -439,7 +439,7 @@ impl<'a> RLookupKey<'a> {
             assert_eq!(
                 self.next(),
                 None,
-                "{ctx}tail key must not have a next link; node={self:#?}",
+                "{ctx} - tail key must not have a next link; node={self:#?}",
             );
         }
         if let Some(next) = self.next() {
@@ -447,7 +447,7 @@ impl<'a> RLookupKey<'a> {
                 // Safety:
                 NonNull::from(unsafe { &next.as_ref().next }),
                 NonNull::from(&self.next),
-                "{ctx}key's next link cannot be to itself; node={self:#?}",
+                "{ctx} - key's next link cannot be to itself; node={self:#?}",
             );
         }
     }
