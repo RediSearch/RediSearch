@@ -123,7 +123,7 @@ typedef struct ExprEval {
   const RLookup *lookup;
   const SearchResult *res;
   const RLookupRow *srcrow;
-  const RSExpr *root;
+  RSExpr *root;
   BlkAlloc stralloc; // Optional. YNOT?
 } ExprEval;
 
@@ -143,7 +143,7 @@ typedef struct EvalCtx {
   QueryError status;
   ExprEval ee;
   RSValue *res;
-  const RSExpr *_expr;
+  RSExpr *_expr;
   bool _own_expr;
 } EvalCtx;
 
@@ -152,7 +152,7 @@ EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
 EvalCtx *EvalCtx_FromString(const HiddenString *exprstr);
 void EvalCtx_Destroy(EvalCtx *r);
 int EvalCtx_Eval(EvalCtx *r);
-int EvalCtx_EvalExpr(EvalCtx *r, const RSExpr *expr);
+int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);
 int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *exprstr);
 
 /**
@@ -197,7 +197,7 @@ void ExprEval_Cleanup(ExprEval *ev);
  * @note The ast needs to be paired with the appropriate RLookupKey objects. This
  * can be done by calling EXPR_GetLookupKeys()
  */
-ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
+ResultProcessor *RPEvaluator_NewProjector(RSExpr *ast, const RLookup *lookup, const RLookupKey *dstkey);
 
 /**
  * Creates a new result processor in the form of a filter. The filter will
@@ -209,7 +209,7 @@ ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *look
  *
  * See notes for NewProjector()
  */
-ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup);
+ResultProcessor *RPEvaluator_NewFilter(RSExpr *ast, const RLookup *lookup);
 
 /**
  * Reply with a string which describes the result processor.
