@@ -4502,12 +4502,6 @@ void setHiredisAllocators(){
   hiredisSetAllocators(&ha);
 }
 
-void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_Shutdown();
-  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
-}
-
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
   RS_ASSERT_ALWAYS(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
