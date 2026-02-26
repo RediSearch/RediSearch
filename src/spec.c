@@ -549,7 +549,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
   // Start the garbage collector
-  IndexSpec_StartGC(spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
 
   Cursors_initSpec(sp);
 
@@ -1782,6 +1782,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskCtx).
+  spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -2138,7 +2139,7 @@ void Indexes_Free(dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     // Delete disk index before removing from globals
     IndexSpec *spec = StrongRef_Get(specs[i]);
-    if (deleteDiskData && spec && spec->diskSpec ) {
+    if (deleteDiskData && spec && spec->diskSpec) {
       SearchDisk_MarkIndexForDeletion(spec->diskSpec);
     }
     IndexSpec_RemoveFromGlobals(specs[i], false);
@@ -2406,11 +2407,11 @@ void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolic
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 // Only used on new specs so it's thread safe
-void IndexSpec_StartGC(StrongRef global, IndexSpec *sp) {
+void IndexSpec_StartGC(StrongRef global, IndexSpec *sp, GCPolicy gcPolicy) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
-    sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
+    sp->gc = GCContext_CreateGC(global, gcPolicy);
     GCContext_Start(sp->gc);
 
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
@@ -3378,7 +3379,7 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
-    IndexSpec_StartGC(spec_ref, sp);
+    IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
@@ -3495,10 +3496,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(spec_ref, sp);
-  Cursors_initSpec(sp);
-
   if (SearchDisk_IsEnabled()) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3515,6 +3512,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     // Populate diskCtx for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
   }
+
+  // Start GC after diskSpec is available so the disk GC callback can use it immediately.
+  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
+  Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
@@ -3916,7 +3917,11 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 
       // load document only if required
       if (!r) r = EvalCtx_Create();
-      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
+
+      RedisSearchCtx sctx = { .redisCtx = ctx };
+      QueryError status = QueryError_Default();
+      RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, spec, key_p, &status);
+      QueryError_ClearError(&status); // TODO: report errors
 
       if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
         if (dictFind(specs, spec->specName)) {
@@ -4194,4 +4199,45 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
 
 void Indexes_EndLoading() {
   g_isLoading = false;
+}
+
+// =============================================================================
+// Compaction FFI Functions (called by Rust during GC)
+// =============================================================================
+
+// Acquire IndexSpec write lock
+void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
+  pthread_rwlock_wrlock(&sp->rwlock);
+}
+
+// Release IndexSpec write lock
+void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
+  pthread_rwlock_unlock(&sp->rwlock);
+}
+
+// Update a term's document count in the Serving Trie
+// Note: term is NOT null-terminated; term_len specifies the length
+// Returns true if the term was completely emptied and deleted from the trie.
+bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+                                  size_t doc_count_decrement) {
+  if (!sp->terms || doc_count_decrement == 0) {
+    return false;
+  }
+  // Decrement the numDocs count for this term in the trie
+  // If numDocs reaches 0, the node will be deleted
+  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
+  return result == TRIE_DECR_DELETED;
+}
+
+// Update IndexScoringStats based on compaction delta
+// Note: num_docs and totalDocsLen are updated at delete time, NOT by GC.
+// GC only updates numTerms (when terms become completely empty).
+void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed) {
+  if (num_terms_removed == 0) {
+    return;
+  }
+
+  RS_ASSERT(num_terms_removed <= sp->stats.scoring.numTerms);
+  sp->stats.scoring.numTerms -= num_terms_removed;
 }

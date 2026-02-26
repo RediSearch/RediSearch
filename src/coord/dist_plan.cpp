@@ -398,7 +398,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             goto error;
           }
           RLookup filter_keys = RLookup_New();
-          RLookup_Init(&filter_keys, NULL);
           RLookup_EnableOptions(&filter_keys, RLOOKUP_OPT_UNRESOLVED_OK);
           ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
           if (QueryError_HasError(status)) {
@@ -491,7 +490,7 @@ error:
 // We have split the logic plan into a remote and local plans. Now we need to make final
 // preparations and setups for the plans and the distributed step.
 static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_DistributeStep *dstp) {
-  RLookup_Init(&dstp->lk, nullptr);
+  RLookup_SetCache(&dstp->lk, nullptr);
 
   // Find the bottom-most step with the current lookup and progress onwards
   PLN_BaseStep *lastLkStep = DLLIST_ITEM(remote->steps.prev, PLN_BaseStep, llnodePln);

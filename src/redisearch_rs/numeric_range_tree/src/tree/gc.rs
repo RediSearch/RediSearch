@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use inverted_index::{GcApplyInfo, GcScanDelta};
+use inverted_index::{GcApplyInfo, GcScanDelta, IndexBlock, RSIndexResult};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult, apply_signed_delta};
 use crate::NumericRangeNode;
@@ -41,6 +41,7 @@ pub struct NodeGcDelta {
 ///
 /// Returned by [`NumericRangeTree::apply_gc_to_node`].
 #[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
 pub struct SingleNodeGcResult {
     /// Information about the outcome of garbage collection on
     /// the inverted index stored within this node.
@@ -51,6 +52,7 @@ pub struct SingleNodeGcResult {
 
 /// Returned by [`NumericRangeTree::compact_if_sparse`].
 #[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
 pub struct CompactIfSparseResult {
     /// The change in the tree's inverted index memory usage, in bytes.
     /// Positive values indicate growth, negative values indicate shrinkage.
@@ -59,6 +61,61 @@ pub struct CompactIfSparseResult {
     /// The change in the tree's node memory usage, in bytes.
     /// Positive values indicate growth, negative values indicate shrinkage.
     pub node_size_delta: i64,
+}
+
+impl NumericRangeNode {
+    /// Scan a single node's inverted index for GC work.
+    ///
+    /// Scan the inverted index associated with its range for deleted
+    /// documents, and computes HLL registers for cardinality re-estimation.
+    ///
+    /// Returns `Some(NodeGcDelta)` if the node had GC work, `None` otherwise
+    /// (either the node has no range, or no documents were deleted).
+    pub fn scan_gc(&self, doc_exists: &dyn Fn(ffi::t_docId) -> bool) -> Option<NodeGcDelta> {
+        let range = self.range()?;
+
+        // Pointer to the last block of the index. Used inside the repair
+        // closure to route each entry's HLL contribution into the correct
+        // accumulator.
+        let last_block_ptr: *const IndexBlock = range
+            .entries()
+            .last_block()
+            .map(|b| b as *const IndexBlock)
+            .unwrap_or(std::ptr::null());
+
+        // HLL tracking for cardinality (re)estimation.
+        //
+        // `majority_hll` accumulates all blocks except the last one.
+        // `last_block_hll` accumulates only the last block.
+        let mut majority_hll = Hll::new();
+        let mut last_block_hll = Hll::new();
+
+        let mut repair_fn = |res: &RSIndexResult<'_>, block: &IndexBlock| {
+            // SAFETY: We know this is a numeric index result
+            let value = unsafe { res.as_numeric_unchecked() };
+            let target = if std::ptr::eq(block, last_block_ptr) {
+                &mut last_block_hll
+            } else {
+                &mut majority_hll
+            };
+            crate::range::update_cardinality(target, value);
+        };
+
+        let delta = range
+            .entries()
+            .scan_gc(doc_exists, Some(&mut repair_fn))
+            .ok()
+            .flatten()?;
+
+        // Merge majority into last_block to get "with last block" registers.
+        last_block_hll.merge(&majority_hll);
+
+        Some(NodeGcDelta {
+            delta,
+            registers_with_last_block: *last_block_hll.registers(),
+            registers_without_last_block: *majority_hll.registers(),
+        })
+    }
 }
 
 impl NumericRangeTree {

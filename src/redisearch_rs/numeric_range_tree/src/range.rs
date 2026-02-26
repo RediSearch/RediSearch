@@ -23,7 +23,7 @@ use crate::index::{NumericIndex, NumericIndexReader};
 ///
 /// See the [crate-level documentation](crate#cardinality-estimation) for details
 /// on precision, error rate, and memory usage.
-pub type Hll = HyperLogLog6<WyHasher>;
+pub type Hll = HyperLogLog6<[u8; 8], WyHasher>;
 
 /// A numeric range is a leaf-level storage unit in the numeric range tree.
 ///
@@ -64,8 +64,8 @@ pub struct NumericRange {
 /// hashed into HyperLogLog registers. We hash the raw bytes (bit
 /// representation) rather than the numeric value — see
 /// [`NumericRange::update_cardinality`] for rationale.
-fn update_cardinality(hll: &mut Hll, value: f64) {
-    hll.add(value.to_ne_bytes());
+pub(crate) fn update_cardinality(hll: &mut Hll, value: f64) {
+    hll.add(&value.to_ne_bytes());
 }
 
 impl NumericRange {

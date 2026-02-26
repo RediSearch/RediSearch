@@ -23,7 +23,7 @@ mod insert;
 #[cfg(all(feature = "unittest", not(miri)))]
 mod invariants;
 
-pub use gc::{NodeGcDelta, SingleNodeGcResult};
+pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
 
 use ffi::t_docId;
 
@@ -38,6 +38,7 @@ use crate::unique_id::TreeUniqueId;
 /// signed types to support both growth (positive) and shrinkage (negative)
 /// during operations like trimming empty leaves.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(C)]
 pub struct AddResult {
     /// The change in the tree's inverted index memory usage, in bytes.
     /// Positive values indicate growth, negative values indicate shrinkage.
@@ -65,6 +66,7 @@ pub struct AddResult {
 /// only removes empty nodes and does not change the number of entries
 /// (entries are removed by GC before trimming).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[repr(C)]
 pub struct TrimEmptyLeavesResult {
     /// The change in the tree's inverted index memory usage, in bytes.
     /// Positive values indicate growth, negative values indicate shrinkage.
@@ -282,6 +284,11 @@ impl NumericRangeTree {
     /// Returns an iterator over all nodes in the tree (depth-first traversal).
     pub fn iter(&self) -> crate::ReversePreOrderDfsIterator<'_> {
         crate::ReversePreOrderDfsIterator::new(self)
+    }
+
+    /// Returns an iterator over all nodes in the tree, alongside their indices (depth-first traversal).
+    pub fn indexed_iter(&self) -> crate::IndexedReversePreOrderDfsIterator<'_> {
+        crate::IndexedReversePreOrderDfsIterator::new(self)
     }
 
     /// Calculate the total memory usage of the tree, in bytes.

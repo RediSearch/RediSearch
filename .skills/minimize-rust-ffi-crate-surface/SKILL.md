@@ -1,6 +1,6 @@
 ---
 name: minimize-rust-ffi-crate-surface
-description: Remove Rust-defined C symbols that are either unused or only used in C/C++ unit tests.
+description: Remove Rust-defined C symbols that are either unused or only used in C/C++ unit tests. Use this when you are refactoring a Rust FFI crate and want to remove unused symbols.
 ---
 
 # Minimize Rust FFI Crate Surface

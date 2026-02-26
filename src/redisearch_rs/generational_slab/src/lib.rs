@@ -156,6 +156,17 @@ impl Key {
     pub const fn generation(self) -> u32 {
         self.generation
     }
+
+    /// Reconstruct a key from its raw position and generation.
+    ///
+    /// This is intended for FFI round-trips where a key was previously
+    /// decomposed via [`Key::position`] and [`Key::generation`].
+    pub const fn from_raw_parts(position: u32, generation: u32) -> Self {
+        Self {
+            position,
+            generation,
+        }
+    }
 }
 
 /// Pre-allocated storage for a uniform data type

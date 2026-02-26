@@ -20,7 +20,7 @@ fn pushing_to_aggregate_result() {
     let num_second = RSIndexResult::numeric(100.0).doc_id(3);
     let virt_first = RSIndexResult::virt().doc_id(4);
 
-    let mut agg = RSAggregateResult::with_capacity(2);
+    let mut agg = RSAggregateResult::borrowed_with_capacity(2);
 
     assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
 
@@ -178,8 +178,8 @@ fn to_owned_a_virtual_index_result() {
 #[test]
 fn to_owned_a_term_index_result() {
     let mut term = RSQueryTerm::new("test_term".as_bytes(), 2, 3);
-    term.bm25_idf = 4.0;
-    term.idf = 1.0;
+    term.set_bm25_idf(4.0);
+    term.set_idf(1.0);
 
     let offsets: [u8; 1] = [0];
     let offsets = RSOffsetSlice::from_slice(&offsets);

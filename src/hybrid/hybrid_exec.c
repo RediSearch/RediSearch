@@ -141,7 +141,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
           continue;
         }
-        const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
+        const RSValue *v = RLookupRow_Get(kk, SearchResult_GetRowData(r));
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
         RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));

@@ -60,7 +60,8 @@ public:
 
         // Create an index with the specified flags
         createIndex(flags);
-        iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, nullptr, 1.0);
+        RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+        iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL}, NewQueryTerm(&tok, 1), 1.0);
     }
     void TearDown(::benchmark::State &state) {
         if (iterator) {

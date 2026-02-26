@@ -13,7 +13,6 @@
 mod debug;
 mod find;
 mod gc;
-mod helpers;
 mod iter;
 mod node;
 mod properties;

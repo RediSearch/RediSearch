@@ -392,7 +392,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
-  RLookup_Init(first, cache);
+  RLookup_SetCache(first, cache);
 
   ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.

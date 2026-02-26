@@ -15,6 +15,26 @@ use inverted_index::{
     fields_only::{FieldsOnly, FieldsOnlyWide},
 };
 
+/// Helper to encode a sequence of (delta, field_mask) records using FieldsOnly.
+fn encode_fields_only(records: &[(u32, u32)]) -> Vec<u8> {
+    let mut buf = Cursor::new(Vec::new());
+    for &(delta, field_mask) in records {
+        let record = RSIndexResult::term().field_mask(field_mask as t_fieldMask);
+        FieldsOnly::encode(&mut buf, delta, &record).expect("to encode");
+    }
+    buf.into_inner()
+}
+
+/// Helper to encode a sequence of (delta, field_mask) records using FieldsOnlyWide.
+fn encode_fields_only_wide(records: &[(u32, u128)]) -> Vec<u8> {
+    let mut buf = Cursor::new(Vec::new());
+    for &(delta, field_mask) in records {
+        let record = RSIndexResult::term().field_mask(field_mask);
+        FieldsOnlyWide::encode(&mut buf, delta, &record).expect("to encode");
+    }
+    buf.into_inner()
+}
+
 #[test]
 fn test_encode_fields_only() {
     // Test cases for the fields only encoder and decoder.
@@ -162,4 +182,65 @@ fn test_decode_fields_only_empty_input() {
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn test_seek_fields_only() {
+    // Records: doc_ids 10, 20, 30, 35, 55, 60 (using deltas from base 10)
+    let buf = encode_fields_only(&[
+        (0, 1),  // doc_id = 10
+        (10, 2), // doc_id = 20
+        (10, 3), // doc_id = 30
+        (5, 1),  // doc_id = 35
+        (20, 9), // doc_id = 55
+        (5, 1),  // doc_id = 60
+    ]);
+    let mut cursor = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
+
+    // Seek to 30 (skips first two records)
+    let found = FieldsOnly::seek(&mut cursor, 10, 30, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 30);
+    assert_eq!(result.field_mask, 3);
+
+    // Seek to 40 from base 30 (should land on 55)
+    let found = FieldsOnly::seek(&mut cursor, 30, 40, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 55);
+    assert_eq!(result.field_mask, 9);
+
+    // Seek past end
+    let found = FieldsOnly::seek(&mut cursor, 55, 70, &mut result).expect("seek");
+    assert!(!found);
+}
+
+#[test]
+fn test_seek_fields_only_wide() {
+    let buf = encode_fields_only_wide(&[
+        (0, 1),  // doc_id = 10
+        (10, 2), // doc_id = 20
+        (10, 3), // doc_id = 30
+        (5, 1),  // doc_id = 35
+        (20, 9), // doc_id = 55
+        (5, 1),  // doc_id = 60
+    ]);
+    let mut cursor = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
+
+    // Seek to 30
+    let found = FieldsOnlyWide::seek(&mut cursor, 10, 30, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 30);
+    assert_eq!(result.field_mask, 3);
+
+    // Seek to 40 (lands on 55)
+    let found = FieldsOnlyWide::seek(&mut cursor, 30, 40, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 55);
+    assert_eq!(result.field_mask, 9);
+
+    // Seek past end
+    let found = FieldsOnlyWide::seek(&mut cursor, 55, 70, &mut result).expect("seek");
+    assert!(!found);
 }

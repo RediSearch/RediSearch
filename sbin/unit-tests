@@ -29,6 +29,13 @@ print_separator() {
 }
 
 #------------------------------------------------------------------------------
+# Result tracking helpers
+#------------------------------------------------------------------------------
+CURRENT_BLOCK=""
+record_pass() { eval "${CURRENT_BLOCK}_PASSED+=(\"\$1\")"; }
+record_fail() { eval "${CURRENT_BLOCK}_FAILED+=(\"\$1\")"; }
+
+#------------------------------------------------------------------------------
 # Display help information
 #------------------------------------------------------------------------------
 show_help() {
@@ -163,8 +170,10 @@ run_single_test() {
         echo -n "Running test: $test_name (with GDB) ... "
         if run_with_gdb "$test_name" "$test_path"; then
             echo "PASS"
+            record_pass "$test_name"
         else
             echo "FAIL"
+            record_fail "$test_name"
         fi
     else
         echo -n "Running test: $test_name (log: $LOG_FILE) ... "
@@ -172,8 +181,10 @@ run_single_test() {
         # Report results
         if [[ $test_result -eq 0 ]]; then
             echo "PASS"
+            record_pass "$test_name"
         else
             echo "FAIL"
+            record_fail "$test_name"
             echo "Test failed! Log output:"
             cat "$LOG_FILE"
         fi
@@ -184,6 +195,7 @@ run_single_test() {
 # Run C unit tests
 #------------------------------------------------------------------------------
 run_c_tests() {
+    CURRENT_BLOCK=C_TESTS
     print_separator
     C_TESTS_DIR="$BINDIR/tests/ctests"
     if [[ ! -d "$C_TESTS_DIR" ]]; then
@@ -212,6 +224,7 @@ run_c_tests() {
 # Run C++ unit tests
 #------------------------------------------------------------------------------
 run_cpp_tests() {
+    CURRENT_BLOCK=CPP_TESTS
     print_separator
     CPP_TESTS_DIR="$BINDIR/tests/cpptests"
     if [[ ! -d "$CPP_TESTS_DIR" ]]; then
@@ -229,8 +242,10 @@ run_cpp_tests() {
         if [[ $GDB == 1 ]]; then
             if run_with_gdb "rstest (all C++ tests)" "$CPP_TESTS_DIR/rstest"; then
                 echo "C++ tests: PASS"
+                record_pass "rstest (all)"
             else
                 echo "C++ tests: FAIL"
+                record_fail "rstest (all)"
             fi
         else
             echo "Running all C++ tests via ctest (log: $LOG_FILE)"
@@ -245,8 +260,10 @@ run_cpp_tests() {
             test_result=$?
             if [[ $test_result -eq 0 ]]; then
                 echo "C++ test $TEST: PASS"
+                record_pass "$TEST"
             else
                 echo "C++ test $TEST: FAIL"
+                record_fail "$TEST"
             fi
         else
             echo "Running C++ test: $TEST via ctest (log: $LOG_FILE)"
@@ -265,20 +282,30 @@ parse_cpp_test_results() {
     echo "Individual test results:"
 
     # CTest output format: "N/M Test #N: TestName .... Passed/Failed X.XX sec"
-    grep -E "Test\s+#[0-9]+:" "$log_file" | while read -r line; do
+    # Use process substitution instead of pipe to avoid subshell variable scoping issues
+    while read -r line; do
         # Extract test name by removing the prefix and the suffix (dots + status + time)
-        test_name=$(echo "$line" | sed -E 's/^[0-9]+\/[0-9]+ Test +#[0-9]+: //' | sed -E 's/ \.{3,}   (Passed|Failed|Skipped|\**Timeout).*//')
+        test_name=$(echo "$line" | sed -E 's/^[0-9]+\/[0-9]+ Test +#[0-9]+: //' | sed -E 's/ \.{3,}.*//')
+        # Extract the status field: everything after the row of dots
+        local status=$(echo "$line" | sed -E 's/.*\.{3,}//')
 
-        if [[ $line == *"Passed"* ]]; then
-            echo "$test_name ... PASS"
-        elif [[ $line == *"Failed"* ]]; then
-            echo "$test_name ... FAIL"
-        elif [[ $line == *"Skipped"* ]]; then
-            echo "$test_name ... SKIPPED"
-        elif [[ $line == *"Timeout"* ]]; then
+        if [[ $status == *"Exception"* ]]; then
+            local reason=$(echo "$status" | sed -E 's/.*Exception: //' | sed -E 's/ +[0-9]+\.[0-9]+ sec$//')
+            echo "$test_name ... CRASH ($reason)"
+            record_fail "$test_name"
+        elif [[ $status == *"Timeout"* ]]; then
             echo "$test_name ... TIMEOUT"
+            record_fail "$test_name"
+        elif [[ $status == *"Failed"* ]]; then
+            echo "$test_name ... FAIL"
+            record_fail "$test_name"
+        elif [[ $status == *"Skipped"* ]]; then
+            echo "$test_name ... SKIPPED"
+        elif [[ $status == *"Passed"* ]]; then
+            echo "$test_name ... PASS"
+            record_pass "$test_name"
         fi
-    done
+    done < <(grep -E "Test\s+#[0-9]+:" "$log_file")
 
     # Print detailed gtest output for each failed test (not timeouts)
     if grep -q "Failed" "$log_file"; then
@@ -324,6 +351,7 @@ parse_cpp_test_results() {
 # Run coordinator unit tests
 #------------------------------------------------------------------------------
 run_coordinator_tests() {
+    CURRENT_BLOCK=C_COORD_TESTS
     print_separator
     start_group "coordinator unit tests"
 
@@ -376,6 +404,7 @@ run_coordinator_tests() {
 # Run C++ coordinator unit tests
 #------------------------------------------------------------------------------
 run_cpp_coord_tests() {
+    CURRENT_BLOCK=CPP_COORD_TESTS
     print_separator
     start_group "C++ coordinator unit tests"
 
@@ -396,8 +425,10 @@ run_cpp_coord_tests() {
         if [[ $GDB == 1 ]]; then
             if run_with_gdb "rstest_coord (all C++ coordinator tests)" "$CPP_COORD_TESTS_DIR/rstest_coord"; then
                 echo "C++ coordinator tests: PASS"
+                record_pass "rstest_coord (all)"
             else
                 echo "C++ coordinator tests: FAIL"
+                record_fail "rstest_coord (all)"
             fi
         else
             echo "Running all C++ coordinator tests via ctest (log: $LOG_FILE)"
@@ -412,8 +443,10 @@ run_cpp_coord_tests() {
             test_result=$?
             if [[ $test_result -eq 0 ]]; then
                 echo "C++ coordinator test $TEST: PASS"
+                record_pass "$TEST"
             else
                 echo "C++ coordinator test $TEST: FAIL"
+                record_fail "$TEST"
             fi
         else
             echo "Running C++ coordinator test: $TEST via ctest (log: $LOG_FILE)"
@@ -442,15 +475,15 @@ run_all_tests() {
 }
 
 #------------------------------------------------------------------------------
-# Generate test summary and collect logs if needed
+# Collect diagnostics and logs if needed
 #------------------------------------------------------------------------------
-generate_summary() {
+collect_diagnostics() {
     # Run memory check summary if needed
     if [[ -n $SAN || $VG == 1 ]]; then
         { UNIT=1 $ROOT_DIR/sbin/memcheck-summary; (( EXIT_CODE |= $? )); } || true
     fi
 
-    # Collect logs if requested
+    # Collect logs if requested (before summary)
     if [[ $COLLECT_LOGS == 1 ]]; then
         cd $ROOT_DIR
         mkdir -p bin/artifacts/tests
@@ -460,6 +493,67 @@ generate_summary() {
         echo "Tests logs:"
         du -ah --apparent-size bin/artifacts/tests
     fi
+}
+
+#------------------------------------------------------------------------------
+# Print consolidated test results summary
+#------------------------------------------------------------------------------
+print_test_summary() {
+    local total_passed=0 total_failed=0
+    local any_failed=0
+
+    printf "\n===============================================================================\n"
+    printf "  TEST RESULTS SUMMARY\n"
+    printf "===============================================================================\n\n"
+
+    # Helper to print one block's results
+    # Args: label, block_name
+    _print_block_summary() {
+        local label="$1"
+        local block="$2"
+        local p f t
+
+        eval "p=\${#${block}_PASSED[@]}"
+        eval "f=\${#${block}_FAILED[@]}"
+        t=$((p + f))
+
+        total_passed=$((total_passed + p))
+        total_failed=$((total_failed + f))
+
+        if [[ $t -eq 0 ]]; then
+            printf "  %-44s [SKIPPED]\n" "$label"
+        elif [[ $f -eq 0 ]]; then
+            printf "  %-44s PASSED (%d/%d)\n" "$label" "$p" "$t"
+        else
+            printf "  %-44s FAILED (%d/%d passed)\n" "$label" "$p" "$t"
+            any_failed=1
+            local i name
+            for ((i=0; i<f; i++)); do
+                eval "name=\${${block}_FAILED[$i]}"
+                printf "    - %s\n" "$name"
+                if [[ -n $GITHUB_ACTIONS ]]; then
+                    echo "::error::${label} failed: ${name}"
+                fi
+            done
+        fi
+    }
+
+    _print_block_summary "C   Unit Tests"              C_TESTS
+    _print_block_summary "C++ Unit Tests"              CPP_TESTS
+    _print_block_summary "C   Coordinator Unit Tests"  C_COORD_TESTS
+    _print_block_summary "C++ Coordinator Unit Tests"  CPP_COORD_TESTS
+
+    local grand_total=$((total_passed + total_failed))
+    printf "\n-------------------------------------------------------------------------------\n"
+    printf "  TOTAL: %d passed, %d failed, %d total\n" "$total_passed" "$total_failed" "$grand_total"
+    if [[ $any_failed -eq 1 ]]; then
+        printf "  STATUS: SOME TESTS FAILED\n"
+    elif [[ $EXIT_CODE -ne 0 ]]; then
+        printf "  STATUS: FAILED (exit code %d, but no individual failures were captured)\n" "$EXIT_CODE"
+    else
+        printf "  STATUS: ALL TESTS PASSED\n"
+    fi
+    printf "===============================================================================\n"
 }
 
 #------------------------------------------------------------------------------
@@ -504,11 +598,20 @@ mkdir -p $LOGS_DIR
 # Initialize exit code
 EXIT_CODE=0
 
+# Initialize result tracking arrays
+declare -a C_TESTS_PASSED=() C_TESTS_FAILED=()
+declare -a CPP_TESTS_PASSED=() CPP_TESTS_FAILED=()
+declare -a C_COORD_TESTS_PASSED=() C_COORD_TESTS_FAILED=()
+declare -a CPP_COORD_TESTS_PASSED=() CPP_COORD_TESTS_FAILED=()
+
 # Run all tests
 run_all_tests
 
-# Generate summary and handle logs
-generate_summary
+# Collect diagnostics and handle logs
+collect_diagnostics
+
+# Print consolidated test results summary
+print_test_summary
 
 # Exit with the accumulated status code
 exit $EXIT_CODE

@@ -13,7 +13,6 @@
 //! generates the `query_term.h` header via cbindgen.
 
 use std::ffi::c_int;
-use std::ptr;
 
 use query_term::RSQueryTerm;
 
@@ -42,15 +41,7 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *m
     let tok_flags = tok.flags();
 
     if tok_str.is_null() {
-        let term = Box::new(RSQueryTerm {
-            str_: ptr::null_mut(),
-            len: 0,
-            idf: 1.0,
-            id,
-            flags: tok_flags,
-            bm25_idf: 0.0,
-        });
-        return Box::into_raw(term);
+        return Box::into_raw(RSQueryTerm::new_null_str(id, tok_flags));
     }
 
     // SAFETY: caller guarantees `tok_str` is valid for `tok_len` bytes.
@@ -74,4 +65,113 @@ pub unsafe extern "C" fn Term_Free(t: *mut RSQueryTerm) {
     // SAFETY: caller guarantees `t` was allocated by `NewQueryTerm`
     // (i.e. via `Box::into_raw`). `RSQueryTerm::Drop` frees the string.
     let _ = unsafe { Box::from_raw(t) };
+}
+
+/// Get the IDF (inverse document frequency) value from a query term.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetIDF(term: *const RSQueryTerm) -> f64 {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).idf() }
+}
+
+/// Get the BM25 IDF value from a query term.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetBM25_IDF(term: *const RSQueryTerm) -> f64 {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).bm25_idf() }
+}
+
+/// Set both IDF values (TF-IDF and BM25) on a query term.
+///
+/// This is a convenience function for setting both values at once.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_SetIDFs(term: *mut RSQueryTerm, idf: f64, bm25_idf: f64) {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).set_idf(idf) };
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).set_bm25_idf(bm25_idf) };
+}
+
+/// Get the term ID.
+///
+/// Each term in the query gets an incremental ID assigned during parsing.
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).id() }
+}
+
+/// Get the term string length in bytes (excluding null terminator).
+///
+/// # Safety
+///
+/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// allocated by [`NewQueryTerm`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetLen(term: *const RSQueryTerm) -> usize {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).len() }
+}
+
+/// Get the string pointer from a query term.
+///
+/// Returns a pointer to the null-terminated byte string. The string may not be valid UTF-8.
+///
+/// # Safety
+///
+/// `term` must be valid and non-null. Returned pointer is valid for the lifetime of the term.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetStr(term: *const RSQueryTerm) -> *const std::ffi::c_char {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid
+    unsafe { (*term).str_ptr() }
+}
+
+/// Get both the string pointer and length from a query term.
+///
+/// This is useful for C code that needs to work with the byte slice directly.
+/// The string may not be valid UTF-8.
+///
+/// # Safety
+///
+/// - `term` must be valid and non-null
+/// - `out_len` must be a valid pointer to write the length to
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryTerm_GetStrAndLen(
+    term: *const RSQueryTerm,
+    out_len: *mut usize,
+) -> *const std::ffi::c_char {
+    debug_assert!(!term.is_null(), "term cannot be NULL");
+    debug_assert!(!out_len.is_null(), "out_len cannot be NULL");
+    // SAFETY: caller guarantees `term` is valid and non-null
+    let len = unsafe { (*term).len() };
+    // SAFETY: caller guarantees `out_len` is valid and writable
+    unsafe { *out_len = len };
+    // SAFETY: caller guarantees `term` is valid and non-null
+    unsafe { (*term).str_ptr() }
 }

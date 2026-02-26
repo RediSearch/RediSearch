@@ -14,7 +14,7 @@
 
 use ffi::IndexFlags_Index_StoreNumeric;
 use inverted_index::{
-    EntriesTrackingIndex, IndexReader, IndexReaderCore, RSIndexResult,
+    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, RSIndexResult,
     debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
@@ -113,6 +113,18 @@ impl NumericIndex {
         }
     }
 
+    /// Get a reference to the last block in this index, if any.
+    pub(crate) fn last_block(&self) -> Option<&IndexBlock> {
+        let n = self.num_blocks();
+        if n == 0 {
+            return None;
+        }
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.block_ref(n - 1),
+            NumericIndex::Compressed(idx) => idx.block_ref(n - 1),
+        }
+    }
+
     /// Get the first document ID in a specific block.
     ///
     /// Returns `None` if the block index is out of bounds.
@@ -137,19 +149,17 @@ impl NumericIndex {
     ///
     /// The `doc_exist` callback returns `true` if the document still exists.
     /// Returns `Ok(Some(delta))` if GC is needed, `Ok(None)` otherwise.
-    pub fn scan_gc(
+    pub fn scan_gc<F>(
         &self,
         doc_exist: impl Fn(ffi::t_docId) -> bool,
-    ) -> std::io::Result<Option<inverted_index::GcScanDelta>> {
+        repair_fn: Option<F>,
+    ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
+    where
+        F: for<'index> FnMut(&RSIndexResult<'index>, &IndexBlock),
+    {
         match self {
-            NumericIndex::Uncompressed(idx) => idx.scan_gc(
-                doc_exist,
-                None::<fn(&inverted_index::RSIndexResult<'_>, &inverted_index::IndexBlock)>,
-            ),
-            NumericIndex::Compressed(idx) => idx.scan_gc(
-                doc_exist,
-                None::<fn(&inverted_index::RSIndexResult<'_>, &inverted_index::IndexBlock)>,
-            ),
+            NumericIndex::Uncompressed(idx) => idx.scan_gc(doc_exist, repair_fn),
+            NumericIndex::Compressed(idx) => idx.scan_gc(doc_exist, repair_fn),
         }
     }
 }
