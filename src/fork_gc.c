@@ -255,21 +255,16 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       continue;
     }
 
+    // Send the field header (field_name + unique_id).
+    const char *fieldName = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL);
+    FGC_sendBuffer(gc, fieldName, strlen(fieldName));
+    uint64_t uniqueId = NumericRangeTree_GetUniqueId(rt);
+    FGC_sendFixed(gc, &uniqueId, sizeof uniqueId);
+
     // Stream one node at a time to avoid buffering all deltas in memory.
     NumericGcScanner *scanner = NumericGcScanner_New(sctx, rt);
     NumericGcNodeEntry entry;
-    int sentHeader = 0;
-
     while (NumericGcScanner_Next(scanner, &entry)) {
-      if (!sentHeader) {
-        // Send the field header once (field_name + unique_id).
-        const char *fieldName = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL);
-        FGC_sendBuffer(gc, fieldName, strlen(fieldName));
-        uint64_t uniqueId = NumericRangeTree_GetUniqueId(rt);
-        FGC_sendFixed(gc, &uniqueId, sizeof uniqueId);
-        sentHeader = 1;
-      }
-
       // Send: node_len + node_position + node_generation + entry_data.
       size_t nodeLen = sizeof(entry.node_position) + sizeof(entry.node_generation) + entry.data_len;
       FGC_SEND_VAR(gc, nodeLen);
@@ -277,13 +272,9 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       FGC_SEND_VAR(gc, entry.node_generation);
       FGC_sendFixed(gc, entry.data, entry.data_len);
     }
-
     NumericGcScanner_Free(scanner);
 
-    // Send end-of-field terminator if we sent any entries.
-    if (sentHeader) {
-      FGC_sendTerminator(gc);
-    }
+    FGC_sendTerminator(gc);
   }
 
   array_free(numericFields);
