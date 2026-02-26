@@ -3245,6 +3245,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   RedisModule_Free(rawName);
 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  RedisSearchDiskRdbState *diskRdbState = NULL;
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3330,7 +3331,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // to open the index with the RDB state applied.
   // We must always consume the RDB data to avoid corrupting the stream,
   // even for duplicates. We just won't use it in the duplicate case.
-  RedisSearchDiskRdbState *diskRdbState = NULL;
   if (isSpecOnDisk(sp) && encver >= INDEX_DISK_VERSION && useSst) {
     RS_ASSERT(disk_db);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
