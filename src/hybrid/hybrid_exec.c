@@ -500,10 +500,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         return REDISMODULE_ERR;
       }
     } else {
-      // When not using background depletion, prefetch each cursor to initialize iterator state.
-      // This reads initial results while the spec lock is held, buffering them for the first
-      // FT.CURSOR READ. Without this, iterators have uninitialized state which causes crashes
-      // when the index is modified between cursor creation and the first read.
+      // When not using background depletion, prefetch each cursor to initialize
+      // iterator state.
+      // This reads initial results while the spec lock is held, buffering them
+      // for the first _FT.CURSOR READ. Without this, iterators have
+      // uninitialized state which causes crashes when the index is modified
+      // between cursor creation and the first read.
       for (size_t i = 0; i < array_len(cursors); i++) {
         AREQ_PrefetchCursor(cursors[i]);
       }
@@ -810,10 +812,12 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
     // Lock was released inside RPSafeDepleter_WaitForDepletionToStart after
-    // all depleters acquired their locks
+    // all depleters completed the lock acquisition phase
   } else {
-    // buildPipelineAndExecute failed - need to release the lock we acquired
-    // The lock is only released on success path inside RPSafeDepleter_DepleteAll
+    // buildPipelineAndExecute failed - release the lock if still held.
+    // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
+    // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
+    // safely handles this case by checking sctx->flags before unlocking.
     RedisSearchCtx_UnlockSpec(sctx);
     if (QueryError_HasError(&status)) {
       QueryError_ReplyAndClear(outctx, &status);

@@ -1412,13 +1412,11 @@ static void prefetchCursorInternal(AREQ *req, size_t num) {
   if (iter_done) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
-
-  // Reset total results - will be recalculated on actual cursor read
-  qctx->totalResults = 0;
 }
 
 /**
- * Prefetch cursor results for FT.HYBRID. This is the external interface called from hybrid_exec.c.
+ * Prefetch cursor results for FT.HYBRID. This is the external interface called
+ * from hybrid_exec.c.
  * Reads initial results to initialize iterator state, then releases the spec lock.
  *
  * @param cursor The cursor to prefetch
