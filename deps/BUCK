@@ -1,4 +1,17 @@
 load(":utils.bzl", "export_headers_map", "subdir_glob")
+load("@buck2tf//rust:bindgen.bzl", "rust_bindgen")
+
+export_file(
+    name = "redismodule.h",
+    src = "RedisModulesSDK/redismodule.h",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "rmutil/vector.h",
+    src = "rmutil/vector.h",
+    visibility = ["PUBLIC"],
+)
 
 # ================================= RedisModulesSDK ======================================
 
