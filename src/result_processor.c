@@ -13,7 +13,6 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "result_processor_rs.h"
-#include "rlookup.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -35,6 +34,7 @@
 #include "asm_state_machine.h"
 #include "index_result.h"
 #include "index_result_async_read.h"
+#include "rlookup_load_document.h"
 
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16

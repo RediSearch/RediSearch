@@ -31,6 +31,7 @@
 #include "search_disk.h"
 #include "info/global_stats.h"
 #include "sorting_vector.h"
+#include "rlookup_load_document.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;

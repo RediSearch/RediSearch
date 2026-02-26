@@ -13,6 +13,7 @@
 #include "json.h"
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"
+#include "rlookup_load_document.h"
 
 TrieMap *SchemaPrefixes_g = NULL;
 

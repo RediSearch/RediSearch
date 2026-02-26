@@ -83,6 +83,8 @@ size_t RLookupKey_GetNameLen(const RLookupKey* key);
  */
 uint32_t RLookupKey_GetFlags(const RLookupKey* key);
 
+inline void RLookupKey_SetPath(RLookupKey* key, const char * path);
+
 typedef struct RLookup {
   /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
   RLookupKey *_head;
@@ -100,6 +102,8 @@ typedef struct RLookup {
   /** DO NOT ACCESS DIRECTLY. USE RLookup_HasIndexSpecCache INSTEAD! */
   IndexSpecCache *_spcache;
 } RLookup;
+
+RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags);
 
 /** Returns a new RLookup struct. Will forward the call to Rust once RLookup is migrated. */
 static inline RLookup RLookup_New(void) { return (RLookup){0}; }
@@ -406,64 +410,6 @@ void RLookupRow_Wipe(RLookupRow *row);
  */
 void RLookupRow_Reset(RLookupRow *row);
 
-typedef enum {
-  /* Use keylist (keys/nkeys) for the fields to list */
-  RLOOKUP_LOAD_KEYLIST,
-  /* Load only cached keys (don't open keys) */
-  RLOOKUP_LOAD_SVKEYS,
-  /* Load all keys in the document */
-  RLOOKUP_LOAD_ALLKEYS,
-  /* Load all the keys in the RLookup object */
-  RLOOKUP_LOAD_LKKEYS
-} RLookupLoadFlags;
-
-typedef struct {
-  struct RedisSearchCtx *sctx;
-
-  /** Needed for the key name, and perhaps the sortable */
-  const RSDocumentMetadata *dmd;
-
-  /* Needed for rule filter where dmd does not exist */
-  const char *keyPtr;
-
-  DocumentType type;
-
-  /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
-  const RLookupKey *const *keys;
-
-  /** Number of keys in keys array */
-  size_t nkeys;
-
-  /**
-   * The following options control the loading of fields, in case non-SORTABLE
-   * fields are desired.
-   */
-  RLookupLoadFlags mode;
-
-  /**
-   * Don't use sortables when loading documents. This will enforce the loader to load
-   * the fields from the document itself, even if they are sortables and un-normalized.
-   */
-  bool forceLoad;
-
-  /**
-   * Force string return; don't coerce to native type
-   */
-  bool forceString;
-
-  struct QueryError *status;
-} RLookupLoadOptions;
-
-/**
- * Attempt to load a document into the row. The document's fields are placed into
- * their corresponding slots.
- *
- * @param lt Lookup table. Contains the keys to load.
- * @param dst row that should contain the data
- * @param options options controlling the load process
- */
-int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
-
 /**
  * Sets the `IndexSpecCache` of the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent
@@ -482,18 +428,14 @@ void RLookup_Cleanup(RLookup *l);
  */
 void RLookupKey_Free(RLookupKey *k);
 
-/**
- * Initialize the lookup with fields from hash.
- */
-int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr, QueryError *status);
-
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
-
 
 /**
  * Search an index field by its name in the lookup table spec cache.
  */
 const FieldSpec *RLookup_FindFieldInSpecCache(const RLookup *lookup, const char *name);
+
+RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len);
 
 /**
  * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
@@ -527,9 +469,6 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
 void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
                                RLookupRow *destRow, RLookup *destLookup,
                                bool createMissingKeys);
-
-// exposed to be called from Rust, was inline before that.
-int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
 
 #ifdef __cplusplus
 }
