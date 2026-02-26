@@ -12,6 +12,18 @@ cxx_library(
     visibility = ["PUBLIC"],
 )
 
+cxx_library(
+    name = "rmalloc",
+    exported_headers = {
+        "rmalloc.h": "rmalloc/rmalloc.h",
+    },
+    header_namespace = "",
+    exported_deps = [
+        ":RedisModulesSDK",
+    ],
+    visibility = ["PUBLIC"],
+)
+
 # ================================= OpenSSL ======================================
 
 # genrule(
