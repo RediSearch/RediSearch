@@ -71,10 +71,6 @@ bool isCrdt;
 bool isTrimming = false;
 bool isFlex = false;
 
-// Track whether the last RDB save was an SST persistence.
-// Used at shutdown to determine if we should delete disk data.
-static bool lastRdbOperationWasSstPersistent = false;
-
 // Default values make no limits.
 size_t memoryLimit = -1;
 size_t used_memory = 0;
@@ -103,20 +99,13 @@ static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisM
 // Forward declaration for disk validation
 inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
 
-bool WasLastRdbOperationSstPersistent(void) {
-  return lastRdbOperationWasSstPersistent;
-}
-
 /**
  * Checks if SST persistence is enabled for the given RDB context.
- * Tracks the state for shutdown cleanup decisions.
  */
 bool CheckRdbSstPersistence(RedisModuleIO *rdb, const char* prefix) {
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   const bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   RedisModule_Log(ctx, "notice", "%s, SST persistence: %s", prefix, useSst ? "true" : "false");
-  // Track SST persistence state for shutdown cleanup decisions
-  lastRdbOperationWasSstPersistent = useSst;
   return useSst;
 }
 
@@ -3335,16 +3324,12 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    const bool deleteBeforeOpen = !useSst;
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, deleteBeforeOpen);
+    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, !useSst);
     IndexSpec_PopulateVectorDiskParams(sp);
     if (!sp->diskSpec) {
       goto cleanup;
     }
   }
-
-  // Get context for logging
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
 
   // Load the disk-related index data if we are on disk and the save flow used
   // sst-files, even if this is a duplicate.

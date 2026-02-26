@@ -764,10 +764,6 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
 
-// Returns whether the last RDB save was an SST persistence.
-// Used at shutdown to determine if we should delete disk data.
-bool WasLastRdbOperationSstPersistent(void);
-
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)
 // =============================================================================
