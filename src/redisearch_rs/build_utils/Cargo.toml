@@ -9,7 +9,6 @@ publish.workspace = true
 cbindgen.workspace = true
 bindgen.workspace = true
 cc.workspace = true
-workspace_hack.workspace = true
 
 [lints]
 workspace = true

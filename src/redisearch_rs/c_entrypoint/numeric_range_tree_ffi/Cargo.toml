@@ -24,7 +24,6 @@ generational_slab.workspace = true
 hyperloglog.workspace = true
 ffi.workspace = true
 tracing.workspace = true
-workspace_hack.workspace = true
 serde.workspace = true
 rmp-serde.workspace = true
 

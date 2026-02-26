@@ -23,4 +23,3 @@ libc.workspace = true
 query_error.workspace = true
 redis_mock.workspace = true
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
-workspace_hack.workspace = true

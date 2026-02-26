@@ -12,7 +12,6 @@ bench = false
 [dependencies]
 result_processor.workspace = true
 ffi.workspace = true
-workspace_hack.workspace = true
 
 [dev-dependencies]
 # Crate required to invoke C symbols

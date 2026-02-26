@@ -7,7 +7,6 @@ publish.workspace = true
 
 [dependencies]
 idf = { workspace = true }
-workspace_hack.workspace = true
 
 [build-dependencies]
 build_utils.workspace = true

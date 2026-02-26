@@ -10,7 +10,6 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
-workspace_hack.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
