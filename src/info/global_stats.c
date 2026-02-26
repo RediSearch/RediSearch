@@ -127,8 +127,8 @@ void IndexsGlobalStats_IncreaseLogicallyDeleted(int64_t toAdd) {
   INCR_BY(RSGlobalStats.totalStats.logically_deleted, toAdd);
 }
 
-void IndexsGlobalStats_DecreaseLogicallyDeleted(int64_t toRemove) {
-  DECR_BY(RSGlobalStats.totalStats.logically_deleted, toRemove);
+void IndexsGlobalStats_DecreaseLogicallyDeleted(int64_t toSubtract) {
+  DECR_BY(RSGlobalStats.totalStats.logically_deleted, toSubtract);
 }
 
 size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {

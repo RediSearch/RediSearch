@@ -149,7 +149,7 @@ void IndexsGlobalStats_IncreaseLogicallyDeleted(int64_t toAdd);
 /**
  * Decrease the number of logically deleted documents in all indices by `toRemove`.
  */
-void IndexsGlobalStats_DecreaseLogicallyDeleted(int64_t toRemove);
+void IndexsGlobalStats_DecreaseLogicallyDeleted(int64_t toSubtract);
 
 /**
  * Get the number of logically deleted documents in all indices.
