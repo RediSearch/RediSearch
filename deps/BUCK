@@ -123,3 +123,21 @@ cxx_library(
     compiler_flags = ["-g", "-fPIC", "-O3", "-std=gnu99", "-Wall", "-Wno-unused-function"],
     visibility = ["PUBLIC"],
 )
+
+# ================================= friso ======================================
+
+cxx_library(
+    name = "friso",
+    srcs = glob(["friso/*.c"]),
+    headers = glob(["friso/*.h"]),
+    exported_headers = export_headers_map(glob(["friso/*.h"]), "friso/"),
+    header_namespace = "friso",
+    compiler_flags = [
+        "-Wno-tautological-compare",
+    ],
+    exported_deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
