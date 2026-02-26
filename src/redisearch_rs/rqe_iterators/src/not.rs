@@ -98,6 +98,27 @@ where
             ctx.reset_counter();
         }
     }
+
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Not`] iterator.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    /// Set the child of this [`Not`] iterator.
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = MaybeEmpty::new(new_child);
+    }
+
+    /// Unset the child of this [`Not`] iterator (make it `None`).
+    pub fn unset_child(&mut self) {
+        self.child = MaybeEmpty::new_empty();
+    }
+
+    /// Take the child of this [`Not`] iterator if it exists.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
+    }
 }
 
 impl<'index, I> RQEIterator<'index> for Not<'index, I>
