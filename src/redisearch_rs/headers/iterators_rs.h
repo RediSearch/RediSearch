@@ -54,6 +54,38 @@ QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight
 QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
+ * Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+ * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
+ * 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
+ * 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+ *
+ * # Returns
+ *
+ * The flags of the `IndexReader`.
+ */
+IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
+
+/**
+ * Swap the inverted index of an inverted index iterator. This is only used by C tests
+ * to trigger revalidation on the iterator's underlying reader.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
+ * 2. If `it` iterator type is `IteratorType_INV_IDX_WILDCARD_ITERATOR`, it has been created
+ *    using `NewInvIndIterator_WildcardQuery`.
+ * 3. If `it` is a C iterator, its `reader` field must be a valid non-NULL
+ *    pointer to an `IndexReader`.
+ * 4. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
+ *    iterator's underlying index type.
+ */
+void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
+
+/**
  * Creates a new numeric inverted index iterator for querying numeric fields.
  *
  * # Parameters
@@ -96,22 +128,6 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx,
                                               double range_max);
 
 /**
- * Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
- * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
- * 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
- * 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
- *
- * # Returns
- *
- * The flags of the `IndexReader`.
- */
-IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
-
-/**
  * Gets the numeric filter from a numeric inverted index iterator.
  *
  * # Safety
@@ -149,22 +165,6 @@ double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it)
  * The maximum range value from the filter, or positive infinity if no filter was provided.
  */
 double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it);
-
-/**
- * Swap the inverted index of an inverted index iterator. This is only used by C tests
- * to trigger revalidation on the iterator's underlying reader.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
- * 2. If `it` iterator type is `IteratorType_INV_IDX_WILDCARD_ITERATOR`, it has been created
- *    using `NewInvIndIterator_WildcardQuery`.
- * 3. If `it` is a C iterator, its `reader` field must be a valid non-NULL
- *    pointer to an `IndexReader`.
- * 4. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
- *    iterator's underlying index type.
- */
-void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
 
 /**
  * Creates a new wildcard inverted index iterator for querying all existing documents.

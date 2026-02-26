@@ -48,7 +48,8 @@ on:
           - mariner:2
           - azurelinux:3
           - alpine:3.22
-          - macos
+          - macos-15
+          - macos-26
           - intel
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all

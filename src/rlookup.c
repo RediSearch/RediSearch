@@ -525,7 +525,7 @@ RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
     RedisModule_StringToDouble(src, &dd);
     return RSValue_NewNumber(dd);
   } else {
-    RedisModule_RetainString(RSDummyContext, src);
+    RedisModule_RetainString(RSDummyContext, (RedisModuleString *)src);
     return RSValue_NewRedisString((RedisModuleString *)src);
   }
 }
@@ -1132,5 +1132,5 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 // Required from Rust therefore not an inline method anymore.
 // Internally it handles different lengths encoded in 5,8,16,32 and 64 bit.
 size_t sdslen__(const char* s) {
-  return sdslen(s);
+  return sdslen((char *)s);
 }
