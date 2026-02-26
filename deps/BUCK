@@ -141,3 +141,18 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= cndict ======================================
+
+cxx_library(
+    name = "cndict",
+    srcs = [
+        "cndict/cndict_data.c",
+    ],
+    header_namespace = "",
+    deps = [
+        ":friso"
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
