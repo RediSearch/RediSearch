@@ -8,7 +8,6 @@
 */
 
 #include "not_iterator.h"
-#include "wildcard_iterator.h"
 #include "iterators_rs.h"
 
 static void NI_Rewind(QueryIterator *base) {

@@ -10,7 +10,7 @@
 use std::{fmt::Debug, ptr::NonNull};
 
 use inverted_index::{
-    IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
+    RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
 use rqe_iterators::inverted_index::Wildcard;
 use rqe_iterators_interop::RQEIteratorWrapper;
@@ -31,16 +31,6 @@ impl Debug for WildcardIterator<'_> {
             WildcardIterator::Raw(_) => "Raw",
         };
         write!(f, "WildcardIterator({variant})")
-    }
-}
-
-impl WildcardIterator<'_> {
-    /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
-        match self {
-            WildcardIterator::Encoded(w) => w.reader().flags(),
-            WildcardIterator::Raw(w) => w.reader().flags(),
-        }
     }
 }
 
