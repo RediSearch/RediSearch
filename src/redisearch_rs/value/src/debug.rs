@@ -1,66 +1,71 @@
 use crate::RsValue;
 use ffi::{Obfuscate_Number, Obfuscate_Text};
-use std::ffi::CStr;
-use std::io::Write;
+use std::{
+    ffi::CStr,
+    fmt::{self, Debug},
+};
 
-pub fn debug(value: &RsValue, writer: &mut impl Write, obfuscate: bool) -> std::io::Result<()> {
-    fn write_text(writer: &mut impl Write, text: &[u8], obfuscate: bool) -> std::io::Result<()> {
-        writer.write_all(b"\"")?;
-        if obfuscate {
-            writer.write_all(obfuscate_text(text))?;
-        } else {
-            writer.write_all(text)?;
-        }
-        writer.write_all(b"\"")
-    }
+pub struct DebugFormatter<'a> {
+    pub(crate) value: &'a RsValue,
+    pub(crate) obfuscate: bool,
+}
 
-    match value {
-        RsValue::Undefined => writer.write_all(b"<Undefined>"),
-        RsValue::Null => writer.write_all(b"NULL"),
-        RsValue::Number(num) => {
+impl<'a> Debug for DebugFormatter<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn fmt_text(f: &mut fmt::Formatter<'_>, text: &[u8], obfuscate: bool) -> fmt::Result {
             if obfuscate {
-                writer.write_all(obfuscate_number(*num))
+                write!(f, "\"{}\"", obfuscate_text(text))
             } else {
-                let mut buf = [0; 32];
-                let n = crate::util::num_to_str(*num, &mut buf).unwrap();
-                writer.write_all(&buf[0..n])
-            }
-        }
-        RsValue::String(str) => write_text(writer, str.as_bytes(), obfuscate),
-        RsValue::RedisString(str) => write_text(writer, str.as_bytes(), obfuscate),
-        RsValue::Array(arr) => {
-            writer.write_all(b"[")?;
-            for (i, elem) in arr.iter().enumerate() {
-                if i > 0 {
-                    writer.write_all(b", ")?;
+                if let Ok(s) = std::str::from_utf8(text) {
+                    write!(f, "\"{s}\"")
+                } else {
+                    f.write_str("<non-utf8-data>")
                 }
-                debug(elem.value(), writer, obfuscate)?;
             }
-            writer.write_all(b"]")
         }
-        RsValue::Map(map) => {
-            writer.write_all(b"{")?;
-            for (i, (key, val)) in map.iter().enumerate() {
-                if i > 0 {
-                    writer.write_all(b", ")?;
+
+        match self.value {
+            RsValue::Undefined => f.write_str("<Undefined>"),
+            RsValue::Null => f.write_str("NULL"),
+            RsValue::Number(num) => {
+                if self.obfuscate {
+                    f.write_str(obfuscate_number(*num))
+                } else {
+                    let mut buf = [0; 32];
+                    let n = crate::util::num_to_str(*num, &mut buf).unwrap();
+                    let s = std::str::from_utf8(&buf[0..n]).unwrap();
+                    f.write_str(s)
                 }
-                debug(key.value(), writer, obfuscate)?;
-                writer.write_all(b": ")?;
-                debug(val.value(), writer, obfuscate)?;
             }
-            writer.write_all(b"}")
+            RsValue::String(str) => fmt_text(f, str.as_bytes(), self.obfuscate),
+            RsValue::RedisString(str) => fmt_text(f, str.as_bytes(), self.obfuscate),
+            RsValue::Array(array) => {
+                let entries = array
+                    .iter()
+                    .map(|item| item.value().debug_formatter(self.obfuscate));
+                f.debug_list().entries(entries).finish()
+            }
+            RsValue::Map(map) => {
+                let entries = map.iter().map(|(key, value)| {
+                    (
+                        key.value().debug_formatter(self.obfuscate),
+                        value.value().debug_formatter(self.obfuscate),
+                    )
+                });
+                f.debug_map().entries(entries).finish()
+            }
+            RsValue::Ref(ref_value) => ref_value.value().debug_formatter(self.obfuscate).fmt(f),
+            RsValue::Trio(trio) => trio.left().value().debug_formatter(self.obfuscate).fmt(f),
         }
-        RsValue::Ref(ref_value) => debug(ref_value.value(), writer, obfuscate),
-        RsValue::Trio(trio) => debug(trio.left().value(), writer, obfuscate),
     }
 }
 
-fn obfuscate_number<'a>(number: f64) -> &'a [u8] {
+fn obfuscate_number(number: f64) -> &'static str {
     let obfuscated = unsafe { Obfuscate_Number(number) };
-    unsafe { CStr::from_ptr(obfuscated) }.to_bytes()
+    unsafe { CStr::from_ptr(obfuscated) }.to_str().unwrap()
 }
 
-fn obfuscate_text<'a, 'b>(text: &'a [u8]) -> &'b [u8] {
+fn obfuscate_text(text: &[u8]) -> &'static str {
     let obfuscated = unsafe { Obfuscate_Text(text.as_ptr().cast()) };
-    unsafe { CStr::from_ptr(obfuscated) }.to_bytes()
+    unsafe { CStr::from_ptr(obfuscated) }.to_str().unwrap()
 }
