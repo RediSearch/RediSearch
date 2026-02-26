@@ -22,11 +22,11 @@ use document::DocumentType;
 use ffi::{
     AllocateKeyCallback, BasicDiskAPI, DocTableDiskAPI, IndexDiskAPI,
     IteratorType_INV_IDX_TERM_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR, MetricsDiskAPI,
-    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata,
-    RSQueryTerm as FfiRSQueryTerm, RSToken, RedisModuleCtx, RedisModuleInfoCtx, RedisSearchDisk,
-    RedisSearchDiskAPI, RedisSearchDiskIndexSpec, ThrottleCB, VecSimDiskContext, VecSimParamsDisk,
-    VectorDiskAPI, t_docId, t_fieldIndex, t_fieldMask,
+    QueryIterator, REDISMODULE_ERR, REDISMODULE_OK, RSDocumentMetadata, RSToken, RedisModuleCtx,
+    RedisModuleInfoCtx, RedisSearchDisk, RedisSearchDiskAPI, RedisSearchDiskIndexSpec, ThrottleCB,
+    VecSimDiskContext, VecSimParamsDisk, VectorDiskAPI, t_docId, t_fieldIndex, t_fieldMask,
 };
+use query_term::RSQueryTerm;
 use rqe_iterators_interop::RQEIteratorWrapper;
 
 use std::ffi::{OsStr, c_char, c_void};
@@ -488,7 +488,7 @@ extern "C" fn index_spec_index_term(
     debug!(term, doc_id, field_mask, "index_spec_index_term");
 
     match index
-        .inverted_index()
+        .term_index()
         .insert(term, doc_id, field_mask, frequency)
     {
         Ok(()) => true,
@@ -701,9 +701,9 @@ extern "C" fn index_spec_put_doc(
 /// 2. `query_term` must be a valid pointer to an `RSQueryTerm` created by `NewQueryTerm`.
 ///    Ownership of the `RSQueryTerm` is transferred to the iterator and will be freed when the
 ///    iterator is freed. The caller must NOT call `Term_Free` on the pointer after this call.
-extern "C" fn index_spec_new_term_iterator(
+unsafe extern "C" fn index_spec_new_term_iterator(
     index: *mut RedisSearchDiskIndexSpec,
-    query_term: *mut FfiRSQueryTerm,
+    query_term: *mut ffi::RSQueryTerm,
     field_mask: t_fieldMask,
     weight: f64,
 ) -> *mut QueryIterator {
@@ -713,50 +713,41 @@ extern "C" fn index_spec_new_term_iterator(
     }
 
     // SAFETY: query_term is guaranteed to be valid by safety point 2.
-    // FfiRSQueryTerm and query_term::RSQueryTerm are the same type - the FFI type
-    // is opaque and the actual implementation is in the query_term crate.
-    let qt = unsafe { &*(query_term as *const query_term::RSQueryTerm) };
+    // ffi::RSQueryTerm and query_term::RSQueryTerm have the same ABI layout.
+    // Take ownership immediately to ensure proper cleanup on all error paths.
+    let query_term_box: Box<RSQueryTerm> = unsafe { Box::from_raw(query_term.cast()) };
 
-    // Get the term string using accessor methods (fields are now private)
-    let term_str = match qt.as_bytes() {
-        Some(bytes) => match std::str::from_utf8(bytes) {
-            Ok(s) => s,
-            Err(error) => {
-                error!(
-                    error = &error as &dyn std::error::Error,
-                    "term is not valid UTF-8"
-                );
-                return std::ptr::null_mut();
-            }
-        },
-        None => {
-            error!("term string is null");
+    let Some(slice) = query_term_box.as_bytes() else {
+        error!("query_term has null string pointer");
+        return std::ptr::null_mut();
+    };
+    let term_str = match std::str::from_utf8(slice) {
+        Ok(s) => s,
+        Err(error) => {
+            error!(
+                error = &error as &dyn std::error::Error,
+                "term is not valid UTF-8"
+            );
             return std::ptr::null_mut();
         }
     };
 
+    let idf = query_term_box.idf();
+    let bm25_idf = query_term_box.bm25_idf();
+
     debug!(
         term_str,
-        field_mask,
-        weight,
-        idf = qt.idf(),
-        bm25_idf = qt.bm25_idf(),
-        "index_spec_new_term_iterator"
+        field_mask, weight, idf, bm25_idf, "index_spec_new_term_iterator"
     );
 
-    // Safety: see safety point 1 above.
+    // SAFETY: see safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         error!("index pointer is null");
         return std::ptr::null_mut();
     };
 
-    // SAFETY: query_term is guaranteed to be valid by safety point 2.
-    // Convert the raw pointer to Box<RSQueryTerm> for the new API.
-    let query_term_box: Box<inverted_index::RSQueryTerm> =
-        unsafe { Box::from_raw(query_term.cast()) };
-
     match index
-        .inverted_index()
+        .term_index()
         .term_iterator(query_term_box, field_mask, weight)
     {
         Ok(iterator) => RQEIteratorWrapper::boxed_new(IteratorType_INV_IDX_TERM_ITERATOR, iterator),

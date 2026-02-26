@@ -176,10 +176,4 @@ impl InvertedIndex {
         let iter = InvIndIterator::new(reader, result, NoOpChecker);
         Ok(iter)
     }
-
-    /// Collect metrics for the text inverted index column family.
-    pub fn collect_metrics(&self) -> crate::metrics::ColumnFamilyMetrics {
-        let cf = self.inner.cf_handle();
-        crate::metrics::ColumnFamilyMetrics::collect(self.inner.database(), &cf)
-    }
 }

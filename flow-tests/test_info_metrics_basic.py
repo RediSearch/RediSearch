@@ -67,12 +67,14 @@ def test_info_search_basic(redis_env):
     info_before = redis_env.cmd('INFO', 'search')
     redis_env.assertNotIn('search_disk_doc_table', info_before)
     redis_env.assertNotIn('search_disk_text_inverted_index', info_before)
+    redis_env.assertNotIn('search_disk_tag_inverted_index', info_before)
     redis_env.assertNotIn('search_used_memory_indexes', info_before)
     expected_doc_table = make_doc_table_metrics()
-    expected_inverted_index = make_inverted_index_metrics()
+    expected_text_inverted_index = make_inverted_index_metrics()
+    expected_tag_inverted_index = make_inverted_index_metrics()
 
     # --------------------------- Create an index ------------------------------
-    redis_env.cmd("FT.CREATE", "idx", "SKIPINITIALSCAN", "SCHEMA", "t", "TEXT")
+    redis_env.cmd("FT.CREATE", "idx", "SKIPINITIALSCAN", "SCHEMA", "t", "TEXT", "o", "TAG", "f", "TAG", "u", "TAG")
 
     # Test after creating an index, before population.
     info_after_create = redis_env.cmd('INFO', 'search')
@@ -87,17 +89,20 @@ def test_info_search_basic(redis_env):
     #     active_memtable_size=2048, size_all_mem_tables=2048, num_live_versions=1)
     # redis_env.assertEqual(info_after_create['search_disk_doc_table'], expected_doc_table)
 
-    # Inverted index metrics
-    expected_inverted_index = with_overrides(expected_inverted_index,
+    # Text inverted index metrics
+    expected_text_inverted_index = with_overrides(expected_text_inverted_index,
         active_memtable_size=2048, size_all_mem_tables=2048, compaction_pending=1, num_live_versions=1)
-    redis_env.assertEqual(info_after_create['search_disk_text_inverted_index'], expected_inverted_index)
+    redis_env.assertEqual(info_after_create['search_disk_text_inverted_index'], expected_text_inverted_index)
+
+    # Tag inverted index metrics - all zeros before indexing (lazy-initialized)
+    redis_env.assertEqual(info_after_create['search_disk_tag_inverted_index'], expected_tag_inverted_index)
 
     # ------------------------- Populate the index -----------------------------
     # Add some documents to the db
     n_docs = 1000
     conn = redis_env.getConnection()
     for i in range(n_docs):
-        conn.execute_command('HSET', f'doc_{i}', 't', 'foo')
+        conn.execute_command('HSET', f'doc_{i}', 't', 'foo', 'o', 'bar', 'f', 'baz', 'u', 'qux')
 
     # Test a populated index.
     info_after_pop = redis_env.cmd('INFO', 'search')
@@ -119,15 +124,28 @@ def test_info_search_basic(redis_env):
     #     num_entries_active_memtable=1000, estimate_num_keys=1000)
     # redis_env.assertEqual(disk_doc_after_pop, expected_doc_table)
 
-    # Inverted index metrics
-    disk_inv_after_pop = info_after_pop['search_disk_text_inverted_index']
-    redis_env.assertGreater(disk_inv_after_pop['active_memtable_size'], 0)
-    redis_env.assertGreater(disk_inv_after_pop['size_all_mem_tables'], 0)
-    expected_inverted_index = with_overrides(expected_inverted_index,
-        active_memtable_size=disk_inv_after_pop['active_memtable_size'],
-        size_all_mem_tables=disk_inv_after_pop['size_all_mem_tables'],
+    # Text inverted index metrics
+    disk_text_inv_after_pop = info_after_pop['search_disk_text_inverted_index']
+    redis_env.assertGreater(disk_text_inv_after_pop['active_memtable_size'], 0)
+    redis_env.assertGreater(disk_text_inv_after_pop['size_all_mem_tables'], 0)
+    expected_text_inverted_index = with_overrides(expected_text_inverted_index,
+        active_memtable_size=disk_text_inv_after_pop['active_memtable_size'],
+        size_all_mem_tables=disk_text_inv_after_pop['size_all_mem_tables'],
         num_entries_active_memtable=1000, estimate_num_keys=1000)
-    redis_env.assertEqual(disk_inv_after_pop, expected_inverted_index)
+    redis_env.assertEqual(disk_text_inv_after_pop, expected_text_inverted_index)
+
+    # Tag inverted index metrics (3 tag fields × 1000 docs = 3000 entries)
+    disk_tag_inv_after_pop = info_after_pop['search_disk_tag_inverted_index']
+    redis_env.assertGreater(disk_tag_inv_after_pop['active_memtable_size'], 0)
+    redis_env.assertGreater(disk_tag_inv_after_pop['size_all_mem_tables'], 0)
+    expected_tag_inverted_index = with_overrides(expected_tag_inverted_index,
+        active_memtable_size=disk_tag_inv_after_pop['active_memtable_size'],
+        size_all_mem_tables=disk_tag_inv_after_pop['size_all_mem_tables'],
+        num_entries_active_memtable=n_docs * 3,  # 3 tag fields
+        estimate_num_keys=n_docs * 3,
+        compaction_pending=3,  # 3 tag column families
+        num_live_versions=3)
+    redis_env.assertEqual(disk_tag_inv_after_pop, expected_tag_inverted_index)
 
 def test_compaction_metrics(redis_env):
     """
@@ -139,13 +157,13 @@ def test_compaction_metrics(redis_env):
     # Create index
     conn.execute_command(
         'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
-        'SCHEMA', 'title', 'TEXT'
+        'SCHEMA', 'title', 'TEXT', 'tag', 'TAG'
     )
 
     # Add documents
     n_docs = 10000
     for i in range(n_docs):
-        conn.execute_command('HSET', f'doc_{i}', 'title', f'hello world term_{i}')
+        conn.execute_command('HSET', f'doc_{i}', 'title', f'hello world term_{i}', 'tag', f'tag_{i % 10}')
 
     waitForIndex(redis_env, 'idx')
 

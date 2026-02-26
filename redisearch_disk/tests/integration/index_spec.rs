@@ -45,7 +45,7 @@ fn collect_term_doc_ids(index: &IndexSpec, term: &str) -> HashSet<t_docId> {
     let mut doc_ids = HashSet::new();
     let query_term = create_query_term(term);
     let mut it = index
-        .inverted_index()
+        .term_index()
         .term_iterator(query_term, FIELD_MASK_ALL, 1.0)
         .unwrap();
     while let Ok(Some(result)) = it.read() {
@@ -152,7 +152,7 @@ fn compact_text_inverted_index_removes_deleted_documents() {
     let docs_to_delete: HashSet<u64> = [5, 10, 25, 50, 75, 99].into_iter().collect();
 
     for &doc_id in &all_doc_ids {
-        index.inverted_index().insert(term, doc_id, 0b1, 1).unwrap();
+        index.term_index().insert(term, doc_id, 0b1, 1).unwrap();
     }
 
     // Mark some documents as deleted

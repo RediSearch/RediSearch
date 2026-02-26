@@ -56,10 +56,14 @@ fn test_output_info_metrics_empty() {
     // Should have one section
     assert_eq!(sink.sections, vec!["disk"]);
 
-    // Should have two dicts (doc_table and inverted_index)
+    // Should have three dicts (doc_table, text_inverted_index, tag_inverted_index)
     assert_eq!(
         sink.dicts,
-        vec!["disk_doc_table", "disk_text_inverted_index"]
+        vec![
+            "disk_doc_table",
+            "disk_text_inverted_index",
+            "disk_tag_inverted_index"
+        ]
     );
 
     // All dicts should be closed
@@ -90,7 +94,7 @@ fn test_output_info_metrics_with_data() {
             },
             deleted_ids_count: 5,
         },
-        inverted_index: InvertedIndexMetrics {
+        term_inverted_index: InvertedIndexMetrics {
             column_family: ColumnFamilyMetrics {
                 estimate_num_keys: 50,
                 live_sst_files_size: 2048,
@@ -99,6 +103,17 @@ fn test_output_info_metrics_with_data() {
             compaction: CompactionMetrics {
                 cycles: 3,
                 ms_run: 150,
+            },
+        },
+        tag_inverted_index: InvertedIndexMetrics {
+            column_family: ColumnFamilyMetrics {
+                estimate_num_keys: 25,
+                live_sst_files_size: 512,
+                ..Default::default()
+            },
+            compaction: CompactionMetrics {
+                cycles: 1,
+                ms_run: 50,
             },
         },
         async_read: AsyncReadMetrics {
@@ -119,7 +134,11 @@ fn test_output_info_metrics_with_data() {
     assert_eq!(sink.sections, vec!["disk"]);
     assert_eq!(
         sink.dicts,
-        vec!["disk_doc_table", "disk_text_inverted_index"]
+        vec![
+            "disk_doc_table",
+            "disk_text_inverted_index",
+            "disk_tag_inverted_index"
+        ]
     );
     assert_eq!(sink.dict_depth, 0);
 

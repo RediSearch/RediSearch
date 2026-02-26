@@ -98,10 +98,8 @@ impl DiskContext {
                 column_family: doc_table.collect_metrics(),
                 deleted_ids_count: doc_table.deleted_ids_len(),
             },
-            inverted_index: InvertedIndexMetrics {
-                column_family: index.inverted_index().collect_metrics(),
-                compaction: index.inverted_index().get_compaction_metrics(),
-            },
+            term_inverted_index: index.collect_term_inverted_index_metrics(),
+            tag_inverted_index: index.collect_tag_inverted_index_metrics(),
             async_read: doc_table.get_async_read_metrics(),
         };
         self.store_index_metrics(index.name(), metrics)
@@ -131,12 +129,14 @@ impl DiskContext {
     pub fn output_info_metrics(&self, sink: &mut impl InfoSink) {
         // Aggregate all metrics
         let mut doc_table_total = DocTableMetrics::default();
-        let mut inverted_index_total = InvertedIndexMetrics::default();
+        let mut term_inverted_index_total = InvertedIndexMetrics::default();
+        let mut tag_inverted_index_total = InvertedIndexMetrics::default();
         let mut async_read_total = AsyncReadMetrics::default();
 
         for metrics in self.index_metrics.values() {
             doc_table_total += metrics.doc_table.clone();
-            inverted_index_total += metrics.inverted_index.clone();
+            term_inverted_index_total += metrics.term_inverted_index.clone();
+            tag_inverted_index_total += metrics.tag_inverted_index.clone();
             async_read_total += metrics.async_read;
         }
 
@@ -148,9 +148,14 @@ impl DiskContext {
                 async_read_total.output_to_info_sink(sink);
             });
 
-            // Inverted index metrics
+            // Text inverted index metrics
             sink.with_dict(c"disk_text_inverted_index", |sink| {
-                inverted_index_total.output_to_info_sink(sink);
+                term_inverted_index_total.output_to_info_sink(sink);
+            });
+
+            // Tag inverted index metrics
+            sink.with_dict(c"disk_tag_inverted_index", |sink| {
+                tag_inverted_index_total.output_to_info_sink(sink);
             });
         });
     }

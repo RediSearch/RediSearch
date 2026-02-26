@@ -134,6 +134,12 @@ impl<Config: IndexConfig> GenericInvertedIndex<Config> {
         );
     }
 
+    /// Collect metrics for this column family.
+    pub fn collect_metrics(&self) -> crate::metrics::ColumnFamilyMetrics {
+        let cf = self.cf_handle();
+        crate::metrics::ColumnFamilyMetrics::collect(self.database(), &cf)
+    }
+
     /// Returns cumulative compaction metrics for this index.
     pub fn get_compaction_metrics(&self) -> CompactionMetrics {
         self.compaction_metrics.load()

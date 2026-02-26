@@ -50,7 +50,7 @@ pub struct IndexSpec {
     /// The name of the index
     name: String,
     /// The inverted index mapping terms to the inverted index blocks (for fulltext fields)
-    inverted_index: InvertedIndex,
+    term_inverted_index: InvertedIndex,
     /// Tag inverted indexes, one per tag field (keyed by field_index)
     tag_inverted_indexes: RwLock<HashMap<t_fieldIndex, Arc<TagInvertedIndex>>>,
     /// The document table mapping document IDs to document metadata
@@ -160,7 +160,7 @@ impl IndexSpec {
         Ok(Self {
             name,
             doc_table: DocTable::new(document_type, database.clone(), deleted_ids.clone())?,
-            inverted_index: InvertedIndex::new(database.clone()),
+            term_inverted_index: InvertedIndex::new(database.clone()),
             tag_inverted_indexes: RwLock::new(tag_inverted_indexes),
             deleted_ids,
             database,
@@ -174,8 +174,8 @@ impl IndexSpec {
     }
 
     /// Returns a reference to the inverted index for this index (fulltext fields).
-    pub fn inverted_index(&self) -> &InvertedIndex {
-        &self.inverted_index
+    pub fn term_index(&self) -> &InvertedIndex {
+        &self.term_inverted_index
     }
 
     /// Gets or creates a tag inverted index for the given field index.
@@ -322,7 +322,7 @@ impl IndexSpec {
         self.compaction_collector.clear();
 
         // Run compaction. The merge operator will record deletions to the collector.
-        self.inverted_index.compact_full();
+        self.term_inverted_index.compact_full();
 
         // Take the collected delta from the merge operator
         let delta = self.compaction_collector.take();
@@ -355,6 +355,46 @@ impl IndexSpec {
         let indexes = self.tag_inverted_indexes.read().unwrap();
         for (_, tag_index) in indexes.iter() {
             tag_index.compact_full();
+        }
+    }
+
+    /// Collects metrics for the text inverted index column family.
+    ///
+    /// Returns an [`InvertedIndexMetrics`] with column family metrics and compaction metrics.
+    ///
+    /// This is a read-only operation that doesn't create any database state.
+    ///
+    /// Use this method for read operations (queries). For write operations (indexing),
+    /// use [`compact_text_inverted_index`] instead which will create the index if it doesn't exist.
+    pub fn collect_term_inverted_index_metrics(&self) -> crate::metrics::InvertedIndexMetrics {
+        use crate::metrics::InvertedIndexMetrics;
+        InvertedIndexMetrics {
+            column_family: self.term_inverted_index.collect_metrics(),
+            compaction: self.term_inverted_index.get_compaction_metrics(),
+        }
+    }
+
+    /// Collects aggregated metrics from all tag inverted indexes.
+    ///
+    /// Returns a single [`InvertedIndexMetrics`] that combines column family metrics
+    /// and compaction metrics from all tag fields.
+    pub fn collect_tag_inverted_index_metrics(&self) -> crate::metrics::InvertedIndexMetrics {
+        use crate::metrics::{ColumnFamilyMetrics, CompactionMetrics, InvertedIndexMetrics};
+
+        // unwrap: RwLock is never poisoned - we don't panic while holding the lock
+        let indexes = self.tag_inverted_indexes.read().unwrap();
+
+        let mut total_cf = ColumnFamilyMetrics::default();
+        let mut total_compaction = CompactionMetrics::default();
+
+        for tag_index in indexes.values() {
+            total_cf += tag_index.collect_metrics();
+            total_compaction += tag_index.get_compaction_metrics();
+        }
+
+        InvertedIndexMetrics {
+            column_family: total_cf,
+            compaction: total_compaction,
         }
     }
 }
