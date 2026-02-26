@@ -1,5 +1,70 @@
 load("@buck2tf//rust:bindgen.bzl", "rust_bindgen")
 
+cxx_library(
+    name = "RediSearch",
+    headers =
+    { h: h for h in glob(["src/**/*.h", "src/**/*.hpp"], exclude = ["src/redisearch_rs/headers/**"]) }
+    | {
+        "document_rs.h": "//src/redisearch_rs:document_ffi_header[header]",
+        "idf.h": "//src/redisearch_rs:idf_ffi_header[header]",
+        "inverted_index.h": "//src/redisearch_rs:inverted_index_ffi_header[header]",
+        "iterators_rs.h": "//src/redisearch_rs:iterators_ffi_header[header]",
+        "module_init.h": "//src/redisearch_rs:module_init_ffi_header[header]",
+        "numeric_range_tree.h": "//src/redisearch_rs:numeric_range_tree_ffi_header[header]",
+        "query_error.h": "//src/redisearch_rs:query_error_ffi_header[header]",
+        "query_term.h": "//src/redisearch_rs:query_term_ffi_header[header]",
+        "result_processor_rs.h": "//src/redisearch_rs:result_processor_ffi_header[header]",
+        # "rlookup_rs.h": "//src/redisearch_rs:rlookup_ffi_header[header]",
+        "search_result_rs.h": "//src/redisearch_rs:search_result_ffi_header[header]",
+        "slots_tracker.h": "//src/redisearch_rs:slots_tracker_ffi_header[header]",
+        "sorting_vector.h": "//src/redisearch_rs:sorting_vector_ffi_header[header]",
+        "thin_vec.h": "//src/redisearch_rs:thin_vec_ffi_header[header]",
+        "triemap.h": "//src/redisearch_rs:triemap_ffi_header[header]",
+        "types_rs.h": "//src/redisearch_rs:types_ffi_header[header]",
+        # "value.h": "//src/redisearch_rs:value_ffi_header[header]",
+        "varint.h": "//src/redisearch_rs:varint_ffi_header[header]",
+    },
+    srcs = glob(["src/**/*.c", "src/**/*.cpp"]),
+    include_directories = [
+        "src",
+        "src/coord",
+        "src/buffer",
+        "src/value",
+    ],
+    deps = [
+        "//deps:rmalloc",
+        "//deps:thpool",
+        "//deps:RedisModulesSDK",
+        "//deps:rmutil",
+        "//deps:hiredis",
+        "//deps:VectorSimilarity",
+        "//deps:libuv",
+        "//deps:libnu",
+        "//deps:fast_float",
+        "//deps:snowball",
+        "//deps:friso",
+        "//deps:geohash",
+        "//deps:miniz",
+        "//deps:phonetics",
+        "//deps:openssl",
+        "//deps:cndict",
+        "buck2tf//boost:boost",
+        "//src/redisearch_rs:redisearch_rs",
+        # "//src/redisearch_rs:redis-module[staticlib]",
+    ],
+    lang_compiler_flags = {
+        "cxx": ["-std=c++20"],
+    },
+    preprocessor_flags = [
+        "-DREDISEARCH_MODULE_NAME=\"${MODULE_NAME}\"",
+        "-DGIT_VERSPEC=\"${GIT_VERSPEC}\"",
+        "-DGIT_SHA=\"${GIT_SHA}\"",
+        "-DREDISMODULE_SDK_RLEC",
+        "-D_GNU_SOURCE"
+    ],
+    visibility = ["PUBLIC"],
+)
+
 # C headers to generate Rust FFI bindings for
 _FFI_HEADERS = [
     "src/buffer/buffer.h",

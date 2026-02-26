@@ -17,7 +17,7 @@
 #include "types_rs.h"
 #include "query.h"
 #include "synonym_map.h"
-#include "snowball/include/libstemmer.h"
+#include "snowball/libstemmer.h"
 #include "default.h"
 #include "tokenize.h"
 #include "rmutil/vector.h"
