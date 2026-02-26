@@ -149,7 +149,7 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
     if (FieldSpec_IsUnf(fs)) {
       // If the field is sortable and not normalized (UNF), the available data in the
       // sorting vector is the same as the data in the document.
-      key->_flags |= RLOOKUP_F_VAL_AVAILABLE;
+      key->_flags |= RLOOKUP_F_VALAVAILABLE;
     }
   }
   if (FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
@@ -283,7 +283,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     // The responsibility of checking this is on the caller.
     if (!key) {
       key = createNewKey(lookup, name, name_len, flags);
-    } else if (((RLookupKey_GetFlags(key) & RLOOKUP_F_VAL_AVAILABLE) && !(RLookupKey_GetFlags(key) & RLOOKUP_F_ISLOADED)) &&
+    } else if (((RLookupKey_GetFlags(key) & RLOOKUP_F_VALAVAILABLE) && !(RLookupKey_GetFlags(key) & RLOOKUP_F_ISLOADED)) &&
                  !(flags & (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCELOAD)) ||
                 (RLookupKey_GetFlags(key) & RLOOKUP_F_ISLOADED &&       !(flags &  RLOOKUP_F_OVERRIDE)) ||
                 (RLookupKey_GetFlags(key) & RLOOKUP_F_QUERYSRC &&       !(flags &  RLOOKUP_F_OVERRIDE))) {
@@ -305,7 +305,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, field_name);
     if (fs) {
       setKeyByFieldSpec(key, fs);
-      if (RLookupKey_GetFlags(key) & RLOOKUP_F_VAL_AVAILABLE && !(flags & RLOOKUP_F_FORCELOAD)) {
+      if (RLookupKey_GetFlags(key) & RLOOKUP_F_VALAVAILABLE && !(flags & RLOOKUP_F_FORCELOAD)) {
         // If the key is marked as "value available", it means that it is sortable and un-normalized.
         // so we can use the sorting vector as the source, and we don't need to load it from the document.
         return NULL;
@@ -750,7 +750,7 @@ RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
 static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst, RLookupLoadOptions *options) {
   return (!options->forceLoad && (
         // No need to "write" this key. It's always implicitly loaded!
-        (RLookupKey_GetFlags(kk) & RLOOKUP_F_VAL_AVAILABLE) ||
+        (RLookupKey_GetFlags(kk) & RLOOKUP_F_VALAVAILABLE) ||
         // There is no value in the sorting vector, and we don't need to load it from the document.
         ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (RLookupRow_Get(kk, dst) == NULL))
     ));

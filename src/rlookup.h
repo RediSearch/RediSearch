@@ -265,7 +265,7 @@ typedef enum {
  * if it was opened for read but the field is sortable and not normalized,
  * so the data should be exactly the same as in the doc.
  */
-#define RLOOKUP_F_VAL_AVAILABLE 0x400
+#define RLOOKUP_F_VALAVAILABLE 0x400
 
 /**
  * This key's value was loaded (by a loader) from the document itself.
