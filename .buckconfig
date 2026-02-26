@@ -3,6 +3,7 @@
   prelude = prelude
   toolchains = toolchains
   none = none
+  third-party = src/redisearch_rs/third-party
 
 [cell_aliases]
   config = prelude

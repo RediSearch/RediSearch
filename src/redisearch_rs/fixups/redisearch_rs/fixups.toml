@@ -1,0 +1,3 @@
+buildscript.run = true
+cargo_env = true
+rustc_flags = ["-Clink-arg=-Wl,-undefined", "-Clink-arg=-Wl,suppress"]

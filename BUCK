@@ -2,9 +2,9 @@
 
 cxx_library(
     name = "RediSearch",
-    headers = glob(["src/**/*.h"]),
-    srcs = glob(["src/**/*.c"]),
-    include_directories = ["src", "src/coord", "src/buffer", "src/redisearch_rs/headers"],
+    headers = glob(["src/**/*.h", "src/**/*.hpp"]),
+    srcs = glob(["src/**/*.c", "src/**/*.cpp"]),
+    include_directories = ["src", "src/coord", "src/buffer", "src/value", "src/redisearch_rs/headers"],
     deps = [
         "//deps:rmalloc",
         "//deps:thpool",
@@ -21,8 +21,14 @@ cxx_library(
         "//deps:geohash",
         "//deps:miniz",
         "//deps:phonetics",
-        "//deps:openssl"
+        "//deps:openssl",
+        "//deps:boost",
+        "//src/redisearch_rs:redisearch_rs",
+        # "//src/redisearch_rs:redis-module[staticlib]",
     ],
+    lang_compiler_flags = {
+        "cxx": ["-std=c++20"],
+    },
     preprocessor_flags = [
         "-DREDISEARCH_MODULE_NAME=\"${MODULE_NAME}\"",
         "-DGIT_VERSPEC=\"${GIT_VERSPEC}\"",

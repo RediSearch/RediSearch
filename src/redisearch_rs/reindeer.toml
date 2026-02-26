@@ -1,5 +1,6 @@
 manifest_path = "Cargo.toml"
-third_party_dir = "third-party"
+third_party_dir = "."
+include_workspace_members = true
 
 [buck]
 file_name = "BUCK"

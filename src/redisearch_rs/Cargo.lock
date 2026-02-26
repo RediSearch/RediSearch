@@ -3192,42 +3192,6 @@ dependencies = [
 [[package]]
 name = "workspace_hack"
 version = "0.1.0"
-dependencies = [
- "bindgen",
- "bitflags 2.11.0",
- "clang-sys",
- "clap",
- "clap_builder",
- "either",
- "getrandom 0.2.17",
- "insta",
- "itertools 0.13.0",
- "libc",
- "memchr",
- "miniz_oxide",
- "num-traits 0.2.19",
- "once_cell",
- "ppv-lite86",
- "proc-macro2",
- "quote 1.0.44",
- "rand 0.9.2",
- "rand_chacha 0.9.0",
- "rand_core 0.6.4",
- "redis-module",
- "regex",
- "regex-automata",
- "regex-syntax",
- "semver",
- "serde",
- "serde_core",
- "serde_json",
- "syn 1.0.109",
- "syn 2.0.117",
- "thiserror",
- "toml",
- "tracing-core",
- "zerocopy",
-]
 
 [[package]]
 name = "writeable"
