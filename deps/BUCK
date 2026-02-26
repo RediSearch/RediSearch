@@ -358,3 +358,14 @@ cxx_library(
     }),
     visibility = ["PUBLIC"],
 )
+
+# ================================= libnu ======================================
+
+cxx_library(
+    name = "libnu",
+    srcs = glob(["libnu/*.c"]),
+    headers = glob(["libnu/*.h"]),
+    header_namespace = "",
+    exported_headers = glob(["libnu/*.h"]),
+    visibility = ["PUBLIC"],
+)
