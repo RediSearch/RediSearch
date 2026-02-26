@@ -398,7 +398,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             goto error;
           }
           RLookup filter_keys = RLookup_New();
-          RLookup_EnableOptions(&filter_keys, RLOOKUP_OPT_UNRESOLVED_OK);
+          RLookup_EnableOptions(&filter_keys, RLOOKUP_OPT_ALLOWUNRESOLVED);
           ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
           if (QueryError_HasError(status)) {
             RLookup_Cleanup(&filter_keys);
@@ -573,9 +573,9 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
-  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
+  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   int rc = AREQ_BuildPipeline(r, status);
-  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
+  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
   if (rc != REDISMODULE_OK) {
     return REDISMODULE_ERR;

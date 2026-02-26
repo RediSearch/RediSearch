@@ -8,6 +8,9 @@ after_includes = """
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
+// Manually added since not supported by bitflags
+#define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
+
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
@@ -23,6 +26,10 @@ include = ["c_ffi_utils", "rlookup", "sorting_vector", "value"]
 [layout]
 aligned_n = "ALIGNED"
 
+[enum]
+rename_variants = "UpperCase"
+prefix_with_name = true
+
 [export]
 include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
 exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr", "RLookupId", "SchemaRule"]
@@ -31,6 +38,8 @@ exclude = ["FieldSpec", "IndexSpec", "Option_IndexSpecCache", "Option_Cow_CStr",
 "OpaqueRLookup" = "RLookup"
 "OpaqueRLookupRow" = "RLookupRow"
 "RLookupHeader" = "RLookup"
+"RLookupKeyFlag" = "RLookup_F"
 "RLookupKeyHeader" = "RLookupKey"
+"RLookupOption" = "RLookup_Opt"
 "RLookupRow_RSValueFFI" = "RLookupRow"
 "RSSortingVector_RSValueFFI" = "RSSortingVector"
