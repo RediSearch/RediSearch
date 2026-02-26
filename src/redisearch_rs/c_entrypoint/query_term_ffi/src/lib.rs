@@ -18,8 +18,8 @@ use query_term::RSQueryTerm;
 
 /// Allocate a new [`RSQueryTerm`] from an [`RSToken`](ffi::RSToken).
 ///
-/// The term string is copied into a Rust-owned, null-terminated allocation
-/// (`Box<[u8]>`).
+/// The term string is copied into a Rust-owned allocation (`Box<str>`).
+/// Non-UTF-8 byte sequences are replaced with U+FFFD.
 /// The returned pointer must be freed with [`Term_Free`].
 ///
 /// # Safety
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn Term_Free(t: *mut RSQueryTerm) {
     }
 
     // SAFETY: caller guarantees `t` was allocated by `NewQueryTerm`
-    // (i.e. via `Box::into_raw`). The `Box<[u8]>` inside is freed automatically.
+    // (i.e. via `Box::into_raw`). The `Box<str>` inside is freed automatically.
     let _ = unsafe { Box::from_raw(t) };
 }
 
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
     unsafe { (*term).id() }
 }
 
-/// Get the term string length in bytes (excluding null terminator).
+/// Get the term string length in bytes.
 ///
 /// # Safety
 ///

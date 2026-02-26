@@ -37,11 +37,11 @@ pub type RSTokenFlags = u32;
 /// C code accesses fields via FFI accessor functions, not direct struct access.
 /// cbindgen:field-names=[str, idf, id, flags, bm25_idf]
 pub struct RSQueryTerm {
-    /// The term bytes with a null terminator appended, or `None` if the token
-    /// had a null string pointer.
+    /// The term string, or `None` if the token had a null string pointer.
     ///
-    /// The slice length is `term_len + 1`; the last byte is always `0`.
-    str_: Option<Box<[u8]>>,
+    /// Non-UTF-8 byte sequences from the C tokenizer are replaced with U+FFFD
+    /// during construction (see [`new_bytes`](RSQueryTerm::new_bytes)).
+    str_: Option<Box<str>>,
     /// Inverse document frequency of the term in the index.
     ///
     /// See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>.
@@ -56,8 +56,7 @@ pub struct RSQueryTerm {
 
 impl fmt::Debug for RSQueryTerm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let cow = self.as_bytes().map(String::from_utf8_lossy);
-        let term_str = cow.as_deref().unwrap_or("<null>");
+        let term_str = self.str_.as_deref().unwrap_or("<null>");
 
         f.debug_struct("RSQueryTerm")
             .field("str", &term_str)
@@ -71,26 +70,29 @@ impl fmt::Debug for RSQueryTerm {
 
 impl RSQueryTerm {
     /// Create a new [`RSQueryTerm`] from a UTF-8 string slice, copying it into
-    /// a null-terminated, Rust-owned allocation (`Box<[u8]>`).
+    /// a Rust-owned allocation (`Box<str>`).
     ///
     /// The resulting term has `idf = 1.0` and `bm25_idf = 0.0`.
     pub fn new(s: &str, id: i32, flags: RSTokenFlags) -> Box<Self> {
-        Self::new_bytes(s.as_bytes(), id, flags)
+        Box::new(Self {
+            str_: Some(s.into()),
+            idf: 1.0,
+            id,
+            flags,
+            bm25_idf: 0.0,
+        })
     }
 
     /// Create a new [`RSQueryTerm`] from a raw byte slice, copying it into a
-    /// null-terminated, Rust-owned allocation (`Box<[u8]>`).
+    /// Rust-owned allocation (`Box<str>`).
     ///
-    /// Unlike [`new`](RSQueryTerm::new), this constructor does not require the
-    /// bytes to be valid UTF-8. This is intended for the FFI path, where the C
+    /// Any invalid UTF-8 byte sequences are replaced with U+FFFD (the Unicode
+    /// replacement character). This is intended for the FFI path, where the C
     /// tokenizer may produce byte sequences that are not valid UTF-8 (e.g. after
     /// case-folding applied to some Unicode codepoints).
     pub fn new_bytes(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
-        let mut buf = Vec::with_capacity(s.len() + 1);
-        buf.extend_from_slice(s);
-        buf.push(0); // null terminator
         Box::new(Self {
-            str_: Some(buf.into_boxed_slice()),
+            str_: Some(String::from_utf8_lossy(s).into_owned().into_boxed_str()),
             idf: 1.0,
             id,
             flags,
@@ -138,10 +140,9 @@ impl RSQueryTerm {
         self.id
     }
 
-    /// Get the term string length in bytes (excluding null terminator).
+    /// Get the term string length in bytes.
     pub fn len(&self) -> usize {
-        // The slice includes the null terminator, so subtract 1.
-        self.str_.as_deref().map_or(0, |s| s.len() - 1)
+        self.str_.as_deref().map_or(0, str::len)
     }
 
     /// Check if the term string is empty (null or zero length).
@@ -151,24 +152,25 @@ impl RSQueryTerm {
 
     /// Get the raw string pointer (for FFI compatibility).
     ///
-    /// Returns a null-terminated pointer to the term bytes,
-    /// or null if the term has no string.
+    /// Returns a pointer to the term's UTF-8 bytes, or null if the term has no
+    /// string. The returned pointer is **not** null-terminated; use
+    /// [`len`](RSQueryTerm::len) or [`QueryTerm_GetStrAndLen`] to obtain the
+    /// byte count.
     pub fn str_ptr(&self) -> *const c_char {
         self.str_
             .as_deref()
             .map_or(std::ptr::null(), |s| s.as_ptr().cast())
     }
 
-    /// Get the term as a byte slice (excluding null terminator), if the string is non-null.
+    /// Get the term as a byte slice, if the string is non-null.
     pub fn as_bytes(&self) -> Option<&[u8]> {
-        // Exclude the trailing null terminator.
-        self.str_.as_deref().map(|s| &s[..s.len() - 1])
+        self.str_.as_deref().map(str::as_bytes)
     }
 }
 
 impl PartialEq for RSQueryTerm {
     fn eq(&self, other: &Self) -> bool {
-        self.as_bytes() == other.as_bytes()
+        self.str_.as_deref() == other.str_.as_deref()
             && self.idf == other.idf
             && self.bm25_idf == other.bm25_idf
             && self.id == other.id
@@ -219,13 +221,14 @@ mod tests {
     }
 
     #[test]
-    fn str_ptr_is_null_terminated() {
+    fn str_ptr_non_null_for_valid_term() {
         let term = RSQueryTerm::new("hello", 1, 0);
         let ptr = term.str_ptr();
         assert!(!ptr.is_null());
-        // SAFETY: `str_ptr()` returns a valid, null-terminated C string.
-        let cstr = unsafe { std::ffi::CStr::from_ptr(ptr) };
-        assert_eq!(cstr.to_bytes(), b"hello");
+        // SAFETY: `str_ptr()` returns a valid pointer to `len()` bytes.
+        let bytes =
+            unsafe { std::slice::from_raw_parts(ptr as *const u8, term.len()) };
+        assert_eq!(bytes, b"hello");
     }
 
     #[test]
@@ -236,9 +239,11 @@ mod tests {
 
     #[test]
     fn new_bytes_accepts_non_utf8() {
-        // 0xFF is not valid UTF-8; new_bytes must not panic.
+        // 0xFF and 0xFE are not valid UTF-8; new_bytes must not panic.
+        // Each byte is replaced with U+FFFD (3 bytes each).
         let term = RSQueryTerm::new_bytes(&[0xFF, 0xFE], 1, 0);
-        assert_eq!(term.len(), 2);
-        assert_eq!(term.as_bytes(), Some(&[0xFF_u8, 0xFE][..]));
+        assert!(!term.is_empty());
+        // The content is the replacement-character string; exact bytes may vary.
+        assert_eq!(term.as_bytes(), Some("\u{FFFD}\u{FFFD}".as_bytes()));
     }
 }

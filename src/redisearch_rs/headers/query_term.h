@@ -40,8 +40,8 @@ extern "C" {
 /**
  * Allocate a new [`RSQueryTerm`] from an [`RSToken`](ffi::RSToken).
  *
- * The term string is copied into a Rust-owned, null-terminated allocation
- * (`Box<[u8]>`).
+ * The term string is copied into a Rust-owned allocation (`Box<str>`).
+ * Non-UTF-8 byte sequences are replaced with U+FFFD.
  * The returned pointer must be freed with [`Term_Free`].
  *
  * # Safety
@@ -111,7 +111,7 @@ void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
 int QueryTerm_GetID(const struct RSQueryTerm *term);
 
 /**
- * Get the term string length in bytes (excluding null terminator).
+ * Get the term string length in bytes.
  *
  * # Safety
  *
