@@ -32,7 +32,7 @@ impl<'a> Debug for DebugFormatter<'a> {
                     f.write_str(obfuscate_number(*num))
                 } else {
                     let mut buf = [0; 32];
-                    let n = crate::util::num_to_str(*num, &mut buf).unwrap();
+                    let n = crate::util::num_to_str(*num, &mut buf);
                     let s = std::str::from_utf8(&buf[0..n]).unwrap();
                     f.write_str(s)
                 }
