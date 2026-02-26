@@ -515,7 +515,7 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0, sizeof(*lk));
 }
 
-RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
+static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
@@ -627,7 +627,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
 // Return an array of expanded values from an iterator.
 // The iterator is being reset and is not being freed.
 // Required japi_ver >= 4
-RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
+static RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
   RSValue *ret;
   RSValue **arr;
   size_t len = japi->len(iter);
@@ -942,7 +942,7 @@ done:
   return rc;
 }
 
-int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   if (!japi) {
     return rc;
