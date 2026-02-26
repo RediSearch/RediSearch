@@ -549,7 +549,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     // Node-level staleness is handled by the generational arena inside
     // NumericRangeTree_ApplyGcEntry.
     if (!rt) {
-      FieldSpec *fs = IndexSpec_GetFieldWithLength(_sctx.spec, fieldName, fieldNameLen);
+      const FieldSpec *fs = IndexSpec_GetFieldWithLength(_sctx.spec, fieldName, fieldNameLen);
       // Cast is safe: openNumericOrGeoIndex only mutates fs when create_if_missing is true.
       rt = openNumericOrGeoIndex(_sctx.spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
       if (!rt || NumericRangeTree_GetUniqueId(rt) != rtUniqueId) {
