@@ -155,9 +155,16 @@ pub unsafe extern "C" fn QueryTerm_GetStrAndLen(
     debug_assert!(!term.is_null(), "term cannot be NULL");
     debug_assert!(!out_len.is_null(), "out_len cannot be NULL");
     // SAFETY: caller guarantees `term` is valid and non-null
-    let len = unsafe { (*term).len() };
-    // SAFETY: caller guarantees `out_len` is valid and writable
-    unsafe { *out_len = len };
-    // SAFETY: caller guarantees `term` is valid and non-null
-    unsafe { (*term).str_ptr() }
+    match unsafe { (*term).as_bytes() } {
+        Some(bytes) => {
+            // SAFETY: caller guarantees `out_len` is valid and writable
+            unsafe { *out_len = bytes.len() };
+            bytes.as_ptr().cast()
+        }
+        None => {
+            // SAFETY: caller guarantees `out_len` is valid and writable
+            unsafe { *out_len = 0 };
+            std::ptr::null()
+        }
+    }
 }

@@ -16,10 +16,6 @@ typedef struct RSToken RSToken;
  * [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
  * [`id`](RSQueryTerm::id) assigned during query parsing.
  *
- * # Memory layout
- *
- * All fields are private and accessed via type-safe methods and FFI functions.
- * C code accesses fields via FFI accessor functions, not direct struct access.
  */
 typedef struct RSQueryTerm RSQueryTerm;
 

@@ -14,8 +14,6 @@
 //! functions (`NewQueryTerm`, `Term_Free`) are provided by the `query_term_ffi`
 //! crate.
 
-use std::ffi::c_char;
-
 /// Flags associated with query tokens and terms.
 ///
 /// Extension-set token flags — up to 31 bits are available for extensions,
@@ -30,11 +28,6 @@ pub type RSTokenFlags = u32;
 /// [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
 /// [`id`](RSQueryTerm::id) assigned during query parsing.
 ///
-/// # Memory layout
-///
-/// All fields are private and accessed via type-safe methods and FFI functions.
-/// C code accesses fields via FFI accessor functions, not direct struct access.
-/// cbindgen:field-names=[str, idf, id, flags, bm25_idf]
 #[derive(Debug, PartialEq)]
 pub struct RSQueryTerm {
     /// The term string, or `None` if the token had a null string pointer.
@@ -136,18 +129,6 @@ impl RSQueryTerm {
         self.len() == 0
     }
 
-    /// Get the raw string pointer (for FFI compatibility).
-    ///
-    /// Returns a pointer to the term's UTF-8 bytes, or null if the term has no
-    /// string. The returned pointer is **not** null-terminated; use
-    /// [`len`](RSQueryTerm::len) or [`QueryTerm_GetStrAndLen`] to obtain the
-    /// byte count.
-    pub fn str_ptr(&self) -> *const c_char {
-        self.str_
-            .as_deref()
-            .map_or(std::ptr::null(), |s| s.as_ptr().cast())
-    }
-
     /// Get the term as a byte slice, if the string is non-null.
     pub fn as_bytes(&self) -> Option<&[u8]> {
         self.str_.as_deref().map(str::as_bytes)
@@ -196,23 +177,6 @@ mod tests {
         let a = RSQueryTerm::new("hello", 1, 0);
         let b = RSQueryTerm::new("hello", 2, 0);
         assert_ne!(*a, *b);
-    }
-
-    #[test]
-    fn str_ptr_non_null_for_valid_term() {
-        let term = RSQueryTerm::new("hello", 1, 0);
-        let ptr = term.str_ptr();
-        assert!(!ptr.is_null());
-        // SAFETY: `str_ptr()` returns a valid pointer to `len()` bytes.
-        let bytes =
-            unsafe { std::slice::from_raw_parts(ptr as *const u8, term.len()) };
-        assert_eq!(bytes, b"hello");
-    }
-
-    #[test]
-    fn str_ptr_null_for_null_str() {
-        let term = RSQueryTerm::new_null_str(0, 0);
-        assert!(term.str_ptr().is_null());
     }
 
     #[test]
