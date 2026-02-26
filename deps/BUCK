@@ -106,3 +106,20 @@ cxx_library(
     deps = [":openssl"],
     visibility = ["PUBLIC"],
 )
+
+# ================================= rmutil ======================================
+
+cxx_library(
+    name = "rmutil",
+    srcs = glob(["rmutil/*.c"]),
+    headers = glob(["rmutil/*.h"]),
+    exported_headers = export_headers_map(glob(["rmutil/*.h"]), "rmutil/"),
+    header_namespace = "rmutil",
+    deps = [
+        ":hiredis",
+        ":rmalloc"
+    ],
+    preferred_linkage = "static",
+    compiler_flags = ["-g", "-fPIC", "-O3", "-std=gnu99", "-Wall", "-Wno-unused-function"],
+    visibility = ["PUBLIC"],
+)
