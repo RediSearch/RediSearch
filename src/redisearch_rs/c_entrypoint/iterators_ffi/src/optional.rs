@@ -13,7 +13,7 @@ use ffi::{IteratorType_OPTIONAL_ITERATOR, QueryIterator, t_docId};
 use rqe_iterators::optional::Optional;
 use rqe_iterators_interop::RQEIteratorWrapper;
 
-use crate::c2rust::CRQEIterator;
+use rqe_iterators::c2rust::CRQEIterator;
 
 #[unsafe(no_mangle)]
 /// Create a new non-optimized optional iterator.

@@ -14,12 +14,13 @@ use ffi::{
     ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
 };
 use inverted_index::RSIndexResult;
-use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use std::{
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
+
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
 ///
@@ -46,7 +47,7 @@ use std::{
 /// a Rust composite iterator.
 #[repr(transparent)]
 #[allow(unused)]
-pub(crate) struct CRQEIterator {
+pub struct CRQEIterator {
     /// # Safety invariants
     ///
     /// 1. [`Self::header`] is a valid pointer to a [`QueryIterator`] instance,
@@ -135,7 +136,7 @@ impl CRQEIterator {
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     #[allow(unused)]
-    pub(crate) unsafe fn new(header: NonNull<QueryIterator>) -> Self {
+    pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
         // SAFETY: the caller is required to uphold `Self::header` field invariants.
         let self_ = Self { header };
         debug_assert!(
@@ -166,7 +167,7 @@ impl CRQEIterator {
     /// The caller is taking ownership of the [`QueryIterator`] instance and is
     /// therefore responsible to free its contents.
     #[allow(unused)]
-    pub(crate) fn into_raw(self) -> NonNull<QueryIterator> {
+    pub fn into_raw(self) -> NonNull<QueryIterator> {
         let self_ = ManuallyDrop::new(self);
         self_.header
     }
@@ -258,9 +259,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         unsafe { callback(self.header.as_ptr()) };
     }
 
-    fn revalidate(
-        &mut self,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn revalidate(&mut self) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Revalidate.unwrap_unchecked() };
         // SAFETY:

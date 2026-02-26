@@ -12,6 +12,7 @@ use thiserror::Error;
 
 use ::inverted_index::RSIndexResult;
 
+pub mod c2rust;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
