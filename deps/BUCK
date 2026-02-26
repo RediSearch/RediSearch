@@ -156,3 +156,21 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= snowball ======================================
+
+cxx_library(
+    name = "snowball",
+    srcs = glob(["snowball/**/*.c"]),
+    headers = glob(["snowball/**/*.h"]),
+    exported_headers = export_headers_map(glob(["snowball/include/*.h"]), "snowball/include/"),
+    header_namespace = "snowball",
+    include_directories = [
+        "snowball/include",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
