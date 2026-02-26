@@ -1,9 +1,8 @@
+load(":utils.bzl", "export_headers_map")
+
 cxx_library(
     name = "RedisModulesSDK",
-    exported_headers = {
-        "redismodule.h": "RedisModulesSDK/redismodule.h",
-        "redismodule-rlec.h": "RedisModulesSDK/redismodule-rlec.h",
-    },
+    exported_headers = export_headers_map(glob(["RedisModulesSDK/*.h"]), "RedisModulesSDK/"),
     header_namespace = "",
     exported_preprocessor_flags = [
         "-DREDIS_MODULE_TARGET",
@@ -68,5 +67,24 @@ prebuilt_cxx_library(
     static_lib = ":openssl.sys[libssl.a]",
     shared_lib = ":openssl.sys[libssl.dylib]",
     exported_deps = [":openssl-libcrypto"],
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "hiredis",
+    srcs = glob(["hiredis/*.c"]),
+    headers = glob(["hiredis/*.h", "hiredis/adapters/*.h"]),
+    exported_headers = glob(["hiredis/*.h", "hiredis/adapters/*.h"]),
+    header_namespace = "",
+    compiler_flags = [
+        "-std=c99",
+        "-pedantic",
+        "-Wall",
+        "-Wextra",
+        "-Wstrict-prototypes",
+        "-Wwrite-strings",
+        "-Wno-missing-field-initializers",
+    ],
+    deps = [":openssl"],
     visibility = ["PUBLIC"],
 )
