@@ -515,7 +515,7 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0, sizeof(*lk));
 }
 
-RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
+static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
@@ -627,7 +627,7 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
 // Return an array of expanded values from an iterator.
 // The iterator is being reset and is not being freed.
 // Required japi_ver >= 4
-RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
+static RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
   RSValue *ret;
   RSValue **arr;
   size_t len = japi->len(iter);
@@ -708,40 +708,6 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
 done:
   return res;
-}
-
-RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
-  switch (RedisModule_CallReplyType(rep)) {
-    case REDISMODULE_REPLY_STRING: {
-      if (otype == RLOOKUP_C_BOOL || RLOOKUP_C_INT) {
-        goto create_int;
-      }
-
-    create_string:;
-      size_t len;
-      const char *s = RedisModule_CallReplyStringPtr(rep, &len);
-      if (otype == RLOOKUP_C_DBL) {
-        // Convert to double -- calling code should check if NULL
-        return RSValue_NewParsedNumber(s, len);
-      }
-      // Note, the pointer is within CallReply; we need to copy
-      return RSValue_NewCopiedString(s, len);
-    }
-
-    case REDISMODULE_REPLY_INTEGER:
-    create_int:
-      if (otype == RLOOKUP_C_STR || otype == RLOOKUP_C_DBL) {
-        goto create_string;
-      }
-      return RSValue_NewNumberFromInt64(RedisModule_CallReplyInteger(rep));
-
-    case REDISMODULE_REPLY_UNKNOWN:
-    case REDISMODULE_REPLY_NULL:
-    case REDISMODULE_REPLY_ARRAY:
-    default:
-      // Nothing
-      return RSValue_NullStatic();
-  }
 }
 
 // returns true if the value of the key is already available
@@ -976,7 +942,7 @@ done:
   return rc;
 }
 
-int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   if (!japi) {
     return rc;
@@ -1126,11 +1092,4 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
     RLookup_WriteKey(dest_key, destRow, value);
   }
   // Caller is responsible for managing source row lifecycle
-}
-
-// added as entry point for the rust code
-// Required from Rust therefore not an inline method anymore.
-// Internally it handles different lengths encoded in 5,8,16,32 and 64 bit.
-size_t sdslen__(const char* s) {
-  return sdslen(s);
 }
