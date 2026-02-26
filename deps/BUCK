@@ -1,5 +1,7 @@
 load(":utils.bzl", "export_headers_map")
 
+# ================================= RedisModulesSDK ======================================
+
 cxx_library(
     name = "RedisModulesSDK",
     exported_headers = export_headers_map(glob(["RedisModulesSDK/*.h"]), "RedisModulesSDK/"),
@@ -11,6 +13,8 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= rmalloc ======================================
 
 cxx_library(
     name = "rmalloc",
@@ -81,6 +85,8 @@ prebuilt_cxx_library(
     exported_deps = [":openssl-libcrypto"],
     visibility = ["PUBLIC"],
 )
+
+# ================================= hiredis ======================================
 
 cxx_library(
     name = "hiredis",
