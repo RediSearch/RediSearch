@@ -3328,26 +3328,28 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   // Load the disk-related index data if we are on disk and the save flow used
   // sst-files. We load it into a temporary in-memory object first, then use it
   // to open the index with the RDB state applied.
-  // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
-  // on the disk side (RDB is depleted, without updating index fields).
+  // We must always consume the RDB data to avoid corrupting the stream,
+  // even for duplicates. We just won't use it in the duplicate case.
   RedisSearchDiskRdbState *diskRdbState = NULL;
+  if (isSpecOnDisk(sp) && encver >= INDEX_DISK_VERSION && useSst) {
+    RS_ASSERT(disk_db);
+    IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
+    if (sp->terms) {
+      TrieType_Free(sp->terms);
+    }
+    sp->terms = TrieType_GenericLoad(rdb, false, true);
+    RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
+
+    // Load disk metadata (max_doc_id, deleted_ids) into temporary object
+    diskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
+    if (!diskRdbState) {
+      goto cleanup;
+    }
+  }
+
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
-    if (encver >= INDEX_DISK_VERSION) {
-      IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
-      if (sp->terms) {
-        TrieType_Free(sp->terms);
-      }
-      sp->terms = TrieType_GenericLoad(rdb, false, true);
-      RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
-
-      // Load disk metadata (max_doc_id, deleted_ids) into temporary object
-      diskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
-      if (!diskRdbState) {
-        goto cleanup;
-      }
-    }
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
 
