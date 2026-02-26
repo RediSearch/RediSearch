@@ -195,3 +195,24 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= miniz ======================================
+
+cxx_library(
+    name = "miniz",
+    srcs = [
+        "miniz/miniz.c",
+    ],
+    headers = [
+        "miniz/miniz.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "miniz/miniz.h",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
