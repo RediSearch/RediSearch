@@ -1133,7 +1133,7 @@ static bool periodicCb(void *privdata, bool force) {
     }
   }
 
-  IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
   long long msRun = TimeSampler_DurationMS(&ts);
@@ -1183,7 +1183,7 @@ void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
-  IndexsGlobalStats_UpdateLogicallyDeleted(-gc->deletedDocsFromLastRun);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(gc->deletedDocsFromLastRun);
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);
@@ -1218,7 +1218,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
   ++gc->deletedDocsFromLastRun;
-  IndexsGlobalStats_UpdateLogicallyDeleted(1);
+  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {

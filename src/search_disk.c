@@ -105,11 +105,8 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     RS_ASSERT(disk && index && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
-    QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets);
-    if (!it) {
-        Term_Free(term);
-    }
-    return it;
+    // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
+    return disk->index.newTermIterator(index, term, fieldMask, weight, needsOffsets);
 }
 
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
@@ -122,9 +119,9 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
     return disk->index.newWildcardIterator(index, weight);
 }
 
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
     RS_ASSERT(disk && index && spec);
-    disk->index.runGC(index, spec);
+    return disk->index.runGC(index, spec);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {

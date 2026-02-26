@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use approx::assert_abs_diff_eq;
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
@@ -18,13 +19,6 @@ use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Term};
 
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
-
-fn new_term() -> Box<RSQueryTerm> {
-    let mut term = RSQueryTerm::new(b"term", 1, 0);
-    term.set_idf(5.0);
-    term.set_bm25_idf(10.0);
-    term
-}
 
 fn expected_record(
     doc_id: t_docId,
@@ -79,7 +73,7 @@ impl TermBaseTest {
             Term::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                new_term(),
+                RSQueryTerm::new(b"term", 1, 0),
                 1.0,
                 NoOpChecker,
             )
@@ -93,12 +87,20 @@ fn term_read() {
     let test = TermBaseTest::new(100);
     let mut it = test.create_iterator();
 
-    // Read the first record and verify the term and weight are correct.
+    // Read the first record and verify the term, weight, and IDF are correct.
     let record = it.read().unwrap().expect("expected at least one record");
     assert_eq!(record.weight, 1.0);
-    let term = record.as_term().expect("expected term record").query_term();
-    let expected = new_term();
-    assert_eq!(term, Some(&*expected));
+    let term = record
+        .as_term()
+        .expect("expected term record")
+        .query_term()
+        .expect("expected query term");
+
+    // IDF is computed by Term::new() from MockContext's numDocuments (0) and unique_docs (101).
+    // calculate_idf(0, 101) = floor(log2(1 + 1/101)) = floor(~0.014) = 0.0
+    assert_eq!(term.idf(), 0.0);
+    // calculate_idf_bm25(0, 101) — total_docs clamped to term_docs (101).
+    assert_abs_diff_eq!(term.bm25_idf(), 0.004914014802429163);
 
     it.rewind();
     test.test.read(&mut it, test.test.docs_ids_iter());
@@ -121,7 +123,7 @@ fn term_filter() {
         Term::new(
             reader,
             test.test.mock_ctx.sctx(),
-            new_term(),
+            RSQueryTerm::new(b"term", 1, 0),
             1.0,
             NoOpChecker,
         )
@@ -194,7 +196,15 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker) }
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new(b"term", 1, 0),
+                    1.0,
+                    checker,
+                )
+            }
         }
 
         fn create_iterator_wide(
@@ -209,7 +219,15 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, checker) }
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new(b"term", 1, 0),
+                    1.0,
+                    checker,
+                )
+            }
         }
 
         fn mark_even_ids_expired(&mut self) {
@@ -300,7 +318,15 @@ mod not_miri {
         > {
             let field_mask = self.test.context.text_field_bit();
             let reader = self.test.context.term_inverted_index().reader(field_mask);
-            unsafe { Term::new(reader, self.test.context.sctx, new_term(), 1.0, NoOpChecker) }
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new(b"term", 1, 0),
+                    1.0,
+                    NoOpChecker,
+                )
+            }
         }
     }
 
@@ -334,14 +360,78 @@ mod not_miri {
             RQEValidateStatus::Ok
         );
 
-        // TODO: test once check_abort() is implemented
+        // Simulate the term's inverted index being garbage collected and
+        // replaced by swapping the reader's stored index pointer to a
+        // different (dummy) index. Redis_OpenInvertedIndex will still
+        // return the original, so the pointer comparison will fail.
+        let flags = test.test.context.term_inverted_index().flags();
+        let dummy = Box::leak(Box::new(inverted_index::InvertedIndex::<
+            inverted_index::full::Full,
+        >::new(flags)));
+        let mut dummy_ref: &inverted_index::InvertedIndex<inverted_index::full::Full> = dummy;
+
+        it.swap_index(&mut dummy_ref);
+
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Aborted
+        );
+
+        // Swap back and free the dummy for proper cleanup.
+        it.swap_index(&mut dummy_ref);
+        // SAFETY: `dummy_ref` now points back to the leaked dummy allocation.
+        drop(unsafe {
+            Box::from_raw(
+                dummy_ref as *const _
+                    as *mut inverted_index::InvertedIndex<inverted_index::full::Full>,
+            )
+        });
     }
 
     #[test]
-    #[ignore] //TODO
+    fn term_revalidate_after_index_gc_collected() {
+        let test = TermRevalidateTest::new(10);
+
+        // Build the iterator with a query term that does not exist in keysDict.
+        // This simulates the GC having collected the entire inverted index for
+        // that term: Redis_OpenInvertedIndex will return null when should_abort
+        // tries to look it up.
+        let field_mask = test.test.context.text_field_bit();
+        let reader = test.test.context.term_inverted_index().reader(field_mask);
+        let gc_collected_term = RSQueryTerm::new(b"gc_collected", 1, 0);
+        // SAFETY: reader and sctx are valid pointers from the test context.
+        let mut it = unsafe {
+            Term::new(
+                reader,
+                test.test.context.sctx,
+                gc_collected_term,
+                1.0,
+                NoOpChecker,
+            )
+        };
+
+        // The reader still works because it reads from the actual inverted
+        // index — only the query term stored in the result differs.
+        assert!(it.read().expect("failed to read").is_some());
+
+        // Revalidation calls should_abort which looks up "gc_collected" in
+        // keysDict. The term is not there so Redis_OpenInvertedIndex returns
+        // null, triggering the abort path.
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Aborted
+        );
+    }
+
+    #[test]
     fn term_revalidate_after_document_deleted() {
-        // TODO: Implement once FieldMaskTrackingIndex exposes mutable access to inner index
-        // for document deletion in tests.
-        todo!()
+        let test = TermRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        let ii = {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+        };
+
+        test.test.revalidate_after_document_deleted(&mut it, ii);
     }
 }

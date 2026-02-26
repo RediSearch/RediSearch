@@ -311,10 +311,10 @@ fn reader_is_index() {
     ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
     let ir = ii.reader();
 
-    assert!(ir.is_index(&ii));
+    assert!(ir.points_to_ii(&ii));
 
     let ii2 = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    assert!(!ir.is_index(&ii2));
+    assert!(!ir.points_to_ii(&ii2));
 }
 
 #[test]

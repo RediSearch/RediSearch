@@ -32,7 +32,7 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
     /// the last document ID read by the iterator.
     last_doc_id: t_docId,
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RSIndexResult<'index>,
+    pub(super) result: RSIndexResult<'index>,
 
     /// The expiration checker used to determine if documents are expired.
     expiration_checker: E,

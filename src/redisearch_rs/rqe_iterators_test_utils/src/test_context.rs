@@ -417,6 +417,21 @@ impl TestContext {
         }
     }
 
+    /// Get a mutable reference to the opaque term inverted index for this context.
+    /// Panics if this is not a term context.
+    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    pub fn term_inverted_index_mut(&self) -> &mut inverted_index_ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Term { inverted_index, .. } => {
+                // SAFETY: inverted_index is a valid pointer created via Redis_OpenInvertedIndex
+                // and the FFI InvertedIndex type is a repr(C) enum that wraps the same data.
+                let ii: *mut inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
+                unsafe { &mut *ii }
+            }
+            _ => panic!("TestContext is not a Term context"),
+        }
+    }
+
     /// Get the term inverted index for this context (wide schema).
     /// Panics if this is not a term context or if it doesn't use wide schema.
     pub fn term_inverted_index_wide(
