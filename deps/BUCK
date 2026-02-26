@@ -12,3 +12,61 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= OpenSSL ======================================
+
+# genrule(
+#     name = "openssl-make",
+#     srcs = ["openssl"],
+#     bash = """
+#     CONFIGURE=\$(realpath -s $SRCDIR/openssl/Configure)
+#     OUTDIR=\$(realpath -s $OUT)
+#     echo $CONFIGURE
+#     cd $TMP
+#     $CONFIGURE --prefix=$OUTDIR no-comp no-idea no-weak-ssl-ciphers no-shared no-apps no-deprecated no-docs
+#     make
+#     make install
+#     """,
+#     outs = {
+#         "include": ["include"],
+#         "libcrypto-static": ["lib/libcrypto.a"],
+#         "libcrypto-shared": ["lib/libcrypto.dylib"],
+#         "libssl-static": ["lib/libssl.a"],
+#         "libssl-shared": ["lib/libssl.dylib"],
+#     }
+# )
+
+genrule(
+    name = "openssl.sys",
+    cmd = select({
+        "prelude//os:macos": "cp -r /opt/homebrew/opt/openssl/include ${OUT}/include; cp -r /opt/homebrew/opt/openssl/lib ${OUT}/lib",
+        "DEFAULT": "cp -r /usr/local/opt/openssl/include ${OUT}/include; cp -r /usr/local/opt/openssl/lib ${OUT}/lib"
+    }),
+    outs = {
+        "include": ["include"],
+        "libssl.a": ["lib/libssl.a"],
+        "libssl.dylib": ["lib/libssl.dylib"],
+        "libcrypto.a": ["lib/libcrypto.a"],
+        "libcrypto.dylib": ["lib/libcrypto.dylib"],
+    }
+)
+
+prebuilt_cxx_library(
+    name = "openssl-libcrypto",
+    header_dirs = [
+        ":openssl.sys[include]",
+    ],
+    static_lib = ":openssl.sys[libcrypto.a]",
+    shared_lib = ":openssl.sys[libcrypto.dylib]",
+)
+
+prebuilt_cxx_library(
+    name = "openssl",
+    header_dirs = [
+        ":openssl.sys[include]",
+    ],
+    static_lib = ":openssl.sys[libssl.a]",
+    shared_lib = ":openssl.sys[libssl.dylib]",
+    exported_deps = [":openssl-libcrypto"],
+    visibility = ["PUBLIC"],
+)
