@@ -36,8 +36,8 @@ extern "C" {
 /**
  * Allocate a new [`RSQueryTerm`] from an [`RSToken`](ffi::RSToken).
  *
- * The term string is copied into a Rust-owned allocation (`Box<str>`).
- * Non-UTF-8 byte sequences are replaced with U+FFFD.
+ * The term string is copied into a Rust-owned allocation (`Box<[u8]>`).
+ * Bytes are stored as-is without any UTF-8 conversion.
  * The returned pointer must be freed with [`Term_Free`].
  *
  * # Safety

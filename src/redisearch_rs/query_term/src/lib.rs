@@ -14,6 +14,8 @@
 //! functions (`NewQueryTerm`, `Term_Free`) are provided by the `query_term_ffi`
 //! crate.
 
+use std::fmt;
+
 /// Flags associated with query tokens and terms.
 ///
 /// Extension-set token flags — up to 31 bits are available for extensions,
@@ -28,13 +30,10 @@ pub type RSTokenFlags = u32;
 /// [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
 /// [`id`](RSQueryTerm::id) assigned during query parsing.
 ///
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub struct RSQueryTerm {
-    /// The term string, or `None` if the token had a null string pointer.
-    ///
-    /// Non-UTF-8 byte sequences from the C tokenizer are replaced with U+FFFD
-    /// during construction (see [`new_bytes`](RSQueryTerm::new_bytes)).
-    str_: Option<Box<str>>,
+    /// The term string as raw bytes, or `None` if the token had a null string pointer.
+    str_: Option<Box<[u8]>>,
     /// Inverse document frequency of the term in the index.
     ///
     /// See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>.
@@ -49,12 +48,12 @@ pub struct RSQueryTerm {
 
 impl RSQueryTerm {
     /// Create a new [`RSQueryTerm`] from a UTF-8 string slice, copying it into
-    /// a Rust-owned allocation (`Box<str>`).
+    /// a Rust-owned allocation (`Box<[u8]>`).
     ///
     /// The resulting term has `idf = 1.0` and `bm25_idf = 0.0`.
     pub fn new(s: &str, id: i32, flags: RSTokenFlags) -> Box<Self> {
         Box::new(Self {
-            str_: Some(s.into()),
+            str_: Some(s.as_bytes().into()),
             idf: 1.0,
             id,
             flags,
@@ -63,15 +62,15 @@ impl RSQueryTerm {
     }
 
     /// Create a new [`RSQueryTerm`] from a raw byte slice, copying it into a
-    /// Rust-owned allocation (`Box<str>`).
+    /// Rust-owned allocation (`Box<[u8]>`).
     ///
-    /// Any invalid UTF-8 byte sequences are replaced with U+FFFD (the Unicode
-    /// replacement character). This is intended for the FFI path, where the C
-    /// tokenizer may produce byte sequences that are not valid UTF-8 (e.g. after
-    /// case-folding applied to some Unicode codepoints).
+    /// Bytes are stored as-is without any UTF-8 validation or conversion.
+    /// This is intended for the FFI path, where the C tokenizer may produce
+    /// byte sequences that are not valid UTF-8 (e.g. after case-folding
+    /// applied to some Unicode codepoints).
     pub fn new_bytes(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
         Box::new(Self {
-            str_: Some(String::from_utf8_lossy(s).into_owned().into_boxed_str()),
+            str_: Some(s.into()),
             idf: 1.0,
             id,
             flags,
@@ -121,7 +120,7 @@ impl RSQueryTerm {
 
     /// Get the term string length in bytes.
     pub fn len(&self) -> usize {
-        self.str_.as_deref().map_or(0, str::len)
+        self.str_.as_deref().map_or(0, <[u8]>::len)
     }
 
     /// Check if the term string is empty (null or zero length).
@@ -131,13 +130,25 @@ impl RSQueryTerm {
 
     /// Get the term as a byte slice, if the string is non-null.
     pub fn as_bytes(&self) -> Option<&[u8]> {
-        self.str_.as_deref().map(str::as_bytes)
+        self.str_.as_deref()
     }
 }
 
 // `f64` does not implement `Eq` (NaN != NaN), but IDF values in a query term
 // are never NaN in practice, so the reflexivity requirement holds.
 impl Eq for RSQueryTerm {}
+
+impl fmt::Debug for RSQueryTerm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RSQueryTerm")
+            .field("str", &self.str_.as_deref().map(String::from_utf8_lossy))
+            .field("idf", &self.idf)
+            .field("id", &self.id)
+            .field("flags", &self.flags)
+            .field("bm25_idf", &self.bm25_idf)
+            .finish()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -181,12 +192,10 @@ mod tests {
 
     #[test]
     fn new_bytes_accepts_non_utf8() {
-        // 0xFF and 0xFE are not valid UTF-8; new_bytes must not panic.
-        // Each byte is replaced with U+FFFD (3 bytes each).
+        // 0xFF and 0xFE are not valid UTF-8; new_bytes must not panic and
+        // must store the bytes as-is without any replacement.
         let term = RSQueryTerm::new_bytes(&[0xFF, 0xFE], 1, 0);
         assert!(!term.is_empty());
-        // Each invalid byte maps to one U+FFFD (EF BF BD, 3 bytes), so two
-        // invalid bytes produce exactly "\u{FFFD}\u{FFFD}".
-        assert_eq!(term.as_bytes(), Some("\u{FFFD}\u{FFFD}".as_bytes()));
+        assert_eq!(term.as_bytes(), Some(&[0xFF, 0xFEu8][..]));
     }
 }
