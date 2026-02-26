@@ -11,6 +11,17 @@ use std::{mem, ptr::NonNull};
 
 pub type SearchResult = search_result::SearchResult<'static>;
 
+/// Returns a newly created [`SearchResult`].
+//
+// The `SearchResult` type is technically not FFI-safe due to the `RLookupRow` type of its `_row_data` field.
+// However that type is in practice only exposed as an `OpaqueRLookupRow`, which _is_ FFI-safe.
+// Due to cbindgen limitations we need to put the `allow` attribute on the method itself, rather than on the return type.
+#[allow(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub const extern "C" fn SearchResult_New() -> SearchResult {
+    SearchResult::new()
+}
+
 /// Overrides the contents of `dst` with those from `src` taking ownership of `src`.
 /// Ensures proper cleanup of any existing data in `dst`.
 ///
