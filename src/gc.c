@@ -50,7 +50,7 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
       break;
   }
   __atomic_store_n(&ret->jobRunning, false, __ATOMIC_RELAXED);
-  __atomic_store_n(&ret->lastResult, 1, __ATOMIC_RELAXED);  // Default to reschedule
+  __atomic_store_n(&ret->shouldReschedule, true, __ATOMIC_RELAXED);  // Default to reschedule
   __atomic_store_n(&ret->shutdownRequested, false, __ATOMIC_RELAXED);
   return ret;
 }
@@ -82,7 +82,7 @@ static void taskCallback(void* data) {
   bool ret = gc->callbacks.periodicCallback(gc->gcCtx, false);
 
   // Store result for monitor timer to handle
-  __atomic_store_n(&gc->lastResult, ret, __ATOMIC_RELEASE);
+  __atomic_store_n(&gc->shouldReschedule, ret, __ATOMIC_RELEASE);
   __atomic_store_n(&gc->jobRunning, false, __ATOMIC_RELEASE);
 }
 
@@ -133,8 +133,8 @@ static void GCContext_HandleCompletedJob(GCContext *gc) {
   }
 
   // GC job finished - handle result
-  int result = __atomic_load_n(&gc->lastResult, __ATOMIC_ACQUIRE);
-  if (result == 0) {
+  bool shouldReschedule = __atomic_load_n(&gc->shouldReschedule, __ATOMIC_ACQUIRE);
+  if (!shouldReschedule) {
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "GC %p: Self-Terminating. Index was freed.", gc);
     GCContext_Terminate(gc);
     return;
@@ -163,7 +163,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
 
   // Start GC job
   __atomic_store_n(&gc->jobRunning, true, __ATOMIC_RELAXED);
-  __atomic_store_n(&gc->lastResult, 1, __ATOMIC_RELAXED);  // Default to reschedule
+  __atomic_store_n(&gc->shouldReschedule, true, __ATOMIC_RELAXED);  // Default to reschedule
   redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH);
 
   // Start monitor timer to detect completion
@@ -192,7 +192,7 @@ void GCContext_StartNow(GCContext* gc) {
   // Start GC job immediately
   __atomic_store_n(&gc->shutdownRequested, false, __ATOMIC_RELAXED);
   __atomic_store_n(&gc->jobRunning, true, __ATOMIC_RELAXED);
-  __atomic_store_n(&gc->lastResult, 1, __ATOMIC_RELAXED);
+  __atomic_store_n(&gc->shouldReschedule, true, __ATOMIC_RELAXED);
   redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH);
 
   // Start monitor timer

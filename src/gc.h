@@ -53,7 +53,7 @@ typedef struct GCContext {
   RedisModuleTimerID monitorTimerID; // Short-interval monitor timer (guarded by GIL)
   GCCallbacks callbacks;
   bool jobRunning;                   // True while GC job is running on thread pool (use __atomic_*)
-  int lastResult;                    // Result from periodicCallback (1=reschedule, 0=terminate, use __atomic_*)
+  bool shouldReschedule;             // Result from periodicCallback (true=reschedule, false=terminate, use __atomic_*)
   bool shutdownRequested;            // Stop/teardown guard (use __atomic_*)
 } GCContext;
 

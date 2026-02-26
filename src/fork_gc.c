@@ -998,15 +998,10 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
-#define FGC_GIL_TRYLOCK_ATTEMPTS 200
+#define FGC_GIL_TRYLOCK_ATTEMPTS 50
 #define FGC_GIL_TRYLOCK_SLEEP_US 500
 
 static bool FGC_AcquireGILWithRetry(RedisModuleCtx *ctx) {
-  if (!RedisModule_ThreadSafeContextTryLock) {
-    RedisModule_ThreadSafeContextLock(ctx);
-    return true;
-  }
-
   for (int attempt = 0; attempt < FGC_GIL_TRYLOCK_ATTEMPTS; ++attempt) {
     if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
       return true;
