@@ -58,20 +58,10 @@ typedef enum {
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
             size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded, bool ignoredLastBlock) {
   sctx->spec->stats.numRecords -= recordsRemoved;
-  if (bytesAdded >= bytesCollected) {
-      size_t delta = bytesAdded - bytesCollected;
-      sctx->spec->stats.invertedSize += delta;
-  } else {
-      size_t delta = bytesCollected - bytesAdded;
-      sctx->spec->stats.invertedSize -= delta;
-  }
-  if (bytesCollected >= bytesAdded) {
-      size_t delta = bytesCollected - bytesAdded;
-      gc->stats.totalCollected += delta;
-  } else {
-      size_t delta = bytesAdded - bytesCollected;
-      gc->stats.totalCollected -= delta;
-  }
+  sctx->spec->stats.invertedSize += bytesAdded;
+  sctx->spec->stats.invertedSize -= bytesCollected;
+  gc->stats.totalCollected += bytesCollected;
+  gc->stats.totalCollected -= bytesAdded;
   gc->stats.gcBlocksDenied += ignoredLastBlock ? 1 : 0;
 }
 

@@ -46,8 +46,7 @@ def testOverrides(env):
         numeric_tree = numeric_tree_summary(env, 'idx', 'num')
         env.assertEqual(hashes_number, numeric_tree['numEntries'], message = "expected numEntries")
         env.assertEqual(0, numeric_tree['emptyLeaves'], message = "expected emptyLeaves")
-        # Allow ±1 tolerance due to tree rebalancing behavior with WyHash
-        env.assertAlmostEqual(expected_root_max_depth, numeric_tree['RootMaxDepth'], delta=1, message = "expected RootMaxDepth")
+        env.assertEqual(expected_root_max_depth, numeric_tree['RootMaxDepth'], message = "expected RootMaxDepth")
 
 def testCompression(env):
     accuracy = 0.000001
