@@ -345,7 +345,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
-      TagIndex *tagIdx = TagIndex_Open(tagFields[i], DONT_CREATE_INDEX, NULL);
+      TagIndex *tagIdx = TagIndex_Open(tagFields[i]);
       if (!tagIdx) {
         continue;
       }
@@ -665,7 +665,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
     if (!initialized) {
       fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
-      rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+      // Cast is safe: openNumericOrGeoIndex only mutates fs when create_if_missing is true.
+      rt = openNumericOrGeoIndex(sctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX);
       initialized = true;
     }
 
@@ -772,9 +773,9 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
-    FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
+    const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
     RS_LOG_ASSERT_FMT(fs, "tag field '%.*s' not found in index during GC", (int)fieldNameLen, fieldName);
-    tagIdx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
+    tagIdx = TagIndex_Open(fs);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
 
     if (tagIdx->uniqueId != tagUniqueId) {

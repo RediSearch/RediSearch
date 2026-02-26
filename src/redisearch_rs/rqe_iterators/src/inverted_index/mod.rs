@@ -14,6 +14,7 @@ mod numeric;
 mod term;
 mod wildcard;
 
+pub use core::InvIndIterator;
 pub use numeric::Numeric;
 pub use term::Term;
 pub use wildcard::Wildcard;

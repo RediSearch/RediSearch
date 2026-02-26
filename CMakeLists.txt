@@ -148,7 +148,7 @@ execute_process(
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 # Treat all format-string warnings as errors
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat -Werror=discarded-qualifiers")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
 
