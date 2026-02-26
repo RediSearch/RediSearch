@@ -216,3 +216,19 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= thpool ======================================
+
+cxx_library(
+    name = "thpool",
+    srcs = glob(["thpool/*.c"]),
+    headers = glob(["thpool/*.h"]),
+    exported_headers = export_headers_map(glob(["thpool/*.h"]), "thpool/"),
+    header_namespace = "thpool",
+    deps = [
+        ":rmutil",
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
