@@ -769,19 +769,18 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     // Try to claim reply ownership. If we get it, we can safely write to the reply.
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
+    if (!QueryError_HasError(status)) {
+      // No error - just cleanup
+      // This can happen if during request creation we realized the query timed out
+      goto cleanup;
+    }
+
     // Check that we can claim the reply. If not, the timeout callback owns the reply and we should not write to it.
     // If we can't claim the reply, we should just clear the error and return.
     // If hreq is NULL, we don't have a request to claim. This can happen if the cleanup was called before the request was created.
-
     if (hreq && !CoordRequestCtx_TryClaimReply(reqCtx)) {
         // Timeout callback owns reply - just clear the error
         QueryError_ClearError(status);
-        goto cleanup;
-    }
-
-    if (!QueryError_HasError(status)) {
-        // No error - just cleanup
-        // This can happen if during request creation we realized the query timed out, and the timeout callback already replied.
         goto cleanup;
     }
 

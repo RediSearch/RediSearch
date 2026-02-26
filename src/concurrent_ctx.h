@@ -62,7 +62,6 @@ typedef struct ConcurrentSearchHandlerCtx {
   WeakRef spec_ref;                   // Weak reference to the index spec
   bool isProfile;                     // Whether this is an FT.PROFILE command
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
-  struct CoordRequestCtx *reqCtx;     // Coordinator request context (for timeout handling)
   ConcurrentSearchBlockClientCtx bcCtx; // Context for blocking client
 } ConcurrentSearchHandlerCtx;
 
