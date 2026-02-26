@@ -116,6 +116,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
             WildcardIterator::Raw(w) => w.revalidate(),
         }
     }
+
+    #[inline(always)]
+    fn is_wildcard(&self) -> bool {
+        true
+    }
 }
 
 /// Creates a new wildcard inverted index iterator for querying all existing documents.

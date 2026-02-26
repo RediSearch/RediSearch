@@ -97,6 +97,10 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
     }
+
+    fn is_wildcard(&self) -> bool {
+        true
+    }
 }
 
 /// A marker trait for iterators that match all documents.
@@ -318,6 +322,12 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator {
 
     fn at_eof(&self) -> bool {
         self.0.at_eof()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        // strictly speaking this is a wildcard iterator but the current reducers code from other
+        // iterators do not account for it.
+        false
     }
 }
 

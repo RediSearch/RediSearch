@@ -10,7 +10,8 @@
 //   this shim.
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
+    IteratorStatus_ITERATOR_TIMEOUT, IteratorType_INV_IDX_WILDCARD_ITERATOR,
+    IteratorType_WILDCARD_ITERATOR, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
     ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
 };
 use inverted_index::RSIndexResult;
@@ -309,5 +310,13 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             //   valid instance of an `RSIndexResult`.
             unsafe { self.current.cast::<RSIndexResult<'index>>().as_mut() }
         }
+    }
+
+    #[allow(non_upper_case_globals)]
+    fn is_wildcard(&self) -> bool {
+        matches!(
+            self.type_,
+            IteratorType_WILDCARD_ITERATOR | IteratorType_INV_IDX_WILDCARD_ITERATOR
+        )
     }
 }
