@@ -26,19 +26,19 @@
 
 #include "rmutil/rm_assert.h"
 
-// Forward declaration for Cursor (defined in cursor.h)
-typedef struct Cursor Cursor;
-
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
 extern "C" {
 #else
-#define RS_Atomic(T) _Atomic(T)
 #include <stdatomic.h>
+#define RS_Atomic(T) _Atomic(T)
 #endif
 
 #define DEFAULT_LIMIT 10
+
+// Forward declaration for Cursor (defined in cursor.h)
+typedef struct Cursor Cursor;
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
