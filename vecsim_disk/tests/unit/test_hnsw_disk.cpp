@@ -526,7 +526,7 @@ INSTANTIATE_TEST_SUITE_P(ConcurrencyRerank, HNSWDiskRerankQueryTest,
                          });
 
 // =============================================================================
-// Visited Nodes Counting Tests (Test Only - enabled via BUILD_TESTS)
+// Visited Nodes Counting Tests (Test Only - enabled via VECSIM_DISK_BUILD_TESTS)
 // =============================================================================
 
 TEST_F(HNSWDiskTest, VisitedNodesCounters) {
@@ -828,16 +828,20 @@ TEST_F(HNSWDiskTest, CreateElementSlot) {
 TEST_F(HNSWDiskTest, RecycledIdMetadata) {
     TestIndex<float, float> index(DIM);
 
-    // Allocate and initialize first element
-    idType id = index->testAllocateId();
-    index->testInitElementMetadata(id, 100, 2);
+    // Set up a complete element (allocate + init metadata + add vector)
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    idType id0 = index->testSetupElement(100, 2, vec0);
+    // Add a second element so id0 is not the tail (recycleId handles tail specially)
+    index->testSetupElement(101, 0, vec1);
 
-    // Recycle the ID
-    index->testRecycleId(id);
+    // Follow documented preconditions: mark deleted before recycling
+    index->markDelete(100);
+    index->recycleId(id0);
 
-    // Reallocate (should get same ID back)
+    // Reallocate (should get same ID back from holes)
     idType recycledId = index->testAllocateId();
-    EXPECT_EQ(recycledId, id);
+    EXPECT_EQ(recycledId, id0);
 
     // Initialize metadata for recycled ID (same function works for both fresh and recycled)
     index->testInitElementMetadata(recycledId, 200, 3);
@@ -918,7 +922,7 @@ TEST_F(HNSWDiskTest, ShrinkByBlockCoreBehavior) {
     EXPECT_EQ(index->testGetMaxElements(), 2048);
 
     // Exact boundary (nextId + blockSize == currentMax) should allow one shrink.
-    index->testShrinkByBlock();
+    index->testShrinkUnusedCapacity();
     EXPECT_EQ(index->testGetMaxElements(), 1024);
     EXPECT_EQ(index->testGetIdToMetaDataSize(), 1024);
     EXPECT_EQ(index->testGetNodeLocksSize(), 1024);
@@ -929,13 +933,13 @@ TEST_F(HNSWDiskTest, ShrinkByBlockCoreBehavior) {
     EXPECT_EQ(emptyIndex->testGetMaxElements(), 1024);
     EXPECT_EQ(emptyIndex->testGetNextId(), 0);
 
-    emptyIndex->testShrinkByBlock();
+    emptyIndex->testShrinkUnusedCapacity();
     EXPECT_EQ(emptyIndex->testGetMaxElements(), 0);
     EXPECT_EQ(emptyIndex->testGetIdToMetaDataSize(), 0);
     EXPECT_EQ(emptyIndex->testGetNodeLocksSize(), 0);
 
     // Additional concurrent/no-op safety: shrinking again at zero must remain a no-op.
-    emptyIndex->testShrinkByBlock();
+    emptyIndex->testShrinkUnusedCapacity();
     EXPECT_EQ(emptyIndex->testGetMaxElements(), 0);
     EXPECT_EQ(emptyIndex->testGetIdToMetaDataSize(), 0);
     EXPECT_EQ(emptyIndex->testGetNodeLocksSize(), 0);
@@ -1770,6 +1774,66 @@ TEST_F(HNSWDiskTest, RecycleIdReusesHole) {
     EXPECT_EQ(index->testGetIdByLabel(100), id0);
 }
 
+TEST_F(HNSWDiskTest, RecycleIdTailDecrementsNextId) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.0f, 0.0f, 1.0f, 0.0f};
+
+    index->testSetupElement(100, 0, vec0);
+    index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+
+    index->markDelete(300);
+    index->recycleId(id2);
+
+    idType newId = index->testAllocateId();
+    EXPECT_EQ(newId, id2);
+}
+
+TEST_F(HNSWDiskTest, RecycleIdMiddleAddsToHoles) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.0f, 0.0f, 1.0f, 0.0f};
+
+    index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    index->testSetupElement(300, 0, vec2);
+
+    index->markDelete(200);
+    index->recycleId(id1);
+
+    idType newId = index->testAllocateId();
+    EXPECT_EQ(newId, id1);
+}
+
+TEST_F(HNSWDiskTest, RecycleIdTailTrimsConsecutiveHoles) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {0.0f, 1.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {0.0f, 0.0f, 1.0f, 0.0f};
+
+    index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+
+    index->markDelete(200);
+    index->recycleId(id1);
+
+    index->markDelete(300);
+    index->recycleId(id2);
+
+    idType newId = index->testAllocateId();
+    EXPECT_EQ(newId, id1);
+
+    idType nextId = index->testAllocateId();
+    EXPECT_EQ(nextId, id2);
+}
+
 // --- Entry Point Replacement Tests ---
 
 TEST_F(HNSWDiskTest, ReplaceEntryPointSelectsNeighbor) {
@@ -1792,7 +1856,7 @@ TEST_F(HNSWDiskTest, ReplaceEntryPointSelectsNeighbor) {
     // Delete entry point and trigger EP replacement
     // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
     index->markDelete(100);
-    index->testReplaceEntryPoint();
+    index->testReplaceEntryPoint(id0);
 
     // Entry point should now be id1 (the neighbor)
     auto [newEp, newLevel] = index->testGetEntryPointState();
@@ -1814,7 +1878,7 @@ TEST_F(HNSWDiskTest, ReplaceEntryPointScansLevel) {
     // Delete entry point and trigger EP replacement
     // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
     index->markDelete(100);
-    index->testReplaceEntryPoint();
+    index->testReplaceEntryPoint(id0);
 
     // Entry point should be id1 (found by scanning)
     auto [newEp, newLevel] = index->testGetEntryPointState();
@@ -1841,7 +1905,7 @@ TEST_F(HNSWDiskTest, ReplaceEntryPointDecreasesLevel) {
     // Delete entry point (only element at level 2) and trigger EP replacement
     // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
     index->markDelete(100);
-    index->testReplaceEntryPoint();
+    index->testReplaceEntryPoint(id0);
 
     // maxLevel should decrease and id1 should become entry point
     auto [newEp, newLevel] = index->testGetEntryPointState();
@@ -1860,7 +1924,7 @@ TEST_F(HNSWDiskTest, ReplaceEntryPointEmptyIndex) {
     // Delete the only element and trigger EP replacement
     // (In production, replaceEntryPoint() is called in executeDeleteInitJob())
     index->markDelete(100);
-    index->testReplaceEntryPoint();
+    index->testReplaceEntryPoint(id);
 
     // Entry point should be INVALID_ID
     auto [ep, level] = index->testGetEntryPointState();
@@ -2595,4 +2659,232 @@ TEST_F(HNSWDiskTest, MetadataVisibilityAfterCreation) {
 
     // Verify metadata checks ran
     EXPECT_GT(metadataChecks.load(), 100) << "Should have performed many metadata checks";
+}
+
+// =============================================================================
+// Delete Flow and Shrinking Tests - MOD-13797
+// =============================================================================
+
+// Test: Deleting the entry point triggers replacement
+TEST_F(HNSWDiskTest, DeleteVectorEntryPointReplacement) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {2.0f, 0.0f, 0.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+
+    // Connect nodes and set id0 as entry point
+    index->testAddEdge(id0, id1, 0);
+    index->testAddEdge(id1, id2, 0);
+    index->testTryUpdateEntryPoint(id0, 0);
+
+    auto [epBefore, levelBefore] = index->testGetEntryPointState();
+    EXPECT_EQ(epBefore, id0);
+
+    // Delete entry point (simulates full delete flow via markDelete + replaceEntryPoint)
+    index->markDelete(100);
+    index->testReplaceEntryPoint(id0);
+
+    // Entry point should be replaced with a neighbor
+    auto [epAfter, levelAfter] = index->testGetEntryPointState();
+    EXPECT_NE(epAfter, id0);
+    EXPECT_NE(epAfter, INVALID_ID);
+    EXPECT_TRUE(epAfter == id1 || epAfter == id2);
+}
+
+// Test: Tail delete triggers shrinkUnusedCapacity when nextId drops below threshold
+TEST_F(HNSWDiskTest, RecycleIdTailTriggersShrink) {
+    // Use small blockSize for easier testing
+    const size_t blockSize = 1024;
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10);
+
+    // Fill up more than one block
+    std::vector<idType> ids;
+    for (size_t i = 0; i < blockSize + 100; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        ids.push_back(index->testSetupElement(i, 0, vec));
+    }
+
+    size_t maxBefore = index->testGetMaxElements();
+    EXPECT_GE(maxBefore, blockSize * 2) << "Should have at least 2 blocks allocated";
+
+    // Delete elements from the end until we cross the block boundary
+    for (size_t i = 0; i < 200; i++) {
+        idType id = ids.back();
+        ids.pop_back();
+        index->markDelete(id);
+        index->recycleId(id);
+    }
+
+    size_t maxAfter = index->testGetMaxElements();
+    EXPECT_LT(maxAfter, maxBefore) << "Capacity should shrink after tail deletions";
+}
+
+// Test: No shrink when deleted block is partially used
+TEST_F(HNSWDiskTest, RecycleIdTailNoShrinkPartialBlock) {
+    const size_t blockSize = 1024;
+    TestIndex<float, float> index(DIM, VecSimMetric_L2, 16, 200, 10);
+
+    // Fill up just past one block
+    std::vector<idType> ids;
+    for (size_t i = 0; i < blockSize + 10; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        ids.push_back(index->testSetupElement(i, 0, vec));
+    }
+
+    size_t maxBefore = index->testGetMaxElements();
+    EXPECT_GE(maxBefore, blockSize * 2);
+
+    // Delete just a few elements (not enough to cross block boundary)
+    for (size_t i = 0; i < 5; i++) {
+        idType id = ids.back();
+        ids.pop_back();
+        index->markDelete(id);
+        index->recycleId(id);
+    }
+
+    size_t maxAfter = index->testGetMaxElements();
+    EXPECT_EQ(maxAfter, maxBefore) << "Capacity should NOT shrink when block is still partially used";
+}
+
+// Test: Mixed tail/middle deletes manage holes correctly
+TEST_F(HNSWDiskTest, RecycleIdMixedPattern) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {2.0f, 0.0f, 0.0f, 0.0f};
+    float vec3[DIM] = {3.0f, 0.0f, 0.0f, 0.0f};
+    float vec4[DIM] = {4.0f, 0.0f, 0.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+    idType id3 = index->testSetupElement(400, 0, vec3);
+    idType id4 = index->testSetupElement(500, 0, vec4);
+
+    // Delete middle element (id2) - should add to holes
+    index->markDelete(300);
+    index->recycleId(id2);
+    EXPECT_EQ(index->testGetHolesCount(), 1);
+
+    // Delete tail element (id4) - should decrement nextId, not add to holes
+    index->markDelete(500);
+    index->recycleId(id4);
+    // nextId decremented, holes should be checked for consecutive trimming (none consecutive here)
+    EXPECT_EQ(index->testGetHolesCount(), 1);
+
+    // Delete another middle element (id1)
+    index->markDelete(200);
+    index->recycleId(id1);
+    EXPECT_EQ(index->testGetHolesCount(), 2);
+
+    // Delete tail (id3) - should trim consecutive holes (id2 is now consecutive)
+    index->markDelete(400);
+    index->recycleId(id3);
+    // After trimming: nextId should be 1 (only id0 remains), holes should be empty
+    EXPECT_EQ(index->testGetNextId(), 1);
+    EXPECT_EQ(index->testGetHolesCount(), 0);
+}
+
+// Test: holes_.shrink_to_fit is called after consecutive hole trimming
+TEST_F(HNSWDiskTest, HolesShrinkToFitAfterTailTrim) {
+    TestIndex<float, float> index(DIM);
+
+    // Create many elements
+    std::vector<idType> ids;
+    for (int i = 0; i < 100; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        ids.push_back(index->testSetupElement(i, 0, vec));
+    }
+
+    // Delete middle elements to create holes
+    for (int i = 10; i < 90; i++) {
+        index->markDelete(i);
+        index->recycleId(ids[i]);
+    }
+
+    // Should have many holes now
+    size_t holesCountBefore = index->testGetHolesCount();
+    EXPECT_GT(holesCountBefore, 50);
+
+    // Delete tail elements - this triggers consecutive hole trimming
+    for (int i = 99; i >= 90; i--) {
+        index->markDelete(i);
+        index->recycleId(ids[i]);
+    }
+
+    // After trimming, holes should be gone (all were consecutive with tail)
+    size_t holesCountAfter = index->testGetHolesCount();
+    EXPECT_EQ(holesCountAfter, 0);
+
+    // Capacity should have been reduced by shrink_to_fit
+    size_t holesCapacityAfter = index->testGetHolesCapacity();
+    EXPECT_EQ(holesCapacityAfter, 0) << "holes_.capacity() should be 0 after shrink_to_fit";
+}
+
+// Test: labelToIdLookup_ rehashes when load_factor < 25%
+TEST_F(HNSWDiskTest, ShrinkLabelLookupOnLowLoadFactor) {
+    TestIndex<float, float> index(DIM);
+
+    // Insert many elements to grow the hash table
+    std::vector<idType> ids;
+    for (int i = 0; i < 200; i++) {
+        float vec[DIM] = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+        ids.push_back(index->testSetupElement(i, 0, vec));
+    }
+
+    size_t bucketsBefore = index->testGetLabelLookupBucketCount();
+    EXPECT_GT(bucketsBefore, 32) << "Should have significant bucket count after many inserts";
+
+    // Delete most elements (keep just a few)
+    for (int i = 10; i < 200; i++) {
+        index->markDelete(i);
+    }
+
+    // Load factor should be low now
+    float loadFactor = index->testGetLabelLookupLoadFactor();
+    EXPECT_LT(loadFactor, 0.25f) << "Load factor should be below 25% after many deletes";
+
+    // Call shrinkLabelLookup
+    index->testShrinkLabelLookup();
+
+    // Bucket count should decrease
+    size_t bucketsAfter = index->testGetLabelLookupBucketCount();
+    EXPECT_LT(bucketsAfter, bucketsBefore) << "Bucket count should decrease after shrink";
+}
+
+// Test: vectors container shrinks on tail delete
+TEST_F(HNSWDiskTest, VectorsContainerShrinksOnTailDelete) {
+    TestIndex<float, float> index(DIM);
+
+    float vec0[DIM] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float vec1[DIM] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vec2[DIM] = {2.0f, 0.0f, 0.0f, 0.0f};
+
+    idType id0 = index->testSetupElement(100, 0, vec0);
+    idType id1 = index->testSetupElement(200, 0, vec1);
+    idType id2 = index->testSetupElement(300, 0, vec2);
+    (void)id0; // Unused
+
+    size_t vectorsSizeBefore = index->testGetVectorsSize();
+    EXPECT_EQ(vectorsSizeBefore, 3);
+
+    // Delete tail element (id2)
+    index->markDelete(300);
+    index->recycleId(id2);
+
+    size_t vectorsSizeAfter = index->testGetVectorsSize();
+    EXPECT_EQ(vectorsSizeAfter, 2) << "vectors container should shrink after tail delete";
+
+    // Delete another tail element (id1)
+    index->markDelete(200);
+    index->recycleId(id1);
+
+    vectorsSizeAfter = index->testGetVectorsSize();
+    EXPECT_EQ(vectorsSizeAfter, 1) << "vectors container should shrink after another tail delete";
 }

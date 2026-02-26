@@ -181,3 +181,35 @@ def pytest_bdd_step_error(request, feature, scenario, step, step_func, step_func
     print(f"\nStep failed: {step.keyword} {step.name}")
     print(f"Feature: {feature.name}")
     print(f"Scenario: {scenario.name}")
+
+
+@pytest.fixture(scope='function')
+def conn(redis_env):
+    """Get Redis connection from the environment."""
+    return redis_env.getConnection()
+
+
+@pytest.fixture(scope='function')
+def new_hnsw_disk_index(conn):
+    """
+    Create a standard HNSW disk index for testing.
+
+    Creates index 'idx' with field 'vec' using common test parameters:
+    - DIM=4, M=16, EF_CONSTRUCTION=200, EF_RUNTIME=10, RERANK (flag)
+    - DISTANCE_METRIC=L2
+
+    Returns the connection for further commands.
+    """
+    result = conn.execute_command(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'vec', 'VECTOR', 'HNSW', '13',
+        'TYPE', 'FLOAT32',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK'
+    )
+    assert result == 'OK', f"FT.CREATE failed: {result}"
+    return conn

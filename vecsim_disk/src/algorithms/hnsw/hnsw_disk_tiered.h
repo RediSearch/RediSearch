@@ -126,6 +126,12 @@ private:
     // Flag to indicate if the index is being destroyed
     std::atomic<bool> is_destroyed{false};
 
+    // Test hook: callback invoked after validity check but BEFORE indexVector.
+    // Used to reproduce race condition in tests.
+    // NOTE: Must be declared outside #ifdef to maintain consistent class layout between
+    // library and tests (avoiding ODR violations that cause mutex corruption and crashes).
+    std::function<void()> testHookBeforeIndexVector;
+
     VecSimQueryReply* topKQueryImp(const void* queryBlob, size_t k, VecSimQueryParams* queryParams) const;
 
 public:
@@ -207,18 +213,21 @@ public:
     }
 
     // Delete a label from HNSW disk index - marks as deleted and submits async cleanup jobs
-    void deleteLabelFromHNSW(labelType label) {
+    // Returns the number of internal IDs that were deleted (0 if label didn't exist).
+    size_t deleteLabelFromHNSW(labelType label) {
         auto* hnsw_index = get_hnsw_index();
 
-        // Mark the label as deleted in the HNSW index, and get the associated internal IDs
+        // Mark the label as deleted in the HNSW index, and get the associated internal IDs.
+        // markDelete returns empty vector if label doesn't exist.
         vecsim_stl::vector<idType> deleted_ids = hnsw_index->markDelete(label);
 
-        // Create the init delete job
+        // Create the init delete job for each deleted ID
         for (idType internal_id : deleted_ids) {
-            // Create job with auto-submit deleter, pended by all currently running jobs
-            // If no running jobs, it will be submitted immediately
+            // Create job with auto-submit deleter, pended by all currently running jobs.
+            // If no running jobs, it will be submitted immediately.
             pendDeleteInitJobByCurrentlyRunning(internal_id);
         }
+        return deleted_ids.size();
     }
 
     // Job execution methods
@@ -253,7 +262,7 @@ public:
         const void* quantizedQuery = processedBlobs.getQueryBlob();
         const void* quantizedStorage = processedBlobs.getStorageBlob();
 
-#ifdef BUILD_TESTS
+#ifdef VECSIM_DISK_BUILD_TESTS
         // Test hook: allow tests to inject code for testing
         if (testHookBeforeIndexVector) {
             testHookBeforeIndexVector();
@@ -308,16 +317,13 @@ public:
     void executeDeleteInitJob(DeleteDiskJob* delete_job) {
         idType deleted_id = delete_job->deleted_id;
 
-        // Get the HNSW disk index
         auto* hnsw_index = get_hnsw_index();
         auto* storage = hnsw_index->getStorage();
 
-        // TODO (MOD-13797): Replace entry point if deleted_id is the current entry point
+        hnsw_index->replaceEntryPointOnDelete(deleted_id);
 
-        // Get the maximum level for this node
-        levelType max_level = 0; // TODO: Get actual max level for this node from storage
+        levelType max_level = hnsw_index->getElementMaxLevel(deleted_id);
 
-        // Collect all incoming neighbors at all levels
         GraphNodeList all_neighbors(this->allocator);
         for (levelType level = 0; level <= max_level; level++) {
             vecsim_stl::vector<idType> incoming_neighbors(this->allocator);
@@ -327,22 +333,46 @@ public:
             }
         }
 
-        // Create the finalize job with auto-submit deleter
-        // It will be automatically submitted when all repair jobs complete
         std::shared_ptr<AsyncDiskJob> finalize_job = createAutoSubmitJob<DeleteDiskJob>(
             this->allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, deleted_id, executeDiskJobWrapper, this);
 
-        // Submit repair jobs for each neighbor-level pair, linking them to the finalize job
         submitRepairs(all_neighbors, finalize_job);
     }
 
     void executeDeleteFinalizeJob(DeleteDiskJob* delete_job) {
         idType deleted_id = delete_job->deleted_id;
 
-        // TODO: Implement final cleanup/swap logic
-        // - Delete all disk storage keys related to deleted_id
-        // - Update any internal data structures
-        // - Add the deleted_id to the free list for future reuse
+        auto* hnsw_index = get_hnsw_index();
+        auto* storage = hnsw_index->getStorage();
+
+        levelType max_level = hnsw_index->getElementMaxLevel(deleted_id);
+
+        vecsim_stl::vector<std::tuple<idType, levelType, idType, EdgeOperation>> batch_ops(this->allocator);
+
+        for (levelType level = 0; level <= max_level; level++) {
+            vecsim_stl::vector<idType> outgoing_neighbors(this->allocator);
+            storage->get_outgoing_edges(deleted_id, level, outgoing_neighbors);
+            for (idType neighbor_id : outgoing_neighbors) {
+                batch_ops.emplace_back(neighbor_id, level, deleted_id, EdgeOperation::Delete);
+            }
+        }
+
+        // Acquire ConsistencySharedGuard before any writes (disk or in-memory).
+        // This matches executeInsertJob pattern where the guard is held during all mutations.
+        vecsim_disk::ConsistencySharedGuard consistency_guard;
+
+        if (!batch_ops.empty()) {
+            storage->batch_merge_incoming_edges(batch_ops);
+        }
+
+        storage->del_vector(deleted_id);
+        for (levelType level = 0; level <= max_level; level++) {
+            storage->del_outgoing_edges(deleted_id, level);
+            storage->del_incoming_edges(deleted_id, level);
+        }
+
+        hnsw_index->recycleId(deleted_id);
+        hnsw_index->decrementElementCount();
     }
 
     // Generic static wrapper that dispatches to the right executor based on job type
@@ -460,9 +490,6 @@ public:
         }
     }
 
-    // Create a delete init job with auto-submit deleter and pend it by all currently running jobs.
-    // If there are no currently running jobs, the job will be submitted when its ref count reaches 0.
-    // Returns the shared_ptr to the created job.
     std::shared_ptr<AsyncDiskJob> pendDeleteInitJobByCurrentlyRunning(idType deletedId) {
         auto job = createAutoSubmitJob<DeleteDiskJob>(this->allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, deletedId,
                                                       executeDiskJobWrapper, this);
@@ -527,19 +554,14 @@ public:
     // VecSimTieredIndex interface
     size_t getNumMarkedDeleted() const override { return get_hnsw_index()->getNumMarkedDeleted(); }
 
-#ifdef BUILD_TESTS
+#ifdef VECSIM_DISK_BUILD_TESTS
     HNSWDiskIndex<DataType, DistType>* getBackendIndex() {
         return static_cast<HNSWDiskIndex<DataType, DistType>*>(this->backendIndex);
     }
 
-    // Required by VecSimIndexInterface when BUILD_TESTS is defined
-    size_t indexMetaDataCapacity() const override {
-        return this->backendIndex->indexMetaDataCapacity() + this->frontendIndex->indexMetaDataCapacity();
-    }
-
-    // Test hook: callback invoked after validity check but BEFORE indexVector
-    // Used to reproduce race condition in tests
-    std::function<void()> testHookBeforeIndexVector;
+    // Test wrapper for VecSimTieredIndex::frontendIndex (protected in VectorSimilarity)
+    // Returns the flat buffer (BruteForce) frontend index
+    BruteForceIndex<DataType, DistType>* getFlatBufferIndex() { return this->frontendIndex; }
 
     // Test helper: manually execute just the executeInsertJob logic for a job
     // This allows fine-grained control over job execution timing in tests
@@ -605,32 +627,15 @@ int TieredHNSWDiskIndex<DataType, DistType>::addVector(const void* data, labelTy
 
 template <typename DataType, typename DistType>
 int TieredHNSWDiskIndex<DataType, DistType>::deleteVector(labelType label) {
-    // TODO(MOD-13172): Implement delete flow using DISK_IN_PROCESS flag.
-    //
-    // The new flow uses DISK_IN_PROCESS flag for coordination with in-flight inserts:
-    // - Insert jobs call allocateAndRegister() atomically under flat lock, which marks IN_PROCESS
-    // - Delete can find labels in HNSW even while insert is still connecting to graph
-    // - Elements marked IN_PROCESS can be marked deleted (delete wins)
-    //
-    // IMPLEMENTATION:
-    // 1. Acquire consistency_guard (shared) - for fork safety
-    // 2. Acquire flatIndexGuard (exclusive)
-    // 3. Check where the label exists:
-    //
-    //    CASE A: Label in flat buffer
-    //      - Remove from flat buffer (insert job will fail validation when it runs)
-    //      - Return 1
-    //
-    //    CASE B: Label in HNSW index (may be IN_PROCESS or fully indexed)
-    //      - Mark deleted in HNSW (markDeleted)
-    //      - Submit cleanup jobs if needed
-    //      - Return 1
-    //
-    //    CASE C: Label doesn't exist anywhere
-    //      - Return 0
-    //
-    // LOCK ORDER: consistency_guard -> flatIndexGuard
-    return 0;
+    {
+        std::unique_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+        if (this->frontendIndex->isLabelExists(label)) {
+            this->frontendIndex->deleteVector(label);
+            return 1;
+        }
+    }
+
+    return deleteLabelFromHNSW(label);
 }
 
 template <typename DataType, typename DistType>

@@ -9,10 +9,10 @@
 #pragma once
 
 // Test helper methods for HNSWDiskIndex
-// This file is only included when BUILD_TESTS is defined
+// This file is only included when VECSIM_DISK_BUILD_TESTS is defined
 // These methods provide access to private members for testing purposes
 
-#ifdef BUILD_TESTS
+#ifdef VECSIM_DISK_BUILD_TESTS
 
 // This macro defines the test accessor methods that should be added to HNSWDiskIndex
 // Usage: Include this header and use HNSW_DISK_TEST_METHODS in the public section
@@ -24,7 +24,7 @@
     void testRecycleId(idType id) { recycleId(id); }                                                                   \
     GraphNodeType testGetEntryPointState() const { return safeGetEntryPointState(); }                                  \
     void testTryUpdateEntryPoint(idType id, size_t level) { replaceEntryPoint(id, level); }                            \
-    void testReplaceEntryPoint() { replaceEntryPointOnDelete(); }                                                      \
+    void testReplaceEntryPoint(idType deleted_id) { replaceEntryPointOnDelete(deleted_id); }                           \
     idType testGetNextId() const {                                                                                     \
         std::lock_guard<std::mutex> lock(holesMutex_);                                                                 \
         return nextId_;                                                                                                \
@@ -33,6 +33,23 @@
         std::lock_guard<std::mutex> lock(holesMutex_);                                                                 \
         return holes_.size();                                                                                          \
     }                                                                                                                  \
+    size_t testGetHolesCapacity() const {                                                                              \
+        std::lock_guard<std::mutex> lock(holesMutex_);                                                                 \
+        return holes_.capacity();                                                                                      \
+    }                                                                                                                  \
+    size_t testGetVectorsSize() const {                                                                                \
+        std::shared_lock<std::shared_mutex> lock(vectorsMutex_);                                                       \
+        return this->vectors->size();                                                                                  \
+    }                                                                                                                  \
+    float testGetLabelLookupLoadFactor() const {                                                                       \
+        std::shared_lock<std::shared_mutex> lock(labelLookupMutex_);                                                   \
+        return labelToIdLookup_.load_factor();                                                                         \
+    }                                                                                                                  \
+    size_t testGetLabelLookupBucketCount() const {                                                                     \
+        std::shared_lock<std::shared_mutex> lock(labelLookupMutex_);                                                   \
+        return labelToIdLookup_.bucket_count();                                                                        \
+    }                                                                                                                  \
+    void testShrinkLabelLookup() { shrinkLabelLookup(); }                                                              \
                                                                                                                        \
     /* Test reranking distance: full precision (disk) vs full precision (query) */                                     \
     DistType testComputeDistance(const void* query, idType elementId) const {                                          \
@@ -177,7 +194,7 @@
     }                                                                                                                  \
     size_t testGetMaxElements() const { return maxElements_.load(std::memory_order_relaxed); }                         \
     void testGrowByBlock(idType triggeringId) { growByBlock(triggeringId); }                                           \
-    void testShrinkByBlock() { shrinkByBlock(); }                                                                      \
+    void testShrinkUnusedCapacity() { shrinkUnusedCapacity(); }                                                        \
     size_t testGetNodeLocksSize() const { return nodeLocks_.size(); }                                                  \
     size_t testGetIdToMetaDataSize() const { return idToMetaData.size(); }                                             \
                                                                                                                        \
@@ -279,9 +296,14 @@
         if (storage_) {                                                                                                \
             storage_->get_vector(id, buffer, bufferSize);                                                              \
         }                                                                                                              \
+    }                                                                                                                  \
+                                                                                                                       \
+    /* Test wrapper: public accessor for DiskDistanceCalculator (production getDiskCalculator() is private) */         \
+    DiskDistanceCalculator<DistType>* testGetDiskCalculator() const {                                                  \
+        return const_cast<DiskDistanceCalculator<DistType>*>(getDiskCalculator());                                     \
     }
 
 #else
-// When BUILD_TESTS is not defined, this macro expands to nothing
+// When VECSIM_DISK_BUILD_TESTS is not defined, this macro expands to nothing
 #define HNSW_DISK_TEST_METHODS
 #endif

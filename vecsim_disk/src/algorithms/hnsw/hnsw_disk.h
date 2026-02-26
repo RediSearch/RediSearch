@@ -21,6 +21,7 @@
 #include "utils/vecsim_stl_ext.h"
 #include "graph_node_type.h"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <random>
@@ -28,11 +29,11 @@
 
 #include "utils/consistency_lock.h"
 
-// Test helpers are in tests/unit/ directory - included via CMake include path when BUILD_TESTS is defined
-#ifdef BUILD_TESTS
+// Test helpers are in tests/unit/ directory - included via CMake include path when VECSIM_DISK_BUILD_TESTS is defined
+#ifdef VECSIM_DISK_BUILD_TESTS
 #include "hnsw_disk_test_helpers.h"
 #else
-// When BUILD_TESTS is not defined, this macro expands to nothing
+// When VECSIM_DISK_BUILD_TESTS is not defined, this macro expands to nothing
 #define HNSW_DISK_TEST_METHODS
 #endif
 
@@ -230,12 +231,11 @@ public:
     VecSimBatchIterator* newBatchIterator(const void*, VecSimQueryParams*) const override { return nullptr; }
     bool preferAdHocSearch(size_t, size_t, bool) const override { return true; }
 
-#ifdef BUILD_TESTS
-    void fitMemory() override {}
-    size_t indexMetaDataCapacity() const override { return maxElements_.load(std::memory_order_relaxed); }
-    void getDataByLabel(labelType, std::vector<std::vector<DataType>>&) const override {}
-    std::vector<std::vector<char>> getStoredVectorDataByLabel(labelType) const override { return {}; }
-#endif
+    // NOTE: VectorSimilarity's VecSimIndexInterface has pure virtual methods (fitMemory,
+    // indexMetaDataCapacity, getDataByLabel, getStoredVectorDataByLabel) only when BUILD_TESTS
+    // is defined. Since we compile VectorSimilarity with VECSIM_BUILD_TESTS=OFF, these virtuals
+    // don't exist in the base class, so we don't override them here. If they did exist,
+    // providing overrides inside #ifdef would cause ODR violations.
 
     size_t getEf() const { return efRuntime_; }
     void setEf(size_t ef) { efRuntime_ = ef; }
@@ -243,7 +243,9 @@ public:
     HNSWStorage<DataType>* getStorage() const { return storage_.get(); }
 
     // --- Query Statistics (Test Only) ---
-#ifdef BUILD_TESTS
+    // NOTE: These methods are always available but the counters are only updated when
+    // VECSIM_DISK_BUILD_TESTS is defined (see searchLayer/greedySearchLevel).
+#ifdef VECSIM_DISK_BUILD_TESTS
     // Get cumulative count of visited nodes in upper layers (greedySearchLevel, levels > 0)
     size_t getNumVisitedNodesUpperLayers() const { return numVisitedNodesUpperLayers_.load(std::memory_order_relaxed); }
     // Get cumulative count of visited nodes in bottom layer (searchLayer, level 0)
@@ -272,6 +274,13 @@ public:
 
     // Return ID to pool for reuse. Call after markDelete() and disk cleanup.
     void recycleId(idType id);
+
+    // Shrink label lookup hash table when load factor drops below threshold.
+    // Call periodically from delete finalize job to reclaim memory.
+    void shrinkLabelLookup();
+
+    // Replace entry point if deleted_id is the current entry point. Call from tiered delete init job.
+    void replaceEntryPointOnDelete(idType deleted_id);
 
     // =========================================================================
     // Test Accessors - Public accessors for testing
@@ -512,14 +521,15 @@ private:
     bool rerankEnabled_;
 
     // --- Query Statistics (Test Only) ---
-#ifdef BUILD_TESTS
+    // NOTE: These members are always present to maintain consistent class layout between
+    // library and tests (avoiding ODR violations). They are only updated when
+    // VECSIM_DISK_BUILD_TESTS is defined at compile time.
     // Cumulative counters for visited nodes during queries.
     // These are mutable because they are updated during const query operations.
     // Upper layers: nodes visited during greedySearchLevel (levels > 0)
     mutable std::atomic<size_t> numVisitedNodesUpperLayers_{0};
     // Bottom layer: nodes visited during searchLayer at level 0
     mutable std::atomic<size_t> numVisitedNodesBottomLayer_{0};
-#endif
 
     // --- Level Generation ---
     double mult_; // = 1 / ln(M), for level generation
@@ -598,21 +608,8 @@ private:
      */
     void growByBlock(idType triggeringId);
 
-    /**
-     * @brief Shrink both idToMetaData and nodeLocks_ by blockSize.
-     *
-     * Called when there's excess capacity (e.g., after many deletions).
-     * Uses double-checked locking: re-checks if shrinking is still safe after
-     * acquiring metadataMutex_ to avoid unsafe shrinking from concurrent callers.
-     *
-     * Shrinking is only performed if:
-     * - Current capacity >= blockSize
-     * - nextId_ <= (maxElements_ - blockSize) (at least one full unused block at the tail)
-     *
-     * This allows shrinking to zero capacity when the index is truly empty
-     * (nextId_ == 0 and current capacity == blockSize).
-     */
-    void shrinkByBlock();
+    /// Shrink capacity by removing unused blocks. Called after tail deletions.
+    void shrinkUnusedCapacity();
 
     /**
      * @brief Initialize metadata and lock for an element.
@@ -649,21 +646,6 @@ private:
      * @param newLevel Maximum level of the new element
      */
     void replaceEntryPoint(idType newId, levelType newLevel);
-
-    /**
-     * @brief Replace entry point when current entry point is deleted.
-     *
-     * Selection strategy:
-     * 1. Try neighbors of deleted entry point at top level
-     * 2. If no valid neighbor, scan all elements at top level
-     * 3. If no element at top level, decrease maxLevel_ and recurse
-     * 4. If index becomes empty, set entryPoint_ = INVALID_ID
-     *
-     * Holds entryPointMutex_ exclusively for the entire operation to avoid
-     * race conditions with concurrent deletes. Cost is minimal since entry
-     * point replacement is rare (only when deleting the entry point itself).
-     */
-    void replaceEntryPointOnDelete();
 
     // --- Distance Computation ---
     /**
@@ -944,19 +926,6 @@ private:
         return it->second;
     }
 
-    /**
-     * @brief Remove a label from the lookup.
-     *
-     * Called during vector deletion.
-     *
-     * @param label User-provided label to remove
-     * @return Number of elements removed (0 or 1)
-     */
-    size_t removeLabel(labelType label) {
-        std::unique_lock<std::shared_mutex> lock(labelLookupMutex_);
-        return labelToIdLookup_.erase(label);
-    }
-
     // Helper to access the disk calculator with proper type for templated calcDistance<Mode>()
     const DiskDistanceCalculator<DistType>* getDiskCalculator() const {
         return static_cast<const DiskDistanceCalculator<DistType>*>(this->getIndexCalculator());
@@ -1034,34 +1003,25 @@ void HNSWDiskIndex<DataType, DistType>::growByBlock(idType triggeringId) {
 }
 
 template <typename DataType, typename DistType>
-void HNSWDiskIndex<DataType, DistType>::shrinkByBlock() {
+// Shrinks capacity by removing unused blocks from the end.
+// Called after recycleId() trims consecutive holes from the tail.
+// Holds both locks for the entire operation to avoid racing allocateId().
+void HNSWDiskIndex<DataType, DistType>::shrinkUnusedCapacity() {
     std::unique_lock<std::shared_mutex> metaLock(metadataMutex_);
     std::lock_guard<std::mutex> holesLock(holesMutex_);
 
     size_t currentMax = maxElements_.load(std::memory_order_relaxed);
-    if (currentMax == 0) {
-        return; // Another thread may have already shrunk to zero.
-    }
-    assert(currentMax % this->blockSize == 0 && "shrinkByBlock: capacity must be block-aligned");
-    assert(currentMax >= this->blockSize && "shrinkByBlock: non-zero capacity must be at least one block");
-
-    // Double-check after acquiring lock: ensure we still have enough unused capacity
-    // Only shrink if we have at least one full block of unused capacity at the end.
-    // Use subtraction to avoid overflow in (nextId + blockSize).
-    // Note: shrinking to zero capacity is allowed when index is truly empty.
-    // Hold holesMutex_ while reading nextId_ and shrinking to avoid racing allocateId(),
-    // which increments nextId_ under holesMutex_.
-    size_t nextIdValue = nextId_;
-    if (nextIdValue > currentMax - this->blockSize) {
-        return; // Not safe to shrink - IDs might be in use or about to be used
+    if (currentMax < this->blockSize || nextId_ > currentMax - this->blockSize) {
+        return; // No unused blocks to shrink
     }
 
-    size_t newCapacity = currentMax - this->blockSize;
+    // Calculate target capacity: round nextId_ up to next block boundary
+    size_t newCapacity = ((nextId_ + this->blockSize - 1) / this->blockSize) * this->blockSize;
 
-    // Shrink idToMetaData and nodeLocks_ to release memory
     idToMetaData.resize(newCapacity);
+    idToMetaData.shrink_to_fit();
     nodeLocks_.resize(newCapacity);
-
+    nodeLocks_.shrink_to_fit();
     maxElements_.store(newCapacity, std::memory_order_release);
 }
 
@@ -1120,11 +1080,52 @@ idType HNSWDiskIndex<DataType, DistType>::allocateIdAndStoreVector(const void* q
 
 template <typename DataType, typename DistType>
 void HNSWDiskIndex<DataType, DistType>::recycleId(idType id) {
-    // TODO(delete PR) [MOD-13172]: Smarter hole management (if the id is last, also trim any holes from the left)
-    // NOTE: If recycleId() starts triggering shrinkByBlock(), ensure holes_ does not retain
-    // IDs >= new capacity after shrinking. Otherwise allocateId() may pop an out-of-bounds ID.
-    std::lock_guard<std::mutex> lock(holesMutex_);
-    holes_.push_back(id);
+    bool shouldShrink = false;
+    {
+        // TODO if locking order can be switched, vectorsLock can be held only in the rare `id == nextId_ - 1` condition
+        std::unique_lock<std::shared_mutex> vectorsLock(vectorsMutex_);
+        std::lock_guard<std::mutex> holesLock(holesMutex_);
+
+        if (id == nextId_ - 1) {
+            --nextId_;
+            this->vectors->removeElement(nextId_);
+
+            // Trim consecutive holes from tail by sorting ascending and popping.
+            // O(n*log(n)) sort, then O(k) pops for k consecutive holes.
+            if (!holes_.empty()) {
+                std::sort(holes_.begin(), holes_.end());
+                while (!holes_.empty() && holes_.back() == nextId_ - 1) {
+                    holes_.pop_back();
+                    --nextId_;
+                    this->vectors->removeElement(nextId_);
+                }
+                // Release memory from popped holes
+                holes_.shrink_to_fit();
+            }
+
+            size_t currentMax = maxElements_.load(std::memory_order_acquire);
+            if (nextId_ <= currentMax - this->blockSize) {
+                shouldShrink = true;
+            }
+        } else {
+            holes_.push_back(id);
+        }
+    }
+
+    if (shouldShrink) {
+        shrinkUnusedCapacity();
+        shrinkLabelLookup();
+    }
+}
+
+template <typename DataType, typename DistType>
+void HNSWDiskIndex<DataType, DistType>::shrinkLabelLookup() {
+    std::unique_lock<std::shared_mutex> lock(labelLookupMutex_);
+    // Shrink when load factor drops below 25% and bucket count is significant.
+    // Target ~50% load factor after rehash to leave room for future inserts.
+    if (labelToIdLookup_.load_factor() < 0.25 && labelToIdLookup_.bucket_count() > 32) {
+        labelToIdLookup_.rehash(labelToIdLookup_.size() * 2);
+    }
 }
 
 template <typename DataType, typename DistType>
@@ -1224,7 +1225,10 @@ bool HNSWDiskIndex<DataType, DistType>::isInProcess(idType id) const {
 template <typename DataType, typename DistType>
 bool HNSWDiskIndex<DataType, DistType>::isMarkedDeleted(idType id) const {
     std::shared_lock<std::shared_mutex> lock(metadataMutex_);
-    return id < idToMetaData.size() && isMarkedAsUnsafe<DISK_DELETE_MARK>(id);
+    if (id >= idToMetaData.size()) {
+        return true; // Out-of-bounds ID treated as deleted (may have been shrunk)
+    }
+    return isMarkedAsUnsafe<DISK_DELETE_MARK>(id);
 }
 
 template <typename DataType, typename DistType>
@@ -1336,7 +1340,7 @@ candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idTyp
         if constexpr (running_query) {
             if (VECSIM_TIMEOUT(timeoutCtx)) {
                 *rc = VecSim_QueryReply_TimedOut;
-#ifdef BUILD_TESTS
+#ifdef VECSIM_DISK_BUILD_TESTS
                 // Count visited nodes before returning
                 numVisitedNodesBottomLayer_.fetch_add(visited_set.size(), std::memory_order_relaxed);
 #endif
@@ -1357,7 +1361,7 @@ candidatesMaxHeap<DistType> HNSWDiskIndex<DataType, DistType>::searchLayer(idTyp
                                           candidate_set, lowerBound);
     }
 
-#ifdef BUILD_TESTS
+#ifdef VECSIM_DISK_BUILD_TESTS
     // Count visited nodes for query statistics
     if constexpr (running_query) {
         numVisitedNodesBottomLayer_.fetch_add(visited_set.size(), std::memory_order_relaxed);
@@ -1480,7 +1484,7 @@ void HNSWDiskIndex<DataType, DistType>::greedySearchLevel(const void* query, lev
         // If bestNonDeletedCand is INVALID_ID, we keep currObj/currDist as-is
         // (the best traversal result, even if deleted). The caller must handle this.
     }
-#ifdef BUILD_TESTS
+#ifdef VECSIM_DISK_BUILD_TESTS
     // Count visited nodes for query statistics (upper layers only)
     if constexpr (running_query) {
         numVisitedNodesUpperLayers_.fetch_add(visited.size(), std::memory_order_relaxed);
@@ -2115,12 +2119,12 @@ vecsim_stl::vector<idType> HNSWDiskIndex<DataType, DistType>::markDelete(labelTy
 }
 
 template <typename DataType, typename DistType>
-void HNSWDiskIndex<DataType, DistType>::replaceEntryPointOnDelete() {
+void HNSWDiskIndex<DataType, DistType>::replaceEntryPointOnDelete(idType deleted_id) {
     // Locks: metadataMutex_ (shared) → entryPointMutex_ (exclusive)
     std::shared_lock<std::shared_mutex> metaLock(metadataMutex_);
     std::unique_lock<std::shared_mutex> epLock(entryPointMutex_);
 
-    if (entryPoint_ == INVALID_ID) {
+    if (entryPoint_ != deleted_id) {
         return;
     }
 

@@ -22,8 +22,11 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 include(GoogleTest)
 
-# BUILD_TESTS macro is now defined in parent CMakeLists.txt for vecsim_disk library
-# with PUBLIC visibility, so test executables inherit it automatically.
+# NOTE: We use VECSIM_DISK_BUILD_TESTS (not BUILD_TESTS) to avoid ODR violations.
+# VectorSimilarity uses BUILD_TESTS with ADD_DEFINITIONS which changes class layout (vtable, members).
+# Since we compile VectorSimilarity with VECSIM_BUILD_TESTS=OFF, we must not define BUILD_TESTS
+# in our test executables - doing so would cause ABI mismatch with the library.
+# VECSIM_DISK_BUILD_TESTS enables only vecsim_disk-specific test helpers.
 
 # =============================================================================
 # Common test utilities (compiled once, linked to tests that need them)
@@ -36,6 +39,9 @@ set(TEST_UTILS_SOURCES
 function(add_vecsim_test test_name source_file)
     # Create test executable
     add_executable(${test_name} ${source_file})
+
+    # Define VECSIM_DISK_BUILD_TESTS for test executable to enable test helper methods
+    target_compile_definitions(${test_name} PRIVATE VECSIM_DISK_BUILD_TESTS)
 
     # Add unit test directory and VectorSimilarity test utils to include path
     target_include_directories(${test_name} PRIVATE
@@ -54,6 +60,9 @@ endfunction()
 function(add_vecsim_test_with_utils test_name source_file)
     # Create test executable with utility sources
     add_executable(${test_name} ${source_file} ${TEST_UTILS_SOURCES})
+
+    # Define VECSIM_DISK_BUILD_TESTS for test executable to enable test helper methods
+    target_compile_definitions(${test_name} PRIVATE VECSIM_DISK_BUILD_TESTS)
 
     # Add unit test directory and VectorSimilarity test utils to include path
     target_include_directories(${test_name} PRIVATE
@@ -109,12 +118,12 @@ foreach(SOURCE_FILE ${BIGENDIAN_TEST_SOURCES})
     set(TEST_NAME "${BASE_NAME}_bigendian")
 
     add_executable(${TEST_NAME} ${SOURCE_FILE})
+    target_compile_definitions(${TEST_NAME} PRIVATE VECSIM_DISK_BUILD_TESTS FORCE_BIG_ENDIAN_TEST=1)
     target_include_directories(${TEST_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/unit
         ${VECSIM_ROOT}/tests/utils  # VectorSimilarity test utilities (tests_utils.h)
     )
     target_link_libraries(${TEST_NAME} PRIVATE gtest gtest_main vecsim_disk)
-    target_compile_definitions(${TEST_NAME} PRIVATE FORCE_BIG_ENDIAN_TEST=1)
     gtest_discover_tests(${TEST_NAME})
 
     list(APPEND BIGENDIAN_TEST_TARGETS ${TEST_NAME})

@@ -408,14 +408,9 @@ TEST_P(TieredHNSWDiskMetricTest, TieredHNSWDiskIndexComponents) {
     auto* backendIndex = tieredIndex->getBackendIndex();
     ASSERT_NE(backendIndex, nullptr);
 
-    // --- Verify backend components are accessible ---
-    auto components = backendIndex->get_components();
-    ASSERT_NE(components.indexCalculator, nullptr);
-    ASSERT_NE(components.preprocessors, nullptr);
-
-    // --- Verify calculator is a DiskDistanceCalculator ---
-    auto* diskCalculator = dynamic_cast<DiskDistanceCalculator<float>*>(components.indexCalculator);
-    ASSERT_NE(diskCalculator, nullptr) << "Backend indexCalculator should be a DiskDistanceCalculator";
+    // --- Verify backend calculator is accessible ---
+    auto* diskCalculator = backendIndex->testGetDiskCalculator();
+    ASSERT_NE(diskCalculator, nullptr) << "Backend should have a DiskDistanceCalculator";
 
     // Verify each distance mode has the expected function
     auto expectedFuncFull = spaces::GetDistFunc<float, float>(metric, DIM, nullptr);
@@ -1855,5 +1850,125 @@ TEST_F(TieredHNSWDiskAsyncJobTest, TopKQuery_SameVectorDifferentScores_DueToQuan
                                         << reply->results.size();
 
     delete reply;
+    VecSimDisk_FreeIndex(index);
+}
+
+// =============================================================================
+// Tiered Delete Flow Tests
+// =============================================================================
+
+TEST_F(TieredHNSWDiskAsyncJobTest, DeleteVectorFromFlatBuffer) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .blockSize = DEFAULT_BLOCK_SIZE,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    auto* tiered_index = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tiered_index, nullptr);
+
+    float vector[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_EQ(tiered_index->addVector(vector, 100), 1);
+
+    EXPECT_EQ(tiered_index->deleteVector(100), 1);
+
+    EXPECT_EQ(tiered_index->deleteVector(100), 0);
+
+    VecSimDisk_FreeIndex(index);
+}
+
+TEST_F(TieredHNSWDiskAsyncJobTest, DeleteVectorFromHNSW) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .blockSize = DEFAULT_BLOCK_SIZE,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    auto* tiered_index = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tiered_index, nullptr);
+
+    float vector[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_EQ(tiered_index->addVector(vector, 100), 1);
+
+    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.getLastJob());
+    ASSERT_NE(insert_job, nullptr);
+    insert_job->Execute(insert_job);
+
+    EXPECT_EQ(tiered_index->deleteVector(100), 1);
+
+    // One delete init job should be created for the single vector
+    size_t init_job_count = mock_queue.size();
+    EXPECT_GE(init_job_count, 1);
+
+    VecSimDisk_FreeIndex(index);
+}
+
+TEST_F(TieredHNSWDiskAsyncJobTest, DeleteVectorNonExistent) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .blockSize = DEFAULT_BLOCK_SIZE,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    auto* tiered_index = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tiered_index, nullptr);
+
+    EXPECT_EQ(tiered_index->deleteVector(999), 0);
+
+    VecSimDisk_FreeIndex(index);
+}
+
+TEST_F(TieredHNSWDiskAsyncJobTest, DeleteVectorIdempotent) {
+    HNSWParams hnsw_params = {
+        .type = VecSimType_FLOAT32,
+        .dim = DIM,
+        .metric = VecSimMetric_L2,
+        .blockSize = DEFAULT_BLOCK_SIZE,
+        .M = 4,
+        .efConstruction = 10,
+        .efRuntime = 10,
+    };
+
+    auto params_holder = createTieredDiskParamsWithMockQueue(hnsw_params);
+    auto* index = VecSimDisk_CreateIndex(&params_holder->params_disk);
+    ASSERT_NE(index, nullptr);
+
+    auto* tiered_index = dynamic_cast<TieredHNSWDiskIndex<float, float>*>(index);
+    ASSERT_NE(tiered_index, nullptr);
+
+    float vector[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
+    EXPECT_EQ(tiered_index->addVector(vector, 100), 1);
+
+    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.getLastJob());
+    ASSERT_NE(insert_job, nullptr);
+    insert_job->Execute(insert_job);
+
+    EXPECT_EQ(tiered_index->deleteVector(100), 1);
+    EXPECT_EQ(tiered_index->deleteVector(100), 0);
+
     VecSimDisk_FreeIndex(index);
 }
