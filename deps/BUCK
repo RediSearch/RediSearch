@@ -265,3 +265,96 @@ cxx_library(
     ],
     visibility = ["PUBLIC"],
 )
+
+# ================================= libuv ======================================
+
+cxx_library(
+    name = "libuv",
+    srcs = [
+        # Common (cross-platform) sources
+        "libuv/src/fs-poll.c",
+        "libuv/src/idna.c",
+        "libuv/src/inet.c",
+        "libuv/src/random.c",
+        "libuv/src/strscpy.c",
+        "libuv/src/strtok.c",
+        "libuv/src/thread-common.c",
+        "libuv/src/threadpool.c",
+        "libuv/src/timer.c",
+        "libuv/src/uv-common.c",
+        "libuv/src/uv-data-getter-setters.c",
+        "libuv/src/version.c",
+        # Unix sources (shared across all Unix platforms)
+        "libuv/src/unix/async.c",
+        "libuv/src/unix/core.c",
+        "libuv/src/unix/dl.c",
+        "libuv/src/unix/fs.c",
+        "libuv/src/unix/getaddrinfo.c",
+        "libuv/src/unix/getnameinfo.c",
+        "libuv/src/unix/loop-watcher.c",
+        "libuv/src/unix/loop.c",
+        "libuv/src/unix/pipe.c",
+        "libuv/src/unix/poll.c",
+        "libuv/src/unix/process.c",
+        "libuv/src/unix/random-devurandom.c",
+        "libuv/src/unix/signal.c",
+        "libuv/src/unix/stream.c",
+        "libuv/src/unix/tcp.c",
+        "libuv/src/unix/thread.c",
+        "libuv/src/unix/tty.c",
+        "libuv/src/unix/udp.c",
+    ] + select({
+        "prelude//os:macos": [
+            "libuv/src/unix/bsd-ifaddrs.c",
+            "libuv/src/unix/darwin-proctitle.c",
+            "libuv/src/unix/darwin.c",
+            "libuv/src/unix/fsevents.c",
+            "libuv/src/unix/kqueue.c",
+            "libuv/src/unix/proctitle.c",
+            "libuv/src/unix/random-getentropy.c",
+        ],
+        "prelude//os:linux": [
+            "libuv/src/unix/linux.c",
+            "libuv/src/unix/procfs-exepath.c",
+            "libuv/src/unix/proctitle.c",
+            "libuv/src/unix/random-getrandom.c",
+            "libuv/src/unix/random-sysctl-linux.c",
+        ],
+    }),
+    headers = glob([
+        "libuv/src/*.h",
+        "libuv/src/unix/*.h",
+    ]),
+    include_directories = [
+        "libuv/include",
+        "libuv/src",
+    ],
+    exported_headers = export_headers_map(glob(["libuv/include/**/*.h"]), "libuv/include/"),
+    header_namespace = "",
+    preprocessor_flags = [
+        "-D_FILE_OFFSET_BITS=64",
+        "-D_LARGEFILE_SOURCE",
+    ] + select({
+        "prelude//os:macos": [
+            "-D_DARWIN_UNLIMITED_SELECT=1",
+            "-D_DARWIN_USE_64_BIT_INODE=1",
+        ],
+        "prelude//os:linux": [
+            "-D_GNU_SOURCE",
+            "-D_POSIX_C_SOURCE=200112",
+        ],
+    }),
+    compiler_flags = [
+        "-Wall",
+        "-Wextra",
+        "-Wstrict-prototypes",
+        "-Wno-unused-parameter",
+        "-fno-strict-aliasing",
+        "-std=gnu90",
+    ],
+    exported_linker_flags = select({
+        "prelude//os:macos": ["-lpthread"],
+        "prelude//os:linux": ["-lpthread", "-ldl", "-lrt"],
+    }),
+    visibility = ["PUBLIC"],
+)
