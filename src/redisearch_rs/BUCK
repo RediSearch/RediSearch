@@ -1,0 +1,27 @@
+load("@prelude//rust:cargo_package.bzl", "cargo")
+
+rust_library(
+    name = "document",
+    srcs = glob(["document/src/**/*.rs"]),
+    deps = [
+        "//src/redisearch_rs/third-party:strum",
+        "//src/redisearch_rs/third-party:thiserror",
+    ]
+)
+
+rust_library(
+    name = "query_term",
+    srcs = glob(["query_term/src/**/*.rs"])
+)
+
+rust_library(
+    name = "ffi",
+    srcs = glob(["ffi/src/**/*.rs"]),
+    mapped_srcs = {
+        "//:c_bindings": "ffi/src/generated.rs",
+    },
+    deps = [
+        ":document",
+        ":query_term",
+    ]
+)

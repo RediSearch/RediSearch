@@ -4,6 +4,7 @@
  toolchains = toolchains
  none = none
  boost = boost
+ buck2tf = buck2tf
 
 [cell_aliases]
  config = prelude
@@ -17,11 +18,11 @@
 # section and vendor a copy of the prelude to the `prelude` directory of your project.
 [external_cells]
  prelude = bundled
- boost = git
+ buck2tf = git
 
-[external_cell_boost]
- git_origin = https://github.com/JonasKruckenberg/buck2-boost
- commit_hash = bb5c56ecb7a011c9f6881711e9d20cb72bec5fed
+[external_cell_buck2tf]
+  git_origin = https://github.com/JonasKruckenberg/buck2tf
+  commit_hash = da4bd95bdaf7fa9b2ded8a6a9c02711aadc061d5
 
 [parser]
  target_platform_detector_spec = target:root//...->prelude//platforms:default \

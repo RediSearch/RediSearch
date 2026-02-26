@@ -1,0 +1,6 @@
+cargo_env = true
+rustc_flags = ["-L$(location //src/redisearch_rs:redis-module-99.99.99-build-script-run[out_dir])"]
+
+[buildscript.run.env]    # map of string to string
+OPT_LEVEL = "0"
+RUST_BACKTRACE="full"
