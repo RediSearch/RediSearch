@@ -135,8 +135,8 @@ impl RSQueryTerm {
     }
 }
 
-// SAFETY: `f64` does not implement `Eq` (NaN != NaN), but IDF values in a
-// query term are never NaN in practice, so the reflexivity requirement holds.
+// `f64` does not implement `Eq` (NaN != NaN), but IDF values in a query term
+// are never NaN in practice, so the reflexivity requirement holds.
 impl Eq for RSQueryTerm {}
 
 #[cfg(test)]
@@ -185,7 +185,8 @@ mod tests {
         // Each byte is replaced with U+FFFD (3 bytes each).
         let term = RSQueryTerm::new_bytes(&[0xFF, 0xFE], 1, 0);
         assert!(!term.is_empty());
-        // The content is the replacement-character string; exact bytes may vary.
+        // Each invalid byte maps to one U+FFFD (EF BF BD, 3 bytes), so two
+        // invalid bytes produce exactly "\u{FFFD}\u{FFFD}".
         assert_eq!(term.as_bytes(), Some("\u{FFFD}\u{FFFD}".as_bytes()));
     }
 }
