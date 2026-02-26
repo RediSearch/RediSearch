@@ -25,6 +25,7 @@ typedef const void* RedisSearchDiskIndexSpec;
 typedef const void* RedisSearchDiskInvertedIndex;
 typedef const void* RedisSearchDiskIterator;
 typedef const void* RedisSearchDiskAsyncReadPool;
+typedef const void* RedisSearchDiskRdbState;
 
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
@@ -66,6 +67,46 @@ typedef struct BasicDiskAPI {
    * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
    */
   void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
+
+  /**
+   * @brief Load disk-related RDB data into a temporary in-memory object.
+   *
+   * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
+   * before SST files arrive). The returned state must later be passed to openIndexSpecWithRdbState
+   * or freed with freeRdbState.
+   *
+   * @param rdb The RedisModuleIO handle for RDB operations
+   * @return Pointer to temporary RDB state, or NULL on error
+   */
+  RedisSearchDiskRdbState *(*loadRdbToTempObject)(RedisModuleIO *rdb);
+
+  /**
+   * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+   *
+   * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
+   * Takes ownership of rdbState - it will be consumed and freed.
+   *
+   * @param disk Pointer to the disk context
+   * @param indexName Name of the index
+   * @param indexNameLen Length of the index name
+   * @param type Document type for this index
+   * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @return Pointer to the created IndexSpec, or NULL on error
+   */
+  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisSearchDisk *disk,
+                                                          const char *indexName,
+                                                          size_t indexNameLen,
+                                                          DocumentType type,
+                                                          RedisSearchDiskRdbState *rdbState);
+
+  /**
+   * @brief Free a temporary RDB state object without creating an IndexSpec.
+   *
+   * Use if index creation fails or is cancelled.
+   *
+   * @param rdbState The temporary RDB state to free (may be NULL)
+   */
+  void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {

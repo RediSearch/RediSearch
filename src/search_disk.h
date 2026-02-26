@@ -80,6 +80,44 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
  */
 int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
+/**
+ * @brief Load disk-related RDB data into a temporary in-memory object.
+ *
+ * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication
+ * before SST files arrive). The returned state must later be passed to
+ * SearchDisk_OpenIndexWithRdbState or freed with SearchDisk_FreeRdbState.
+ *
+ * @param rdb Redis module rdb file
+ * @return Pointer to temporary RDB state, or NULL on error
+ */
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
+
+/**
+ * @brief Create an IndexSpec and restore state from a previously loaded RDB state.
+ *
+ * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
+ * Takes ownership of rdbState - it will be consumed and freed.
+ *
+ * @param indexName Name of the index
+ * @param indexNameLen Length of the index name
+ * @param type Document type for this index
+ * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
+ * @return Pointer to the created IndexSpec, or NULL on error
+ */
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(const char *indexName,
+                                                            size_t indexNameLen,
+                                                            DocumentType type,
+                                                            RedisSearchDiskRdbState *rdbState);
+
+/**
+ * @brief Free a temporary RDB state object without creating an IndexSpec.
+ *
+ * Use if index creation fails or is cancelled.
+ *
+ * @param rdbState The temporary RDB state to free (may be NULL)
+ */
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState);
+
 // Index API wrappers
 
 /**
