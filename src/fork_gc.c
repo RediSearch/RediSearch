@@ -270,21 +270,19 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
         sentHeader = 1;
       }
 
-      // Send: has_more=1 + node_position + node_generation + entry_len + entry_data.
-      uint8_t hasMore = 1;
-      FGC_SEND_VAR(gc, hasMore);
+      // Send: node_len + node_position + node_generation + entry_data.
+      size_t nodeLen = sizeof(entry.node_position) + sizeof(entry.node_generation) + entry.data_len;
+      FGC_SEND_VAR(gc, nodeLen);
       FGC_SEND_VAR(gc, entry.node_position);
       FGC_SEND_VAR(gc, entry.node_generation);
-      FGC_sendFixed(gc, &entry.data_len, sizeof entry.data_len);
       FGC_sendFixed(gc, entry.data, entry.data_len);
     }
 
     NumericGcScanner_Free(scanner);
 
-    // Send end-of-field marker if we sent any entries.
+    // Send end-of-field terminator if we sent any entries.
     if (sentHeader) {
-      uint8_t hasMore = 0;
-      FGC_SEND_VAR(gc, hasMore);
+      FGC_sendTerminator(gc);
     }
   }
 
@@ -511,19 +509,19 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     IndexSpec *sp = NULL;
     StrongRef spec_ref = {0};
 
-    uint8_t hasMore;
-    if (FGC_recvFixed(gc, &hasMore, sizeof hasMore) != REDISMODULE_OK) {
+    size_t nodeLen;
+    if (FGC_recvFixed(gc, &nodeLen, sizeof nodeLen) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    if (!hasMore) {
+    // Check if we received the sentinel terminator value
+    if (nodeLen == SIZE_MAX) {
       break;
     }
 
-    // Read node_position + node_generation + entry_len + entry_data.
+    // Read node_position + node_generation + entry_data.
     uint32_t nodePosition;
     uint32_t nodeGeneration;
-    size_t entryLen;
     if (FGC_recvFixed(gc, &nodePosition, sizeof nodePosition) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
@@ -532,10 +530,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    if (FGC_recvFixed(gc, &entryLen, sizeof entryLen) != REDISMODULE_OK) {
-      status = FGC_CHILD_ERROR;
-      goto loop_cleanup;
-    }
+    size_t entryLen = nodeLen - sizeof(nodePosition) - sizeof(nodeGeneration);
     entryData = rm_malloc(entryLen);
     if (FGC_recvFixed(gc, entryData, entryLen) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
