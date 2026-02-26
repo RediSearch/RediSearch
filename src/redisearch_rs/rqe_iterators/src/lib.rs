@@ -34,7 +34,7 @@ pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Numeric, Term};
 pub use metric::Metric;
-pub use wildcard::Wildcard;
+pub use wildcard::{Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
