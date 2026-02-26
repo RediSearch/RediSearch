@@ -684,6 +684,17 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "wasi",
+]
+
+[[package]]
+name = "getrandom"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
@@ -861,6 +872,22 @@ name = "id-arena"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
+
+[[package]]
+name = "idf"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
+name = "idf_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "idf",
+ "workspace_hack",
+]
 
 [[package]]
 name = "indexmap"
@@ -1481,7 +1508,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6db2770f06117d490610c7488547d543617b21bfa07796d7a12f6f1bd53850d1"
 dependencies = [
  "rand_chacha",
- "rand_core",
+ "rand_core 0.9.5",
 ]
 
 [[package]]
@@ -1491,7 +1518,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
 dependencies = [
  "ppv-lite86",
- "rand_core",
+ "rand_core 0.9.5",
+]
+
+[[package]]
+name = "rand_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom 0.2.17",
 ]
 
 [[package]]
@@ -1611,6 +1647,7 @@ dependencies = [
  "buffer",
  "build_utils",
  "fnv_ffi",
+ "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "module_init_ffi",
@@ -1664,6 +1701,7 @@ checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 name = "result_processor"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "libc",
  "pin-project",
@@ -1934,6 +1972,7 @@ dependencies = [
 name = "sorting_vector"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "icu_casemap",
  "value",
@@ -2401,6 +2440,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasi"
+version = "0.11.1+wasi-snapshot-preview1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
+
+[[package]]
 name = "wasip2"
 version = "1.0.2+wasi-0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2716,7 +2761,7 @@ dependencies = [
  "clap",
  "clap_builder",
  "either",
- "getrandom 0.3.4",
+ "getrandom 0.2.17",
  "insta",
  "itertools 0.13.0",
  "libc",
@@ -2729,6 +2774,7 @@ dependencies = [
  "quote 1.0.44",
  "rand",
  "rand_chacha",
+ "rand_core 0.6.4",
  "redis-module",
  "regex",
  "regex-automata",

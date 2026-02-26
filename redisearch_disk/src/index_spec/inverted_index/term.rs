@@ -152,11 +152,10 @@ impl InvertedIndex {
         generic_reader::ReaderCreateError,
     > {
         let qt = query_term.as_ref();
-        // SAFETY: qt.str_ and qt.len are valid as query_term is guaranteed valid by the caller.
-        let term = unsafe { std::slice::from_raw_parts(qt.str_ as *const u8, qt.len) };
+        let term_bytes = qt.as_bytes().expect("term string should not be null");
         // SAFETY: The caller in lib.rs already validated this is valid UTF-8
-        let term_str =
-            std::str::from_utf8(term).expect("term should be valid UTF-8, validated by caller");
+        let term_str = std::str::from_utf8(term_bytes)
+            .expect("term should be valid UTF-8, validated by caller");
 
         let key: Vec<u8> = InvertedIndexKey {
             prefix: term_str,

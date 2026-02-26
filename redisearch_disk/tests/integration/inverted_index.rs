@@ -11,12 +11,10 @@ const FIELD_MASK_NONE: t_fieldMask = 0;
 
 /// Creates an RSQueryTerm for testing purposes.
 /// The caller does not need to free the term - it will be freed when the iterator is dropped.
-/// Creates an RSQueryTerm for testing purposes.
-/// The caller does not need to free the term - it will be freed when the iterator is dropped.
 fn create_query_term(term_str: &str, idf: f64, bm25_idf: f64) -> Box<RSQueryTerm> {
     let mut term = RSQueryTerm::new(term_str.as_bytes(), 0, 0);
-    term.idf = idf;
-    term.bm25_idf = bm25_idf;
+    term.set_idf(idf);
+    term.set_bm25_idf(bm25_idf);
     term
 }
 
@@ -36,11 +34,13 @@ fn validate_result_idf_bm25_idf(result: &inverted_index::RSIndexResult, idf: f64
     if let inverted_index::RSResultData::Term(term_record) = &result.data {
         let term = term_record.query_term().expect("Expected term to be set");
         assert_eq!(
-            term.idf, idf,
+            term.idf(),
+            idf,
             "IDF should match the value passed to term_iterator"
         );
         assert_eq!(
-            term.bm25_idf, bm25_idf,
+            term.bm25_idf(),
+            bm25_idf,
             "BM25_IDF should match the value passed to term_iterator"
         );
     } else {

@@ -713,23 +713,35 @@ extern "C" fn index_spec_new_term_iterator(
     }
 
     // SAFETY: query_term is guaranteed to be valid by safety point 2.
-    let qt = unsafe { &*query_term };
-    // SAFETY: qt.str_ and qt.len are valid as query_term is guaranteed valid by safety point 2.
-    let slice = unsafe { std::slice::from_raw_parts(qt.str_ as *const u8, qt.len) };
-    let term_str = match std::str::from_utf8(slice) {
-        Ok(s) => s,
-        Err(error) => {
-            error!(
-                error = &error as &dyn std::error::Error,
-                "term is not valid UTF-8"
-            );
+    // FfiRSQueryTerm and query_term::RSQueryTerm are the same type - the FFI type
+    // is opaque and the actual implementation is in the query_term crate.
+    let qt = unsafe { &*(query_term as *const query_term::RSQueryTerm) };
+
+    // Get the term string using accessor methods (fields are now private)
+    let term_str = match qt.as_bytes() {
+        Some(bytes) => match std::str::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(error) => {
+                error!(
+                    error = &error as &dyn std::error::Error,
+                    "term is not valid UTF-8"
+                );
+                return std::ptr::null_mut();
+            }
+        },
+        None => {
+            error!("term string is null");
             return std::ptr::null_mut();
         }
     };
 
     debug!(
         term_str,
-        field_mask, weight, qt.idf, qt.bm25_idf, "index_spec_new_term_iterator"
+        field_mask,
+        weight,
+        idf = qt.idf(),
+        bm25_idf = qt.bm25_idf(),
+        "index_spec_new_term_iterator"
     );
 
     // Safety: see safety point 1 above.
@@ -739,7 +751,7 @@ extern "C" fn index_spec_new_term_iterator(
     };
 
     // SAFETY: query_term is guaranteed to be valid by safety point 2.
-    // Convert the raw pointer to Option<Box<RSQueryTerm>> for the new API
+    // Convert the raw pointer to Box<RSQueryTerm> for the new API.
     let query_term_box: Box<inverted_index::RSQueryTerm> =
         unsafe { Box::from_raw(query_term.cast()) };
 
