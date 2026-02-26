@@ -105,11 +105,8 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSTok
     RS_ASSERT(disk && index && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
     QueryTerm_SetIDFs(term, idf, bm25_idf);
-    QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight);
-    if (!it) {
-        Term_Free(term);
-    }
-    return it;
+    // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
+    return disk->index.newTermIterator(index, term, fieldMask, weight);
 }
 
 QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
