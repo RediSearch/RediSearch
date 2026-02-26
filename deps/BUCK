@@ -243,3 +243,25 @@ cxx_library(
     header_namespace = "geohash",
     visibility = ["PUBLIC"],
 )
+
+# ================================= fast_float ======================================
+
+cxx_library(
+    name = "fast_float",
+    srcs = [
+        "fast_float/fast_float_strtod.cpp",
+    ],
+    headers = [
+        "fast_float/fast_float.h",
+        "fast_float/fast_float_strtod.h",
+    ],
+    exported_headers = {
+        "fast_float_strtod.h": "fast_float/fast_float_strtod.h",
+    },
+    header_namespace = "fast_float",
+    preprocessor_flags = [
+        "-DFASTFLOAT_SKIP_WHITE_SPACE",
+        "-DFASTFLOAT_ALLOWS_LEADING_PLUS",
+    ],
+    visibility = ["PUBLIC"],
+)
