@@ -9,7 +9,7 @@
 
 use crate::util::{expect_shared_value, expect_value};
 use libc::size_t;
-use std::ffi::{CString, c_char, c_double, c_int};
+use std::ffi::{c_char, c_double, c_int};
 use value::util::{num_to_str, str_to_float};
 use value::{RsString, RsValue, SharedRsValue};
 
@@ -137,7 +137,7 @@ pub unsafe extern "C" fn RSValue_ToString(dst: *mut RsValue, value: *const RsVal
         RsValue::RedisString(string) => {
             let (ptr, len) = string.as_ptr_len();
             let len = len.try_into().expect("len > u32::MAX");
-            // Safety: The redis string points to a valid c-string?
+            // Safety: A redis strings content is also valid content for an `RsString`.
             let string = unsafe { RsString::borrowed_string(ptr, len) };
             RsValue::String(string)
         }
@@ -145,11 +145,11 @@ pub unsafe extern "C" fn RSValue_ToString(dst: *mut RsValue, value: *const RsVal
             let mut buf = [0u8; 32];
             // `num_to_str` formatting should fit well within the 32 byte sized buffer.
             let len = num_to_str(*number, &mut buf);
-            let cstring = CString::new(&buf[..(len as usize)]).unwrap();
-            RsValue::String(RsString::cstring(cstring))
+            let vec = buf[..(len as usize)].to_vec();
+            RsValue::String(RsString::from_vec(vec))
         }
         _ => {
-            // Safety: It is safe to use an empty here.
+            // Safety: It is safe to use an const here.
             let string = unsafe { RsString::borrowed_string(b"\0".as_ptr().cast(), 0) };
             RsValue::String(string)
         }
