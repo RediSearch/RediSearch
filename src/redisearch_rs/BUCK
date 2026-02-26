@@ -372,6 +372,7 @@ rust_library(
 rust_library(
     name = "redisearch_rs",
     srcs = glob(["c_entrypoint/redisearch_rs/src/**/*.rs"]),
+    preferred_linkage = "static",
     deps = [
         ":fnv_ffi",
         ":idf_ffi",
@@ -391,6 +392,7 @@ rust_library(
         ":numeric_range_tree_ffi",
         "//src/redisearch_rs/third-party:redis-module",
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -400,15 +402,18 @@ rust_library(
         ":document",
         "//src/redisearch_rs/third-party:libc",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "document_ffi_header",
     crate = "document_ffi",
+    header = "document_rs.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/document_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -417,6 +422,7 @@ rust_library(
     deps = [
         ":fnv",
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -425,15 +431,18 @@ rust_library(
     deps = [
         ":idf",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "idf_ffi_header",
     crate = "idf_ffi",
+    header = "idf.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/idf_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -445,15 +454,18 @@ rust_library(
         "//src/redisearch_rs/third-party:rmp-serde",
         "//src/redisearch_rs/third-party:serde",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "inverted_index_ffi_header",
     crate = "inverted_index_ffi",
+    header = "inverted_index.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/inverted_index_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -468,15 +480,18 @@ rust_library(
         ":rqe_iterators",
         ":rqe_iterators_interop",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "iterators_ffi_header",
     crate = "iterators_ffi",
+    header = "iterators.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/iterators_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -487,15 +502,18 @@ rust_library(
         ":tracing_redismodule",
         "//src/redisearch_rs/third-party:tracing",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "module_init_ffi_header",
     crate = "module_init_ffi",
+    header = "module_init.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/module_init_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -513,15 +531,18 @@ rust_library(
         "//src/redisearch_rs/third-party:serde",
         "//src/redisearch_rs/third-party:tracing",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "numeric_range_tree_ffi_header",
     crate = "numeric_range_tree_ffi",
+    header = "numeric_range_tree.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/numeric_range_tree_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -532,15 +553,18 @@ rust_library(
         ":query_error",
         "//src/redisearch_rs/third-party:strum",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "query_error_ffi_header",
     crate = "query_error_ffi",
+    header = "query_error.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/query_error_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -550,15 +574,18 @@ rust_library(
         ":ffi",
         ":query_term",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "query_term_ffi_header",
     crate = "query_term_ffi",
+    header = "query_term.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/query_term_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -568,15 +595,18 @@ rust_library(
         ":ffi",
         ":result_processor",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "result_processor_ffi_header",
     crate = "result_processor_ffi",
+    header = "result_processor.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/result_processor_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -590,15 +620,18 @@ rust_library(
         ":value",
         "//src/redisearch_rs/third-party:libc",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "rlookup_ffi_header",
     crate = "rlookup_ffi",
+    header = "rlookup.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/rlookup_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -610,15 +643,18 @@ rust_library(
         ":search_result",
         "//src/redisearch_rs/third-party:unsafe-tools",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "search_result_ffi_header",
     crate = "search_result_ffi",
+    header = "search_result.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/search_result_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -627,15 +663,18 @@ rust_library(
     deps = [
         ":slots_tracker",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "slots_tracker_ffi_header",
     crate = "slots_tracker_ffi",
+    header = "slots_tracker.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/slots_tracker_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -647,15 +686,18 @@ rust_library(
         ":value",
         "//src/redisearch_rs/third-party:libc",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "sorting_vector_ffi_header",
     crate = "sorting_vector_ffi",
+    header = "sorting_vector.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/sorting_vector_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -664,15 +706,18 @@ rust_library(
     deps = [
         ":thin_vec",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "thin_vec_ffi_header",
     crate = "thin_vec_ffi",
+    header = "thin_vec.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/thin_vec_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -686,15 +731,18 @@ rust_library(
         "//src/redisearch_rs/third-party:libc",
         "//src/redisearch_rs/third-party:redis-module",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "triemap_ffi_header",
     crate = "triemap_ffi",
+    header = "triemap.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/triemap_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -704,15 +752,18 @@ rust_library(
         ":field",
         ":inverted_index",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "types_ffi_header",
     crate = "types_ffi",
+    header = "types_rs.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/types_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -724,15 +775,18 @@ rust_library(
         ":value",
         "//src/redisearch_rs/third-party:libc",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "value_ffi_header",
     crate = "value_ffi",
+    header = "value.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/value_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
@@ -743,20 +797,24 @@ rust_library(
         ":ffi",
         ":varint",
     ],
+    visibility = ["PUBLIC"],
 )
 
 cbindgen(
     name = "varint_ffi_header",
     crate = "varint_ffi",
+    header = "varint.h",
     workspace_metadata = ":workspace_metadata",
     srcs = [
         "c_entrypoint/varint_ffi/cbindgen.toml"
     ],
+    visibility = ["PUBLIC"],
 )
 
 rust_library(
     name = "c_ffi_utils",
     srcs = glob(["c_entrypoint/c_ffi_utils/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
 )
 
 # =============================================================================

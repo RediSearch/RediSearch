@@ -4,7 +4,9 @@ def cbindgen(
     name,
     crate,
     workspace_metadata,
-    srcs):
+    srcs,
+    header,
+    visibility):
     genrule(
         name = name,
         cmd = f"""
@@ -12,14 +14,15 @@ def cbindgen(
             --config $SRCS \
             --crate {crate} \
             --metadata $(location {workspace_metadata}) \
-            --output $OUT/generated.h \
+            --output $OUT/{header} \
             --depfile $OUT/DEFILE \
             --symfile $OUT/SYMFILE
         """,
         srcs = srcs,
         outs = {
-            "header": ["generated.h"],
+            "header": [header],
             "deps": ["DEPFILE"],
             "syms": ["SYMFILE"]
-        }
+        },
+        visibility = visibility
     )

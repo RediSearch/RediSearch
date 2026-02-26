@@ -10,7 +10,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
-#include "snowball/include/libstemmer.h"
+#include "snowball/libstemmer.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
