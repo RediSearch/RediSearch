@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{alloc::Layout, borrow::Borrow, fmt::Debug, marker::PhantomData, ptr};
+use std::{alloc::Layout, borrow::Borrow, fmt::Debug, io::Cursor, marker::PhantomData, ptr};
 
 /// Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
 /// iterating over it with RSIndexResult_IterateOffsets.
@@ -209,6 +209,45 @@ impl Drop for RSOffsetVector {
             let layout = Layout::array::<u8>(self.len as usize).unwrap();
             // SAFETY: Data was allocated via the global allocator with the matching layout.
             unsafe { std::alloc::dealloc(self.data, layout) };
+        }
+    }
+}
+
+/// Sentinel value indicating end of offset stream.
+///
+/// Matches the C constant `RS_OFFSETVECTOR_EOF` (`UINT32_MAX`).
+pub const RS_OFFSETVECTOR_EOF: u32 = u32::MAX;
+
+/// Iterates over delta-varint encoded term positions in an offset byte slice,
+/// yielding absolute positions one at a time.
+///
+/// Offsets are stored as delta-encoded varints: each encoded value represents the
+/// difference from the previous position. This iterator decodes them back to
+/// absolute positions.
+///
+/// Returns [`RS_OFFSETVECTOR_EOF`] when all positions have been consumed.
+pub struct OffsetPositionIterator<'a> {
+    cursor: Cursor<&'a [u8]>,
+    last_value: u32,
+}
+
+impl<'a> OffsetPositionIterator<'a> {
+    /// Create a new iterator over the given delta-varint encoded offset data.
+    pub fn new(data: &'a [u8]) -> Self {
+        Self {
+            cursor: Cursor::new(data),
+            last_value: 0,
+        }
+    }
+
+    /// Return the next absolute position, or [`RS_OFFSETVECTOR_EOF`] if exhausted.
+    pub fn next_position(&mut self) -> u32 {
+        match varint::read::<u32, _>(&mut self.cursor) {
+            Ok(delta) => {
+                self.last_value += delta;
+                self.last_value
+            }
+            Err(_) => RS_OFFSETVECTOR_EOF,
         }
     }
 }

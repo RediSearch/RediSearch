@@ -144,7 +144,7 @@ impl Bencher {
         // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(make_ids())),
+                || Intersection::new(ids_to_rust_children(make_ids()), -1, false),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
@@ -177,7 +177,7 @@ impl Bencher {
         // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(make_ids())),
+                || Intersection::new(ids_to_rust_children(make_ids()), -1, false),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + STEP) {
                         black_box(current);

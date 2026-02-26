@@ -10,13 +10,13 @@
 use std::ptr;
 
 use ffi::{
-    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSYieldableMetric, t_docId, t_fieldMask,
+    t_docId, t_fieldMask, FieldMask, RSDocumentMetadata, RSYieldableMetric, RS_FIELDMASK_ALL,
 };
 use query_term::RSQueryTerm;
 
 use super::aggregate::RSAggregateResult;
 use super::kind::RSResultKind;
-use super::offsets::RSOffsetSlice;
+use super::offsets::{OffsetPositionIterator, RSOffsetSlice, RS_OFFSETVECTOR_EOF};
 use super::result_data::RSResultData;
 use super::term_record::RSTermRecord;
 
@@ -546,6 +546,150 @@ impl<'index> RSIndexResult<'index> {
             | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_) => None,
+        }
+    }
+
+    /// Check whether the term positions in this aggregate result satisfy the given slop and
+    /// ordering constraints.
+    ///
+    /// Returns `true` if any of these hold:
+    /// - This is not an aggregate result (single term — always within range).
+    /// - The aggregate has 1 or fewer children.
+    /// - No children have offsets to check.
+    /// - The term positions satisfy the proximity constraint.
+    ///
+    /// Ported from C `IndexResult_IsWithinRange` in `src/index_result/index_result.c`.
+    pub fn is_within_range(&self, max_slop: i32, in_order: bool) -> bool {
+        if max_slop < 0 {
+            return true;
+        }
+        let Some(agg) = self.as_aggregate() else {
+            return true;
+        };
+        let num = agg.len();
+        if num <= 1 {
+            return true;
+        }
+
+        // Collect offset iterators from children that have offsets.
+        let mut iters: Vec<OffsetPositionIterator<'_>> = Vec::with_capacity(num);
+        for i in 0..num {
+            let Some(child) = agg.get(i) else { continue };
+            if let Some(term) = child.as_term() {
+                let offsets = term.offsets();
+                if !offsets.is_empty() {
+                    iters.push(OffsetPositionIterator::new(offsets));
+                }
+            }
+        }
+
+        if iters.is_empty() {
+            return true;
+        }
+
+        if in_order {
+            within_range_in_order(&mut iters, max_slop)
+        } else {
+            within_range_unordered(&mut iters, max_slop)
+        }
+    }
+}
+
+/// Check whether term positions satisfy the slop constraint when terms must appear in order.
+///
+/// For each starting position of the first term, tries to find a sequence where each subsequent
+/// term appears after the previous one, with the total gap (span) between them within `max_slop`.
+///
+/// `iters` must be non-empty — the caller ([`RSIndexResult::is_within_range`]) guarantees this.
+///
+/// Ported from C `__indexResult_withinRangeInOrder` in `src/index_result/index_result.c`.
+fn within_range_in_order(iters: &mut [OffsetPositionIterator<'_>], max_slop: i32) -> bool {
+    debug_assert!(!iters.is_empty(), "iters must be non-empty");
+    let num = iters.len();
+    let mut positions = vec![0u32; num];
+
+    loop {
+        let mut span: i32 = 0;
+        let mut exhausted = false;
+
+        for i in 0..num {
+            // For the first iterator, always advance; for others, use current position.
+            let mut pos = if i == 0 {
+                iters[i].next_position()
+            } else {
+                positions[i]
+            };
+            let last_pos = if i == 0 { 0 } else { positions[i - 1] };
+
+            // Advance while the position is behind the previous term's position.
+            while pos != RS_OFFSETVECTOR_EOF && pos < last_pos {
+                pos = iters[i].next_position();
+            }
+
+            if pos == RS_OFFSETVECTOR_EOF {
+                exhausted = true;
+                break;
+            }
+            positions[i] = pos;
+
+            if i > 0 {
+                span += pos as i32 - last_pos as i32 - 1;
+                if max_slop >= 0 && span > max_slop {
+                    break;
+                }
+            }
+        }
+
+        if exhausted {
+            return false;
+        }
+        if max_slop >= 0 && span <= max_slop {
+            return true;
+        }
+    }
+}
+
+/// Check whether term positions satisfy the slop constraint regardless of term order.
+///
+/// Finds the tightest window containing one position from each term. The span is
+/// `max - min - (num_terms - 1)`, representing the number of non-matching positions
+/// in the window.
+///
+/// `iters` must be non-empty — the caller ([`RSIndexResult::is_within_range`]) guarantees this.
+///
+/// Ported from C `__indexResult_withinRangeUnordered` in `src/index_result/index_result.c`.
+fn within_range_unordered(iters: &mut [OffsetPositionIterator<'_>], max_slop: i32) -> bool {
+    debug_assert!(!iters.is_empty(), "iters must be non-empty");
+    let num = iters.len();
+    let mut positions: Vec<u32> = iters.iter_mut().map(|it| it.next_position()).collect();
+
+    // Find the initial max. Safe to unwrap: `iters` (and thus `positions`) is non-empty.
+    let mut max = positions.iter().copied().max().unwrap();
+
+    loop {
+        // Find the min and its index. Safe to unwrap: `positions` is non-empty.
+        let (min_pos_idx, min) = positions
+            .iter()
+            .enumerate()
+            .min_by_key(|&(_, &val)| val)
+            .map(|(idx, &val)| (idx, val))
+            .unwrap();
+
+        if min != max {
+            let span = max as i32 - min as i32 - num as i32 + 1;
+            if span <= max_slop {
+                return true;
+            }
+        }
+
+        // Advance the minimal iterator.
+        positions[min_pos_idx] = iters[min_pos_idx].next_position();
+        if positions[min_pos_idx] == RS_OFFSETVECTOR_EOF {
+            return false;
+        }
+        // If the new position exceeds the current max, update max tracking.
+        if positions[min_pos_idx] > max {
+            max = positions[min_pos_idx];
         }
     }
 }
