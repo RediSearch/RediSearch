@@ -8,6 +8,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[lib]
+test = false
+bench = false
+
 [dependencies]
 c_ffi_utils.workspace = true
 ffi.workspace = true
@@ -17,6 +21,15 @@ sorting_vector.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 workspace_hack.workspace = true
 
+[dev-dependencies]
+# Crate required to invoke C symbols
+rlookup_ffi = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../redisearch_rs" }
+redis_mock.workspace = true
+
 [build-dependencies]
 cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
+
+[features]
+unittest = []

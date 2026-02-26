@@ -429,7 +429,7 @@ typedef struct {
   DocumentType type;
 
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
-  const RLookupKey *const *keys;
+  const RLookupKey **keys;
 
   /** Number of keys in keys array */
   size_t nkeys;
@@ -485,7 +485,7 @@ void RLookupKey_Free(RLookupKey *k);
 /**
  * Initialize the lookup with fields from hash.
  */
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
+int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr, QueryError *status);
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 

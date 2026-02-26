@@ -15,6 +15,28 @@ use inverted_index::{
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
 
+/// Helper to encode a sequence of (delta, freq, field_mask) records using FreqsFields.
+fn encode_freqs_fields(records: &[(u32, u32, u32)]) -> Vec<u8> {
+    let mut buf = Cursor::new(Vec::new());
+    for &(delta, freq, field_mask) in records {
+        let record = RSIndexResult::term()
+            .field_mask(field_mask as t_fieldMask)
+            .frequency(freq);
+        FreqsFields::encode(&mut buf, delta, &record).expect("to encode");
+    }
+    buf.into_inner()
+}
+
+/// Helper to encode a sequence of (delta, freq, field_mask) records using FreqsFieldsWide.
+fn encode_freqs_fields_wide(records: &[(u32, u32, u128)]) -> Vec<u8> {
+    let mut buf = Cursor::new(Vec::new());
+    for &(delta, freq, field_mask) in records {
+        let record = RSIndexResult::term().field_mask(field_mask).frequency(freq);
+        FreqsFieldsWide::encode(&mut buf, delta, &record).expect("to encode");
+    }
+    buf.into_inner()
+}
+
 #[test]
 fn test_encode_freqs_fields() {
     // Test cases for the freqs fields encoder and decoder.
@@ -195,4 +217,69 @@ fn test_decode_freqs_fields_empty_input() {
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn test_seek_freqs_fields() {
+    // Records: doc_ids 10, 20, 30, 35, 55, 60
+    let buf = encode_freqs_fields(&[
+        (0, 1, 1),  // doc_id = 10
+        (10, 2, 2), // doc_id = 20
+        (10, 3, 3), // doc_id = 30
+        (5, 4, 1),  // doc_id = 35
+        (20, 5, 9), // doc_id = 55
+        (5, 6, 1),  // doc_id = 60
+    ]);
+    let mut cursor = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
+
+    // Seek to 30 (skips first two records)
+    let found = FreqsFields::seek(&mut cursor, 10, 30, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 30);
+    assert_eq!(result.freq, 3);
+    assert_eq!(result.field_mask, 3);
+
+    // Seek to 40 from base 30 (should land on 55)
+    let found = FreqsFields::seek(&mut cursor, 30, 40, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 55);
+    assert_eq!(result.freq, 5);
+    assert_eq!(result.field_mask, 9);
+
+    // Seek past end
+    let found = FreqsFields::seek(&mut cursor, 55, 70, &mut result).expect("seek");
+    assert!(!found);
+}
+
+#[test]
+fn test_seek_freqs_fields_wide() {
+    let buf = encode_freqs_fields_wide(&[
+        (0, 1, 1),  // doc_id = 10
+        (10, 2, 2), // doc_id = 20
+        (10, 3, 3), // doc_id = 30
+        (5, 4, 1),  // doc_id = 35
+        (20, 5, 9), // doc_id = 55
+        (5, 6, 1),  // doc_id = 60
+    ]);
+    let mut cursor = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
+
+    // Seek to 30
+    let found = FreqsFieldsWide::seek(&mut cursor, 10, 30, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 30);
+    assert_eq!(result.freq, 3);
+    assert_eq!(result.field_mask, 3);
+
+    // Seek to 40 (lands on 55)
+    let found = FreqsFieldsWide::seek(&mut cursor, 30, 40, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 55);
+    assert_eq!(result.freq, 5);
+    assert_eq!(result.field_mask, 9);
+
+    // Seek past end
+    let found = FreqsFieldsWide::seek(&mut cursor, 55, 70, &mut result).expect("seek");
+    assert!(!found);
 }

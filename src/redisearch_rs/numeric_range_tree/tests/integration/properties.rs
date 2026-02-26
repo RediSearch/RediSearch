@@ -14,7 +14,7 @@ mod proptests {
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
 
-    use crate::helpers::gc_all_ranges;
+    use numeric_range_tree::test_utils::gc_all_ranges;
 
     proptest::proptest! {
         #[test]

@@ -64,40 +64,33 @@ impl SchemaRule {
     }
 
     /// Expose the underlying `filter_fields` as a [`Vec`] of &[`CStr`].
-    pub fn filter_fields(&self) -> Vec<&CStr> {
-        let len = self.filter_fields_len();
+    pub fn filter_fields(&self) -> impl ExactSizeIterator<Item = &CStr> {
         debug_assert!(
             !self.0.filter_fields.is_null(),
             "filter_fields must not be null"
         );
+
         // Safety: (1.) due to creation with `SchemaRule::from_raw`
-        let filter_fields = unsafe { slice::from_raw_parts(self.0.filter_fields, len) };
-        filter_fields
+        let len = unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
+            .try_into()
+            .expect("array_len must not exceed usize");
+
+        // Safety: (1.) due to creation with `SchemaRule::from_raw`
+        unsafe { slice::from_raw_parts(self.0.filter_fields, len) }
             .iter()
-            .map(|&c|
-                // Safety: (1.) due to creation with `SchemaRule::from_raw`
-                unsafe { CStr::from_ptr(c) })
-            .collect::<Vec<_>>()
+            .map(|ptr| unsafe { CStr::from_ptr(*ptr) })
     }
 
     /// Expose the underlying `filter_fields_index` as a slice of ints.
     pub fn filter_fields_index(&self) -> &[i32] {
         // These two arrays are assumed to be of the same length.
-        let len = self.filter_fields_len();
+        let len = self.filter_fields().len();
         debug_assert!(
             !self.0.filter_fields_index.is_null(),
             "filter_fields_index must not be null"
         );
         // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
-    }
-
-    /// Get the length of the underlying `filter_fields` array.
-    fn filter_fields_len(&self) -> usize {
-        // Safety: (1.) due to creation with `SchemaRule::from_raw`
-        unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
-            .try_into()
-            .expect("array_len must not exceed usize")
     }
 
     /// Get the underlying `type_`.
@@ -137,38 +130,33 @@ const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CS
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod test {
     use super::*;
-
-    use std::{ffi::CStr, mem, ptr};
+    use crate::bindings::rs_array;
 
     use pretty_assertions::assert_eq;
+    use std::{mem, ptr};
 
     /// Test filter_fields and filter_fields_index together since their lengths are coupled.
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn fields_and_indices() {
         let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
-        schema_rule.filter_fields = filter_fields_array(&[c"aaa", c"bbb"]);
-        let mut filter_fields_index = [10, 20];
-        schema_rule.filter_fields_index = filter_fields_index.as_mut_ptr();
+
+        schema_rule.filter_fields = rs_array([c"aaa", c"bbb"].map(|cstr| cstr.as_ptr().cast_mut()));
+        schema_rule.filter_fields_index = rs_array([10, 20]);
+
         let sut = unsafe { SchemaRule::from_raw(ptr::from_ref(&schema_rule)) };
 
-        let ff = sut.filter_fields();
+        let mut ff = sut.filter_fields();
         let ffi = sut.filter_fields_index();
 
         assert_eq!(ff.len(), 2);
-        assert_eq!(ff[0], c"aaa");
-        assert_eq!(ff[1], c"bbb");
-        assert_eq!(ffi.len(), 2);
-        assert_eq!(ffi, filter_fields_index);
+        assert_eq!(ff.next().unwrap(), c"aaa");
+        assert_eq!(ff.next().unwrap(), c"bbb");
+        assert_eq!(ffi, [10, 20]);
 
-        unsafe { crate::mock::array_free(schema_rule.filter_fields.cast::<*mut c_char>()) }
-    }
-
-    fn filter_fields_array(filter_fields: &[&CStr]) -> *mut *mut c_char {
-        let temp = filter_fields
-            .iter()
-            .map(|ff| ff.as_ptr().cast_mut())
-            .collect::<Vec<_>>();
-
-        crate::mock::array_new(&temp)
+        unsafe {
+            ffi::array_free(schema_rule.filter_fields.cast());
+            ffi::array_free(schema_rule.filter_fields_index.cast());
+        }
     }
 }

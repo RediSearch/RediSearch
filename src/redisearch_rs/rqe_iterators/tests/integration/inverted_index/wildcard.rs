@@ -13,7 +13,8 @@ use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
 use rqe_iterators::{RQEIterator, inverted_index::Wildcard};
 
-use crate::inverted_index::utils::{BaseTest, MockContext};
+use crate::inverted_index::utils::BaseTest;
+use rqe_iterators_test_utils::MockContext;
 
 struct WildcardBaseTest {
     test: BaseTest<DocIdsOnly>,

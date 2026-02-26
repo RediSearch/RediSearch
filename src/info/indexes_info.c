@@ -52,10 +52,9 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
-      ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
-      info.gc_stats.totalCollectedBytes += gcStats.totalCollected;
-      info.gc_stats.totalCycles += gcStats.numCycles;
-      info.gc_stats.totalTime += gcStats.totalMSRun;
+      InfoGCStats gcStats;
+      GCContext_GetStats(sp->gc, &gcStats);
+      InfoGCStats_Add(&info.gc_stats, &gcStats);
     }
 
     // Index

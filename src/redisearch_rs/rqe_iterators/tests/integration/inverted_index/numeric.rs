@@ -17,7 +17,8 @@ use rqe_iterators::{
     NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index::Numeric,
 };
 
-use crate::inverted_index::utils::{BaseTest, MockContext};
+use crate::inverted_index::utils::BaseTest;
+use rqe_iterators_test_utils::MockContext;
 
 /// Builder for creating a Numeric iterator with optional parameters.
 #[allow(dead_code)]

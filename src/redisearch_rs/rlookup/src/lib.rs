@@ -8,21 +8,20 @@
 */
 
 mod bindings;
-mod field_spec;
-mod hidden_string_ref;
-mod index_spec;
 mod lookup;
-#[cfg(test)]
-mod mock;
 mod row;
-mod schema_rule;
 
-pub use bindings::IndexSpecCache;
-pub use index_spec::IndexSpec;
+// Link both Rust-provided and C-provided symbols
+#[cfg(all(test, feature = "unittest"))]
+extern crate redisearch_rs;
+// Mock or stub the ones that aren't provided by the line above
+#[cfg(all(test, feature = "unittest"))]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
+pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
 pub use lookup::{
     Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
     RLookupOptions, opaque::OpaqueRLookup,
 };
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;
-pub use schema_rule::SchemaRule;

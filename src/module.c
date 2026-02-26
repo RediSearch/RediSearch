@@ -540,7 +540,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, NULL);
+  TagIndex *idx = TagIndex_Open(fs);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
@@ -1677,9 +1677,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
       return REDISMODULE_ERR;
     }
-    // Disable GC when running in Flex mode
-    RSGlobalConfig.gcConfigParams.enableGC = false;
-    RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
 
     if (RSGlobalConfig.numWorkerThreads == 0) {
       RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;

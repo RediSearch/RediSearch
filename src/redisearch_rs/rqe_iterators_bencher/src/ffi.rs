@@ -10,12 +10,33 @@
 pub use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
+    RedisModule_Alloc, RedisModule_Free, ValidateStatus,
 };
-use ffi::{IteratorStatus, RedisModule_Alloc, RedisModule_Free, ValidateStatus};
 use inverted_index::{RSIndexResult, t_docId};
 use query_term::RSQueryTerm;
 use std::{ffi::c_void, ptr};
+
+// Direct C benchmark functions that eliminate FFI overhead
+// by implementing the benchmark loop entirely in C
+unsafe extern "C" {
+    /// Benchmark optional iterator read operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_optional_read_direct_c(
+        max_id: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+
+    /// Benchmark optional iterator skip_to operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_optional_skip_to_direct_c(
+        max_id: u64,
+        step: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+}
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -24,17 +45,20 @@ pub struct QueryIterator(*mut ffi::QueryIterator);
 impl QueryIterator {
     #[inline(always)]
     pub fn new_optional_full_child_wildcard(max_id: u64, weight: f64) -> Self {
-        let child = iterators_ffi::wildcard::NewWildcardIterator_NonOptimized(max_id, 1f64)
-            as *mut QueryIterator;
-        Self::new_optional_full_child(max_id, weight, child)
+        let child = iterators_ffi::wildcard::NewWildcardIterator_NonOptimized(max_id, 1f64);
+        Self::new_optional_with_child(max_id, weight, child)
     }
 
     #[inline(always)]
-    pub fn new_optional_full_child(max_id: u64, weight: f64, child: *mut QueryIterator) -> Self {
+    pub fn new_optional_id_list(max_id: u64, weight: f64, ids: Vec<u64>) -> Self {
+        let Self(child) = Self::new_id_list(ids);
+        Self::new_optional_with_child(max_id, weight, child)
+    }
+
+    #[inline(always)]
+    fn new_optional_with_child(max_id: u64, weight: f64, child: *mut ffi::QueryIterator) -> Self {
         let query_eval_ctx = new_redis_search_ctx(max_id);
-        let it = unsafe {
-            ffi::NewOptionalIterator(child as *mut ffi::QueryIterator, query_eval_ctx, weight)
-        };
+        let it = unsafe { ffi::NewOptionalIterator(child, query_eval_ctx, weight) };
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
     }
@@ -268,6 +292,34 @@ fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
 pub struct DirectBenchmarkResult {
     pub iterations: u64,
     pub time_ns: u64,
+}
+
+impl QueryIterator {
+    /// Run direct C benchmark for optional read operations
+    pub fn benchmark_optional_read_direct(max_id: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_optional_read_direct_c(max_id, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for optional skip_to operations
+    pub fn benchmark_optional_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_optional_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
 }
 
 /// Simple wrapper around the C InvertedIndex.

@@ -256,7 +256,7 @@ typedef struct RSAggregateResult_Borrowed_Body {
   /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
+   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    *
@@ -280,7 +280,7 @@ typedef struct RSAggregateResult_Owned_Body {
   /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
+   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
@@ -308,7 +308,7 @@ typedef struct RSOffsetVector {
   /**
    * Pointer to the borrowed offset data.
    */
-  uint8_t *data;
+  const uint8_t *data;
   uint32_t len;
 } RSOffsetVector;
 
@@ -355,7 +355,7 @@ typedef struct RSTermRecord_Owned_Body {
    * It borrows the term from another record.
    * The name of the variant, `Owned`, refers to the `offsets` field.
    */
-  RSQueryTerm *term;
+  const RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
@@ -374,7 +374,7 @@ typedef union RSTermRecord {
  * Holds the actual data of an ['IndexResult']
  *
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
- * the bitflags on [`RSResultKindMask`]
+ * the bitflags on [`super::kind::RSResultKindMask`]
  *
  * The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
  */
