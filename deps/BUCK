@@ -1,4 +1,4 @@
-load(":utils.bzl", "export_headers_map")
+load(":utils.bzl", "export_headers_map", "subdir_glob")
 
 # ================================= RedisModulesSDK ======================================
 
