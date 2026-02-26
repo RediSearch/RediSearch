@@ -25,7 +25,7 @@ dbconfig:
 
 clientconfig:
   tool: memtier_benchmark
-  arguments: '--key-prefix doc: --key-minimum 1 --key-maximum 1000001 --data-size 32 --command "HSET __key__ title __data__" --command-ratio 1000 --command "_FT.DEBUG GC_FORCEINVOKE benchIndex 600000" --command-ratio 1 --hide-histogram --test-time 300 -c 1 -t 1'
+  arguments: '--key-prefix doc: --key-minimum 1 --key-maximum 1000000 --data-size 32 --command "HSET __key__ title __data__" --command-ratio 1000 --command "_FT.DEBUG GC_FORCEINVOKE benchIndex 600000" --command-ratio 1 --hide-histogram --test-time 300 -c 1 -t 1'
   resources:
     requests:
       cpus: "2"
