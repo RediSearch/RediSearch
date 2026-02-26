@@ -24,9 +24,11 @@ mod rs_value_ffi;
 pub use rs_value_ffi::*;
 
 pub mod collection;
+pub mod debug;
 pub mod hash;
 pub mod redis_string;
 pub mod rs_string;
+pub mod sds_writer;
 pub mod shared;
 pub mod trio;
 pub mod util;
