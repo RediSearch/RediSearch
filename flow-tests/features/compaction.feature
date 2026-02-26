@@ -35,6 +35,7 @@ Feature: RediSearchDisk Compaction (GC) and Term Stats
   # NOSTEM is used to ensure consistent term handling for both scorers.
   Scenario Outline: GC updates <stat_type> after compaction
     Given I create an index "idx" with schema field "content" as TEXT NOSTEM
+    And I disable automatic GC on index "idx"
     And I add documents to index "idx":
       | id   | field   | value         |
       | doc1 | content | common aaa    |
@@ -66,6 +67,7 @@ Feature: RediSearchDisk Compaction (GC) and Term Stats
   # NOSTEM is required to prevent the stemmer from modifying UTF-8 terms.
   Scenario Outline: GC updates <stat_type> for UTF-8 terms after compaction
     Given I create an index "idx" with schema field "content" as TEXT NOSTEM
+    And I disable automatic GC on index "idx"
     And I add documents to index "idx":
       | id   | field   | value           |
       | doc1 | content | common naïve    |
