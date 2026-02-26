@@ -117,8 +117,11 @@ jobs:
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false  # We'll fetch submodules separately with retry
           ref: ${{ env.REF }}
+      - name: Fetch submodules with retry (node20)
+        if: steps.node20.outputs.supported == 'true'
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'git submodule update --init --recursive') }}
       - name: checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: |
