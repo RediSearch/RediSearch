@@ -3213,16 +3213,27 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
     RedisModule_SaveUnsigned(rdb, 0);
   }
 
-  // Disk index
+  // Disk index metadata
   // Check if we are using SST files with this RDB. If so, we save the disk-related
-  // RAM-based data-structures to the RDB.
+  // RAM-based data-structures to the RDB. Both save and load paths go through
+  // IndexSpecRdbState as the single source of truth for serialization format:
+  //
+  // Save: IndexSpec::save_to_rdb() -> IndexSpecRdbState::from_doc_table() -> IndexSpecRdbState::save_to_rdb()
+  // Load: IndexSpecRdbState::load_from_rdb() -> IndexSpec::new_with_rdb_state()
+  //
+  // Data saved/loaded:
+  // - Scoring stats
+  // - Terms trie
+  // - Disk metadata: max_doc_id and deleted_ids
+  //
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
-  // assume it was not set in when the RDB will be loaded as well
+  // assume it was not set when the RDB will be loaded as well.
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (sp->diskSpec && useSst) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
+    // Save disk metadata via IndexSpecRdbState (loaded via SearchDisk_LoadRdbToTempObject)
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 }
@@ -3308,28 +3319,18 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
-  // Open the index on disk only if we are on Flex, and this is not a duplicate.
-  if (isSpecOnDisk(sp) && !sp->isDuplicate) {
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
-    IndexSpec_PopulateVectorDiskParams(sp);
-    if (!sp->diskSpec) {
-      goto cleanup;
-    }
-  }
-
   // Check if we are using SST files with this RDB.
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB was saved as well.
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
 
   // Load the disk-related index data if we are on disk and the save flow used
-  // sst-files, even if this is a duplicate.
+  // sst-files. We load it into a temporary in-memory object first, then use it
+  // to open the index with the RDB state applied.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
-  // On the disk side (RDB is depleted, without updating index fields).
-  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
+  // on the disk side (RDB is depleted, without updating index fields).
+  RedisSearchDiskRdbState *diskRdbState = NULL;
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
@@ -3337,14 +3338,46 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
-    if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
+
+    // Load disk metadata (max_doc_id, deleted_ids) into temporary object
+    diskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
+    if (!diskRdbState) {
       goto cleanup;
     }
+  }
+
+  // Open the index on disk only if we are on Flex, and this is not a duplicate.
+  if (isSpecOnDisk(sp) && !sp->isDuplicate) {
+    RS_ASSERT(disk_db);
+    size_t len;
+    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+
+    if (diskRdbState) {
+      // Use the new API that applies the RDB state during index opening
+      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(name, len, sp->rule->type, diskRdbState);
+      diskRdbState = NULL; // Ownership transferred
+    } else {
+      // No RDB state (non-SST flow), just open the index normally
+      sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    }
+
+    IndexSpec_PopulateVectorDiskParams(sp);
+    if (!sp->diskSpec) {
+      goto cleanup;
+    }
+  } else if (diskRdbState) {
+    // Duplicate case: we loaded the RDB state but won't create diskSpec
+    // Free the RDB state since it won't be used
+    SearchDisk_FreeRdbState(diskRdbState);
+    diskRdbState = NULL;
   }
 
   return sp;
 
 cleanup:
+  if (diskRdbState) {
+    SearchDisk_FreeRdbState(diskRdbState);
+  }
   StrongRef_Release(spec_ref);
 cleanup_no_index:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
