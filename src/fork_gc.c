@@ -1140,14 +1140,18 @@ static int periodicCb(void *privdata) {
     }
     close(gc->pipe_read_fd);
     // give the child some time to exit gracefully
-    for (int attempt = 0; attempt < GC_WAIT_ATTEMPTS; ++attempt) {
-      if (waitpid(cpid, NULL, WNOHANG) == 0) {
-        usleep(500);
+    
+    bool child_exited = false;
+    for (int attempt = 0; attempt < GC_WAIT_ATTEMPTS && !child_exited; ++attempt) {
+      usleep(500);
+      int child_status = 0;
+      if (waitpid(cpid, &child_status, WNOHANG) == 0) {
+        child_exited = WIFEXITED(child_status) || WIFSIGNALED(child_status);
       }
     }
     // Defer any lingering child cleanup to the monitor callback,
     // which runs on the main thread with the GIL.
-    if (waitpid(cpid, NULL, WNOHANG) == 0) {
+    if (!child_exited) {
       __atomic_store_n(&gc->childPidToKill, cpid, __ATOMIC_RELEASE);
     }
 

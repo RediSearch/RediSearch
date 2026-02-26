@@ -94,13 +94,55 @@ static void debugTaskCallback(void* data) {
 
 // Forward declaration
 static void monitorTimerCallback(RedisModuleCtx* ctx, void* data);
+static inline void GCContext_RescheduleMonitor(GCContext *gc) {
+  gc->monitorTimerID = RedisModule_CreateTimer(RSDummyContext, GC_MONITOR_INTERVAL_MS, monitorTimerCallback, gc);
+}
+
+static inline bool GCContext_IsShutdownRequested(const GCContext *gc) {
+  return __atomic_load_n(&gc->shutdownRequested, __ATOMIC_ACQUIRE);
+}
+
+static inline bool GCContext_IsJobRunning(const GCContext *gc) {
+  return __atomic_load_n(&gc->jobRunning, __ATOMIC_ACQUIRE);
+}
+
+static inline void GCContext_RunPostJobCallback(GCContext *gc) {
+  if (gc->callbacks.postJobCallback) {
+    gc->callbacks.postJobCallback(gc->gcCtx);
+  }
+}
+
+static void GCContext_Terminate(GCContext *gc) {
+  gc->callbacks.onTerm(gc->gcCtx);
+  rm_free(gc);
+}
+
+static void GCContext_HandleCompletedJob(GCContext *gc) {
+  GCContext_RunPostJobCallback(gc);
+
+  if (GCContext_IsShutdownRequested(gc)) {
+    GCContext_Terminate(gc);
+    return;
+  }
+
+  // GC job finished - handle result
+  int result = __atomic_load_n(&gc->lastResult, __ATOMIC_ACQUIRE);
+  if (result == 0) {
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "GC %p: Self-Terminating. Index was freed.", gc);
+    GCContext_Terminate(gc);
+    return;
+  }
+
+  // Schedule next GC run after the configured interval
+  gc->timerID = scheduleNext(gc);
+}
 
 // Main thread (has GIL): Called at GC interval to start a GC job
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
   GCContext* gc = data;
   gc->timerID = 0;  // Timer fired, clear it
 
-  if (__atomic_load_n(&gc->shutdownRequested, __ATOMIC_ACQUIRE)) {
+  if (GCContext_IsShutdownRequested(gc)) {
     return;
   }
 
@@ -118,7 +160,7 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
   redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH);
 
   // Start monitor timer to detect completion
-  gc->monitorTimerID = RedisModule_CreateTimer(RSDummyContext, GC_MONITOR_INTERVAL_MS, monitorTimerCallback, gc);
+  GCContext_RescheduleMonitor(gc);
 }
 
 // Main thread (has GIL): Short-interval timer to check if GC job completed
@@ -126,50 +168,18 @@ static void monitorTimerCallback(RedisModuleCtx* ctx, void* data) {
   GCContext* gc = data;
   gc->monitorTimerID = 0;  // Timer fired, clear it
 
-  if (__atomic_load_n(&gc->shutdownRequested, __ATOMIC_ACQUIRE)) {
-    // If a job is still running, keep monitoring until it completes.
-    if (__atomic_load_n(&gc->jobRunning, __ATOMIC_ACQUIRE)) {
-      gc->monitorTimerID = RedisModule_CreateTimer(RSDummyContext, GC_MONITOR_INTERVAL_MS, monitorTimerCallback, gc);
-      return;
-    }
-    if (gc->callbacks.postJobCallback) {
-      gc->callbacks.postJobCallback(gc->gcCtx);
-    }
-    gc->callbacks.onTerm(gc->gcCtx);
-    rm_free(gc);
+  // If the worker is still running, keep monitoring until it completes.
+  if (GCContext_IsJobRunning(gc)) {
+    GCContext_RescheduleMonitor(gc);
     return;
   }
 
-  // Check if GC job still running
-  if (__atomic_load_n(&gc->jobRunning, __ATOMIC_ACQUIRE)) {
-    // Still running - check again soon
-    gc->monitorTimerID = RedisModule_CreateTimer(RSDummyContext, GC_MONITOR_INTERVAL_MS, monitorTimerCallback, gc);
-    return;
-  }
-
-  // Job finished. Run post-job actions that must happen on the main thread.
-  if (gc->callbacks.postJobCallback) {
-    gc->callbacks.postJobCallback(gc->gcCtx);
-  }
-
-  // GC job finished - handle result
-  int result = __atomic_load_n(&gc->lastResult, __ATOMIC_ACQUIRE);
-
-  if (result == 0) {
-    // Index was freed - terminate GC
-    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "GC %p: Self-Terminating. Index was freed.", gc);
-    gc->callbacks.onTerm(gc->gcCtx);
-    rm_free(gc);
-    return;
-  }
-
-  // Schedule next GC run after the configured interval
-  gc->timerID = scheduleNext(gc);
+  GCContext_HandleCompletedJob(gc);
 }
 
 void GCContext_StartNow(GCContext* gc) {
   RS_LOG_ASSERT_FMT(gc->timerID == 0 &&
-                    !__atomic_load_n(&gc->jobRunning, __ATOMIC_ACQUIRE),
+                    !GCContext_IsJobRunning(gc),
                     "GC %p: StartNow called while GC is already running", gc);
 
   // Start GC job immediately
@@ -179,7 +189,7 @@ void GCContext_StartNow(GCContext* gc) {
   redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH);
 
   // Start monitor timer
-  gc->monitorTimerID = RedisModule_CreateTimer(RSDummyContext, GC_MONITOR_INTERVAL_MS, monitorTimerCallback, gc);
+  GCContext_RescheduleMonitor(gc);
 }
 
 void GCContext_Start(GCContext* gc) {
@@ -210,9 +220,8 @@ void GCContext_Stop(GCContext* gc) {
 
   // If no job is running and no monitor timer is active, free now.
   // Otherwise the monitor callback will free once the running job completes.
-  if (!__atomic_load_n(&gc->jobRunning, __ATOMIC_ACQUIRE)) {
-    gc->callbacks.onTerm(gc->gcCtx);
-    rm_free(gc);
+  if (!GCContext_IsJobRunning(gc)) {
+    GCContext_Terminate(gc);
   }
 }
 
