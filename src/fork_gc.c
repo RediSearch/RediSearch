@@ -204,33 +204,30 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 typedef struct {
-  int type;
   const char *field;
   const void *curPtr;
   char *tagValue;
   size_t tagLen;
   uint64_t uniqueId;
   int sentFieldName;
-} tagNumHeader;
+} tagHeader;
 
-static void sendNumericTagHeader(void *opaqueCtx) {
+static void sendTagHeader(void *opaqueCtx) {
     CTX_II_GC_Callback* ctx = opaqueCtx;
 
-  tagNumHeader *info = ctx->hdrarg;
+  tagHeader *info = ctx->hdrarg;
   if (!info->sentFieldName) {
     info->sentFieldName = 1;
     FGC_sendBuffer(ctx->gc, info->field, strlen(info->field));
     FGC_sendFixed(ctx->gc, &info->uniqueId, sizeof info->uniqueId);
   }
-  if (info->type == RSFLDTYPE_TAG) {
-    FGC_SEND_VAR(ctx->gc, info->curPtr);
-    FGC_sendBuffer(ctx->gc, info->tagValue, info->tagLen);
-  }
+  FGC_SEND_VAR(ctx->gc, info->curPtr);
+  FGC_sendBuffer(ctx->gc, info->tagValue, info->tagLen);
 }
 
 // If anything other than FGC_COLLECTED is returned, it is an error or done
-static FGCError recvNumericTagHeader(ForkGC *fgc, char **fieldName, size_t *fieldNameLen,
-                                     uint64_t *id) {
+static FGCError recvFieldHeader(ForkGC *fgc, char **fieldName, size_t *fieldNameLen,
+                                uint64_t *id) {
   if (FGC_recvBuffer(fgc, (void **)fieldName, fieldNameLen) != REDISMODULE_OK) {
     return FGC_PARENT_ERROR;
   }
@@ -306,9 +303,8 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
         continue;
       }
 
-      tagNumHeader header = {.type = RSFLDTYPE_TAG,
-                             .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
-                             .uniqueId = tagIdx->uniqueId};
+      tagHeader header = {.field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
+                          .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
       char *ptr;
@@ -322,7 +318,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
         // send repaired data
 
         CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
-        II_GCCallback cb = { .ctx = &cbCtx, .call = sendNumericTagHeader };
+        II_GCCallback cb = { .ctx = &cbCtx, .call = sendTagHeader };
 
         II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
@@ -500,7 +496,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   char *fieldName = NULL;
   uint64_t rtUniqueId;
   NumericRangeTree *rt = NULL;
-  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
+  FGCError status = recvFieldHeader(gc, &fieldName, &fieldNameLen, &rtUniqueId);
   if (status == FGC_DONE) {
     return FGC_DONE;
   }
@@ -623,7 +619,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   char *fieldName = NULL;
   uint64_t tagUniqueId;
   InvertedIndex *value = NULL;
-  FGCError status = recvNumericTagHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId);
+  FGCError status = recvFieldHeader(gc, &fieldName, &fieldNameLen, &tagUniqueId);
 
   while (status == FGC_COLLECTED) {
     InvertedIndexGcDelta *delta = NULL;
