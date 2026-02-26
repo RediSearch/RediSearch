@@ -16,7 +16,6 @@ redis_reply.workspace = true
 smallvec = { workspace = true, features = ["serde", "union"] }
 varint.workspace = true
 serde.workspace = true
-workspace_hack.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

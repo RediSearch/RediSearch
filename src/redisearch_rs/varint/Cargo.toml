@@ -13,4 +13,3 @@ proptest = { workspace = true, features = ["std"] }
 proptest-derive = { workspace = true }
 
 [dependencies]
-workspace_hack.workspace = true

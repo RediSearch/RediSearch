@@ -39,7 +39,6 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
-    "workspace_hack",
     "idf",
 ]
 
@@ -119,7 +118,6 @@ trie_rs = { path = "./trie_rs" }
 value = { path = "./value" }
 varint = { path = "./varint" }
 wildcard = { path = "./wildcard" }
-workspace_hack = { path = "./workspace_hack" }
 
 ahash = "0.8"
 anstyle-query = "1.1.5"
