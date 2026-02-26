@@ -85,11 +85,6 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
   disk->basic.indexSpecRdbSave(rdb, index);
 }
 
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk);
-  return disk->basic.indexSpecRdbLoad(rdb, index);
-}
-
 RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
   RS_ASSERT(disk);
   return disk->basic.loadRdbToTempObject(rdb);

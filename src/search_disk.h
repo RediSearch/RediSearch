@@ -71,16 +71,6 @@ void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Load the disk-related data of the index from the rdb file
- *
- * @param rdb Redis module rdb file
- * @param index Pointer to the index. If NULL, the RDB section related to the
- * index is consumed only.
- * @return true if successful, false otherwise
- */
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
-
-/**
  * @brief Load disk-related RDB data into a temporary in-memory object.
  *
  * Called during RDB load when the IndexSpec cannot be created yet (e.g., during replication

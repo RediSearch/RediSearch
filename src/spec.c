@@ -3535,8 +3535,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
-    // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
-    // data in this version of RDB (encver).
     if (!sp->diskSpec) {
       RedisModule_LogIOError(rdb, "warning",
         "Could not open disk index");
