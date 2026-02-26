@@ -38,7 +38,7 @@ pub type RSTokenFlags = u32;
 /// cbindgen:field-names=[str, len, idf, id, flags, bm25_idf]
 pub struct RSQueryTerm {
     /// The term string, always NULL-terminated.
-    str_: *mut c_char,
+    str_: *mut u8,
     /// The term length in bytes.
     ///
     /// It doesn't count the null terminator.
@@ -84,9 +84,8 @@ impl RSQueryTerm {
         let mut buf = Vec::with_capacity(s.len() + 1);
         buf.extend_from_slice(s);
         buf.push(0); // null terminator
-        let str_copy = Box::into_raw(buf.into_boxed_slice()) as *mut c_char;
         Box::new(Self {
-            str_: str_copy,
+            str_: Box::into_raw(buf.into_boxed_slice()).cast(),
             len: s.len(),
             idf: 1.0,
             id,
@@ -163,7 +162,7 @@ impl RSQueryTerm {
             None
         } else {
             // SAFETY: `str_` is valid for `len` bytes when non-null
-            Some(unsafe { std::slice::from_raw_parts(self.str_ as *const u8, self.len) })
+            Some(unsafe { std::slice::from_raw_parts(self.str_, self.len) })
         }
     }
 }
@@ -171,7 +170,7 @@ impl RSQueryTerm {
 impl Drop for RSQueryTerm {
     fn drop(&mut self) {
         if !self.str_.is_null() {
-            let slice_ptr = std::ptr::slice_from_raw_parts_mut(self.str_ as *mut u8, self.len + 1);
+            let slice_ptr = std::ptr::slice_from_raw_parts_mut(self.str_, self.len + 1);
             // SAFETY: `str_` was allocated via `Box::into_raw` on a
             // `Box<[u8]>` of length `self.len + 1` in `new`.
             let _ = unsafe { Box::from_raw(slice_ptr) };

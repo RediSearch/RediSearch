@@ -759,7 +759,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX, ctx->spec->diskSpec);
+  TagIndex *tidx = TagIndex_Ensure(&ctx->spec->fields[fs->index], ctx->spec->diskSpec);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;

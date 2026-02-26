@@ -37,8 +37,9 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 /// Access to the RediSearch Module context
 pub mod context;
 
-/// Use the Rust definition directly
+/// Use the Rust definitions directly
 pub use document::DocumentType;
+pub use query_term::{RSQueryTerm, RSTokenFlags};
 
 #[repr(C)]
 #[derive(Debug)]

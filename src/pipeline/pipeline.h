@@ -82,7 +82,7 @@ typedef struct QueryPipelineParams {
      *  This is the top-level iterator in the search iterator tree, typically a union
      *  or intersection iterator that coordinates child iterators for different
      *  search terms and filters. It produces the initial set of candidate documents. */
-    const QueryIterator *rootiter;
+    QueryIterator *rootiter;
 
     /** Slot ranges for the root iterator, used for cluster-aware query execution. */
     const RedisModuleSlotRangeArray *querySlots;
