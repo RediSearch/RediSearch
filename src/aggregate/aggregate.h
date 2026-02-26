@@ -327,11 +327,14 @@ typedef struct AREQ {
   bool skipTimeoutChecks;
 
   // Prefetched results buffer for FT.HYBRID cursor initialization.
-  // When a cursor is created without sending results (e.g., _FT.HYBRID WITHCURSOR on shards),
-  // we read and buffer the initial results here to initialize iterator state.
-  // These are returned on the first FT.CURSOR READ before continuing normal iteration.
+  // When a cursor is created without sending results
+  // (e.g., _FT.HYBRID WITHCURSOR on shards), we read and buffer the initial
+  // results here to initialize iterator state.
+  // These are returned on the first FT.CURSOR READ before continuing normal
+  // iteration.
   SearchResult **prefetchedResults;
-  int prefetchedResultsRc;  // Return code from prefetch (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  // Return code from prefetch (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  int prefetchedResultsRc;
 } AREQ;
 
 /**
@@ -527,8 +530,10 @@ void AREQ_DecrRef(AREQ *req);
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
 /**
- * Prefetch cursor results for FT.HYBRID by reading initial results without sending them.
- * This initializes the iterator state, allowing safe revalidation on later cursor reads.
+ * Prefetch cursor results for FT.HYBRID by reading initial results without
+ * sending them.
+ * This initializes the iterator state, allowing safe revalidation on later
+ * cursor reads.
  * Results are buffered and returned on the first FT.CURSOR READ.
  *
  * @param cursor The cursor to prefetch

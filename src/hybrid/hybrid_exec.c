@@ -809,7 +809,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
-    // Lock was released inside RPSafeDepleter_WaitForDepletionToStart after all depleters acquired their locks
+    // Lock was released inside RPSafeDepleter_WaitForDepletionToStart after
+    // all depleters acquired their locks
   } else {
     // buildPipelineAndExecute failed - need to release the lock we acquired
     // The lock is only released on success path inside RPSafeDepleter_DepleteAll

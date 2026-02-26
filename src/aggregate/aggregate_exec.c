@@ -423,7 +423,8 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_2_err;
     }
 
-    // Check for prefetched results from cursor initialization (FT.HYBRID WITHCURSOR on shards)
+    // Check for prefetched results from cursor initialization
+    // (_FT.HYBRID WITHCURSOR on shards)
     if (req->prefetchedResults) {
       results = req->prefetchedResults;
       rc = req->prefetchedResultsRc;
@@ -627,7 +628,8 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_3_err;
     }
 
-    // Check for prefetched results from cursor initialization (FT.HYBRID WITHCURSOR on shards)
+    // Check for prefetched results from cursor initialization
+    // (_FT.HYBRID WITHCURSOR on shards)
     if (req->prefetchedResults) {
       results = req->prefetchedResults;
       rc = req->prefetchedResultsRc;
@@ -1356,12 +1358,14 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
 /**
  * Prefetch cursor results by reading initial results without sending them.
- * This initializes the iterator state, allowing safe revalidation on cursor reads.
+ * This initializes the iterator state, allowing safe revalidation on cursor
+ * reads.
  *
- * Used by FT.HYBRID WITHCURSOR on shards: cursors are created and their IDs returned
- * without reading any data. Later FT.CURSOR READ calls would fail if the index was
- * modified because the iterator state was never initialized. This function reads
- * results to initialize the iterator, buffering them for the first cursor read.
+ * Used by _FT.HYBRID WITHCURSOR on shards: cursors are created and their IDs
+ * returned without reading any data. Later FT.CURSOR READ calls would fail if
+ * the index was modified because the iterator state was never initialized.
+ * This function reads results to initialize the iterator, buffering them for
+ * the first cursor read.
  *
  * @param req The aggregate request to prefetch
  * @param num Number of results to read (0 = use default chunk size)
@@ -1400,8 +1404,12 @@ static void prefetchCursorInternal(AREQ *req, size_t num) {
     IndexSpec_DecrActiveQueries(sctx->spec);
   }
 
-  // Check if iteration is done
-  if (rc == RS_RESULT_EOF || rc == RS_RESULT_ERROR || rc == RS_RESULT_TIMEDOUT) {
+  // Check if iteration is done (matching cursor_done logic in sendChunk)
+  // With TimeoutPolicy_Return, timeout doesn't end iteration - cursor remains valid
+  bool iter_done = (rc == RS_RESULT_EOF || rc == RS_RESULT_ERROR ||
+                    (rc == RS_RESULT_TIMEDOUT &&
+                     req->reqConfig.timeoutPolicy != TimeoutPolicy_Return));
+  if (iter_done) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
