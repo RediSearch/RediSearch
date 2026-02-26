@@ -21,6 +21,8 @@
 #include "spec.h"
 #include "param.h"
 #include "rmalloc.h"
+#include "config.h"
+#include "shard_window_ratio.h"
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
@@ -111,13 +113,41 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     }
 
     // Unknown argument that's not VSIM - this is an error
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in SEARCH", cur);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
   }
   if (searchOpts->scoreAlias) {
     AREQ_AddRequestFlags(sreq, QEXEC_F_SEND_SCORES_AS_FIELD);
   }
 
+  return REDISMODULE_OK;
+}
+
+static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
+                                  QueryError *status) {
+  // VSIM @vectorfield vector KNN <nargs> ... SHARD_K_RATIO <ratio>
+  //                                          ^
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for SHARD_K_RATIO");
+    return REDISMODULE_ERR;
+  }
+
+  const char *ratioStr;
+  size_t ratioStrLen;
+  ratioStr = AC_GetStringNC(ac, &ratioStrLen);
+  double shardKRatio;
+  if (!validateShardKRatio(ratioStr, &shardKRatio, status)) {
+    return REDISMODULE_ERR;
+  }
+
+  // Add as QueryAttribute (will be applied to VectorQuery via QueryNode_ApplyAttributes)
+  QueryAttribute attr = {
+    .name = SHARD_K_RATIO_ATTR,
+    .namelen = strlen(SHARD_K_RATIO_ATTR),
+    .value = rm_strndup(ratioStr, ratioStrLen),
+    .vallen = ratioStrLen
+  };
+  pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
   return REDISMODULE_OK;
 }
 
@@ -139,6 +169,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -179,10 +210,20 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
+    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      if (hasShardKRatio) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
+        return REDISMODULE_ERR;
+      }
+      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+      hasShardKRatio = true;
+
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in KNN", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in KNN", current);
       return REDISMODULE_ERR;
     }
   }
@@ -255,7 +296,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in RANGE", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in RANGE", current);
       return REDISMODULE_ERR;
     }
   }
@@ -452,8 +493,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
-  // Check for optional YIELD_SCORE_AS clause
-  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+  // Check for optional YIELD_SCORE_AS detecting duplicate arguments
+  while (!AC_IsAtEnd(ac) && AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
     if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -484,6 +525,7 @@ final:
     case VECSIM_QT_KNN:
       vq->knn.vector = (void*)vectorParam;
       vq->knn.vecLen = vectorParamLen;
+      vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;

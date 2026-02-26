@@ -14,7 +14,8 @@
 
 use ffi::IndexFlags_Index_StoreNumeric;
 use inverted_index::{
-    EntriesTrackingIndex, IndexReader, IndexReaderCore, RSIndexResult,
+    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, RSIndexResult,
+    debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
 
@@ -101,6 +102,64 @@ impl NumericIndex {
         match self {
             NumericIndex::Uncompressed(idx) => idx.memory_usage(),
             NumericIndex::Compressed(idx) => idx.memory_usage(),
+        }
+    }
+
+    /// Get the summary of this index.
+    pub fn summary(&self) -> Summary {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.summary(),
+            NumericIndex::Compressed(idx) => idx.summary(),
+        }
+    }
+
+    /// Get a reference to the last block in this index, if any.
+    pub(crate) fn last_block(&self) -> Option<&IndexBlock> {
+        let n = self.num_blocks();
+        if n == 0 {
+            return None;
+        }
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.block_ref(n - 1),
+            NumericIndex::Compressed(idx) => idx.block_ref(n - 1),
+        }
+    }
+
+    /// Get the first document ID in a specific block.
+    ///
+    /// Returns `None` if the block index is out of bounds.
+    pub(crate) fn block_first_id(&self, block_idx: usize) -> Option<ffi::t_docId> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
+            NumericIndex::Compressed(idx) => idx.block_ref(block_idx).map(|b| b.first_block_id()),
+        }
+    }
+
+    /// Apply garbage collection deltas to this index.
+    ///
+    /// Consumes the `delta` and returns information about what changed.
+    pub fn apply_gc(&mut self, delta: inverted_index::GcScanDelta) -> inverted_index::GcApplyInfo {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.apply_gc(delta),
+            NumericIndex::Compressed(idx) => idx.apply_gc(delta),
+        }
+    }
+
+    /// Scan the index for blocks that can be garbage collected.
+    ///
+    /// The `doc_exist` callback returns `true` if the document still exists.
+    /// Returns `Ok(Some(delta))` if GC is needed, `Ok(None)` otherwise.
+    pub fn scan_gc<F>(
+        &self,
+        doc_exist: impl Fn(ffi::t_docId) -> bool,
+        repair_fn: Option<F>,
+    ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
+    where
+        F: for<'index> FnMut(&RSIndexResult<'index>, &IndexBlock),
+    {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.scan_gc(doc_exist, repair_fn),
+            NumericIndex::Compressed(idx) => idx.scan_gc(doc_exist, repair_fn),
         }
     }
 }

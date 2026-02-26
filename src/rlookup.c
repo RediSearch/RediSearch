@@ -171,7 +171,7 @@ void RLookupKey_Free(RLookupKey *k) {
   rm_free(k);
 }
 
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
+const FieldSpec *RLookup_FindFieldInSpecCache(const RLookup *lookup, const char *name) {
   const IndexSpecCache *cc = lookup->_spcache;
   if (!cc) {
     return NULL;
@@ -191,7 +191,7 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
 // has promised to load the entire document.
 static RLookupKey *genKeyFromSpec(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
-  const FieldSpec *fs = findFieldInSpecCache(lookup, name);
+  const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, name);
   // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
   //        if the field has a different name (alias) than its path.
   if(!fs || (!FieldSpec_IsSortable(fs) && !(lookup->_options & RLOOKUP_OPT_ALL_LOADED))) {
@@ -302,7 +302,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     }
 
     // At this point we know for sure that it is not marked as loaded.
-    const FieldSpec *fs = findFieldInSpecCache(lookup, field_name);
+    const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, field_name);
     if (fs) {
       setKeyByFieldSpec(key, fs);
       if (RLookupKey_GetFlags(key) & RLOOKUP_F_VAL_AVAILABLE && !(flags & RLOOKUP_F_FORCE_LOAD)) {
@@ -412,7 +412,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
         i +=1;
         continue;
     }
-    const RSValue *v = RLookup_GetItem(kk, r);
+    const RSValue *v = RLookupRow_Get(kk, r);
     if (!v) {
         i +=1;
         continue;
@@ -434,8 +434,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
   return nfields;
 }
 
-void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
-  memset(lk, 0, sizeof(*lk));
+void RLookup_SetCache(RLookup *lk, IndexSpecCache *spcache) {
   lk->_spcache = spcache;
 }
 
@@ -463,7 +462,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
   RLookup_WriteKey(k, dst, v);
 }
 
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
+void RLookupRow_WriteByNameOwned(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
   RLookup_WriteKeyByName(lookup, name, len, row, value);
   RSValue_DecrRef(value);
 }
@@ -484,7 +483,9 @@ void RLookupRow_Reset(RLookupRow *r) {
   RLookupRow_Wipe(r);
   if (r->dyn) {
     array_free(r->dyn);
+    r->dyn = NULL;
   }
+  RS_LOG_ASSERT(r->ndyn == 0, "ndyn should be 0 after reset");
 }
 
 void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
@@ -492,7 +493,7 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
   const RLookupKey* k;
 
   while (RLookupIterator_Next(&iter, &k)) {
-    RSValue *vv = RLookup_GetItem(k, src);
+    RSValue *vv = RLookupRow_Get(k, src);
     if (vv) {
       RLookup_WriteKey(k, dst, vv);
     }
@@ -511,7 +512,7 @@ void RLookup_Cleanup(RLookup *lk) {
   IndexSpecCache_Decref(lk->_spcache);
 
   lk->_head = lk->_tail = NULL;
-  memset(lk, 0xff, sizeof(*lk));
+  memset(lk, 0, sizeof(*lk));
 }
 
 RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
@@ -583,10 +584,10 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       RedisJSONPtr value_ptr = japi->allocJson();
 
-      RSValueMap map = RSValueMap_AllocUninit(len);
+      RSValueMapBuilder *map = RSValue_NewMapBuilder(len);
       for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
         value = *value_ptr;
-        RSValueMap_SetEntry(&map, i, RSValue_NewRedisString(keyName),
+        RSValue_MapBuilderSetEntry(map, i, RSValue_NewRedisString(keyName),
           jsonValToValueExpanded(ctx, value));
       }
       japi->freeJson(value_ptr);
@@ -594,15 +595,15 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       japi->freeKeyValuesIter(iter);
       RS_ASSERT(i == len);
 
-      ret = RSValue_NewMap(map);
+      ret = RSValue_NewMapFromBuilder(map);
     } else {
-      ret = RSValue_NewMap(RSValueMap_AllocUninit(0));
+      ret = RSValue_NewMapFromBuilder(RSValue_NewMapBuilder(0));
     }
   } else if (type == JSONType_Array) {
     // Array
     japi->getLen(json, &len);
     if (len) {
-      RSValue **arr = RSValue_AllocateArray(len);
+      RSValue **arr = RSValue_NewArrayBuilder(len);
       RedisJSONPtr value_ptr = japi->allocJson();
       for (size_t i = 0; i < len; ++i) {
         japi->getAt(json, i, value_ptr);
@@ -610,10 +611,11 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
         arr[i] = jsonValToValueExpanded(ctx, value);
       }
       japi->freeJson(value_ptr);
-      ret = RSValue_NewArray(arr, len);
+      ret = RSValue_NewArrayFromBuilder(arr, len);
     } else {
       // Empty array
-      ret = RSValue_NewArray(NULL, 0);
+      RSValue **arr = RSValue_NewArrayBuilder(0);
+      ret = RSValue_NewArrayFromBuilder(arr, 0);
     }
   } else {
     // Scalar
@@ -632,14 +634,15 @@ RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) 
   if (len) {
     japi->resetIter(iter);
     RedisJSON json;
-    RSValue **arr = RSValue_AllocateArray(len);
+    RSValue **arr = RSValue_NewArrayBuilder(len);
     for (size_t i = 0; (json = japi->next(iter)); ++i) {
       arr[i] = jsonValToValueExpanded(ctx, json);
     }
-    ret = RSValue_NewArray(arr, len);
+    ret = RSValue_NewArrayFromBuilder(arr, len);
   } else {
     // Empty array
-    ret = RSValue_NewArray(NULL, 0);
+    RSValue **arr = RSValue_NewArrayBuilder(0);
+    ret = RSValue_NewArrayFromBuilder(arr, 0);
   }
   return ret;
 }
@@ -749,7 +752,7 @@ static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst,
         // No need to "write" this key. It's always implicitly loaded!
         (RLookupKey_GetFlags(kk) & RLOOKUP_F_VAL_AVAILABLE) ||
         // There is no value in the sorting vector, and we don't need to load it from the document.
-        ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (RLookup_GetItem(kk, dst) == NULL))
+        ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (RLookupRow_Get(kk, dst) == NULL))
     ));
 }
 
@@ -1032,7 +1035,7 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
   return rv;
 }
 
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr) {
+int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr, QueryError *status) {
   SchemaRule *rule = spec->rule;
 
   // create rlookupkeys
@@ -1052,18 +1055,15 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   }
 
   // load
-  RedisSearchCtx sctx = { .redisCtx = ctx };
-  struct QueryError status = QueryError_Default(); // TODO: report errors
   RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
                             .nkeys = nkeys,
-                            .sctx = &sctx,
+                            .sctx = sctx,
                             .keyPtr = keyptr,
                             .type = rule->type,
-                            .status = &status,
+                            .status = status,
                             .forceLoad = 1,
                             .mode = RLOOKUP_LOAD_KEYLIST };
   int rv = loadIndividualKeys(it, dst, &opt);
-  QueryError_ClearError(&status);
   rm_free(keys);
   return rv;
 }
@@ -1105,7 +1105,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
     }
 
     // Get value from source row
-    RSValue *value = RLookup_GetItem(src_key, srcRow);
+    RSValue *value = RLookupRow_Get(src_key, srcRow);
     if (!value) {
       // No data for this key in source row
       continue;

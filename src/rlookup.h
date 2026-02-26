@@ -101,6 +101,9 @@ typedef struct RLookup {
   IndexSpecCache *_spcache;
 } RLookup;
 
+/** Returns a new RLookup struct. Will forward the call to Rust once RLookup is migrated. */
+static inline RLookup RLookup_New(void) { return (RLookup){0}; }
+
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
     const RLookupKey* key; \
@@ -192,6 +195,9 @@ typedef struct {
    */
   size_t ndyn;
 } RLookupRow;
+
+/** Returns a new RLookupRow struct. Will forward the call to Rust once RLookupRow is migrated. */
+static inline RLookupRow RLookupRow_New(void) { return (RLookupRow){0}; }
 
 static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
 static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
@@ -355,7 +361,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
 /**
  * Like WriteKeyByName, but consumes a refcount
  */
-void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
+void RLookupRow_WriteByNameOwned(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
 /** Get a value from the row, provided the key.
  *
@@ -367,7 +373,7 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
  * @param row the row data which contains the value
  * @return the value if found, NULL otherwise.
  */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+static inline RSValue *RLookupRow_Get(const RLookupKey *key, const RLookupRow *row) {
 
   RSValue *ret = NULL;
   if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
@@ -459,10 +465,10 @@ typedef struct {
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
 /**
- * Initialize the lookup. If cache is provided, then it will be used as an
+ * Sets the `IndexSpecCache` of the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent
  */
-void RLookup_Init(RLookup *l, IndexSpecCache *cache);
+void RLookup_SetCache(RLookup *l, IndexSpecCache *cache);
 
 /**
  * Releases any resources created by this lookup object. Note that if there are
@@ -479,7 +485,7 @@ void RLookupKey_Free(RLookupKey *k);
 /**
  * Initialize the lookup with fields from hash.
  */
-int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
+int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr, QueryError *status);
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
@@ -487,7 +493,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 /**
  * Search an index field by its name in the lookup table spec cache.
  */
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
+const FieldSpec *RLookup_FindFieldInSpecCache(const RLookup *lookup, const char *name);
 
 /**
  * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).

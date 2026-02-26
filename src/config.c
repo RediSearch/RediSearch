@@ -91,6 +91,7 @@ configPair_t __configPairs[] = {
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
+  {"BG_INDEX_SLEEP_DURATION_US",      "search-bg-index-sleep-duration-us"},
   {"ON_OOM",                          "search-on-oom"},
   {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
@@ -348,13 +349,13 @@ CONFIG_GETTER(getMinStemLen) {
 
 // FORKGC_SLEEP_BEFORE_EXIT
 CONFIG_SETTER(setForkGCSleep) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcSleepBeforeExit, AC_F_GE0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcSleepBeforeExit, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGCSleep) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%zu", config->gcConfigParams.forkGc.forkGcSleepBeforeExit);
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcSettings.forkGcSleepBeforeExit);
 }
 
 // MAXDOCTABLESIZE
@@ -816,35 +817,35 @@ CONFIG_GETTER(getGcScanSize) {
 
 // FORK_GC_RUN_INTERVAL
 CONFIG_SETTER(setForkGcInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRunIntervalSec, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRunIntervalSec, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcRunIntervalSec);
 }
 
 // FORK_GC_CLEAN_THRESHOLD
 CONFIG_SETTER(setForkGcCleanThreshold) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcCleanThreshold, 0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcCleanThreshold, 0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcCleanThreshold);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRetryInterval, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRetryInterval);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcRetryInterval);
 }
 
 // UNION_ITERATOR_HEAP
@@ -871,15 +872,15 @@ CONFIG_GETTER(getCursorMaxIdle) {
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
-  config->gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = 1;
+  config->gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = 1;
   return REDISMODULE_OK;
 }
 
-CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes, 0)
 
 // _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
-CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
-CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes)
+CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes, 0)
 
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -931,12 +932,15 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
 CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
+                                 "Default dialect version cannot be higher than ", "%u",
+                                 MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
-  RETURN_STATUS(acrc);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getDefaultDialectVersion) {
@@ -1110,6 +1114,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
@@ -1117,6 +1122,28 @@ CONFIG_SETTER(setIndexerYieldEveryOps) {
 CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
+// BG_INDEX_SLEEP_DURATION_US
+// Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+#define BG_INDEX_SLEEP_DURATION_US_MAX 999999
+CONFIG_SETTER(setBGIndexSleepDurationUS) {
+  unsigned int sleepDurationUS;
+  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
+      BG_INDEX_SLEEP_DURATION_US_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->bgIndexingSleepDurationMicroseconds = sleepDurationUS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBGIndexSleepDurationUS) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingSleepDurationMicroseconds);
 }
 
 // MIN_TRIM_DELAY
@@ -1545,6 +1572,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
+        {.name = "BG_INDEX_SLEEP_DURATION_US",
+         .helpText = "Sleep duration in microseconds during background indexing periodic sleep (max 999999, usleep POSIX limit)",
+         .setValue = setBGIndexSleepDurationUS,
+         .getValue = getBGIndexSleepDurationUS},
         {.name = "ON_OOM",
          .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
@@ -1757,7 +1788,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Not modifiable at runtime");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_OPTION, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;
@@ -1841,10 +1872,11 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
+      ctx, "search-fork-gc-clean-threshold",
+      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
     )
   )
 
@@ -1853,16 +1885,17 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval)
     )
   )
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
+      ctx, "search-fork-gc-run-interval",
+      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_RUN_INTERVAL : DEFAULT_FORK_GC_RUN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec)
     )
   )
 
@@ -1871,7 +1904,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-sleep-before-exit", 0,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcSleepBeforeExit)
     )
   )
 
@@ -2078,6 +2111,16 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bg-index-sleep-duration-us", DEFAULT_BG_INDEX_SLEEP_DURATION_US,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      BG_INDEX_SLEEP_DURATION_US_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.bgIndexingSleepDurationMicroseconds)
+    )
+  )
+
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-_min-trim-delay-ms", DEFAULT_MIN_TRIM_DELAY,
@@ -2242,6 +2285,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.simulateInFlex)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_info-on-zero-indexes", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.infoEmitOnZeroIndexes)
     )
   )
 

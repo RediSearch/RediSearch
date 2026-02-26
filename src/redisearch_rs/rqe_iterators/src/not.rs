@@ -45,7 +45,13 @@ impl<'index, I> Not<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    pub fn new(child: I, max_doc_id: t_docId, weight: f64, timeout: Duration) -> Self {
+    pub fn new(
+        child: I,
+        max_doc_id: t_docId,
+        weight: f64,
+        timeout: Duration,
+        skip_timeout_checks: bool,
+    ) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
@@ -57,7 +63,7 @@ where
             // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
             // the internal counter goes up. When it reaches this `limit` of 5_000 it will
             // reset that counter and do the actual (OS) expensive timeout check.
-            timeout_ctx: TimeoutContext::new(timeout, 5_000),
+            timeout_ctx: TimeoutContext::new(timeout, 5_000, skip_timeout_checks),
         }
     }
 

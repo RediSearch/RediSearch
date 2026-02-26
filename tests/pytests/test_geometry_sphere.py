@@ -160,7 +160,7 @@ def testWKTIngestError(env):
   # Redundant coordinate
   conn.execute_command('JSON.SET', 'p4', '$', '{"geom": "POLYGON((34.9001 29.7001, 34.9001 29.7100 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Seymour"}')
   # Missing comma separator
-  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}')
+  conn.execute_command('JSON.SET', 'p5', '$', '{"geom": "POLYGON((34.9001 29.71 34.91 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))", "name": "Ned"}')  # codespell:ignore
 
   # Indexing failures
   res = env.cmd('FT.INFO', 'idx')
@@ -190,8 +190,8 @@ def testWKTQueryError(env):
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLYGON(34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3).error()
   env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'PARAMS', 2, 'poly', 'POLIGON((34.9000 29.7000, a 150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))', 'NOCONTENT', 'DIALECT', 3).error()
   # Bad/missing param
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
-  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('No such parameter')
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[contains $poly]', 'PARAMS', 2, 'moly', 'POLYGON((34.9000 29.7000, 34.9000 29.7150, 34.9150 29.7150, 34.9150 29.7000, 34.9000 29.7000))]', 'NOCONTENT', 'DIALECT', 3).error().contains('SEARCH_PARAM_NOT_FOUND Parameter not found')
+  env.expect('FT.SEARCH', 'idx', '@name:(Ho*) @geom:[within $poly]', 'NOCONTENT', 'DIALECT', 3).error().contains('SEARCH_PARAM_NOT_FOUND Parameter not found')
 
 
 

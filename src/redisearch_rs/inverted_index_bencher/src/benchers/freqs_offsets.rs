@@ -23,7 +23,7 @@ pub struct Bencher {
 struct TestValue {
     delta: u32,
     freq: u32,
-    term_offsets: Vec<i8>,
+    term_offsets: Vec<u8>,
 
     encoded: Vec<u8>,
 }
@@ -51,7 +51,8 @@ impl Bencher {
             .cartesian_product(freqs)
             .cartesian_product(term_offsets_values)
             .map(|((delta, freq), term_offsets)| {
-                let record = TestTermRecord::new(100, 0, freq, term_offsets.clone());
+                let term_offsets2 = term_offsets.clone();
+                let record = TestTermRecord::new(100, 0, freq, &term_offsets);
                 let mut buffer = Cursor::new(Vec::new());
 
                 let _grew_size = FreqsOffsets::encode(&mut buffer, delta, &record.record).unwrap();
@@ -62,7 +63,7 @@ impl Bencher {
                     delta,
                     freq,
                     encoded,
-                    term_offsets,
+                    term_offsets: term_offsets2,
                 }
             })
             .collect();
@@ -79,8 +80,7 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record =
-                            TestTermRecord::new(100, 0, test.freq, test.term_offsets.clone());
+                        let record = TestTermRecord::new(100, 0, test.freq, &test.term_offsets);
 
                         let grew_size =
                             FreqsOffsets::encode(&mut buffer, test.delta, &record.record).unwrap();

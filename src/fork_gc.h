@@ -55,12 +55,12 @@ typedef struct ForkGC {
   struct timespec retryInterval;
   volatile size_t deletedDocsFromLastRun;
 
-  // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
+  // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
   int cleanNumericEmptyNodes;
 } ForkGC;
 
-ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
+ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen
@@ -117,15 +117,6 @@ void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
  * Apply the changes the parent received from the child.
  */
 void FGC_Apply(ForkGC *gc);
-
-typedef struct InfoGCStats {
-  // Total bytes collected by the GCs
-  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
-  // allocated by a GC than the number of bytes collected.
-  ssize_t totalCollectedBytes;
-  size_t totalCycles;         // Total number of cycles ran
-  size_t totalTime;           // In ms
-} InfoGCStats;
 
 #ifdef __cplusplus
 }

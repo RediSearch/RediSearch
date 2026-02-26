@@ -299,62 +299,27 @@ def testGCIntegrationWithRedisFork(env):
     env.cmd(config_cmd(), 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
 @skip(cluster=True)
-def testGCThreshold(env):
-    if env.env == 'existing-env':
-        env.skip()
-
-    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
+def testGCCleanupWithReplace(env):
+    """Test that GC properly cleans old inverted index entries after
+    REPLACE and REPLACE PARTIAL operations."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
+
+    # Add docs with value 'foo', then replace all with 'foo1'
     for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
 
-    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo')
-
-    for i in range(999):
-        env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
-
-    forceInvokeGC(env, 'idx')
-
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
-
-    env.expect('FT.DEL', 'idx', 'doc999').equal(1)
-
-    forceInvokeGC(env, 'idx')
-
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
-
-    # retry with replace
     for i in range(1000):
-        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
-
-    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo')
-
-    for i in range(999):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
 
     forceInvokeGC(env, 'idx')
 
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
-
-    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
-
-    forceInvokeGC(env, 'idx')
-
+    # Old 'foo' entries should be cleaned
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
 
-    # retry with replace partial
-
-    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo1')
-
-    for i in range(999):
+    # Replace partial: replace all with 'foo2', old 'foo1' entries should be cleaned
+    for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
-
-    forceInvokeGC(env, 'idx')
-
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo1').equal(debug_rep)
-
-    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
 
     forceInvokeGC(env, 'idx')
 
@@ -475,9 +440,9 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
                     results['info_calls'] += 1
                     results['errors'] += 1
                     # Expected errors when index is being deleted:
-                    # - "Unknown index name" or "no such index"
+                    # - "SEARCH_INDEX_NOT_FOUND Index not found"
                     error_msg = str(e).lower()
-                    if 'unknown index' in error_msg or 'no such index' in error_msg:
+                    if 'index not found' in error_msg:
                         # These are expected errors during index deletion
                         pass
                     else:
@@ -518,7 +483,8 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
         try:
             forceBGInvokeGC(env, idx_name)
         except Exception as e:
-            env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
+            # Expected - index should be gone
+            env.assertTrue('index not found' in str(e).lower(),
                           message=f"Unexpected error in GC for deleted index {idx_name}: {e}")
             pass
 
@@ -545,7 +511,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
             env.assertTrue(False, f"Index {idx_name} should have been deleted")
         except Exception as e:
             # Expected - index should be gone
-            env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
+            env.assertTrue('index not found' in str(e).lower(),
                           message=f"Unexpected error for deleted index {idx_name}: {e}")
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
@@ -567,7 +533,7 @@ def test_gc_oom(env:Env):
     for i in range(num_docs):
         env.expect('DEL', f'doc{i}').equal(1)
 
-    forceInvokeGC(env)    
+    forceInvokeGC(env)
 
     # Verify no bytes collected by GC
     info = index_info(env)
@@ -584,4 +550,102 @@ def test_gc_oom(env:Env):
     gc_dict = to_dict(info["gc_stats"])
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertGreater(bytes_collected, 0)
+
+@skip(cluster=True)
+def test_gc_oom_replica_relaxed():
+    """
+    Test that GC runs on replicas even when maxmemory is exceeded.
+
+    On replicas, the OOM check only considers max_process_mem (Enterprise limit),
+    not maxmemory. In OSS, max_process_mem is not set, so GC should always run
+    on replicas regardless of maxmemory setting.
+    """
+    # Set FORK_GC_CLEAN_THRESHOLD to 0 via module args since FT.CONFIG SET
+    # cannot be executed on a read-only replica
+    env = Env(useSlaves=True, forceTcp=True,
+              moduleArgs='FORK_GC_CLEAN_THRESHOLD 0 FORK_GC_RUN_INTERVAL 30000')
+
+    master = env.getConnection()
+    slave = env.getSlaveConnection()
+
+    # Verify connections work
+    env.assertTrue(master.execute_command("PING"))
+    env.assertTrue(slave.execute_command("PING"))
+
+    # Wait for master and slave to be in sync
+    env.expect('WAIT', '1', '10000').equal(1)
+
+    num_docs = 10
+    # Create index and add documents on master
+    master.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    for i in range(num_docs):
+        master.execute_command('HSET', f'doc{i}', 't', f'name{i}')
+
+    # Wait for sync
+    master.execute_command('WAIT', '1', '10000')
+
+    # Verify docs are synced to the slave
+    slave_info = slave.execute_command('FT.INFO', 'idx')
+    slave_info_dict = to_dict(slave_info)
+    env.assertEqual(int(slave_info_dict['num_docs']), num_docs)
+
+    # Delete docs on master, sync to slave
+    for i in range(num_docs):
+        master.execute_command('DEL', f'doc{i}')
+    master.execute_command('WAIT', '1', '10000')
+
+    # Get memory info from slave
+    slave_memory_info = slave.execute_command('INFO', 'MEMORY')
+    slave_memory = slave_memory_info['used_memory']
+
+    # Set tight maxmemory on slave to simulate OOM condition based on maxmemory
+    # This would block GC on master, but replica ignores maxmemory for GC OOM check
+    # (only checks max_process_mem which is 0 in OSS, so used_memory_ratio = 0)
+    slave.execute_command('CONFIG', 'SET', 'maxmemory', int(slave_memory * 0.99))
+
+    # Force GC on slave - should run despite maxmemory being exceeded
+    # because replicas only check max_process_mem (which is 0 in OSS)
+    slave.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+
+    # Verify bytes were collected by GC on the slave
+    slave_info = slave.execute_command('FT.INFO', 'idx')
+    slave_info_dict = to_dict(slave_info)
+    gc_dict = to_dict(slave_info_dict["gc_stats"])
+    bytes_collected = int(gc_dict['bytes_collected'])
+    env.assertGreater(bytes_collected, 0,
+        message="GC should run on replica even when maxmemory is exceeded")
+
+@skip(cluster=True)
+def testForceGCBypassesThreshold(env):
+    """Test that GC_FORCEINVOKE (force=true) bypasses the clean threshold,
+    while the periodic GC (force=false) respects it."""
+
+    # High threshold so periodic GC (force=false) always skips,
+    # short interval so it actually attempts during our sleep window.
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1000).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Add 10 documents
+    for i in range(10):
+        env.expect('HSET', 'doc%d' % i, 'title', 'hello world').equal(1)
+
+    # Delete 9 documents (well below threshold of 1000)
+    for i in range(9):
+        env.expect('DEL', 'doc%d' % i).equal(1)
+
+    # Save the inverted index state before GC
+    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')
+
+    # Give periodic GC time to attempt (it uses force=false, so threshold blocks it)
+    sleep(3)
+
+    # Verify inverted index is unchanged (periodic GC skipped due to threshold)
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal(debug_rep)
+
+    # Force invoke bypasses threshold (uses force=true) and cleans the deleted entries
+    forceInvokeGC(env, 'idx')
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal([10])
 

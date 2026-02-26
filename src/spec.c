@@ -549,7 +549,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
   // Start the garbage collector
-  IndexSpec_StartGC(spec_ref, sp);
+  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
 
   Cursors_initSpec(sp);
 
@@ -1072,11 +1072,11 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     return 0;
   }
   if (params->algoParams.svsParams.quantBits == 0 && tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold > 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested");
     return 0;
   }
   if (!VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) && params->algoParams.svsParams.leanvec_dim > 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "REDUCE is irrelevant when compression is not of type LeanVec", "");
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "REDUCE is irrelevant when compression is not of type LeanVec");
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
@@ -1342,7 +1342,6 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       sp->flags |= Index_HasNonEmpty;
     }
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_TAG_STR, fs, status)) goto error;
     if (!parseTagField(fs, ac, status)) goto error;
     if (!FieldSpec_IndexesEmpty(fs)) {
       sp->flags |= Index_HasNonEmpty;
@@ -1470,8 +1469,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
     if (sp->diskSpec)
     {
-      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR fields");
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG fields");
         goto reset;
       }
       if (fs->options & FieldSpec_NotIndexable) {
@@ -1688,10 +1687,10 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
         "Unsupported argument for Flex index:", " `%s`", badarg);
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
     }
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s`", badarg);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
   }
 }
 
@@ -1783,6 +1782,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskCtx).
+  spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -2139,7 +2139,7 @@ void Indexes_Free(dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     // Delete disk index before removing from globals
     IndexSpec *spec = StrongRef_Get(specs[i]);
-    if (deleteDiskData && spec && spec->diskSpec ) {
+    if (deleteDiskData && spec && spec->diskSpec) {
       SearchDisk_MarkIndexForDeletion(spec->diskSpec);
     }
     IndexSpec_RemoveFromGlobals(specs[i], false);
@@ -2407,11 +2407,11 @@ void IndexSpec_StartGCFromSpec(StrongRef global, IndexSpec *sp, uint32_t gcPolic
 /* Start the garbage collection loop on the index spec. The GC removes garbage data left on the
  * index after removing documents */
 // Only used on new specs so it's thread safe
-void IndexSpec_StartGC(StrongRef global, IndexSpec *sp) {
+void IndexSpec_StartGC(StrongRef global, IndexSpec *sp, GCPolicy gcPolicy) {
   RS_LOG_ASSERT(!sp->gc, "GC already exists");
   // we will not create a gc thread on temporary index
   if (RSGlobalConfig.gcConfigParams.enableGC && !(sp->flags & Index_Temporary)) {
-    sp->gc = GCContext_CreateGC(global, RSGlobalConfig.gcConfigParams.gcPolicy);
+    sp->gc = GCContext_CreateGC(global, gcPolicy);
     GCContext_Start(sp->gc);
 
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
@@ -2824,12 +2824,12 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     counter++;
     if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
-      // Sleep for one microsecond to allow redis server to acquire the GIL while we release it.
+      // Sleep to allow redis server to acquire the GIL while we release it.
       // We do that periodically every X iterations (100 as default), otherwise we call
       // 'sched_yield()'. That is since 'sched_yield()' doesn't give up the processor for enough
       // time to ensure that other threads that are waiting for the GIL will actually have the
       // chance to take it.
-      usleep(1);
+      usleep(RSGlobalConfig.bgIndexingSleepDurationMicroseconds);
       IncrementBgIndexYieldCounter();
     } else {
       sched_yield();
@@ -3379,7 +3379,7 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
   } else {
-    IndexSpec_StartGC(spec_ref, sp);
+    IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
     for (int i = 0; i < sp->numFields; i++) {
@@ -3496,10 +3496,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  // start the gc and add the spec to the cursor list
-  IndexSpec_StartGC(spec_ref, sp);
-  Cursors_initSpec(sp);
-
   if (SearchDisk_IsEnabled()) {
     RS_ASSERT(disk_db);
     size_t len;
@@ -3516,6 +3512,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     // Populate diskCtx for vector fields now that diskSpec is available
     IndexSpec_PopulateVectorDiskParams(sp);
   }
+
+  // Start GC after diskSpec is available so the disk GC callback can use it immediately.
+  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
+  Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
@@ -3845,7 +3845,7 @@ size_t Indexes_Count() {
 }
 
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                                   bool runFilters,
+                                                   DocumentType type, bool runFilters,
                                                    RedisModuleString *keyToReadData) {
   if (!keyToReadData) {
     keyToReadData = key;
@@ -3882,6 +3882,12 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       StrongRef global = node->index_specs[j];
       IndexSpec *spec = StrongRef_Get(global);
       if (spec && !dictFind(specs, spec->specName)) {
+        // skip if document type does not match the index type
+        // The unsupported type is needed for crdt empty keys (deleted)
+        if (type != DocumentType_Unsupported && type != spec->rule->type) {
+          continue;
+        }
+
         SpecOpCtx specOp = {
             .spec = spec,
             .op = SpecOp_Add,
@@ -3897,6 +3903,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   TrieMapResultBuf_Free(prefixes);
 
   if (runFilters) {
+    // We load the data from the `keyToReadData` key, which is the key the old
+    // key was changed to, since the old key is already deleted.
+    key_p = RedisModule_StringPtrLen(keyToReadData, NULL);
 
     EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
@@ -3906,16 +3915,23 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         continue;
       }
 
-      // load hash only if required
+      // load document only if required
       if (!r) r = EvalCtx_Create();
-      RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
-      if (EvalCtx_EvalExpr(r, spec->rule->filter_exp) == EXPR_EVAL_OK) {
-        if (!RSValue_BoolTest(r->res) && dictFind(specs, spec->specName)) {
+      RedisSearchCtx sctx = { .redisCtx = ctx };
+      QueryError status = QueryError_Default();
+      RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, spec, key_p, &status);
+      QueryError_ClearError(&status); // TODO: report errors
+
+      if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
+        if (dictFind(specs, spec->specName)) {
           specOp->op = SpecOp_Del;
         }
       }
       QueryError_ClearError(r->ee.err);
+      // Clean up the row and lookup between iterations (indexes)
+      RLookup_Cleanup(&r->lk);
+      RLookupRow_Reset(&r->row);
     }
 
     if (r) {
@@ -3959,19 +3975,14 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc
-    Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, hashFields);
     return;
   }
 
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-
-    // skip if document type does not match the index type
-    if (type != specOp->spec->rule->type) {
-      continue;
-    }
 
     if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
@@ -3986,8 +3997,9 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 }
 
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           DocumentType type,
                                            RedisModuleString **hashFields) {
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, false, NULL);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
@@ -4006,8 +4018,8 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     return;
   }
 
-  SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, true, to_key);
-  SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, true, NULL);
+  SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, type, true, to_key);
+  SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, type, true, NULL);
 
   size_t from_len, to_len;
   const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
@@ -4187,4 +4199,45 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx) {
 
 void Indexes_EndLoading() {
   g_isLoading = false;
+}
+
+// =============================================================================
+// Compaction FFI Functions (called by Rust during GC)
+// =============================================================================
+
+// Acquire IndexSpec write lock
+void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
+  pthread_rwlock_wrlock(&sp->rwlock);
+}
+
+// Release IndexSpec write lock
+void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
+  pthread_rwlock_unlock(&sp->rwlock);
+}
+
+// Update a term's document count in the Serving Trie
+// Note: term is NOT null-terminated; term_len specifies the length
+// Returns true if the term was completely emptied and deleted from the trie.
+bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+                                  size_t doc_count_decrement) {
+  if (!sp->terms || doc_count_decrement == 0) {
+    return false;
+  }
+  // Decrement the numDocs count for this term in the trie
+  // If numDocs reaches 0, the node will be deleted
+  TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
+  return result == TRIE_DECR_DELETED;
+}
+
+// Update IndexScoringStats based on compaction delta
+// Note: num_docs and totalDocsLen are updated at delete time, NOT by GC.
+// GC only updates numTerms (when terms become completely empty).
+void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed) {
+  if (num_terms_removed == 0) {
+    return;
+  }
+
+  RS_ASSERT(num_terms_removed <= sp->stats.scoring.numTerms);
+  sp->stats.scoring.numTerms -= num_terms_removed;
 }

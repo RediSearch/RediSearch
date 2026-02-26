@@ -76,6 +76,7 @@ public:
     // Initialize RedisSearchCtx
     sctx = {0};
     sctx.spec = &spec;
+    sctx.time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true};
 
     // Initialize QueryEvalCtx
     qctx = {0};

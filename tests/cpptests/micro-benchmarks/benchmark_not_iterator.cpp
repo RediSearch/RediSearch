@@ -14,6 +14,7 @@
 #include <random>
 #include <vector>
 
+#include "src/redisearch.h"
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/not_iterator.h"
 
@@ -65,7 +66,8 @@ public:
 
     if constexpr (optimized) {
       QueryIterator *wcii = (QueryIterator *)new MockIterator(wcIds);
-      iterator_base = _New_NotIterator_With_WildCardIterator(child, wcii, maxDocId, 1.0, timeout);
+      // Use REDISEARCH_UNINITIALIZED to skip timeout checks in benchmarks
+      iterator_base = _New_NotIterator_With_WildCardIterator(child, wcii, maxDocId, 1.0, timeout, REDISEARCH_UNINITIALIZED);
     } else {
       iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, nullptr);
     }

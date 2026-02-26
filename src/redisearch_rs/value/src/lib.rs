@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{
+pub use crate::{
+    collection::{Array, Map},
     shared::SharedRsValue,
     strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
@@ -25,6 +26,7 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
+mod collection;
 pub mod shared;
 pub mod strings;
 pub mod trio;
@@ -47,13 +49,13 @@ pub enum RsValue {
     /// String value
     String(Box<RsValueString>),
     /// Array value
-    Array(Vec<SharedRsValue>),
+    Array(Array),
     /// Reference value
     Ref(SharedRsValue),
     /// Trio value
     Trio(RsValueTrio),
     /// Map value
-    Map(Vec<(SharedRsValue, SharedRsValue)>),
+    Map(Map),
 }
 
 impl RsValue {
@@ -62,6 +64,33 @@ impl RsValue {
             ref_value.value().fully_dereferenced()
         } else {
             self
+        }
+    }
+
+    pub const fn variant_name(&self) -> &'static str {
+        match self {
+            RsValue::Undefined => "Undefined",
+            RsValue::Null => "Null",
+            RsValue::Number(_) => "Number",
+            RsValue::RmAllocString(_) => "RmAllocString",
+            RsValue::ConstString(_) => "ConstString",
+            RsValue::RedisString(_) => "RedisString",
+            RsValue::String(_) => "String",
+            RsValue::Array(_) => "Array",
+            RsValue::Ref(_) => "Ref",
+            RsValue::Trio(_) => "Trio",
+            RsValue::Map(_) => "Map",
+        }
+    }
+
+    /// Returns the string bytes of the value, if it is a string type.
+    pub fn as_str_bytes(&self) -> Option<&[u8]> {
+        match self {
+            RsValue::RmAllocString(str) => Some(str.as_bytes()),
+            RsValue::ConstString(str) => Some(str.as_bytes()),
+            RsValue::RedisString(str) => Some(str.as_bytes()),
+            RsValue::String(str) => Some(str.as_str().as_bytes()),
+            _ => None,
         }
     }
 }

@@ -47,7 +47,7 @@ static int empty_sendChunk_common(RedisModuleCtx *ctx, AREQ *req) {
 
     sendChunk_ReplyOnly_EmptyResults(ctx, req);
 
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
     return REDISMODULE_OK;
 }
 
@@ -89,7 +89,7 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     if (profileArgs == -1) return RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
 
     if (shallow_parse_query_args(argv + profileArgs, argc - profileArgs, req) != REDISMODULE_OK) {
-        AREQ_Free(req);
+        AREQ_DecrRef(req);
         return QueryError_ReplyAndClear(ctx, &status);
     }
 
@@ -163,7 +163,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
     ApplyProfileOptions(AREQ_QueryProcessingCtx(req), &req->reqflags, execOptions);
 
     if (shallow_parse_query_args(argv, argc, req) != REDISMODULE_OK) {
-        AREQ_Free(req);
+        AREQ_DecrRef(req);
         return QueryError_ReplyAndClear(ctx, &status);
     }
 

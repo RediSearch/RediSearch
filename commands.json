@@ -234,6 +234,11 @@
                 "token": "GEO"
               },
               {
+                "name": "geoshape",
+                "type": "pure-token",
+                "token": "GEOSHAPE"
+              },
+              {
                 "name": "vector",
                 "type": "pure-token",
                 "token": "VECTOR"
@@ -2093,6 +2098,13 @@
                     "type": "integer",
                     "token": "EF_RUNTIME",
                     "optional": true
+                  },
+                  {
+                    "name": "shard_k_ratio",
+                    "type": "double",
+                    "token": "SHARD_K_RATIO",
+                    "optional": true,
+                    "since": "8.6.1"
                   },
                   {
                     "name": "yield_score_as",

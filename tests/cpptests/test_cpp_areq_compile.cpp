@@ -158,7 +158,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }
 
 // Test data for parameterized tests - includes ranges that create null bytes in binary data
@@ -237,7 +237,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }
 
 // Test error handling for insufficient arguments
@@ -266,7 +266,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }
 
 // Test complex aggregate query with cursor, scorer, and slot ranges
@@ -314,5 +314,5 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }

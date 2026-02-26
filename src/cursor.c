@@ -79,7 +79,7 @@ static void Cursor_FreeInternal(Cursor *cur) {
     StrongRef_Release(cur->hybrid_ref);
     cur->execState = NULL;
   } else if (cur->execState) {
-    AREQ_Free(cur->execState);
+    AREQ_DecrRef(cur->execState);
     cur->execState = NULL;
   }
   // if There's a spec associated with the cursor

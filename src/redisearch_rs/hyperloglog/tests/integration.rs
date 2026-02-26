@@ -20,7 +20,7 @@ use hyperloglog::{
 };
 
 /// Concrete type alias for testing to avoid inference issues with multiple Hasher32 impls.
-type TestHll10 = HyperLogLog10<CFnvHasher>;
+type TestHll10 = HyperLogLog10<[u8; 4], CFnvHasher>;
 
 #[test]
 fn test_new_hll() {
@@ -32,14 +32,14 @@ fn test_new_hll() {
 
 #[test]
 fn test_add_single_element() {
-    let mut hll = TestHll10::new();
+    let mut hll = HyperLogLog10::<[u8; 5], CFnvHasher>::new();
     hll.add(b"hello");
     assert_eq!(hll.count(), 1);
 }
 
 #[test]
 fn test_add_duplicate_elements() {
-    let mut hll = TestHll10::new();
+    let mut hll = HyperLogLog10::<[u8; 4], CFnvHasher>::new();
     for _ in 0..100 {
         hll.add(b"same");
     }
@@ -138,11 +138,11 @@ fn test_hash_distribution() {
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_register_distribution() {
-    let mut hll = TestHll10::new();
+    let mut hll = HyperLogLog10::<String, Murmur3Hasher>::new();
     let n = 10000u32;
 
     for i in 0..n {
-        hll.add(format!("element-{i}").as_bytes());
+        hll.add(&format!("element-{i}"));
     }
 
     let count = hll.count();
@@ -197,7 +197,7 @@ fn test_merge() {
 
 #[test]
 fn test_clear() {
-    let mut hll = TestHll10::new();
+    let mut hll = HyperLogLog10::<[u8; 5], CFnvHasher>::new();
     hll.add(b"hello");
     assert!(hll.count() > 0);
 
@@ -207,7 +207,7 @@ fn test_clear() {
 
 #[test]
 fn test_cache_invalidation() {
-    let mut hll = TestHll10::new();
+    let mut hll = HyperLogLog10::<[u8; 5], CFnvHasher>::new();
     hll.add(b"hello");
     let count1 = hll.count();
     let count2 = hll.count(); // Should use cache
@@ -249,20 +249,20 @@ fn test_try_from_slice_invalid_length() {
 #[test]
 fn test_type_aliases() {
     // Just verify they compile and have correct parameters
-    assert_eq!(HyperLogLog4::<CFnvHasher>::bits(), 4);
-    assert_eq!(HyperLogLog4::<CFnvHasher>::size(), 16);
+    assert_eq!(HyperLogLog4::<u8, CFnvHasher>::bits(), 4);
+    assert_eq!(HyperLogLog4::<u8, CFnvHasher>::size(), 16);
 
-    assert_eq!(HyperLogLog8::<CFnvHasher>::bits(), 8);
-    assert_eq!(HyperLogLog8::<CFnvHasher>::size(), 256);
+    assert_eq!(HyperLogLog8::<u8, CFnvHasher>::bits(), 8);
+    assert_eq!(HyperLogLog8::<u8, CFnvHasher>::size(), 256);
 
-    assert_eq!(HyperLogLog9::<CFnvHasher>::bits(), 9);
-    assert_eq!(HyperLogLog9::<CFnvHasher>::size(), 512);
+    assert_eq!(HyperLogLog9::<u8, CFnvHasher>::bits(), 9);
+    assert_eq!(HyperLogLog9::<u8, CFnvHasher>::size(), 512);
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_murmur3_accuracy() {
-    type Murmur3HyperLogLog10 = HyperLogLog10<Murmur3Hasher>;
+    type Murmur3HyperLogLog10 = HyperLogLog10<[u8; 4], Murmur3Hasher>;
 
     let mut hll = Murmur3HyperLogLog10::new();
     let n = 10000u32;
@@ -305,7 +305,7 @@ impl hash32::Hasher for CustomTestHasher {
 
 #[test]
 fn test_custom_hasher() {
-    let mut hll: HyperLogLog10<CustomTestHasher> = HyperLogLog::new();
+    let mut hll: HyperLogLog10<[u8; 4], CustomTestHasher> = HyperLogLog::new();
     hll.add(b"test");
     assert!(hll.count() >= 1);
 }
@@ -317,7 +317,7 @@ fn test_large_range_correction() {
     let mut registers = [0u8; 1024];
     registers.fill(19); // High values -> small sum -> large raw estimate
 
-    let hll = HyperLogLog10::<Murmur3Hasher>::from_registers(registers);
+    let hll = HyperLogLog10::<u8, Murmur3Hasher>::from_registers(registers);
     let count = hll.count();
 
     // Should produce a reasonable estimate (not overflow or panic)
@@ -326,7 +326,7 @@ fn test_large_range_correction() {
 
 #[test]
 fn test_hyperloglog4_small_precision() {
-    let mut hll = HyperLogLog4::<Murmur3Hasher>::new();
+    let mut hll = HyperLogLog4::<[u8; 4], Murmur3Hasher>::new();
     let n = 1000u32;
 
     for i in 0..n {
@@ -345,7 +345,7 @@ fn test_hyperloglog4_small_precision() {
 
 #[test]
 fn test_hyperloglog5_small_precision() {
-    let mut hll = HyperLogLog::<5, 32, Murmur3Hasher>::new();
+    let mut hll = HyperLogLog::<[u8; 4], 5, 32, Murmur3Hasher>::new();
     let n = 1000u32;
 
     for i in 0..n {
@@ -364,7 +364,7 @@ fn test_hyperloglog5_small_precision() {
 
 #[test]
 fn test_hyperloglog6_small_precision() {
-    let mut hll = HyperLogLog::<6, 64, Murmur3Hasher>::new();
+    let mut hll = HyperLogLog::<[u8; 4], 6, 64, Murmur3Hasher>::new();
     let n = 1000u32;
 
     for i in 0..n {
@@ -384,9 +384,9 @@ fn test_hyperloglog6_small_precision() {
 #[cfg(not(miri))]
 #[test]
 fn test_debug_repr() {
-    let mut hll = HyperLogLog10::<Murmur3Hasher>::default();
+    let mut hll = HyperLogLog10::<u32, Murmur3Hasher>::default();
     for i in 0..10u32 {
-        hll.add(i);
+        hll.add(&i);
     }
     // Debug representation doesn't include registers,
     // but it tracks compile-time constants
@@ -402,9 +402,9 @@ fn test_debug_repr() {
 
 #[test]
 fn test_clone() {
-    let mut hll = HyperLogLog10::<Murmur3Hasher>::default();
+    let mut hll = HyperLogLog10::<u32, Murmur3Hasher>::default();
     for i in 0..10u32 {
-        hll.add(i);
+        hll.add(&i);
     }
     let cloned = hll.clone();
     assert_eq!(cloned.count(), hll.count());
@@ -416,7 +416,7 @@ fn test_clone() {
     expected = "The 0th register values exceeds the expected cap. Got 35, expected at most 29."
 )]
 fn test_register_validation() {
-    let mut hll = HyperLogLog4::<Murmur3Hasher>::default();
+    let mut hll = HyperLogLog4::<u8, Murmur3Hasher>::default();
     hll.set_registers([35; 16]);
 }
 
@@ -426,7 +426,7 @@ mod proptests {
     use proptest::prelude::*;
 
     /// Concrete type alias for property tests to avoid inference issues.
-    type TestHll10 = HyperLogLog10<CFnvHasher>;
+    type TestHll10 = HyperLogLog10<[u8; 4], CFnvHasher>;
 
     proptest! {
         /// Test that merge always increases or maintains the count estimate.
@@ -468,7 +468,7 @@ mod proptests {
         /// Test that adding the same element multiple times doesn't increase count.
         #[test]
         fn duplicates_dont_increase_count(n in 1u32..100) {
-            let mut hll = TestHll10::new();
+            let mut hll = HyperLogLog10::<[u8; 12], CFnvHasher>::new();
             let data = b"same_element";
 
             for _ in 0..n {

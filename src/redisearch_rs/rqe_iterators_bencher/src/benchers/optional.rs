@@ -14,12 +14,11 @@
 
 use std::{hint::black_box, time::Duration};
 
-use ::ffi::t_docId;
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 use rqe_iterators::{IdList, RQEIterator, empty::Empty, optional::Optional, wildcard::Wildcard};
 
-use crate::{RedisModule_Alloc, ffi};
+use crate::ffi;
 
 #[derive(Default)]
 pub struct Bencher;
@@ -45,7 +44,6 @@ impl Bencher {
 
     pub fn bench(&self, c: &mut Criterion) {
         self.read_dense(c);
-        self.read_sparse(c);
         self.skip_to_dense(c);
         self.skip_to_sparse(c);
         self.read_id_list_ratios(c);
@@ -81,39 +79,6 @@ impl Bencher {
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         // touch fields to avoid elision
-                        black_box(current.doc_id);
-                        black_box(current.weight);
-                        black_box(current.freq);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.finish();
-    }
-
-    fn read_sparse(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Optional - Read Sparse");
-
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_optional_virtual_only(Self::LARGE_MAX, Self::WEIGHT),
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.bench_function("Rust", |b| {
-            b.iter_batched_ref(
-                || Optional::new(Self::LARGE_MAX, Self::WEIGHT, Empty),
-                |it| {
-                    while let Ok(Some(current)) = it.read() {
                         black_box(current.doc_id);
                         black_box(current.weight);
                         black_box(current.freq);
@@ -283,29 +248,8 @@ impl Bencher {
         Optional::new(Self::LARGE_MAX, Self::WEIGHT, child)
     }
 
-    /// # Safety
-    ///
-    /// Callee needs to make sure to Free the memory
-    unsafe fn make_c_child_doc_ids(child_ratio: f64) -> (*mut t_docId, u64) {
+    fn make_c_optional_with_id_list<'index>(child_ratio: f64) -> ffi::QueryIterator {
         let doc_id_vec = Self::make_child_doc_ids(child_ratio);
-        let n = doc_id_vec.len();
-        let out = unsafe { RedisModule_Alloc(std::mem::size_of::<t_docId>() * n) } as *mut t_docId;
-        unsafe { out.copy_from(doc_id_vec.as_slice().as_ptr(), n) };
-        (out, n as u64)
-    }
-
-    fn make_c_optional_with_id_list(child_ratio: f64) -> ffi::QueryIterator {
-        let (child_doc_ids_array, ids_len) = unsafe { Self::make_c_child_doc_ids(child_ratio) };
-
-        // SAFETY: our wrapper ensures to free the child doc ids array
-        let child = unsafe {
-            iterators_ffi::id_list::NewSortedIdListIterator(
-                child_doc_ids_array,
-                ids_len,
-                Self::WEIGHT,
-            ) as *mut ffi::QueryIterator
-        };
-
-        ffi::QueryIterator::new_optional_full_child(Self::LARGE_MAX, Self::WEIGHT, child)
+        ffi::QueryIterator::new_optional_id_list(Self::LARGE_MAX, Self::WEIGHT, doc_id_vec)
     }
 }
