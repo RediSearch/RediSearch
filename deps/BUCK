@@ -369,3 +369,25 @@ cxx_library(
     exported_headers = glob(["libnu/*.h"]),
     visibility = ["PUBLIC"],
 )
+
+# ================================= cpu_features ======================================
+
+cxx_library(
+    name = "cpu_features",
+    srcs = glob(["cpu_features/src/*.c"]),
+    headers = glob(["cpu_features/src/*.h"]),
+    include_directories = ["cpu_features/include", "cpu_features/src"],
+    exported_headers = export_headers_map(glob(["cpu_features/include/*.h"]), "cpu_features/include/"),
+    header_namespace = "cpu_features",
+    preprocessor_flags = [
+        "-DSTACK_LINE_READER_BUFFER_SIZE=1024",
+    ] + select({
+        "prelude//os:macos": ["-DHAVE_SYSCTLBYNAME"],
+        "DEFAULT": [],
+    }),
+    exported_linker_flags = select({
+        "prelude//os:linux": ["-ldl"],
+        "DEFAULT": [],
+    }),
+    visibility = ["PUBLIC"],
+)
