@@ -12,6 +12,7 @@
 
 #include "gc.h"
 #include "fork_gc.h"
+#include "disk_gc.h"
 #include "config.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -39,7 +40,13 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
   switch (gcPolicy) {
     case GCPolicy_Fork:
-      ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
+      ret->gcCtx = FGC_Create(spec_ref, &ret->callbacks);
+      break;
+    case GCPolicy_Disk:
+      ret->gcCtx = DiskGC_Create(spec_ref, &ret->callbacks);
+      break;
+    default:
+      RS_LOG_ASSERT(false, "Invalid GC policy");
       break;
   }
   __atomic_store_n(&ret->jobRunning, false, __ATOMIC_RELAXED);
@@ -72,7 +79,7 @@ static RedisModuleTimerID scheduleNext(GCContext *gc) {
 static void taskCallback(void* data) {
   GCContext* gc = data;
 
-  int ret = gc->callbacks.periodicCallback(gc->gcCtx);
+  bool ret = gc->callbacks.periodicCallback(gc->gcCtx, false);
 
   // Store result for monitor timer to handle
   __atomic_store_n(&gc->lastResult, ret, __ATOMIC_RELEASE);
@@ -84,7 +91,7 @@ static void debugTaskCallback(void* data) {
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
 
-  int ret = gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, true);
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
@@ -226,11 +233,8 @@ void GCContext_Stop(GCContext* gc) {
 }
 
 void GCContext_StopMock(GCContext* gc) {
-  // for fork gc debug
-  RedisModule_FreeThreadSafeContext(((ForkGC *)gc->gcCtx)->ctx);
-  WeakRef_Release(((ForkGC *)gc->gcCtx)->index);
-  free(gc->gcCtx);
-  free(gc);
+  gc->callbacks.onTerm(gc->gcCtx);
+  rm_free(gc);
 }
 
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* reply) {
@@ -245,6 +249,10 @@ void GCContext_OnDelete(GCContext* gc) {
   if (gc->callbacks.onDelete) {
     gc->callbacks.onDelete(gc->gcCtx);
   }
+}
+
+void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
+  gc->callbacks.getStats(gc->gcCtx, out);
 }
 
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {

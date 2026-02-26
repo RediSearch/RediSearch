@@ -665,13 +665,13 @@ void VecSimLogCallback(void *ctx, const char *level, const char *message) {
   RedisModule_Log(RSDummyContext, level, "vector index '%s' - %s", log_ctx->index_field_name, message);
 }
 
-int VecSim_CallTieredIndexesGC(WeakRef spRef) {
+bool VecSim_CallTieredIndexesGC(WeakRef spRef) {
   // Get spec
   StrongRef strong = WeakRef_Promote(spRef);
   IndexSpec *sp = StrongRef_Get(strong);
   if (!sp) {
     // Index was deleted
-    return 0;
+    return false;
   }
   // Lock the spec for reading
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
@@ -691,7 +691,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   // Cleanup and return success
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
-  return 1;
+  return true;
 }
 
 VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {

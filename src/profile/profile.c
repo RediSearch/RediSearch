@@ -375,10 +375,11 @@ void Profile_AddIters(QueryIterator **root) {
       ((NotIterator *)(*root))->child = child;
       break;
     }
-    case OPTIONAL_ITERATOR: {
-      QueryIterator *child = ((OptionalIterator *)(*root))->child;
+    case OPTIONAL_ITERATOR:
+    case OPTIONAL_OPTIMIZED_ITERATOR: {
+      QueryIterator *child = TakeOptionalIteratorChild(*root);
       Profile_AddIters(&child);
-      ((OptionalIterator *)(*root))->child = child;
+      SetOptionalIteratorChild(*root, child);
       break;
     }
     case HYBRID_ITERATOR: {
@@ -599,9 +600,13 @@ PRINT_PROFILE_SINGLE_NO_CHILD(printIdListSortedIt,              "ID-LIST-SORTED"
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListUnsortedIt,            "ID-LIST-UNSORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,                     "EMPTY");
 PRINT_PROFILE_SINGLE(printNotIt, NotIterator,                   "NOT");
-PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator,         "OPTIONAL");
 PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
+
+PRINT_PROFILE_FUNC(printOptionalIt) {
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    GetOptionalIteratorChild(root), "OPTIONAL");
+}
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
@@ -626,7 +631,8 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
     case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
     // Single value
     case NOT_ITERATOR:                      { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
-    case OPTIONAL_ITERATOR:                 { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
+    case OPTIONAL_ITERATOR: // fallthrough
+    case OPTIONAL_OPTIMIZED_ITERATOR:       { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case EMPTY_ITERATOR:                    { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case ID_LIST_SORTED_ITERATOR:           { printIdListSortedIt(reply, root, counters, cpuTime, depth, limited, config);          break; }

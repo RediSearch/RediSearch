@@ -61,6 +61,41 @@ typedef struct InvertedIndexNumeric InvertedIndexNumeric;
 #define NumericRangeTree_CARDINALITY_GROWTH_FACTOR 4
 
 /**
+ * Status of a [`NumericRangeTree_ApplyGcEntry`] call.
+ */
+typedef enum ApplyGcEntryStatus {
+  /**
+   * The node was found and GC was applied successfully.
+   * `gc_result` contains the result.
+   */
+  Ok,
+  /**
+   * The target node no longer exists in the tree
+   * (e.g. removed between scan and apply).
+   */
+  NodeNotFound,
+  /**
+   * The entry data could not be deserialized.
+   * The child probably crashed or corrupted the pipe.
+   */
+  DeserializationError,
+} ApplyGcEntryStatus;
+
+/**
+ * Opaque streaming scanner that yields one node's GC delta at a time.
+ *
+ * Created by [`NumericGcScanner_New`], advanced by [`NumericGcScanner_Next`],
+ * and freed by [`NumericGcScanner_Free`].
+ *
+ * Each call to `Next` scans the next node in DFS order via
+ * [`NumericRangeNode::scan_gc`][numeric_range_tree::NumericRangeNode::scan_gc]
+ * and serializes the delta + HLL registers into an internal buffer.
+ * The caller can then write the entry data to the pipe immediately,
+ * avoiding buffering all deltas in memory.
+ */
+typedef struct NumericGcScanner NumericGcScanner;
+
+/**
  * A numeric range is a leaf-level storage unit in the numeric range tree.
  *
  * It stores document IDs and their associated numeric values in an inverted index,
@@ -200,6 +235,116 @@ typedef struct NumericRangeTreeFindResult {
 } NumericRangeTreeFindResult;
 
 /**
+ * Result of trimming empty leaves from the tree.
+ *
+ * Similar to [`AddResult`] but without `num_records_delta`, since trimming
+ * only removes empty nodes and does not change the number of entries
+ * (entries are removed by GC before trimming).
+ */
+typedef struct TrimEmptyLeavesResult {
+  /**
+   * The change in the tree's inverted index memory usage, in bytes.
+   * Positive values indicate growth, negative values indicate shrinkage.
+   */
+  int64_t size_delta;
+  /**
+   * Whether the tree structure changed (nodes were removed or rotated).
+   * When true, the tree's `revision_id` should be incremented to
+   * invalidate any concurrent iterators.
+   */
+  bool changed;
+  /**
+   * The net change in the number of ranges (nodes with inverted indexes).
+   */
+  int32_t num_ranges_delta;
+  /**
+   * The net change in the number of leaf nodes.
+   */
+  int32_t num_leaves_delta;
+} TrimEmptyLeavesResult;
+
+/**
+ * Returned by [`NumericRangeTree::compact_if_sparse`].
+ */
+typedef struct CompactIfSparseResult {
+  /**
+   * The change in the tree's inverted index memory usage, in bytes.
+   * Positive values indicate growth, negative values indicate shrinkage.
+   * This tracks only inverted index memory, not node/range struct overhead.
+   */
+  int64_t inverted_index_size_delta;
+  /**
+   * The change in the tree's node memory usage, in bytes.
+   * Positive values indicate growth, negative values indicate shrinkage.
+   */
+  int64_t node_size_delta;
+} CompactIfSparseResult;
+
+/**
+ * A single node's GC scan result, returned by [`NumericGcScanner_Next`].
+ *
+ * The `data` pointer points into the scanner's internal buffer and is valid
+ * until the next call to [`NumericGcScanner_Next`] or [`NumericGcScanner_Free`].
+ */
+typedef struct NumericGcNodeEntry {
+  /**
+   * The node's slab position.
+   * The first half of a [`NodeIndex`].
+   */
+  uint32_t node_position;
+  /**
+   * The node's slab generation.
+   * The second half of a [`NodeIndex`].
+   */
+  uint32_t node_generation;
+  /**
+   * Pointer to the serialized entry data (msgpack delta + HLL registers).
+   */
+  const uint8_t *data;
+  /**
+   * Length of the serialized entry data in bytes.
+   */
+  uintptr_t data_len;
+} NumericGcNodeEntry;
+
+/**
+ * Result of applying GC to a single node.
+ *
+ * Returned by [`NumericRangeTree::apply_gc_to_node`].
+ */
+typedef struct SingleNodeGcResult {
+  /**
+   * Information about the outcome of garbage collection on
+   * the inverted index stored within this node.
+   */
+  II_GCScanStats index_gc_info;
+  /**
+   * Whether this node became empty after GC.
+   */
+  bool became_empty;
+} SingleNodeGcResult;
+
+/**
+ * Result of [`NumericRangeTree_ApplyGcEntry`].
+ *
+ * Wraps [`SingleNodeGcResult`] with a [`status`](ApplyGcEntryStatus) field
+ * so C callers can distinguish success, node-not-found, and deserialization
+ * errors.
+ */
+typedef struct ApplyGcEntryResult {
+  /**
+   * The GC result for the node. Only meaningful when `status` is
+   * [`ApplyGcEntryStatus::Ok`].
+   */
+  struct SingleNodeGcResult gc_result;
+  /**
+   * Whether the operation succeeded, the node was missing, or the data
+   * could not be deserialized.
+   */
+  enum ApplyGcEntryStatus status;
+} ApplyGcEntryResult;
+
+/**
  * Type alias for the tree iterator, providing a C-friendly name.
  *
  * The iterator holds references to nodes in the tree. The tree must not be
@@ -298,6 +443,21 @@ struct NumericRangeTreeFindResult NumericRangeTree_Find(const struct NumericRang
 void NumericRangeTreeFindResult_Free(struct NumericRangeTreeFindResult result);
 
 /**
+ * Trim empty leaves from the tree (garbage collection).
+ *
+ * Removes leaf nodes that have no documents and prunes the tree structure
+ * accordingly.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid [`NumericRangeTree`] obtained from
+ *   [`NewNumericRangeTree`] and cannot be NULL.
+ * - No iterators should be active on this tree while calling this function.
+ */
+struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRangeTree *t);
+
+/**
  * Get the base size of a NumericRangeTree struct (not including contents).
  *
  * This is used for memory overhead calculations.
@@ -348,6 +508,92 @@ void NumericRangeTree_DebugDumpIndex(RedisModuleCtx *ctx,
 void NumericRangeTree_DebugDumpTree(RedisModuleCtx *ctx,
                                     const struct NumericRangeTree *t,
                                     bool minimal);
+
+/**
+ * Conditionally trim empty leaves and compact the node slab.
+ *
+ * Checks if the number of empty leaves exceeds half the total number of
+ * leaves. If so, trims empty leaves, compacts the slab to reclaim freed
+ * slots, and returns the number of bytes freed. Returns 0 if no trimming
+ * was needed.
+ *
+ * # Safety
+ *
+ * - `t` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
+ * - No iterators should be active on this tree while calling this function.
+ */
+struct CompactIfSparseResult NumericRangeTree_CompactIfSparse(struct NumericRangeTree *t);
+
+/**
+ * Create a new [`NumericGcScanner`] for streaming GC scans.
+ *
+ * The scanner traverses the tree in pre-order DFS, scanning one node at a
+ * time. Call [`NumericGcScanner_Next`] to advance.
+ *
+ * # Safety
+ *
+ * - `sctx` must point to a valid [`RedisSearchCtx`] and cannot be NULL.
+ * - `tree` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * - Both `sctx` and `tree` must remain valid for the lifetime of the scanner.
+ */
+struct NumericGcScanner *NumericGcScanner_New(RedisSearchCtx *sctx, struct NumericRangeTree *tree);
+
+/**
+ * Advance the scanner to the next node with GC work.
+ *
+ * Scans nodes in DFS order, skipping those without GC work. When a node
+ * with work is found, its delta and HLL registers are serialized into the
+ * scanner's internal buffer.
+ *
+ * Returns `true` if an entry was produced (and `*entry` is populated),
+ * `false` when all nodes have been visited.
+ *
+ * The `entry.data` pointer is valid until the next call to `Next` or `Free`.
+ *
+ * # Wire format for `entry.data`
+ *
+ * ```text
+ * [delta_msgpack][64-byte hll_with][64-byte hll_without]
+ * ```
+ *
+ * # Safety
+ *
+ * - `scanner` must be a valid pointer returned by [`NumericGcScanner_New`].
+ * - `entry` must be a valid pointer to a [`NumericGcNodeEntry`].
+ */
+bool NumericGcScanner_Next(struct NumericGcScanner *scanner, struct NumericGcNodeEntry *entry);
+
+/**
+ * Free a [`NumericGcScanner`].
+ *
+ * # Safety
+ *
+ * - `scanner` must be a valid pointer returned by [`NumericGcScanner_New`],
+ *   or NULL (in which case this is a no-op).
+ */
+void NumericGcScanner_Free(struct NumericGcScanner *scanner);
+
+/**
+ * Parse a serialized GC entry and apply it to the specified node.
+ *
+ * The entry data must have the wire format produced by [`NumericGcScanner_Next`]:
+ * ```text
+ * [delta_msgpack][64-byte hll_with][64-byte hll_without]
+ * ```
+ *
+ * Returns an [`ApplyGcEntryResult`] whose [`status`](ApplyGcEntryStatus)
+ * indicates success, node-not-found, or deserialization error.
+ *
+ * # Safety
+ *
+ * - `tree` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
+ * - `entry_data` must point to a valid byte buffer of at least `entry_len` bytes.
+ */
+struct ApplyGcEntryResult NumericRangeTree_ApplyGcEntry(struct NumericRangeTree *tree,
+                                                        uint32_t node_position,
+                                                        uint32_t node_generation,
+                                                        const uint8_t *entry_data,
+                                                        uintptr_t entry_len);
 
 /**
  * Create a new iterator over all nodes in the tree.

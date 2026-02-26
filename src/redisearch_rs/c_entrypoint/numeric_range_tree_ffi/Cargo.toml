@@ -25,6 +25,8 @@ hyperloglog.workspace = true
 ffi.workspace = true
 tracing.workspace = true
 workspace_hack.workspace = true
+serde.workspace = true
+rmp-serde.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 workspace = true

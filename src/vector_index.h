@@ -184,7 +184,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
 
-int VecSim_CallTieredIndexesGC(WeakRef spRef);
+bool VecSim_CallTieredIndexesGC(WeakRef spRef);
 
 #ifdef __cplusplus
 extern "C" {

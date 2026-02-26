@@ -18,6 +18,7 @@
 #include "iterators_rs.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "inverted_index.h"
+#include "types_rs.h"
 
 
 // Test optional iterator
@@ -59,15 +60,14 @@ TEST_F(OptionalIteratorTest, ReadMixedResults) {
 
     // Check if this is a real hit from child or virtual
     bool isRealHit = std::find(childDocIds.begin(), childDocIds.end(), i) != childDocIds.end();
-    OptionalIterator *oi = (OptionalIterator *)iterator_base;
 
     if (isRealHit) {
       // Real hit should have the weight applied
       ASSERT_EQ(iterator_base->current->weight, weight);
-      ASSERT_EQ(iterator_base->current, oi->child->current);
+      ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
     } else {
       // Virtual hit
-      ASSERT_EQ(iterator_base->current, oi->virt);
+      ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
       ASSERT_EQ(iterator_base->current->freq, 1);
       ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
     }
@@ -86,8 +86,7 @@ TEST_F(OptionalIteratorTest, SkipToRealHit) {
   ASSERT_EQ(iterator_base->lastDocId, 20);
 
   // Should be real hit from child
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-  ASSERT_EQ(iterator_base->current, oi->child->current);
+  ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
 }
 
 TEST_F(OptionalIteratorTest, SkipToVirtualHit) {
@@ -97,8 +96,7 @@ TEST_F(OptionalIteratorTest, SkipToVirtualHit) {
   ASSERT_EQ(iterator_base->lastDocId, 25);
 
   // Should be virtual hit
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-  ASSERT_EQ(iterator_base->current, oi->virt);
+  ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
 }
 
 TEST_F(OptionalIteratorTest, SkipToSequence) {
@@ -112,13 +110,12 @@ TEST_F(OptionalIteratorTest, SkipToSequence) {
 
     // Check if it's a real or virtual hit
     bool isRealHit = std::find(childDocIds.begin(), childDocIds.end(), target) != childDocIds.end();
-    OptionalIterator *oi = (OptionalIterator *)iterator_base;
 
     if (isRealHit) {
-      ASSERT_EQ(iterator_base->current, oi->child->current);
+      ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
       ASSERT_EQ(iterator_base->current->weight, weight);
     } else {
-      ASSERT_EQ(iterator_base->current, oi->virt);
+      ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
     }
   }
 }
@@ -134,9 +131,6 @@ TEST_F(OptionalIteratorTest, RewindBehavior) {
   iterator_base->Rewind(iterator_base);
   ASSERT_EQ(iterator_base->lastDocId, 0);
   ASSERT_FALSE(iterator_base->atEOF);
-
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-  ASSERT_EQ(oi->virt->docId, 0);
 
   // After Rewind, should be able to read from the beginning
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
@@ -167,18 +161,15 @@ TEST_F(OptionalIteratorTest, WeightApplication) {
     ASSERT_EQ(iterator_base->current->weight, weight);
 
     // Verify it's a real hit from child
-    OptionalIterator *oi = (OptionalIterator *)iterator_base;
-    ASSERT_EQ(iterator_base->current, oi->child->current);
+    ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
   }
 }
 
 TEST_F(OptionalIteratorTest, VirtualResultWeight) {
-  // Test that virtual results have the correct weight
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-
   // Skip to a virtual hit (not in childDocIds)
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, 15), ITERATOR_OK);
-  ASSERT_EQ(iterator_base->current, oi->virt);
+  ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
+  // Test that virtual results have the correct weight
   ASSERT_EQ(iterator_base->current->weight, 0);
 }
 
@@ -207,49 +198,42 @@ protected:
 };
 
 TEST_F(OptionalIteratorTimeoutTest, ReadTimeoutFromChild) {
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-
-  // Read the real hits first (10, 20, 30)
-  ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
-  ASSERT_EQ(iterator_base->current->docId, 1);
-  ASSERT_EQ(iterator_base->current, oi->virt); // Virtual hit
-
-  // Continue reading - should get virtual hits until we reach child's documents
-  for (t_docId i = 2; i <= 9; i++) {
+  // Should get virtual hits until we reach child's documents
+  for (t_docId i = 1; i <= 9; i++) {
     ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, i);
     // Should be virtual hits
-    ASSERT_EQ(iterator_base->current, oi->virt);
+    ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
   }
 
   // Read docId 10 - should be a real hit
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, 10);
-  ASSERT_EQ(iterator_base->current, oi->child->current);
+  ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
 
   // Continue reading virtual hits
   for (t_docId i = 11; i <= 19; i++) {
     ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, i);
-    ASSERT_EQ(iterator_base->current, oi->virt);
+    ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
   }
 
   // Read docId 20 - should be a real hit
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, 20);
-  ASSERT_EQ(iterator_base->current, oi->child->current);
+  ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
 
   // Continue reading virtual hits
   for (t_docId i = 21; i <= 29; i++) {
     ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, i);
-    ASSERT_EQ(iterator_base->current, oi->virt);
+    ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
   }
 
   // Read docId 30 - should be a real hit
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, 30);
-  ASSERT_EQ(iterator_base->current, oi->child->current);
+  ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
 
   // Now the child iterator is exhausted, next read should trigger timeout
   // when the optional iterator tries to advance the child beyond its documents
@@ -258,12 +242,10 @@ TEST_F(OptionalIteratorTimeoutTest, ReadTimeoutFromChild) {
 }
 
 TEST_F(OptionalIteratorTimeoutTest, SkipToTimeoutFromChild) {
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-
   // Skip to a document that exists in child (should work)
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, 20), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, 20);
-  ASSERT_EQ(iterator_base->current, oi->child->current);
+  ASSERT_EQ(iterator_base->current, GetOptionalIteratorChild(iterator_base)->current);
 
   // Skip to a document beyond child's range
   // This should trigger timeout when trying to advance the child
@@ -440,8 +422,6 @@ INSTANTIATE_TEST_SUITE_P(OptionalIteratorOptimizedTests, OptionalIteratorOptimiz
                          ::testing::Combine(::testing::Bool(), ::testing::Bool()));
 
 TEST_P(OptionalIteratorOptimized, Read) {
-  OptionalIterator *oi = (OptionalIterator *)iterator;
-
   EXPECT_EQ(iterator->NumEstimated(iterator), wildcardDocIds.size());
 
   // Read all documents
@@ -453,11 +433,11 @@ TEST_P(OptionalIteratorOptimized, Read) {
 
     if (std::find(childDocIds.begin(), childDocIds.end(), id) != childDocIds.end()) {
       // Should be a real hit from child
-      ASSERT_EQ(iterator->current, oi->child->current);
+      ASSERT_EQ(iterator->current, GetOptionalIteratorChild(iterator)->current);
       ASSERT_EQ(iterator->current->weight, 4.6);
     } else {
       // Should be a virtual hit
-      ASSERT_EQ(iterator->current, oi->virt);
+      ASSERT_EQ(iterator->current->data.tag, RSResultData_Virtual);
       ASSERT_EQ(iterator->current->weight, 0);
     }
   }
@@ -473,8 +453,6 @@ TEST_P(OptionalIteratorOptimized, Read) {
 }
 
 TEST_P(OptionalIteratorOptimized, SkipTo) {
-  OptionalIterator *oi = (OptionalIterator *)iterator;
-
   // Skip to all the ids in the wildcard range
   t_docId id = 1;
   for (const auto &nextValidId : wildcardDocIds) {
@@ -486,11 +464,11 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
       ASSERT_EQ(iterator->current->docId, nextValidId);
       if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
         // Should be a real hit from child
-        ASSERT_EQ(iterator->current, oi->child->current);
+        ASSERT_EQ(iterator->current, GetOptionalIteratorChild(iterator)->current);
         ASSERT_EQ(iterator->current->weight, 4.6);
       } else {
         // Should be a virtual hit
-        ASSERT_EQ(iterator->current, oi->virt);
+        ASSERT_EQ(iterator->current->data.tag, RSResultData_Virtual);
         ASSERT_EQ(iterator->current->weight, 0);
       }
       id++;
@@ -502,11 +480,11 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
     ASSERT_EQ(iterator->current->docId, nextValidId);
     if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
       // Should be a real hit from child
-      ASSERT_EQ(iterator->current, oi->child->current);
+      ASSERT_EQ(iterator->current, GetOptionalIteratorChild(iterator)->current);
       ASSERT_EQ(iterator->current->weight, 4.6);
     } else {
       // Should be a virtual hit
-      ASSERT_EQ(iterator->current, oi->virt);
+      ASSERT_EQ(iterator->current->data.tag, RSResultData_Virtual);
       ASSERT_EQ(iterator->current->weight, 0);
     }
     id++;
@@ -541,10 +519,10 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
         ASSERT_EQ(status, ITERATOR_NOTFOUND);
       }
       if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
-        ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->child->current);
+        ASSERT_EQ(iterator->current, GetOptionalIteratorChild(iterator)->current);
         ASSERT_EQ(iterator->current->weight, 4.6);
       } else {
-        ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->virt);
+        ASSERT_EQ(iterator->current->data.tag, RSResultData_Virtual);
         ASSERT_EQ(iterator->current->weight, 0);
       }
     }
@@ -780,12 +758,8 @@ protected:
     oi_base = NewOptionalIterator(child, &mockCtx->qctx, weight);
 
     // Replace the wildcard iterator with a mock for testing
-    OptionalIterator *oi = (OptionalIterator *)oi_base;
-    QueryIterator *wcii = oi->wcii;
-    ASSERT_TRUE(wcii != nullptr);
-    wcii->Free(wcii); // Free the original wildcard iterator
     mockWildcard = new MockIterator(wildcard);
-    oi->wcii = reinterpret_cast<QueryIterator *>(mockWildcard);
+    SetOptionalOptimizedIteratorWildcard(oi_base, reinterpret_cast<QueryIterator *>(mockWildcard));
   }
 
   void TearDown() override {
@@ -863,7 +837,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardO
   ASSERT_EQ(status, VALIDATE_OK);
 
   // Verify both iterators were checked
-  ASSERT_EQ(reinterpret_cast<OptionalIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_EQ(child->type, EMPTY_ITERATOR);
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
 
   // Should be able to continue reading (all wildcard docs now virtual)
@@ -900,7 +875,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardM
   ASSERT_EQ(status, VALIDATE_MOVED);
 
   // Verify both iterators were checked
-  ASSERT_EQ(reinterpret_cast<OptionalIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_EQ(child->type, EMPTY_ITERATOR);
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
 }
 
@@ -971,8 +947,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMovedRealResult_W
   ASSERT_EQ(oi_base->lastDocId, 15);
 
   // Verify we have a real result from child before revalidation
-  OptionalIterator *oi = (OptionalIterator *)oi_base;
-  ASSERT_EQ(oi_base->current, oi->child->current); // Real result from child
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_EQ(oi_base->current, child->current); // Real result from child
 
   // Revalidate: child moved but wildcard OK
   // Since current result was real and child moved, should return OK
@@ -980,7 +956,7 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMovedRealResult_W
   ValidateStatus status = oi_base->Revalidate(oi_base);
   ASSERT_EQ(status, VALIDATE_MOVED);
   ASSERT_EQ(oi_base->lastDocId, 20); // Should move to next valid position
-  ASSERT_EQ(oi_base->current, oi->virt); // Should now be virtual result
+  ASSERT_NE(oi_base->current, child->current); // Should now be virtual result
 
   // Verify both iterators were checked
   ASSERT_EQ(mockChild->GetValidationCount(), 1);
@@ -998,8 +974,8 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateWildcardMovedToChildId
   ASSERT_EQ(oi_base->lastDocId, 10);
 
   // Verify we have a virtual result before revalidation
-  OptionalIterator *oi = (OptionalIterator *)oi_base;
-  ASSERT_EQ(oi_base->current, oi->virt); // Virtual result
+  QueryIterator const* child = GetOptionalIteratorChild(oi_base);
+  ASSERT_NE(oi_base->current, child->current); // Virtual result
 
   // When revalidate is called:
   // - mockWildcard will move from 5 to next in sequence (10)
@@ -1015,5 +991,5 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateWildcardMovedToChildId
   // After revalidation, iterator position should be updated
   // The exact position depends on implementation but should be valid
   ASSERT_EQ(oi_base->lastDocId, 15); // Should have moved forward
-  ASSERT_EQ(oi_base->current, oi->child->current); // Should now be a real result from child
+  ASSERT_EQ(oi_base->current, child->current); // Should now be a real result from child
 }

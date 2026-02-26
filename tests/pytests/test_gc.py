@@ -299,62 +299,27 @@ def testGCIntegrationWithRedisFork(env):
     env.cmd(config_cmd(), 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '0')
 
 @skip(cluster=True)
-def testGCThreshold(env):
-    if env.env == 'existing-env':
-        env.skip()
-
-    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 1000')
+def testGCCleanupWithReplace(env):
+    """Test that GC properly cleans old inverted index entries after
+    REPLACE and REPLACE PARTIAL operations."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
     waitForIndex(env, 'idx')
+
+    # Add docs with value 'foo', then replace all with 'foo1'
     for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
 
-    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo')
-
-    for i in range(999):
-        env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
-
-    forceInvokeGC(env, 'idx')
-
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
-
-    env.expect('FT.DEL', 'idx', 'doc999').equal(1)
-
-    forceInvokeGC(env, 'idx')
-
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
-
-    # retry with replace
     for i in range(1000):
-        env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'title', 'foo').ok()
-
-    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo')
-
-    for i in range(999):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
 
     forceInvokeGC(env, 'idx')
 
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').equal(debug_rep)
-
-    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'FIELDS', 'title', 'foo1').ok()
-
-    forceInvokeGC(env, 'idx')
-
+    # Old 'foo' entries should be cleaned
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo').error().contains('Can not find the inverted index')
 
-    # retry with replace partial
-
-    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo1')
-
-    for i in range(999):
+    # Replace partial: replace all with 'foo2', old 'foo1' entries should be cleaned
+    for i in range(1000):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
-
-    forceInvokeGC(env, 'idx')
-
-    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'foo1').equal(debug_rep)
-
-    env.expect('FT.ADD', 'idx', 'doc999', '1.0', 'REPLACE', 'PARTIAL', 'FIELDS', 'title', 'foo2').ok()
 
     forceInvokeGC(env, 'idx')
 
@@ -649,3 +614,38 @@ def test_gc_oom_replica_relaxed():
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertGreater(bytes_collected, 0,
         message="GC should run on replica even when maxmemory is exceeded")
+
+@skip(cluster=True)
+def testForceGCBypassesThreshold(env):
+    """Test that GC_FORCEINVOKE (force=true) bypasses the clean threshold,
+    while the periodic GC (force=false) respects it."""
+
+    # High threshold so periodic GC (force=false) always skips,
+    # short interval so it actually attempts during our sleep window.
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1000).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    # Add 10 documents
+    for i in range(10):
+        env.expect('HSET', 'doc%d' % i, 'title', 'hello world').equal(1)
+
+    # Delete 9 documents (well below threshold of 1000)
+    for i in range(9):
+        env.expect('DEL', 'doc%d' % i).equal(1)
+
+    # Save the inverted index state before GC
+    debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')
+
+    # Give periodic GC time to attempt (it uses force=false, so threshold blocks it)
+    sleep(3)
+
+    # Verify inverted index is unchanged (periodic GC skipped due to threshold)
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal(debug_rep)
+
+    # Force invoke bypasses threshold (uses force=true) and cleans the deleted entries
+    forceInvokeGC(env, 'idx')
+    env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal([10])
+

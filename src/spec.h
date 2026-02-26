@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "redismodule.h"
+#include "config.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
@@ -528,7 +529,7 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp);
+void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */

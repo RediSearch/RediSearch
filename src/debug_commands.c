@@ -842,9 +842,8 @@ DEBUG_COMMAND(GCForceInvoke) {
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
     GCContext_ForceInvoke(sp->gc, bc);
     return REDISMODULE_OK;
-  } else {
-    return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
   }
+  return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
 
 DEBUG_COMMAND(GCForceBGInvoke) {
