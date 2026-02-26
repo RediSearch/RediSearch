@@ -121,18 +121,6 @@ int QueryTerm_GetID(const struct RSQueryTerm *term);
 uintptr_t QueryTerm_GetLen(const struct RSQueryTerm *term);
 
 /**
- * Get the string pointer from a query term.
- *
- * Returns a null-terminated pointer to the term's bytes,
- * or null if the term has no string.
- *
- * # Safety
- *
- * `term` must be valid and non-null. Returned pointer is valid for the lifetime of the term.
- */
-const char *QueryTerm_GetStr(const struct RSQueryTerm *term);
-
-/**
  * Get both the string pointer and length from a query term.
  *
  * This is useful for C code that needs to work with the byte slice directly.

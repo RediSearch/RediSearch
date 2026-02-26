@@ -15,7 +15,6 @@
 //! crate.
 
 use std::ffi::c_char;
-use std::fmt;
 
 /// Flags associated with query tokens and terms.
 ///
@@ -36,6 +35,7 @@ pub type RSTokenFlags = u32;
 /// All fields are private and accessed via type-safe methods and FFI functions.
 /// C code accesses fields via FFI accessor functions, not direct struct access.
 /// cbindgen:field-names=[str, idf, id, flags, bm25_idf]
+#[derive(Debug, PartialEq)]
 pub struct RSQueryTerm {
     /// The term string, or `None` if the token had a null string pointer.
     ///
@@ -52,20 +52,6 @@ pub struct RSQueryTerm {
     flags: RSTokenFlags,
     /// Inverse document frequency for BM25 scoring.
     bm25_idf: f64,
-}
-
-impl fmt::Debug for RSQueryTerm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let term_str = self.str_.as_deref().unwrap_or("<null>");
-
-        f.debug_struct("RSQueryTerm")
-            .field("str", &term_str)
-            .field("idf", &self.idf)
-            .field("id", &self.id)
-            .field("flags", &self.flags)
-            .field("bm25_idf", &self.bm25_idf)
-            .finish()
-    }
 }
 
 impl RSQueryTerm {
@@ -168,16 +154,8 @@ impl RSQueryTerm {
     }
 }
 
-impl PartialEq for RSQueryTerm {
-    fn eq(&self, other: &Self) -> bool {
-        self.str_.as_deref() == other.str_.as_deref()
-            && self.idf == other.idf
-            && self.bm25_idf == other.bm25_idf
-            && self.id == other.id
-            && self.flags == other.flags
-    }
-}
-
+// SAFETY: `f64` does not implement `Eq` (NaN != NaN), but IDF values in a
+// query term are never NaN in practice, so the reflexivity requirement holds.
 impl Eq for RSQueryTerm {}
 
 #[cfg(test)]
@@ -196,7 +174,7 @@ mod tests {
     fn debug_null_str() {
         let term = RSQueryTerm::new_null_str(0, 0);
         let debug = format!("{term:?}");
-        assert!(debug.contains("<null>"));
+        assert!(debug.contains("None"));
     }
 
     #[test]
