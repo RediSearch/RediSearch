@@ -103,8 +103,8 @@ struct InsertDiskJob : public AsyncDiskJob {
 // Query marker job - tracks active queries to prevent ID reuse during search
 // No-op execution, just for tracking in currently_running
 struct QueryMarkerJob : public AsyncDiskJob {
-    QueryMarkerJob(std::shared_ptr<VecSimAllocator> allocator, JobCallback callback, VecSimIndex* index_)
-        : AsyncDiskJob(allocator, DISK_HNSW_QUERY_MARKER_JOB, callback, index_) {}
+    QueryMarkerJob(std::shared_ptr<VecSimAllocator> allocator)
+        : AsyncDiskJob(allocator, DISK_HNSW_QUERY_MARKER_JOB, nullptr, nullptr) {}
 };
 
 template <typename DataType, typename DistType>
@@ -166,8 +166,24 @@ public:
     // Manual submission would cause double-submission and segfault.
     template <typename JobType, typename... Args>
     std::shared_ptr<AsyncDiskJob> createAutoSubmitJob(Args&&... args) {
-        JobType* job = new (this->allocator) JobType(std::forward<Args>(args)...);
+        JobType* job = new (this->allocator) JobType(std::forward<Args>(args)..., executeDiskJobWrapper, this);
         return std::shared_ptr<AsyncDiskJob>(job, PendingJobDeleter{this, &is_destroyed});
+    }
+
+    std::shared_ptr<AsyncDiskJob> createInsertJob(labelType label) {
+        return make_vecsim_shared_ptr<InsertDiskJob>(this->allocator, label, executeDiskJobWrapper, this);
+    }
+
+    std::shared_ptr<AsyncDiskJob> createRepairJob(idType node_id, levelType level) {
+        return make_vecsim_shared_ptr<RepairDiskJob>(this->allocator, node_id, level, executeDiskJobWrapper, this);
+    }
+
+    std::shared_ptr<AsyncDiskJob> createDeleteInitJob(idType deleted_id) {
+        return createAutoSubmitJob<DeleteDiskJob>(this->allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, deleted_id);
+    }
+
+    std::shared_ptr<AsyncDiskJob> createDeleteFinalizeJob(idType deleted_id) {
+        return createAutoSubmitJob<DeleteDiskJob>(this->allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, deleted_id);
     }
 
     // Submit a single job and add to submitted_jobs to keep it alive
@@ -333,10 +349,9 @@ public:
             }
         }
 
-        std::shared_ptr<AsyncDiskJob> finalize_job = createAutoSubmitJob<DeleteDiskJob>(
-            this->allocator, DISK_HNSW_DELETE_VECTOR_FINALIZE_JOB, deleted_id, executeDiskJobWrapper, this);
+        auto finalize_job = createDeleteFinalizeJob(deleted_id);
 
-        submitRepairs(all_neighbors, finalize_job);
+        submitRepairs(all_neighbors, std::move(finalize_job));
     }
 
     void executeDeleteFinalizeJob(DeleteDiskJob* delete_job) {
@@ -409,10 +424,7 @@ public:
             index->pending_repairs.erase(GraphNodeType(repair_job->node_id, repair_job->level));
         }
 
-        {
-            std::lock_guard<std::mutex> lock(index->running_guard);
-            index->currently_running.push_back(disk_job);
-        }
+        index->addToCurrentlyRunning(disk_job);
 
         if (disk_job->isValid) {
             // Dispatch to the appropriate executor based on job type
@@ -435,14 +447,7 @@ public:
             }
         }
 
-        {
-            std::lock_guard<std::mutex> lock(index->running_guard);
-            // Remove this job from currently_running (swap with last and pop)
-            auto it = std::find(index->currently_running.begin(), index->currently_running.end(), disk_job);
-            assert(it != index->currently_running.end()); // Job must be in currently_running
-            *it = index->currently_running.back();
-            index->currently_running.pop_back();
-        }
+        index->removeFromCurrentlyRunning(disk_job);
 
         // job_owner goes out of scope, releasing the job
         // When the job is destroyed, pending_jobs vector is destroyed, releasing all references
@@ -470,9 +475,8 @@ public:
                         it->second->pending_jobs.push_back(pend_on);
                     }
                 } else {
-                    // Create new repair job with the wrapper callback
-                    auto job_ptr = make_vecsim_shared_ptr<RepairDiskJob>(this->allocator, repair.id, repair.level,
-                                                                         executeDiskJobWrapper, this);
+                    // Create new repair job
+                    auto job_ptr = createRepairJob(repair.id, repair.level);
 
                     if (pend_on) {
                         job_ptr->pending_jobs.push_back(pend_on);
@@ -491,14 +495,26 @@ public:
     }
 
     std::shared_ptr<AsyncDiskJob> pendDeleteInitJobByCurrentlyRunning(idType deletedId) {
-        auto job = createAutoSubmitJob<DeleteDiskJob>(this->allocator, DISK_HNSW_DELETE_VECTOR_INIT_JOB, deletedId,
-                                                      executeDiskJobWrapper, this);
+        auto job = createDeleteInitJob(deletedId);
 
         std::lock_guard<std::mutex> lock(running_guard);
         for (AsyncDiskJob* running : currently_running) {
             running->pending_jobs.push_back(job);
         }
         return job;
+    }
+
+    void addToCurrentlyRunning(AsyncDiskJob* job) const {
+        std::lock_guard<std::mutex> lock(running_guard);
+        currently_running.push_back(job);
+    }
+
+    void removeFromCurrentlyRunning(AsyncDiskJob* job) const {
+        std::lock_guard<std::mutex> lock(running_guard);
+        auto it = std::find(currently_running.begin(), currently_running.end(), job);
+        assert(it != currently_running.end()); // Job must be in currently_running
+        *it = currently_running.back();
+        currently_running.pop_back();
     }
 
 public:
@@ -617,7 +633,7 @@ int TieredHNSWDiskIndex<DataType, DistType>::addVector(const void* data, labelTy
     // NOTE: No state is captured on the main thread.
     // All state capture (random level, entry point) happens in the worker thread
     // inside executeInsertJob().
-    auto job = make_vecsim_shared_ptr<InsertDiskJob>(this->allocator, label, executeDiskJobWrapper, this);
+    auto job = createInsertJob(label);
 
     // Step 3: Submit job to queue
     submitDiskJob(job);
@@ -717,25 +733,14 @@ VecSimQueryReply* TieredHNSWDiskIndex<DataType, DistType>::topKQuery(const void*
                                                                      VecSimQueryParams* queryParams) const {
 
     // Create query marker job to track this query and prevent ID reuse
-    QueryMarkerJob marker_job(
-        this->allocator, [](AsyncJob*) { /* No-op callback */ },
-        const_cast<VecSimIndex*>(static_cast<const VecSimIndex*>(this)));
+    QueryMarkerJob marker_job(this->allocator);
 
     // Register query as currently running
-    {
-        std::lock_guard<std::mutex> lock(running_guard);
-        currently_running.push_back(&marker_job);
-    }
+    addToCurrentlyRunning(&marker_job);
 
     VecSimQueryReply* results = topKQueryImp(queryBlob, k, queryParams);
-    {
-        std::lock_guard<std::mutex> lock(running_guard);
-        // Remove marker from currently_running (swap with last and pop)
-        auto it = std::find(currently_running.begin(), currently_running.end(), &marker_job);
-        assert(it != currently_running.end()); // Marker must be in currently_running
-        *it = currently_running.back();
-        currently_running.pop_back();
-    }
+
+    removeFromCurrentlyRunning(&marker_job);
 
     return results;
 }
