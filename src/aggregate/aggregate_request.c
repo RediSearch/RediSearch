@@ -1547,11 +1547,6 @@ static void AREQ_Free(AREQ *req) {
     ParsedVectorData_Free(req->parsedVectorData);
     req->parsedVectorData = NULL;
   }
-  // Free prefetched results if not consumed (cursor freed before first read)
-  if (req->prefetchedResults) {
-    destroyResults(req->prefetchedResults);
-    req->prefetchedResults = NULL;
-  }
 
   rm_free(req->args);
   rm_free(req);
