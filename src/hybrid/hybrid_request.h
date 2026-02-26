@@ -6,8 +6,6 @@
 #include "util/references.h"
 #include "redismodule.h"
 
-// Note: RS_Atomic macro is defined in aggregate.h and used by RequestSyncCtx
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,8 +38,11 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Synchronization context for timeout handling (shared with AREQ)
+    // Synchronization context for timeout handling
     RequestSyncCtx syncCtx;
+
+    // Flag to indicate whether to skip timeout checks using clock checks
+    bool skipTimeoutChecks;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
@@ -49,11 +50,11 @@ bool HybridRequest_TimedOut(HybridRequest *req);
 void HybridRequest_SetTimedOut(HybridRequest *req);
 
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
-  return !req->syncCtx.skipTimeoutChecks;
+  return !req->skipTimeoutChecks;
 }
 
 static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
-  req->syncCtx.skipTimeoutChecks = skipTimeoutChecks;
+  req->skipTimeoutChecks = skipTimeoutChecks;
   // Propagate to the SearchCtx's SearchTime for timeout functions that access it directly
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;

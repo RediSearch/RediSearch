@@ -223,9 +223,7 @@ typedef struct RequestSyncCtx {
   RS_Atomic(bool) timedOut;
   // Reply ownership state, coordinates reply between main and background thread
   RS_Atomic(uint8_t) replyState;
-  // Flag to indicate whether to check for timeout using clock checks
-  bool skipTimeoutChecks;
-  // Reference count for shared ownership between timeout callback and background thread
+  // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 } RequestSyncCtx;
 
@@ -233,7 +231,6 @@ typedef struct RequestSyncCtx {
 static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
   ctx->replyState = ReplyState_NotReplied;
-  ctx->skipTimeoutChecks = false;
   ctx->refcount = 1;
 }
 
@@ -320,8 +317,11 @@ typedef struct AREQ {
 
   ProfilePrinterCtx profileCtx;
 
-  // Synchronization context for timeout handling (shared with HybridRequest)
+  // Synchronization context for timeout handling
   RequestSyncCtx syncCtx;
+
+  // Flag to indicate whether to skip timeout checks using clock checks
+  bool skipTimeoutChecks;
 } AREQ;
 
 /**
@@ -550,11 +550,11 @@ void AREQ_MarkReplied(AREQ *req);
 uint8_t AREQ_GetReplyState(AREQ *req);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
-  return !req->syncCtx.skipTimeoutChecks;
+  return !req->skipTimeoutChecks;
 }
 
 static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
-  req->syncCtx.skipTimeoutChecks = skipTimeoutChecks;
+  req->skipTimeoutChecks = skipTimeoutChecks;
   // Also propagate to the SearchCtx's SearchTime for timeout functions that access it directly
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
