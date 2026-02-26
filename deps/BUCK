@@ -232,3 +232,14 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= thpool ======================================
+
+cxx_library(
+    name = "geohash",
+    srcs = glob(["geohash/*.c"]),
+    headers = glob(["geohash/*.h"]),
+    exported_headers = export_headers_map(glob(["geohash/*.h"]), "geohash/"),
+    header_namespace = "geohash",
+    visibility = ["PUBLIC"],
+)
