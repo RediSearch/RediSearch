@@ -4212,12 +4212,12 @@ void Indexes_EndLoading() {
 // Compaction FFI Functions (called by Rust during GC)
 // =============================================================================
 
-// Acquire IndexSpec read/write lock in exclusive mode
+// Acquire IndexSpec write lock
 void IndexSpec_AcquireWriteLock(IndexSpec* sp) {
   pthread_rwlock_wrlock(&sp->rwlock);
 }
 
-// Release IndexSpec read/write
+// Release IndexSpec write lock
 void IndexSpec_ReleaseWriteLock(IndexSpec* sp) {
   pthread_rwlock_unlock(&sp->rwlock);
 }
