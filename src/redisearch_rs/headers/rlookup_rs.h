@@ -169,20 +169,7 @@ typedef struct RLookupKey {
 /**
  * A type with size `N`.
  */
-typedef uint8_t Size_48[48];
-
-/**
- * A type with size `N`.
- */
 typedef uint8_t Size_40[40];
-
-#if defined(ENABLE_ASSERT)
-typedef Size_48 OpaqueRLookupSize;
-#endif
-
-#if !defined(ENABLE_ASSERT)
-typedef Size_40 OpaqueRLookupSize;
-#endif
 
 /**
  * An opaque lookup which can be passed by value to C.
@@ -191,16 +178,8 @@ typedef Size_40 OpaqueRLookupSize;
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookup {
-  OpaqueRLookupSize _0;
+  Size_40 _0;
 } RLookup;
-
-#if defined(ENABLE_ASSERT)
-typedef Size_48 OpaqueRLookupRowSize;
-#endif
-
-#if !defined(ENABLE_ASSERT)
-typedef Size_40 OpaqueRLookupRowSize;
-#endif
 
 /**
  * An opaque lookup row which can be passed by value to C.
@@ -209,7 +188,7 @@ typedef Size_40 OpaqueRLookupRowSize;
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookupRow {
-  OpaqueRLookupRowSize _0;
+  Size_40 _0;
 } RLookupRow;
 
 #ifdef __cplusplus
@@ -553,7 +532,7 @@ uint32_t RLookup_GetRowLen(const struct RLookup *lookup);
 struct RLookup RLookup_New(void);
 
 /**
- * Initialize the lookup. If cache is provided, then it will be used as an
+ * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
  * # Safety
@@ -564,7 +543,8 @@ struct RLookup RLookup_New(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
+void RLookup_SetCache(struct RLookup *lookup,
+                      struct IndexSpecCache *spcache);
 
 /**
  * Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
@@ -620,15 +600,36 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                QueryError *status);
 
 /**
- * Returns a newly created [`RLookupRow`].
+ * Return an iterator over an [`RLookup`]'s key list.
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupRow RLookupRow_New(const struct RLookup *lookup);
+RLookupIterator RLookup_Iter(const struct RLookup *lookup);
+
+/**
+ * Return an iterator over an [`RLookup`]'s key list with editing operations.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 3. The caller must treat the returned `current` pointer as pinned. Specifically
+ *    a. Not move (memcpy/memmove) out of the pointer.
+ *    b. The pointed-to value must remain at its original address in memory and never be relocated.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
+
+/**
+ * Returns a newly created [`RLookupRow`].
+ */
+struct RLookupRow RLookupRow_New(void);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.

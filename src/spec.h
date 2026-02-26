@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "redismodule.h"
+#include "config.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
@@ -28,6 +29,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "search_disk_api.h"
 #include "rs_wall_clock.h"
 
 #ifdef __cplusplus
@@ -361,7 +363,7 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
-  // Disk index handle
+  // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 } IndexSpec;
 
@@ -527,7 +529,7 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp);
+void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
@@ -762,6 +764,42 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
+
+// =============================================================================
+// Compaction FFI Functions (called by Rust during GC)
+// =============================================================================
+
+/**
+ * @brief Acquire the IndexSpec write lock
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_AcquireWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Release the IndexSpec write lock
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Update a term's document count in the Serving Trie
+ *
+ * @param sp Pointer to the IndexSpec
+ * @param term Pointer to term string (NOT null-terminated)
+ * @param term_len Length of term in bytes
+ * @param doc_count_decrement Number of documents to decrement from the term's count
+ * @return true if the term was completely emptied and deleted from the trie
+ */
+bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+                                      size_t doc_count_decrement);
+
+/**
+ * @brief Update IndexScoringStats based on the number of terms removed
+ *
+ * @param sp Pointer to the IndexSpec
+ * @param num_terms_removed Number of terms that became empty during compaction
+ */
+void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed);
 
 #ifdef __cplusplus
 }

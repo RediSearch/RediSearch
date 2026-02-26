@@ -188,8 +188,8 @@ def simplify_job_name(job_name):
     Special cases (show only title):
     - "coverage / Test ubuntu-latest, Redis unstable" -> "coverage"
     - "sanitize / Test ubuntu-latest, Redis unstable" -> "sanitize"
-    - "test-macos / build-macos (macos-15-intel) / ..." -> "macos-15-intel"
-    - "test-macos / build-macos (macos-latest) / ..." -> "macos-latest"
+    - "test-macos-15 / build-macos-15 (macos-15) / ..." -> "macos-15"
+    - "test-macos-26 / build-macos-26 (macos-26) / ..." -> "macos-26"
     - "run-on-intel / Start self-hosted EC2 runner" -> "run-on-intel"
 
     Container jobs (show as "container arch"):
@@ -202,10 +202,11 @@ def simplify_job_name(job_name):
     if job_name.startswith("coverage /") or job_name.startswith("sanitize /"):
         return job_name.split(" /")[0]
 
-    # Special case: test-macos with macos version
-    if job_name.startswith("test-macos / build-macos"):
-        # Extract macos version from parentheses: "test-macos / build-macos (macos-latest) / ..."
-        match = re.search(r'build-macos \(([^)]+)\)', job_name)
+    # Special case: test-macos-* with macOS runner version.
+    if re.match(r'^test-macos(?:-\d+)? / build-macos(?:-\d+)?', job_name):
+        # Extract macOS runner from parentheses:
+        # "test-macos-15 / build-macos-15 (macos-15) / ..."
+        match = re.search(r'build-macos(?:-\d+)? \(([^)]+)\)', job_name)
         if match:
             return match.group(1)
 

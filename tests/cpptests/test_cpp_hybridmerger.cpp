@@ -173,19 +173,17 @@ HybridLookupContext* CreateDummyLookupContext(size_t numUpstreams) {
 
   // Create dummy RLookup for each upstream
   for (size_t i = 0; i < numUpstreams; i++) {
-    RLookup *dummyLookup = (RLookup*)rm_calloc(1, sizeof(RLookup));
-    if (dummyLookup) {
-      RLookup_Init(dummyLookup, NULL);
-    }
+    RLookup *dummyLookup = (RLookup*)rm_malloc(sizeof(RLookup));
+    EXPECT_NE(dummyLookup, nullptr);
+    *dummyLookup = RLookup_New();
     array_append(lookupCtx->sourceLookups, dummyLookup);
   }
 
   // Create dummy tail lookup
-  RLookup *tailLookup = (RLookup*)rm_calloc(1, sizeof(RLookup));
-  if (tailLookup) {
-    RLookup_Init(tailLookup, NULL);
-    lookupCtx->tailLookup = tailLookup;
-  }
+  RLookup *tailLookup = (RLookup*)rm_malloc(sizeof(RLookup));
+  EXPECT_NE(tailLookup, nullptr);
+  *tailLookup = RLookup_New();
+  lookupCtx->tailLookup = tailLookup;
 
   return lookupCtx;
 }
@@ -1412,24 +1410,6 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
 
   CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
-}
-
-/*
- * Helper function to create a test SearchResult with specified flags
- */
-static SearchResult* createTestSearchResult(uint8_t flags) {
-  SearchResult* result = (SearchResult*)rm_calloc(1, sizeof(SearchResult));
-  if (!result) return NULL;
-
-  SearchResult_SetDocId(result, 1);  // Use a dummy docId
-  SearchResult_SetScore(result, 1.0);  // Use a dummy score
-  SearchResult_SetFlags(result, flags);
-  SearchResult_SetScoreExplain(result, NULL);
-  SearchResult_SetDocumentMetadata(result, NULL);
-  SearchResult_SetIndexResult(result, NULL);
-  memset(SearchResult_GetRowDataMut(result), 0, sizeof(RLookupRow));
-
-  return result;
 }
 
 /*

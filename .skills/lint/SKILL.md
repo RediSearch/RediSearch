@@ -1,6 +1,6 @@
 ---
 name: lint
-description: Check code quality and formatting before committing changes
+description: Check code quality and formatting before committing changes. Use this to verify your changes meet our coding standards.
 ---
 
 # Lint Skill

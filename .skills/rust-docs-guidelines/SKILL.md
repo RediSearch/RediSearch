@@ -1,6 +1,6 @@
 ---
 name: rust-docs-guidelines
-description: Guidelines for writing Rust documentation
+description: Guidelines for writing Rust documentation. Use this when you want to write Rust documentation.
 ---
 
 # Rust Docs Guidelines

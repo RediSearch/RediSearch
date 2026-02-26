@@ -66,7 +66,7 @@ fn test_debug_summary_empty() {
     let tree = NumericRangeTree::new(false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, &tree) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, Some(&tree)) });
     insta::assert_debug_snapshot!(reply, @r###"
     [
       "numRanges",
@@ -94,7 +94,7 @@ fn test_debug_summary_populated() {
     let tree = populated_tree(50, 0.0, 1.0, false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, &tree) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, Some(&tree)) });
     insta::assert_debug_snapshot!(reply, @r###"
     [
       "numRanges",
@@ -124,7 +124,8 @@ fn test_debug_dump_index_no_headers() {
     let tree = populated_tree(10, 1.0, 1.0, false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, &tree, false) });
+    let reply =
+        capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, Some(&tree), false) });
     insta::assert_debug_snapshot!(reply, @"[[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]");
 }
 
@@ -133,7 +134,7 @@ fn test_debug_dump_index_with_headers() {
     let tree = populated_tree(10, 1.0, 1.0, false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, &tree, true) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, Some(&tree), true) });
     insta::assert_debug_snapshot!(reply, @r#"
     [
       [
@@ -162,7 +163,8 @@ fn test_debug_dump_index_with_multivalued_tree() {
     let tree = populated_multivalued_tree(5);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, &tree, false) });
+    let reply =
+        capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, Some(&tree), false) });
     insta::assert_debug_snapshot!(reply, @"[[1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5]]");
 }
 
@@ -171,7 +173,8 @@ fn test_debug_dump_index_no_headers_compressed() {
     let tree = populated_tree(10, 1.0, 1.0, true);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, &tree, false) });
+    let reply =
+        capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, Some(&tree), false) });
     insta::assert_debug_snapshot!(reply, @"[[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]]");
 }
 
@@ -180,7 +183,7 @@ fn test_debug_dump_index_with_headers_compressed() {
     let tree = populated_tree(10, 1.0, 1.0, true);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, &tree, true) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, Some(&tree), true) });
     insta::assert_debug_snapshot!(reply);
 }
 
@@ -191,7 +194,7 @@ fn test_debug_dump_tree_full() {
     let tree = populated_tree(10, 1.0, 1.0, false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, &tree, false) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, Some(&tree), false) });
     with_redactions(|| insta::assert_debug_snapshot!(reply));
 }
 
@@ -200,7 +203,7 @@ fn test_debug_dump_tree_minimal() {
     let tree = populated_tree(10, 1.0, 1.0, false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, &tree, true) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, Some(&tree), true) });
     with_redactions(|| {
         insta::assert_debug_snapshot!(reply, @r###"
         {
@@ -224,7 +227,7 @@ fn test_debug_dump_tree_with_children() {
     let tree = populated_tree(100, 0.0, 1.0, false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, &tree, false) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, Some(&tree), false) });
     with_redactions(|| insta::assert_debug_snapshot!(reply));
 }
 
@@ -233,7 +236,7 @@ fn test_debug_dump_tree_full_compressed() {
     let tree = populated_tree(10, 1.0, 1.0, true);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, &tree, false) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, Some(&tree), false) });
     with_redactions(|| insta::assert_debug_snapshot!(reply));
 }
 
@@ -242,7 +245,7 @@ fn test_debug_dump_tree_with_children_compressed() {
     let tree = populated_tree(100, 0.0, 1.0, true);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, &tree, false) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, Some(&tree), false) });
     with_redactions(|| insta::assert_debug_snapshot!(reply));
 }
 
@@ -255,6 +258,116 @@ fn test_debug_dump_index_with_splits() {
     let tree = populated_tree(100, 0.0, 1.0, false);
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
-    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, &tree, true) });
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, Some(&tree), true) });
     with_redactions(|| insta::assert_debug_snapshot!(reply));
+}
+
+// ── None (empty index) snapshots ────────────────────────────────────────
+
+#[test]
+fn test_debug_summary_none() {
+    let ctx = mock_ctx();
+    // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
+    let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, None) });
+    insta::assert_debug_snapshot!(reply, @r###"
+    [
+      "numRanges",
+      0,
+      "numLeaves",
+      0,
+      "numEntries",
+      0,
+      "lastDocId",
+      0,
+      "revisionId",
+      0,
+      "emptyLeaves",
+      0,
+      "RootMaxDepth",
+      0,
+      "MemoryUsage",
+      0
+    ]
+    "###);
+}
+
+#[test]
+fn test_debug_dump_index_none() {
+    let ctx = mock_ctx();
+    // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_index(ctx, None, false) });
+    insta::assert_debug_snapshot!(reply, @"[]");
+}
+
+#[test]
+fn test_debug_dump_tree_none() {
+    let ctx = mock_ctx();
+    // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
+    let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, None, true) });
+    insta::assert_debug_snapshot!(reply, @r###"
+    {
+      "numRanges": 0,
+      "numEntries": 0,
+      "lastDocId": 0,
+      "revisionId": 0,
+      "uniqueId": 0,
+      "emptyLeaves": 0,
+      "root": {},
+      "Tree stats": {"Average memory efficiency (numEntries/size)/numRanges": 0}
+    }
+    "###);
+}
+
+// ── Structural consistency: None has same keys as default tree ──────────
+
+#[test]
+fn test_debug_summary_none_has_same_keys_as_default() {
+    let ctx = mock_ctx();
+    let tree = NumericRangeTree::new(false);
+
+    // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
+    let reply_default = capture_single_reply(|| unsafe { debug::debug_summary(ctx, Some(&tree)) });
+    let reply_none = capture_single_reply(|| unsafe { debug::debug_summary(ctx, None) });
+
+    // Extract keys (string elements at even indices in the flat array).
+    fn keys(reply: &ReplyValue) -> Vec<&str> {
+        match reply {
+            ReplyValue::Array(arr) => arr
+                .iter()
+                .step_by(2)
+                .map(|v| match v {
+                    ReplyValue::SimpleString(s) => s.as_str(),
+                    other => panic!("expected string key, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected array, got {other:?}"),
+        }
+    }
+    assert_eq!(keys(&reply_default), keys(&reply_none));
+}
+
+#[test]
+fn test_debug_dump_tree_none_has_same_keys_as_default() {
+    let ctx = mock_ctx();
+    let tree = NumericRangeTree::new(false);
+
+    // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
+    let reply_default =
+        capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, Some(&tree), true) });
+    let reply_none = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, None, true) });
+
+    // Extract top-level map keys.
+    fn keys(reply: &ReplyValue) -> Vec<&str> {
+        match reply {
+            ReplyValue::Map(pairs) => pairs
+                .iter()
+                .map(|(k, _)| match k {
+                    ReplyValue::SimpleString(s) => s.as_str(),
+                    other => panic!("expected string key, got {other:?}"),
+                })
+                .collect(),
+            other => panic!("expected map, got {other:?}"),
+        }
+    }
+    assert_eq!(keys(&reply_default), keys(&reply_none));
 }

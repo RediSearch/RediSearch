@@ -12,7 +12,7 @@ use std::io::{Cursor, Seek, Write};
 use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
-use crate::{Decoder, Encoder, RSIndexResult};
+use crate::{Decoder, Encoder, RSIndexResult, TermDecoder};
 
 /// Encode and decode only the delta and frequencies of a record, without any other data.
 /// The delta and frequency are encoded using [qint encoding](qint).
@@ -51,4 +51,33 @@ impl Decoder for FreqsOnly {
     fn base_result<'index>() -> RSIndexResult<'index> {
         RSIndexResult::virt()
     }
+
+    fn seek<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let freq = loop {
+            let [delta, freq] = match qint_decode::<2, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break freq;
+            }
+        };
+
+        result.doc_id = base;
+        result.freq = freq;
+        Ok(true)
+    }
 }
+
+impl TermDecoder for FreqsOnly {}

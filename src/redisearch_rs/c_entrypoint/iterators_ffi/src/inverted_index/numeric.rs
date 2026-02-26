@@ -156,7 +156,7 @@ enum IteratorVariant<'index> {
 /// Wrapper around the actual Numeric iterator.
 /// Needed as we need to keep the `filter` pointer around so it can be returned in
 /// [`NumericInvIndIterator_GetNumericFilter`].
-struct NumericIterator<'index> {
+pub(super) struct NumericIterator<'index> {
     /// The user numeric filter, or None if no filter was provided.
     filter: Option<NonNull<NumericFilter>>,
     /// The iterator variant (numeric or geo).
@@ -165,7 +165,7 @@ struct NumericIterator<'index> {
 
 impl<'index> NumericIterator<'index> {
     /// Get the flags from the underlying reader.
-    fn flags(&self) -> ffi::IndexFlags {
+    pub(super) fn flags(&self) -> ffi::IndexFlags {
         match &self.iterator {
             IteratorVariant::Numeric(iter) => iter.reader().flags(),
             IteratorVariant::NumericFiltered(iter) => iter.reader().flags(),
@@ -371,13 +371,16 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
             if !filter_ref.geo_filter.is_null() {
                 // Geo filter
                 let filter_reader = FilterGeoReader::new(filter_ref, reader);
-                let iter = Numeric::new(
-                    filter_reader,
-                    expiration_checker,
-                    range_tree,
-                    Some(range_min),
-                    Some(range_max),
-                );
+                // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
+                let iter = unsafe {
+                    Numeric::new(
+                        filter_reader,
+                        expiration_checker,
+                        range_tree,
+                        Some(range_min),
+                        Some(range_max),
+                    )
+                };
                 NumericIterator {
                     filter: Some(filter),
                     iterator: IteratorVariant::Geo(iter),
@@ -385,13 +388,16 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
             } else {
                 // Numeric filter (no geo)
                 let filter_reader = FilterNumericReader::new(filter_ref, reader);
-                let iter = Numeric::new(
-                    filter_reader,
-                    expiration_checker,
-                    range_tree,
-                    Some(range_min),
-                    Some(range_max),
-                );
+                // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
+                let iter = unsafe {
+                    Numeric::new(
+                        filter_reader,
+                        expiration_checker,
+                        range_tree,
+                        Some(range_min),
+                        Some(range_max),
+                    )
+                };
                 NumericIterator {
                     filter: Some(filter),
                     iterator: IteratorVariant::NumericFiltered(iter),
@@ -400,13 +406,16 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
         }
         None => {
             // No filter - use the reader directly
-            let iter = Numeric::new(
-                reader,
-                expiration_checker,
-                range_tree,
-                Some(range_min),
-                Some(range_max),
-            );
+            // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
+            let iter = unsafe {
+                Numeric::new(
+                    reader,
+                    expiration_checker,
+                    range_tree,
+                    Some(range_min),
+                    Some(range_max),
+                )
+            };
             NumericIterator {
                 filter: None,
                 iterator: IteratorVariant::Numeric(iter),
@@ -415,44 +424,6 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
     };
 
     RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR, iterator)
-}
-
-/// Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
-/// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
-/// 3. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
-///
-/// # Returns
-///
-/// The flags of the `IndexReader`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
-    it: *const ffi::InvIndIterator,
-) -> ffi::IndexFlags {
-    debug_assert!(!it.is_null());
-
-    // SAFETY: 1.
-    let it_ref = unsafe { &*it };
-
-    match it_ref.base.type_ {
-        ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
-            // SAFETY: the numeric iterator is in Rust.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast())
-            };
-            wrapper.inner.flags()
-        }
-        _ => {
-            // C iterator
-            let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 3.
-            let reader_ref = unsafe { &*reader };
-            reader_ref.flags()
-        }
-    }
 }
 
 /// Gets the numeric filter from a numeric inverted index iterator.
@@ -524,44 +495,4 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
     let wrapper =
         unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
     wrapper.inner.range_max()
-}
-
-/// Swap the inverted index of an inverted index iterator. This is only used by C tests
-/// to trigger revalidation on the iterator's underlying reader.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
-/// 2. If `it` is a C iterator, its `reader` field must be a valid non-NULL
-///    pointer to an `IndexReader`.
-/// 3. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
-///    iterator's underlying index type.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
-    it: *mut ffi::InvIndIterator,
-    ii: *const ffi::InvertedIndex,
-) {
-    debug_assert!(!it.is_null());
-    debug_assert!(!ii.is_null());
-
-    // SAFETY: 1.
-    let it_ref = unsafe { &*it };
-
-    match it_ref.base.type_ {
-        ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
-            unimplemented!(
-                "Numeric iterators use revision ID for revalidation, not index swapping"
-            );
-        }
-        _ => {
-            // C iterator
-            let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 2. guarantees reader is valid.
-            let reader_ref = unsafe { &mut *reader };
-            let ii: *const inverted_index_ffi::InvertedIndex = ii.cast();
-            // SAFETY: 3. guarantees ii is valid and matching.
-            let ii_ref = unsafe { &*ii };
-            reader_ref.swap_index(ii_ref);
-        }
-    }
 }

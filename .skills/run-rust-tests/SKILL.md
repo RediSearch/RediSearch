@@ -1,6 +1,6 @@
 ---
 name: run-rust-tests
-description: Run Rust tests after making changes to verify correctness
+description: Run Rust tests after making changes to verify correctness. Use this when you want to verify your changes to Rust code.
 ---
 
 # Rust Test Skill

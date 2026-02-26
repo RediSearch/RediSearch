@@ -17,7 +17,8 @@ use rqe_iterators::{
     NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index::Numeric,
 };
 
-use crate::inverted_index::utils::{BaseTest, MockContext};
+use crate::inverted_index::utils::BaseTest;
+use rqe_iterators_test_utils::MockContext;
 
 /// Builder for creating a Numeric iterator with optional parameters.
 #[allow(dead_code)]
@@ -95,13 +96,17 @@ where
 
     /// Build the Numeric iterator.
     fn build(self) -> Numeric<'index, R, E> {
-        Numeric::new(
-            self.reader,
-            self.expiration_checker,
-            self.range_tree,
-            self.range_min,
-            self.range_max,
-        )
+        // SAFETY: `range_tree`, when provided, is a valid pointer to a
+        // `NumericRangeTree` that outlives the returned iterator.
+        unsafe {
+            Numeric::new(
+                self.reader,
+                self.expiration_checker,
+                self.range_tree,
+                self.range_min,
+                self.range_max,
+            )
+        }
     }
 }
 
@@ -431,13 +436,17 @@ mod not_miri {
             let reader = self.test.numeric_inverted_index().reader();
             let checker = self.test.create_mock_checker();
 
-            Numeric::new(
-                reader,
-                checker,
-                Some(self.test.context.numeric_range_tree()),
-                None,
-                None,
-            )
+            // SAFETY: `numeric_range_tree()` returns a valid pointer that
+            // outlives the returned iterator.
+            unsafe {
+                Numeric::new(
+                    reader,
+                    checker,
+                    Some(self.test.context.numeric_range_tree()),
+                    None,
+                    None,
+                )
+            }
         }
 
         fn test_read_expiration(&mut self) {

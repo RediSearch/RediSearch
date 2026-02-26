@@ -30,7 +30,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
-#include "sorting_vector_rs.h"
+#include "sorting_vector.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -899,7 +899,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookupRow row = RLookupRow_New();
   RSValue *rv = NULL;
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
-  RLookup_Init(&lookup_s, spcache);
+  RLookup_SetCache(&lookup_s, spcache);
   RLookup_EnableOptions(&lookup_s, RLOOKUP_OPT_ALL_LOADED); // Setting this option will cause creating keys of non-sortable fields possible
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
     goto CleanUp;

@@ -246,7 +246,6 @@ TEST_F(ExprTest, testGetFields) {
   ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
   RLookup lk = RLookup_New();
 
-  RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   auto *kbaz = RLookup_GetKey_Write(&lk, "baz", RLOOKUP_F_NOFLAGS);
@@ -313,7 +312,6 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
 
 TEST_F(ExprTest, testPredicate) {
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = RLookupRow_New();
@@ -395,7 +393,6 @@ TEST_F(ExprTest, testNull) {
 TEST_F(ExprTest, testPropertyFetch) {
   TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   RLookupRow rr = RLookupRow_New();
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
@@ -452,7 +449,6 @@ TEST_F(ExprTest, testEvalFuncCase) {
 
 TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = RLookupRow_New();
@@ -473,7 +469,6 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
 
 TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(42));
@@ -572,7 +567,6 @@ TEST_F(ExprTest, testEvalFuncCaseErrorConditions) {
 
 TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
   RLookup lk = RLookup_New();
-  RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
