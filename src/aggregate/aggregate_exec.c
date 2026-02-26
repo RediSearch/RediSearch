@@ -63,7 +63,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(kk))) {
     return RSSortingVector_Get(sv, RLookupKey_GetSvIdx(kk));
   } else {
-    return RLookup_GetItem(kk, SearchResult_GetRowData(r));
+    return RLookupRow_Get(kk, SearchResult_GetRowData(r));
   }
 }
 
@@ -207,7 +207,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         // For duo value, we use the left value here (not the right value)
         v = RSValue_Trio_GetLeft(v);
       }
-      if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
+      if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_F_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
         if (rsv == NULL) {
@@ -257,7 +257,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
           continue;
         }
-        const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
+        const RSValue *v = RLookupRow_Get(kk, SearchResult_GetRowData(r));
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
         RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));

@@ -64,6 +64,16 @@ impl SharedRsValue {
 
         *value = new_value;
     }
+
+    /// Returns true if the two [`SharedRsValue`]s point to the same allocation in a vein similar to [`ptr::eq`][std::ptr::eq].
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        Arc::ptr_eq(&this.inner, &other.inner)
+    }
+
+    /// Returns the reference count of this [`SharedRsValue`].
+    pub fn refcount(this: &Self) -> usize {
+        Arc::strong_count(&this.inner)
+    }
 }
 
 impl std::fmt::Debug for SharedRsValue {

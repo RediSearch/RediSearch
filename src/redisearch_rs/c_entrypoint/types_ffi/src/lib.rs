@@ -106,8 +106,7 @@ pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
 /// Therefore, this also returns an owned `RSIndexResult`.
 #[unsafe(no_mangle)]
 pub extern "C" fn NewHybridResult() -> *mut RSIndexResult<'static> {
-    let result = RSIndexResult::hybrid_metric();
-    Box::into_raw(Box::new(result.to_owned()))
+    Box::into_raw(Box::new(RSIndexResult::hybrid_metric()))
 }
 
 /// Allocate a new token record with a given term and weight. This result should be freed using
@@ -447,7 +446,7 @@ pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult)
 /// should return to Rust to free up any heap memory using [`AggregateResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static> {
-    RSAggregateResult::with_capacity(cap)
+    RSAggregateResult::borrowed_with_capacity(cap)
 }
 
 /// Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
@@ -594,7 +593,7 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.data = data.cast::<u8>().cast_mut();
+    offsets.data = data.cast::<u8>();
     offsets.len = len;
 }
 

@@ -260,7 +260,7 @@ protected:
 
   void SetUp() override {
     Initialize_KeyspaceNotifications();
-    RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = 3000000;
     index = createSpec(ctx);
   }
 
@@ -330,10 +330,10 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
   }
 
   // config gc
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   // Collect deleted docs
   GCContext *gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
 
   // check memory
   expected_mem = get_spec(index)->stats.invertedSize;
@@ -370,10 +370,10 @@ TEST_F(RangeIndexTest, testNumericTreeOverhead) {
   ASSERT_TRUE(rv) << "Failed to delete doc1 ";
 
   // config gc
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   // Collect deleted docs
   GCContext *gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
 
   overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
   ASSERT_EQ(overhead, sizeof(NumericRangeTree));

@@ -14,11 +14,11 @@ use pretty_assertions::assert_eq;
 fn synced_discriminants() {
     let tests = [
         (
-            RSResultData::Union(RSAggregateResult::with_capacity(0)),
+            RSResultData::Union(RSAggregateResult::borrowed_with_capacity(0)),
             RSResultKind::Union,
         ),
         (
-            RSResultData::Intersection(RSAggregateResult::with_capacity(0)),
+            RSResultData::Intersection(RSAggregateResult::borrowed_with_capacity(0)),
             RSResultKind::Intersection,
         ),
         (
@@ -29,7 +29,7 @@ fn synced_discriminants() {
         (RSResultData::Numeric(0f64), RSResultKind::Numeric),
         (RSResultData::Metric(0f64), RSResultKind::Metric),
         (
-            RSResultData::HybridMetric(RSAggregateResult::with_capacity(0)),
+            RSResultData::HybridMetric(RSAggregateResult::borrowed_with_capacity(0)),
             RSResultKind::HybridMetric,
         ),
     ];

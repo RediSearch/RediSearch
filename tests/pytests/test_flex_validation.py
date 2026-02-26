@@ -194,3 +194,36 @@ def test_flex_workers_minimum(env):
 
     env.expect('FT.CONFIG', 'SET', 'WORKERS', '3').ok()
     env.expect('FT.CONFIG', 'GET', 'WORKERS').equal([['WORKERS', '3']])
+
+
+@skip(cluster=True)
+def test_flex_gc_config_defaults_and_set(env):
+    """In Flex mode (simulate-in-flex), GET returns current values; SET overrides them."""
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+
+    # Get current values (fork defaults when not in real Flex)
+    env.expect(config_cmd(), 'GET', 'FORK_GC_RUN_INTERVAL').equal([['FORK_GC_RUN_INTERVAL', '30']])
+    env.expect(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD').equal([['FORK_GC_CLEAN_THRESHOLD', '100']])
+
+    # SET new values
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 600).ok()
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 20000).ok()
+
+    # GET reflects the change
+    env.expect(config_cmd(), 'GET', 'FORK_GC_RUN_INTERVAL').equal([['FORK_GC_RUN_INTERVAL', '600']])
+    env.expect(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD').equal([['FORK_GC_CLEAN_THRESHOLD', '20000']])
+
+
+@skip(cluster=True)
+def test_flex_gc_config_explicit_override(env):
+    """Explicit config args on startup; first GET returns those values."""
+    custom_env = Env(
+        moduleArgs='FORK_GC_RUN_INTERVAL 60 FORK_GC_CLEAN_THRESHOLD 500',
+        noDefaultModuleArgs=True,
+    )
+    if custom_env.env == 'existing-env':
+        custom_env.skip()
+
+    custom_env.expect(config_cmd(), 'GET', 'FORK_GC_RUN_INTERVAL').equal([['FORK_GC_RUN_INTERVAL', '60']])
+    custom_env.expect(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD').equal([['FORK_GC_CLEAN_THRESHOLD', '500']])
+    custom_env.stop()

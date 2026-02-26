@@ -77,7 +77,7 @@ void *cbWrapper(void *args) {
     }
 
     // run ForkGC
-    gc->callbacks.periodicCallback(fgc);
+    gc->callbacks.periodicCallback(fgc, false);
   }
   return NULL;
 }
@@ -93,7 +93,7 @@ class FGCTest : public ::testing::Test {
   void SetUp() override {
     Initialize_KeyspaceNotifications();
     ism = createSpec(ctx);
-    RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();
   }
@@ -121,7 +121,7 @@ class FGCTest : public ::testing::Test {
 static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, "f1", strlen("f1"));
-  auto tix = TagIndex_Open(const_cast<FieldSpec *>(fs), CREATE_INDEX, NULL);
+  auto tix = TagIndex_Ensure(const_cast<FieldSpec *>(fs), NULL);
   size_t sz;
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), CREATE_INDEX, &sz);
   sctx->spec->stats.invertedSize += sz;

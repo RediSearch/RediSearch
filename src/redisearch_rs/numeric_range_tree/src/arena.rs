@@ -21,8 +21,11 @@ use crate::NumericRangeNode;
 
 /// Index into the node arena.
 ///
-/// Wraps a [`generational_slab::Key`]. This is a lightweight handle
-/// that is stable across mutations to other slots in the slab.
+/// Each index carries a generation counter so that stale keys (from removed
+/// entries) are detected on lookup, thus side-stepping the
+/// [ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
+///
+/// Wraps a [`generational_slab::Key`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct NodeIndex(Key);

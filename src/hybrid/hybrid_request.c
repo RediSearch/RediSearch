@@ -165,7 +165,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     }
     RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     // Init lookup since we dont call buildQueryPart
-    RLookup_Init(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
+    RLookup_SetCache(tailLookup, IndexSpec_GetSpecCache(req->sctx->spec));
 
     // Add keys from all source lookups to create unified schema before opening
     // the score key.

@@ -97,7 +97,7 @@ struct EvalCtx;
  * @param filter_exp The filter expression to evaluate
  * @return true if the document passes the filter (should be indexed), false otherwise
  */
-bool SchemaRule_FilterPasses(struct EvalCtx *r, const struct RSExpr *filter_exp);
+bool SchemaRule_FilterPasses(struct EvalCtx *r, struct RSExpr *filter_exp);
 
 //---------------------------------------------------------------------------------------------
 

@@ -617,7 +617,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
+  const TagIndex *tagIndex = TagIndex_Open(fs);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -700,7 +700,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
+    const TagIndex *idx = TagIndex_Open(fs);
 
     // Field was not initialized yet
     if (!idx) {
@@ -842,9 +842,8 @@ DEBUG_COMMAND(GCForceInvoke) {
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
     GCContext_ForceInvoke(sp->gc, bc);
     return REDISMODULE_OK;
-  } else {
-    return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
   }
+  return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
 
 DEBUG_COMMAND(GCForceBGInvoke) {
@@ -1177,7 +1176,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX, sctx->spec->diskSpec);
+  const TagIndex *idx = TagIndex_Open(fs);
 
   // Field was not initialized yet
   if (!idx) {

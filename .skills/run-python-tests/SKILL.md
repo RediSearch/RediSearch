@@ -39,13 +39,13 @@ If there are timeouts during a quick verification run, check if the timed-out te
 ### All Tests From A Specific File
 
 ```bash
-source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename without extension>"
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename without extension>"
 ```
 
 For example:
 
 ```bash
-source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash"
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash"
 ```
 
 for running tests from `tests/pytests/test_crash.py`.
@@ -53,13 +53,13 @@ for running tests from `tests/pytests/test_crash.py`.
 ### All Tests From Multiple Files
 
 ```bash
-source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename 1> <filename 2>"
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename 1> <filename 2>"
 ```
 
 For example:
 
 ```bash
-source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash test_gc"
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash test_gc"
 ```
 
 for running tests from `tests/pytests/test_crash.py` and `tests/pytests/test_gc.py`.
@@ -67,13 +67,13 @@ for running tests from `tests/pytests/test_crash.py` and `tests/pytests/test_gc.
 ### Specific Test From A Specific File
 
 ```bash
-source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename without extension>:<test_name>"
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="<filename without extension>:<test_name>"
 ```
 
 For example:
 
 ```bash
-source .venv/bin/activate && ./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash:test_query_thread_crash"
+./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST_TIMEOUT=20 TEST="test_crash:test_query_thread_crash"
 ```
 
 for running the `test_query_thread_crash` test from `tests/pytests/test_crash.py`.

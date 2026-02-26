@@ -68,7 +68,7 @@ TEST_F(ExpireTest, testSkipTo) {
   sctx->time.current.tv_sec = seconds.count() + 1;
   sctx->time.current.tv_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count();
 
-  TagIndex *idx = TagIndex_Open(const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX, NULL);
+  TagIndex *idx = TagIndex_Open(fs);
   ASSERT_NE(idx, nullptr);
   QueryIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
   ASSERT_EQ(it->lastDocId, 0);

@@ -8,11 +8,22 @@
 */
 
 #include "optional_iterator.h"
+#include "iterator_api.h"
+#include "types_rs.h"
 #include "wildcard_iterator.h"
 #include "iterators_rs.h"
 
+typedef struct {
+  QueryIterator base;     // base index iterator
+  QueryIterator *child;   // child index iterator
+  QueryIterator *wcii;    // wildcard child iterator, used for optimization
+  RSIndexResult *virt;
+  t_docId maxDocId;
+  double weight;
+} OptionalOptimizedIterator;
+
 static void OI_Free(QueryIterator *base) {
-  OptionalIterator *oi = (OptionalIterator *)base;
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
 
   oi->child->Free(oi->child);
   if (oi->wcii) {
@@ -24,12 +35,12 @@ static void OI_Free(QueryIterator *base) {
 }
 
 static size_t OI_NumEstimated(QueryIterator *base) {
-  OptionalIterator *oi = (OptionalIterator *)base;
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
   return oi->wcii ? oi->wcii->NumEstimated(oi->wcii) : oi->maxDocId;
 }
 
 static void OI_Rewind(QueryIterator *base) {
-  OptionalIterator *oi = (OptionalIterator *)base;
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
   base->atEOF = false;
   base->lastDocId = 0;
   oi->virt->docId = 0;
@@ -42,7 +53,7 @@ static void OI_Rewind(QueryIterator *base) {
 
 // SkipTo for OPTIONAL iterator - Optimized version.
 static IteratorStatus OI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
-  OptionalIterator *oi = (OptionalIterator *)base;
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
   RS_ASSERT(docId > base->lastDocId);
   RS_ASSERT(docId > oi->wcii->lastDocId);
 
@@ -83,7 +94,7 @@ static IteratorStatus OI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
 // Read from optional iterator - Optimized version, utilizing the `existing docs`
 // inverted index.
 static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
-  OptionalIterator *oi = (OptionalIterator *)base;
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
   if (base->atEOF) {
     return ITERATOR_EOF;
   }
@@ -117,90 +128,9 @@ static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
   return ITERATOR_OK;
 }
 
-// SkipTo for OPTIONAL iterator - Non-optimized version.
-// Skip to a specific docId. If the child has a hit on this docId, return it.
-// Otherwise, return a virtual hit.
-static IteratorStatus OI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId) {
-  RS_ASSERT(docId > base->lastDocId);
-  OptionalIterator *oi = (OptionalIterator *)base;
-
-  if (docId > oi->maxDocId || base->atEOF) {
-    base->atEOF = true;
-    return ITERATOR_EOF;
-  }
-
-  if (docId > oi->child->lastDocId) {
-    IteratorStatus rc = oi->child->SkipTo(oi->child, docId);
-    if (rc == ITERATOR_TIMEOUT) return rc;
-  }
-
-  if (docId == oi->child->lastDocId) {
-    // Has a real hit on the child iterator
-    base->current = oi->child->current;
-    base->current->weight = oi->weight;
-  } else {
-    // Virtual hit
-    oi->virt->docId = docId;
-    base->current = oi->virt;
-  }
-  // Set the current ID
-  base->lastDocId = docId;
-  return ITERATOR_OK;
-}
-
-// Read from an OPTIONAL iterator - Non-Optimized version.
-static IteratorStatus OI_Read_NotOptimized(QueryIterator *base) {
-  OptionalIterator *oi = (OptionalIterator *)base;
-  if (base->atEOF || base->lastDocId >= oi->maxDocId) {
-    base->atEOF = true;
-    return ITERATOR_EOF;
-  }
-
-  if (base->lastDocId == oi->child->lastDocId) {
-    IteratorStatus rc = oi->child->Read(oi->child);
-    if (rc == ITERATOR_TIMEOUT) return rc;
-  }
-
-  // Point to next doc
-  base->lastDocId++;
-
-  if (base->lastDocId == oi->child->lastDocId) {
-    base->current = oi->child->current;
-    base->current->weight = oi->weight;
-  } else {
-    oi->virt->docId = base->lastDocId;
-    base->current = oi->virt;
-  }
-  return ITERATOR_OK;
-}
-
-// Revalidate for OPTIONAL iterator - Non-optimized version.
-static ValidateStatus OI_Revalidate_NotOptimized(QueryIterator *base) {
-  OptionalIterator *oi = (OptionalIterator *)base;
-
-  // 1. Revalidate the child iterator
-  ValidateStatus child_status = oi->child->Revalidate(oi->child);
-
-  // 2. Handle child validation results (but continue processing)
-  if (child_status == VALIDATE_ABORTED) {
-    // Free child and replace with empty iterator
-    oi->child->Free(oi->child);
-    oi->child = NewEmptyIterator();
-  }
-
-  // 3. If the current result is virtual, or if the child was not moved, we can return VALIDATE_OK
-  if (base->current == oi->virt || child_status == VALIDATE_OK) {
-    return VALIDATE_OK;
-  }
-
-  // 4. Current result is real and child was moved (or aborted) - we need to re-read
-  base->Read(base);
-  return VALIDATE_MOVED;
-}
-
 // Revalidate for OPTIONAL iterator - Optimized version.
 static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
-  OptionalIterator *oi = (OptionalIterator *)base;
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
 
   // 1. Revalidate the wildcard iterator first
   ValidateStatus wcii_status = oi->wcii->Revalidate(oi->wcii);
@@ -280,35 +210,80 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   if (ret != NULL) {
     return ret;
   }
-  OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
+
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   optimized |= q && q->sctx && q->sctx->spec && q->sctx->spec->diskSpec;
-  if (optimized) {
-    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
-  }
-  oi->child = it;
-  oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
-  oi->virt->freq = 1;
-  oi->maxDocId = q->docTable->maxDocId;
-  oi->weight = weight;
+  t_docId maxDocId = q->docTable->maxDocId;
 
-  ret = &oi->base;
-  ret->type = OPTIONAL_ITERATOR;
-  ret->atEOF = false;
-  ret->lastDocId = 0;
-  ret->current = oi->virt;
-  ret->NumEstimated = OI_NumEstimated;
-  ret->Free = OI_Free;
-  ret->Rewind = OI_Rewind;
   if (optimized) {
+    OptionalOptimizedIterator *oi = rm_calloc(1, sizeof(*oi));
+    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
+    oi->child = it;
+    oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
+    oi->virt->freq = 1;
+    oi->maxDocId = maxDocId;
+    oi->weight = weight;
+    ret = &oi->base;
+    ret->type = OPTIONAL_OPTIMIZED_ITERATOR;
+    ret->atEOF = false;
+    ret->lastDocId = 0;
+    ret->current = oi->virt;
+    ret->NumEstimated = OI_NumEstimated;
+    ret->Free = OI_Free;
+    ret->Rewind = OI_Rewind;
     ret->Read = OI_Read_Optimized;
     ret->SkipTo = OI_SkipTo_Optimized;
     ret->Revalidate = OI_Revalidate_Optimized;
   } else {
-    ret->Read = OI_Read_NotOptimized;
-    ret->SkipTo = OI_SkipTo_NotOptimized;
-    ret->Revalidate = OI_Revalidate_NotOptimized;
+    ret = NewOptionalNonOptimizedIterator(it, maxDocId, weight);
   }
 
   return ret;
+}
+
+QueryIterator const* GetOptionalIteratorChild(const QueryIterator *base) {
+    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
+        OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
+        return it->child;
+    } else {
+        return GetOptionalNonOptimizedIteratorChild(base);
+    }
+}
+
+QueryIterator *TakeOptionalIteratorChild(QueryIterator *base) {
+    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
+        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+        QueryIterator* child = it->child;
+        it->child = NULL;
+        return child;
+    } else {
+        return TakeOptionalNonOptimizedIteratorChild(base);
+    }
+}
+
+void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
+    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
+        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+        if (it->child) {
+            it->child->Free(it->child);
+        }
+        it->child = newChild;
+    } else {
+        SetOptionalNonOptimizedIteratorChild(base, newChild);
+    }
+}
+
+QueryIterator const* GetOptionalOptimizedIteratorWildcard(QueryIterator *base) {
+    RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
+    OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
+    return it->wcii;
+}
+
+void SetOptionalOptimizedIteratorWildcard(QueryIterator *base, QueryIterator *newWcii) {
+    RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
+    OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
+    if (it->wcii) {
+        it->wcii->Free(it->wcii);
+    }
+    it->wcii = newWcii;
 }

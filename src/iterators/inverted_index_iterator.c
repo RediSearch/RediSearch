@@ -42,7 +42,9 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
   // sctx and term should always be set, except in some tests.
   RS_ASSERT(term);
-  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, term->len, false, NULL);
+  size_t len;
+  const char *str = QueryTerm_GetStrAndLen(term, &len);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, str, len, false, NULL);
   if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
@@ -60,24 +62,15 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   }
   size_t sz;
   RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
-  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, term->str, term->len, false, &sz);
+  size_t len;
+  const char *str = QueryTerm_GetStrAndLen(term, &len);
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, str, len, false, &sz);
   if (idx == TRIEMAP_NOTFOUND || !IndexReader_IsIndex(it->base.reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
     // for this specific inverted index.
 
-    return VALIDATE_ABORTED;
-  }
-  return VALIDATE_OK;
-}
-
-static ValidateStatus WildcardCheckAbort(QueryIterator *base) {
-  // Check if the wildcard iterator is still valid
-  InvIndIterator *wi = (InvIndIterator *)base;
-  RS_ASSERT(wi->sctx && wi->sctx->spec);
-
-  if (!IndexReader_IsIndex(wi->reader, wi->sctx->spec->existingDocs)) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -402,8 +395,9 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (sctx) {
-    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    QueryTerm_SetIDFs(term,
+                      CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)),
+                      CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -428,8 +422,9 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
     .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
   };
   if (term && sctx) {
-    term->idf = CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx));
+    QueryTerm_SetIDFs(term,
+                      CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)),
+                      CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -446,20 +441,6 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
   return InitInvIndIterator(&it->base, INV_IDX_TAG_ITERATOR, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
-}
-
-QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX},
-    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
-  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  record->freq = 1;
-
-  InvIndIterator *it = rm_calloc(1, sizeof(*it));
-  InitInvIndIterator(it, INV_IDX_WILDCARD_ITERATOR, idx, record, &fieldCtx, sctx, &decoderCtx, WildcardCheckAbort);
-  return &it->base;
 }
 
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {

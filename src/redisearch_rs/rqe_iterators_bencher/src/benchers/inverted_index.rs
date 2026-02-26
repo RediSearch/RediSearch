@@ -21,7 +21,6 @@ use inverted_index::{
 };
 use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
 
-use crate::ffi::QueryIterator;
 use rqe_iterators_test_utils::TestContext;
 
 const MEASUREMENT_TIME: Duration = Duration::from_millis(2000);
@@ -508,55 +507,20 @@ impl WildcardBencher {
 
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Wildcard", "Read Dense");
-        self.c_read(&mut group, &self.context_dense);
         self.rust_read(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Wildcard", "SkipTo Dense");
-        self.c_skip_to(&mut group, &self.context_dense);
         self.rust_skip_to(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Wildcard", "SkipTo Sparse");
-        self.c_skip_to(&mut group, &self.context_sparse);
         self.rust_skip_to(&mut group, &self.context_sparse);
         group.finish();
-    }
-
-    fn c_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        group.bench_function("C", |b| {
-            let ii_ptr = context.wildcard_index_ptr();
-
-            b.iter(|| {
-                let it = unsafe { QueryIterator::new_wildcard(ii_ptr, context.sctx, 1.0) };
-
-                while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-    }
-
-    fn c_skip_to<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        group.bench_function("C", |b| {
-            let ii_ptr = context.wildcard_index_ptr();
-
-            b.iter(|| {
-                let it = unsafe { QueryIterator::new_wildcard(ii_ptr, context.sctx, 1.0) };
-
-                while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
-                    != ::ffi::IteratorStatus_ITERATOR_EOF
-                {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
     }
 
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {

@@ -9,7 +9,7 @@
 
 use std::slice;
 
-use crate::{SchemaRule, field_spec::FieldSpec};
+use crate::{SchemaRule, bindings::field_spec::FieldSpec};
 
 /// A safe wrapper around an `ffi::IndexSpec`.
 #[repr(transparent)]
@@ -58,6 +58,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn field_specs() {
         let mut index_spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
         let fs0 = field_spec(c"aaa", c"bbb", 0);

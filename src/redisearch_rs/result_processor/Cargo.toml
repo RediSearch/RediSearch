@@ -12,5 +12,17 @@ ffi.workspace = true
 workspace_hack.workspace = true
 search_result.workspace = true
 
+[dev-dependencies]
+# Crate required to invoke C symbols
+result_processor = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs" }
+redis_mock.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[features]
+unittest = []
+
 [lints]
 workspace = true

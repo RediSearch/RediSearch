@@ -62,6 +62,33 @@ impl Decoder for FieldsOnly {
     fn base_result<'index>() -> RSIndexResult<'index> {
         RSIndexResult::term()
     }
+
+    fn seek<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let field_mask = loop {
+            let [delta, field_mask] = match qint_decode::<2, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break field_mask;
+            }
+        };
+
+        result.doc_id = base;
+        result.field_mask = field_mask as t_fieldMask;
+        Ok(true)
+    }
 }
 
 /// Encode and decode the delta and field mask of a record.
@@ -106,6 +133,34 @@ impl Decoder for FieldsOnlyWide {
 
     fn base_result<'index>() -> RSIndexResult<'index> {
         RSIndexResult::term()
+    }
+
+    fn seek<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let field_mask = loop {
+            let delta = match u32::read_as_varint(cursor) {
+                Ok(delta) => delta,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+            let field_mask = u128::read_as_varint(cursor)?;
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break field_mask;
+            }
+        };
+
+        result.doc_id = base;
+        result.field_mask = field_mask;
+        Ok(true)
     }
 }
 

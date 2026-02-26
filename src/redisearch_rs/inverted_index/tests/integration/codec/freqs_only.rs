@@ -11,6 +11,16 @@ use std::io::Cursor;
 
 use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 
+/// Helper to encode a sequence of (delta, freq) records using FreqsOnly.
+fn encode_freqs_only(records: &[(u32, u32)]) -> Vec<u8> {
+    let mut buf = Cursor::new(Vec::new());
+    for &(delta, freq) in records {
+        let record = RSIndexResult::virt().frequency(freq);
+        FreqsOnly::encode(&mut buf, delta, &record).expect("to encode");
+    }
+    buf.into_inner()
+}
+
 #[test]
 fn test_encode_freqs_only() {
     // Test cases for the frequencies only encoder and decoder.
@@ -97,4 +107,35 @@ fn test_decode_freqs_only_empty_input() {
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn test_seek_freqs_only() {
+    // Records: doc_ids 10, 20, 30, 35, 55, 60
+    let buf = encode_freqs_only(&[
+        (0, 1),  // doc_id = 10
+        (10, 2), // doc_id = 20
+        (10, 3), // doc_id = 30
+        (5, 4),  // doc_id = 35
+        (20, 5), // doc_id = 55
+        (5, 6),  // doc_id = 60
+    ]);
+    let mut cursor = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::virt();
+
+    // Seek to 30 (skips first two records)
+    let found = FreqsOnly::seek(&mut cursor, 10, 30, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 30);
+    assert_eq!(result.freq, 3);
+
+    // Seek to 40 from base 30 (should land on 55)
+    let found = FreqsOnly::seek(&mut cursor, 30, 40, &mut result).expect("seek");
+    assert!(found);
+    assert_eq!(result.doc_id, 55);
+    assert_eq!(result.freq, 5);
+
+    // Seek past end
+    let found = FreqsOnly::seek(&mut cursor, 55, 70, &mut result).expect("seek");
+    assert!(!found);
 }

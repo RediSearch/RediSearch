@@ -13,6 +13,7 @@ bench = false
 # feature enabled when building tests so they can link the C code in build.rs
 # see https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
 unittest = []
+test_utils = []
 
 [lints]
 workspace = true
@@ -29,9 +30,22 @@ generational_slab.workspace = true
 tracing.workspace = true
 workspace_hack.workspace = true
 
+[[bench]]
+name = "add"
+harness = false
+
+[[bench]]
+name = "find"
+harness = false
+
+[[bench]]
+name = "gc"
+harness = false
+
 [dev-dependencies]
+criterion.workspace = true
 insta = { workspace = true, features = ["filters"] }
-numeric_range_tree = { path = ".", features = ["unittest"] }
+numeric_range_tree = { path = ".", features = ["unittest", "test_utils"] }
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 rstest.workspace = true
