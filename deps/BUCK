@@ -1,0 +1,14 @@
+cxx_library(
+    name = "RedisModulesSDK",
+    exported_headers = {
+        "redismodule.h": "RedisModulesSDK/redismodule.h",
+        "redismodule-rlec.h": "RedisModulesSDK/redismodule-rlec.h",
+    },
+    header_namespace = "",
+    exported_preprocessor_flags = [
+        "-DREDIS_MODULE_TARGET",
+        "-DREDISMODULE_SDK_RLEC",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
