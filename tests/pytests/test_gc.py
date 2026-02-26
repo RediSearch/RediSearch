@@ -174,7 +174,7 @@ def testNumericCompleteGCAndRepopulation(env):
 
 @skip(cluster=True)
 def testNumericMergesTrees(env):
-    """Test to check the numeric index trees merges when half or more of all the trees are empty"""
+    """Test to check the numeric index trees merges nodes when half or more of all the nodes are empty"""
     env.expect(config_cmd(), "set", "FORK_GC_CLEAN_THRESHOLD", 0).equal("OK")
     env.assertOk(env.cmd("ft.create", "idx", "ON", "HASH", "schema", "id", "numeric"))
     waitForIndex(env, "idx")
@@ -184,50 +184,38 @@ def testNumericMergesTrees(env):
     for i in range(InitialDocs):
         env.assertEqual(env.cmd("hset", "doc%d" % i, "id", str(i)), 1)
 
-    # Verify initial state - tree should have multiple buckets
-    # The exact number of buckets depends on the HLL hash function used
+    # Verify initial state
     res = env.cmd(debug_cmd(), "DUMP_NUMIDX", "idx", "id")
-    print(res)
-    initial_bucket_count = len(res)
-    env.assertGreaterEqual(
-        initial_bucket_count, 2, message="Expected at least 2 buckets initially"
-    )
-    # Verify all documents are indexed
-    total_docs = sum(len(bucket) for bucket in res)
-    env.assertEqual(total_docs, InitialDocs)
+    env.assertEqual(len(res), 3)
+    # Values in each node of the tree
+    env.assertEqual(res[0], [int(i) for i in range(44, 256)])
+    env.assertEqual(res[1], [int(i) for i in range(9, 44)])
+    env.assertEqual(res[2], [int(i) for i in range(1, 9)])
 
-    # Phase 2: Delete enough documents to trigger tree merge
-    # Delete all documents from roughly half the buckets to trigger merge
-    docs_to_delete = []
-    buckets_to_empty = (initial_bucket_count + 1) // 2  # At least half
-    for i in range(buckets_to_empty):
-        bucket_idx = initial_bucket_count - 1 - i  # Start from last bucket
-        if bucket_idx >= 0:
-            for doc_id in res[bucket_idx]:
-                docs_to_delete.append(doc_id - 1)  # doc_id is 1-indexed
-
-    for doc_num in docs_to_delete:
-        env.assertEqual(env.cmd("del", "doc%d" % doc_num), 1)
+    # Phase 2: Empty the last node
+    for i in range(0, 8):
+        env.assertEqual(env.cmd("del", "doc%d" % i), 1)
 
     forceInvokeGC(env, "idx")
 
-    # Verify index is merged - should have fewer buckets now
+    # Verify last node is empty, but still present
+    # The tree isn't (yet) sparse enough to trigger a compaction
     res = env.cmd(debug_cmd(), "DUMP_NUMIDX", "idx", "id")
-    final_bucket_count = len(res)
+    env.assertEqual(len(res), 3)
+    env.assertEqual(res[0], [int(i) for i in range(44, 256)])
+    env.assertEqual(res[1], [int(i) for i in range(9, 44)])
+    env.assertEqual(res[2], [])
 
-    # The tree should merge when half or more buckets are empty
-    # After merge, we should have fewer non-empty buckets
-    non_empty_final = sum(1 for bucket in res if len(bucket) > 0)
-    env.assertGreater(
-        non_empty_final,
-        0,
-        message="Should have at least one non-empty bucket after merge",
-    )
-    env.assertLessEqual(
-        final_bucket_count,
-        initial_bucket_count,
-        message="Tree should merge or stay same size, not grow",
-    )
+    # Phase 3: Make the second-to-last node empty to trigger a merge
+    for i in range(8, 43):
+        env.assertEqual(env.cmd("del", "doc%d" % i), 1)
+
+    forceInvokeGC(env, "idx")
+
+    # Verify nodes were merged
+    res = env.cmd(debug_cmd(), "DUMP_NUMIDX", "idx", "id")
+    env.assertEqual(len(res), 1)
+    env.assertEqual(res[0], [int(i) for i in range(44, 256)])
 
 
 @skip(cluster=True)
