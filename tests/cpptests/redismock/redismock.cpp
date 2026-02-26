@@ -951,6 +951,10 @@ void RMCK_ThreadSafeContextLock(RedisModuleCtx *) {
   RMCK_GlobalLock.lock();
 }
 
+int RMCK_ThreadSafeContextTryLock(RedisModuleCtx *) {
+  return RMCK_GlobalLock.try_lock() ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
 void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
   RMCK_GlobalLock.unlock();
 }
@@ -1505,6 +1509,7 @@ static void registerApis() {
   REGISTER_API(GetDetachedThreadSafeContext);
   REGISTER_API(FreeThreadSafeContext);
   REGISTER_API(ThreadSafeContextLock);
+  REGISTER_API(ThreadSafeContextTryLock);
   REGISTER_API(ThreadSafeContextUnlock);
   REGISTER_API(StringCompare);
   REGISTER_API(AutoMemory);

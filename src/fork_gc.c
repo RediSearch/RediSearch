@@ -1001,7 +1001,13 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
 #define FGC_GIL_TRYLOCK_ATTEMPTS 50
 #define FGC_GIL_TRYLOCK_SLEEP_US 500
 
-static bool FGC_AcquireGILWithRetry(RedisModuleCtx *ctx) {
+static bool FGC_AcquireGILWithRetry(RedisModuleCtx *ctx, bool force) {
+  if (force) {
+    // Forced GC invocations (debug/tests) are expected to run immediately.
+    RedisModule_ThreadSafeContextLock(ctx);
+    return true;
+  }
+
   for (int attempt = 0; attempt < FGC_GIL_TRYLOCK_ATTEMPTS; ++attempt) {
     if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
       return true;
@@ -1061,7 +1067,7 @@ static bool periodicCb(void *privdata, bool force) {
 
   // We need to acquire the GIL to use the fork API.
   // Use bounded retries to avoid waiting forever during shutdown.
-  if (!FGC_AcquireGILWithRetry(ctx)) {
+  if (!FGC_AcquireGILWithRetry(ctx, force)) {
     RedisModule_Log(ctx, "warning", "ForkGC failed to acquire GIL before fork, skipping cycle");
     IndexSpecRef_Release(early_check);
     close(gc->pipe_read_fd);
@@ -1133,21 +1139,9 @@ static bool periodicCb(void *privdata, bool force) {
       gcrv = false;
     }
     close(gc->pipe_read_fd);
-    // give the child some time to exit gracefully
-    
-    bool child_exited = false;
-    for (int attempt = 0; attempt < GC_WAIT_ATTEMPTS && !child_exited; ++attempt) {
-      usleep(500);
-      int child_status = 0;
-      if (waitpid(cpid, &child_status, WNOHANG) == cpid) {
-        child_exited = WIFEXITED(child_status) || WIFSIGNALED(child_status);
-      }
-    }
-    // Defer any lingering child cleanup to the monitor callback,
-    // which runs on the main thread with the GIL.
-    if (!child_exited) {
-      __atomic_store_n(&gc->childPidToKill, cpid, __ATOMIC_RELEASE);
-    }
+    // Always finalize module-fork state via RedisModule_KillForkChild from the
+    // main thread callback, even if the child already exited.
+    __atomic_store_n(&gc->childPidToKill, cpid, __ATOMIC_RELEASE);
 
     if (gcrv) {
       gcrv = VecSim_CallTieredIndexesGC(gc->index);

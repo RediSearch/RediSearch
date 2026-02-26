@@ -92,6 +92,9 @@ static void debugTaskCallback(void* data) {
   RedisModuleBlockedClient* bc = task->bClient;
 
   gc->callbacks.periodicCallback(gc->gcCtx, true);
+  if (gc->callbacks.postJobCallback) {
+    gc->callbacks.postJobCallback(gc->gcCtx);
+  }
 
   // if GC was invoke by debug command, we release the client
   // and terminate without rescheduling the task again.
