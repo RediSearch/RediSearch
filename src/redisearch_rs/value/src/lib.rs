@@ -94,6 +94,13 @@ impl RsValue {
             _ => None,
         }
     }
+
+    pub fn debug_formatter(&self, obfuscate: bool) -> debug::DebugFormatter<'_> {
+        debug::DebugFormatter {
+            value: self,
+            obfuscate,
+        }
+    }
 }
 
 #[cfg(test)]
