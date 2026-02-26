@@ -22,7 +22,7 @@ pub trait MergeCallbacks: Clone + Send + Sync + 'static {
     /// # Arguments
     /// * `term` - The term from which the document was removed
     /// * `doc_id` - The ID of the removed document
-    fn on_doc_removed(&self, term: &str, doc_id: u64);
+    fn on_doc_removed(&self, term: &str);
 }
 
 /// No-op callback implementation for cases where delta tracking is not needed.
@@ -34,7 +34,7 @@ pub struct NoOpCallbacks;
 
 impl MergeCallbacks for NoOpCallbacks {
     #[inline(always)]
-    fn on_doc_removed(&self, _term: &str, _doc_id: u64) {
+    fn on_doc_removed(&self, _term: &str) {
         // No-op: intentionally empty
     }
 }

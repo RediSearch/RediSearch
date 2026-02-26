@@ -143,7 +143,7 @@ fn test_index_spec_marked_for_deletion_deletes_files() {
 }
 
 #[test]
-fn compact_text_inverted_index_removes_deleted_documents() {
+fn compact_all_removes_deleted_documents() {
     let (_temp_dir, index) = create_test_index("compact_ii_test");
 
     // Add documents to the inverted index
@@ -177,7 +177,7 @@ fn compact_text_inverted_index_removes_deleted_documents() {
     // (updating C structures) will be skipped.
     // SAFETY: We pass a null pointer which is handled safely by the function
     // (it logs a warning and skips delta application).
-    unsafe { index.compact_text_inverted_index(std::ptr::null_mut::<ffi::IndexSpec>()) };
+    unsafe { index.compact_all(std::ptr::null_mut::<ffi::IndexSpec>()) };
 
     // Verify deleted docs are removed
     let docs_after = collect_term_doc_ids(&index, term);

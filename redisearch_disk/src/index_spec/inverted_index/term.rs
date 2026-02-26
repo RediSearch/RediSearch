@@ -12,7 +12,7 @@ use super::{
     InvertedIndexKey, PostingsListReader, block_traits, block_traits::IndexConfig, generic_index,
     generic_merge_operator::GenericMergeOperator, generic_reader,
 };
-use crate::compaction::CompactionDeltaCollector;
+use crate::compaction::{IndexSpecLockGuard, TextCompactionCollector, apply_delta};
 use crate::database::{Speedb, SpeedbMultithreadedDatabase};
 use crate::key_traits::AsKeyExt;
 
@@ -78,7 +78,7 @@ impl block_traits::IndexConfig for TermIndexConfig {
         // Term indexes require a merge operator for handling deleted IDs
         cf_options.set_merge_operator_associative(
             Self::MERGE_OPERATOR_NAME,
-            GenericMergeOperator::<Self, CompactionDeltaCollector>::full_merge_fn(
+            GenericMergeOperator::<Self, TextCompactionCollector>::full_merge_fn(
                 config.deleted_ids.clone(),
                 config.collector,
             ),
@@ -96,6 +96,9 @@ impl block_traits::IndexConfig for TermIndexConfig {
 pub struct InvertedIndex {
     /// The generic inverted index implementation
     inner: generic_index::GenericInvertedIndex<TermIndexConfig>,
+    /// Collector for tracking compaction deltas.
+    /// Shared with the merge operator (via Arc) so it can record deletions during compaction.
+    collector: TextCompactionCollector,
 }
 
 impl Deref for InvertedIndex {
@@ -108,18 +111,57 @@ impl Deref for InvertedIndex {
 
 impl InvertedIndex {
     /// Creates a new inverted index with the given Speedb database.
-    pub fn new(database: SpeedbMultithreadedDatabase) -> Self {
+    ///
+    /// The collector is shared with the merge operator to track compaction deltas.
+    /// Use [`compact_full`] to run compaction and apply deltas atomically.
+    pub fn new(database: SpeedbMultithreadedDatabase, collector: TextCompactionCollector) -> Self {
         InvertedIndex {
             inner: generic_index::GenericInvertedIndex::new(
                 database,
                 TermIndexConfig::COLUMN_FAMILY_NAME,
             ),
+            collector,
         }
     }
 
     /// Creates a column family descriptor for the inverted index.
     pub fn cf_descriptor(config: block_traits::TermIndexCfConfig) -> ColumnFamilyDescriptor {
         generic_index::GenericInvertedIndex::<TermIndexConfig>::cf_descriptor(config)
+    }
+
+    /// Triggers a full compaction and applies the collected delta to in-memory structures.
+    ///
+    /// This method:
+    /// 1. Clears the compaction collector
+    /// 2. Runs full compaction on the column family
+    /// 3. Takes the collected delta
+    /// 4. Applies the delta to the C IndexSpec (if non-empty)
+    ///
+    /// # Safety
+    ///
+    /// `c_index_spec` must be a valid pointer to a C `IndexSpec` struct that remains
+    /// valid for the duration of this function call.
+    pub unsafe fn compact_full(&self, c_index_spec: *mut ffi::IndexSpec) {
+        // 1. Clear collector before compaction
+        self.collector.clear();
+
+        // 2. Run compaction
+        self.inner.compact_full();
+
+        // 3. Take delta and apply if non-empty
+        let delta = self.collector.take();
+        if !delta.is_empty() {
+            // SAFETY: The caller guarantees c_index_spec is a valid IndexSpec pointer.
+            let Some(guard) = (unsafe { IndexSpecLockGuard::new(c_index_spec) }) else {
+                tracing::warn!(
+                    "compact_full called with null c_index_spec, skipping delta application"
+                );
+                return;
+            };
+
+            apply_delta(&delta, &guard);
+            // guard dropped here, releasing the lock
+        }
     }
 
     /// Inserts a document ID into the postings list for the given term and for

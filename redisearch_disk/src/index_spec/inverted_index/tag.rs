@@ -63,6 +63,9 @@ impl TagIndexConfig {
     }
 
     /// Creates the column family options for a tag inverted index.
+    ///
+    /// # Arguments
+    /// * `deleted_ids` - Store for tracking deleted document IDs
     pub fn cf_options(deleted_ids: DeletedIdsStore) -> SpeedbDbOptions {
         let prefix_extractor = SliceTransform::create(
             Self::PREFIX_EXTRACTOR_NAME,
@@ -92,6 +95,10 @@ impl TagIndexConfig {
     }
 
     /// Creates a column family descriptor for a tag inverted index.
+    ///
+    /// # Arguments
+    /// * `field_index` - The field index for the tag field
+    /// * `deleted_ids` - Store for tracking deleted document IDs
     pub fn cf_descriptor(
         field_index: t_fieldIndex,
         deleted_ids: DeletedIdsStore,
@@ -103,13 +110,12 @@ impl TagIndexConfig {
 impl block_traits::IndexConfig for TagIndexConfig {
     type SerializableBlock = TagPostingsListBlock;
     type ArchivedBlock = archive::ArchivedTagBlock;
-    type CfConfig = Option<DeletedIdsStore>;
+    type CfConfig = DeletedIdsStore;
 
     // Not used directly - each tag field has its own CF via TagInvertedIndex::cf_name()
     const COLUMN_FAMILY_NAME: &'static str = "tags";
 
-    fn cf_descriptor(config: Self::CfConfig) -> ColumnFamilyDescriptor {
-        let deleted_ids = config.expect("Tag index requires DeletedIdsStore for merge operator");
+    fn cf_descriptor(deleted_ids: Self::CfConfig) -> ColumnFamilyDescriptor {
         ColumnFamilyDescriptor::new(Self::COLUMN_FAMILY_NAME, Self::cf_options(deleted_ids))
     }
 }

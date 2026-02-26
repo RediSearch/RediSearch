@@ -17,8 +17,6 @@
 //! if a term's doc count reaches 0, the trie returns `TRIE_DECR_DELETED`, and we
 //! accumulate those to decrement `numTerms`.
 
-use std::collections::HashSet;
-
 use trie_rs::TrieCount;
 
 /// Delta structure representing changes from a compaction run.
@@ -38,12 +36,6 @@ pub struct CompactionDelta {
     /// Uses a trie-based structure for memory efficiency when terms share
     /// common prefixes.
     pub term_deltas: TrieCount,
-
-    /// Document IDs that were fully compacted from disk.
-    ///
-    /// These IDs should be removed from the DeletedIDs set since their
-    /// data has been removed from disk and they no longer need to be tracked.
-    pub compacted_doc_ids: HashSet<u64>,
 }
 
 impl CompactionDelta {
@@ -55,7 +47,6 @@ impl CompactionDelta {
     /// Clears all collected data, resetting to empty state.
     pub fn clear(&mut self) {
         self.term_deltas.clear();
-        self.compacted_doc_ids.clear();
     }
 
     /// Returns true if this delta contains no changes.
@@ -63,16 +54,11 @@ impl CompactionDelta {
     /// An empty delta indicates that compaction completed but no documents
     /// were actually removed (e.g., no deleted IDs to process).
     pub fn is_empty(&self) -> bool {
-        self.term_deltas.is_empty() && self.compacted_doc_ids.is_empty()
+        self.term_deltas.is_empty()
     }
 
     /// Returns the number of terms affected by this compaction.
     pub fn affected_term_count(&self) -> usize {
         self.term_deltas.n_unique_keys()
-    }
-
-    /// Returns the number of documents that were compacted.
-    pub fn compacted_doc_count(&self) -> usize {
-        self.compacted_doc_ids.len()
     }
 }

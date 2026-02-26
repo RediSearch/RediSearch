@@ -26,7 +26,7 @@ use super::{
 ///
 /// The `Callback` type parameter allows customizing behavior during merge:
 /// - Use `NoOpCallbacks` for simple merging without delta tracking
-/// - Use `CompactionDeltaCollector` to record removals for compaction delta building
+/// - Use `TextCompactionCollector` to record removals for compaction delta building
 pub struct GenericMergeOperator<Config, Callbacks = NoOpCallbacks> {
     _phantom: PhantomData<(Config, Callbacks)>,
 }
@@ -172,7 +172,7 @@ where
             let doc_id = archived_doc.doc_id();
             if deleted_ids.is_deleted(doc_id) {
                 // Notify callback about the removal
-                callbacks.on_doc_removed(term, doc_id);
+                callbacks.on_doc_removed(term);
                 continue;
             }
             block.push(archived_doc.into());

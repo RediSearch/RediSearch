@@ -1,4 +1,4 @@
-use crate::compaction::CompactionDeltaCollector;
+use crate::compaction::TextCompactionCollector;
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 use speedb::ColumnFamilyDescriptor;
@@ -103,12 +103,12 @@ pub struct TermIndexCfConfig {
     pub deleted_ids: DeletedIdsStore,
     /// Collector for tracking compaction deltas.
     /// The merge operator records removed documents during compaction.
-    pub collector: CompactionDeltaCollector,
+    pub collector: TextCompactionCollector,
 }
 
 impl TermIndexCfConfig {
     /// Creates a new config with the given deleted_ids store and collector.
-    pub fn new(deleted_ids: DeletedIdsStore, collector: CompactionDeltaCollector) -> Self {
+    pub fn new(deleted_ids: DeletedIdsStore, collector: TextCompactionCollector) -> Self {
         Self {
             deleted_ids,
             collector,

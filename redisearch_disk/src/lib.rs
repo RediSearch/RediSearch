@@ -346,8 +346,8 @@ unsafe extern "C" fn index_spec_run_gc(
 
     // SAFETY: See safety point 2 above - c_index_spec must be valid.
     // We cast from c_void to the typed ffi::IndexSpec pointer.
-    unsafe { index.compact_text_inverted_index(c_index_spec.cast::<ffi::IndexSpec>()) };
-    index.compact_tag_inverted_indexes();
+    // SAFETY: c_index_spec is guaranteed to be a valid pointer by the caller.
+    unsafe { index.compact_all(c_index_spec.cast::<ffi::IndexSpec>()) };
 }
 
 /// Saves index spec's disk-related state to RDB.

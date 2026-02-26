@@ -28,5 +28,5 @@ pub mod delta;
 pub use apply::apply_delta;
 pub use c_index_spec::{IndexSpecLockGuard, IndexSpecUpdater};
 pub use callback_trait::{MergeCallbacks, NoOpCallbacks};
-pub use collector::CompactionDeltaCollector;
+pub use collector::TextCompactionCollector;
 pub use delta::CompactionDelta;

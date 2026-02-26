@@ -4,7 +4,6 @@
 //! structures by calling FFI functions on the C IndexSpec.
 
 use super::{CompactionDelta, IndexSpecUpdater};
-use crate::index_spec::deleted_ids::DeletedIdsStore;
 use tracing::debug;
 
 /// Applies a compaction delta to in-memory structures.
@@ -15,15 +14,9 @@ use tracing::debug;
 /// # Arguments
 /// * `delta` - The compaction delta to apply
 /// * `updater` - The updater to use for C structure updates (or a mock for testing)
-/// * `deleted_ids` - The deleted IDs store to update (remove compacted doc IDs)
-pub fn apply_delta(
-    delta: &CompactionDelta,
-    updater: &impl IndexSpecUpdater,
-    deleted_ids: &DeletedIdsStore,
-) {
+pub fn apply_delta(delta: &CompactionDelta, updater: &impl IndexSpecUpdater) {
     debug!(
         term_count = delta.affected_term_count(),
-        doc_count = delta.compacted_doc_count(),
         "Applying compaction delta"
     );
 
@@ -47,14 +40,6 @@ pub fn apply_delta(
         debug!(num_terms_removed, "Decrementing numTerms for deleted terms");
         updater.decrement_num_terms(num_terms_removed);
     }
-
-    // Update Rust-owned DeletedIds - remove compacted doc IDs
-    let removed_count = deleted_ids.remove_batch(delta.compacted_doc_ids.iter().copied());
-    debug!(
-        removed_count,
-        compacted_count = delta.compacted_doc_count(),
-        "Removed compacted doc IDs from DeletedIds"
-    );
 
     debug!("Compaction delta applied successfully");
 }
@@ -107,9 +92,8 @@ mod tests {
     fn test_apply_empty_delta() {
         let updater = MockIndexSpecUpdater::new();
         let delta = CompactionDelta::new();
-        let deleted_ids = DeletedIdsStore::new();
 
-        apply_delta(&delta, &updater, &deleted_ids);
+        apply_delta(&delta, &updater);
 
         // Empty delta should not call any updater methods
         assert!(updater.trie_updates.borrow().is_empty());
@@ -119,18 +103,14 @@ mod tests {
     #[test]
     fn test_apply_delta_with_term_updates() {
         let updater = MockIndexSpecUpdater::new();
-        let deleted_ids = DeletedIdsStore::new();
 
         let mut delta = CompactionDelta::new();
         // Record 2 docs removed from "hello", 1 doc removed from "world"
         delta.term_deltas.increment(b"hello", 1);
         delta.term_deltas.increment(b"hello", 1);
         delta.term_deltas.increment(b"world", 1);
-        delta.compacted_doc_ids.insert(1);
-        delta.compacted_doc_ids.insert(2);
-        delta.compacted_doc_ids.insert(3);
 
-        apply_delta(&delta, &updater, &deleted_ids);
+        apply_delta(&delta, &updater);
 
         // Check trie updates
         let updates = updater.trie_updates.borrow();
@@ -144,7 +124,6 @@ mod tests {
     #[test]
     fn test_apply_delta_tracks_deleted_terms_from_trie() {
         let updater = MockIndexSpecUpdater::new();
-        let deleted_ids = DeletedIdsStore::new();
 
         // Mark "hello" and "world" as terms that will be deleted when decremented
         updater.mark_term_as_will_be_deleted(b"hello");
@@ -155,11 +134,8 @@ mod tests {
         delta.term_deltas.increment(b"hello", 1);
         delta.term_deltas.increment(b"world", 1);
         delta.term_deltas.increment(b"foo", 1);
-        delta.compacted_doc_ids.insert(1);
-        delta.compacted_doc_ids.insert(2);
-        delta.compacted_doc_ids.insert(3);
 
-        apply_delta(&delta, &updater, &deleted_ids);
+        apply_delta(&delta, &updater);
 
         // Check decrement_num_terms was called with 2 (hello and world deleted)
         let updates = updater.scoring_stats_updates.borrow();
@@ -169,30 +145,5 @@ mod tests {
         // Check all 3 terms had their doc counts decremented
         let trie_updates = updater.trie_updates.borrow();
         assert_eq!(trie_updates.len(), 3);
-    }
-
-    #[test]
-    fn test_apply_delta_removes_compacted_doc_ids_from_deleted_ids() {
-        let updater = MockIndexSpecUpdater::new();
-        let deleted_ids = DeletedIdsStore::new();
-
-        // Mark some doc IDs as deleted
-        deleted_ids.mark_deleted(100);
-        deleted_ids.mark_deleted(200);
-        deleted_ids.mark_deleted(300);
-        assert_eq!(deleted_ids.len(), 3);
-
-        // Create delta with compacted doc IDs (100 and 200 should be removed)
-        let mut delta = CompactionDelta::new();
-        delta.compacted_doc_ids.insert(100);
-        delta.compacted_doc_ids.insert(200);
-
-        apply_delta(&delta, &updater, &deleted_ids);
-
-        // Only doc ID 300 should remain in deleted_ids
-        assert_eq!(deleted_ids.len(), 1);
-        assert!(!deleted_ids.is_deleted(100));
-        assert!(!deleted_ids.is_deleted(200));
-        assert!(deleted_ids.is_deleted(300));
     }
 }

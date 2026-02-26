@@ -1,7 +1,8 @@
 use ffi::{t_docId, t_fieldMask};
 use query_term::RSQueryTerm;
 use redisearch_disk::{
-    database::SpeedbMultithreadedDatabase, index_spec::inverted_index::InvertedIndex,
+    compaction::TextCompactionCollector, database::SpeedbMultithreadedDatabase,
+    index_spec::inverted_index::InvertedIndex,
 };
 use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome};
 use tempfile::TempDir;
@@ -25,8 +26,9 @@ fn get_temp_inverted_index() -> (TempDir, InvertedIndex) {
     opts.create_missing_column_families(true);
 
     let db = SpeedbMultithreadedDatabase::open_cf(&opts, &path, ["fulltext"]).unwrap();
+    let collector = TextCompactionCollector::new();
 
-    (path, InvertedIndex::new(db))
+    (path, InvertedIndex::new(db, collector))
 }
 
 fn validate_result_idf_bm25_idf(result: &inverted_index::RSIndexResult, idf: f64, bm25_idf: f64) {

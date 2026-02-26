@@ -6,7 +6,7 @@ pub mod deleted_ids;
 pub mod doc_table;
 pub mod inverted_index;
 
-use crate::compaction::{CompactionDeltaCollector, IndexSpecLockGuard, apply_delta};
+use crate::compaction::TextCompactionCollector;
 use crate::database::SpeedbMultithreadedDatabase;
 use crate::disk_context::DiskContext;
 use crate::index_spec::deleted_ids::DeletedIdsStore;
@@ -60,10 +60,6 @@ pub struct IndexSpec {
     deleted_ids: DeletedIdsStore,
     /// The Speedb database used by this index, makes it easier to drop the database when the index is dropped
     database: SpeedbMultithreadedDatabase,
-
-    /// Collector for delta tracking during compaction.
-    /// Shared with the merge operator (via Arc) so it can record deletions.
-    compaction_collector: CompactionDeltaCollector,
 }
 
 impl IndexSpec {
@@ -104,8 +100,8 @@ impl IndexSpec {
         // memory control instead of per-database limits.
         db_options.set_write_buffer_manager(disk_context.write_buffer_manager());
 
-        // Create the compaction delta collector that will be shared with the merge operator
-        let compaction_collector = CompactionDeltaCollector::new();
+        // Create the text compaction collector (shared with text merge operator)
+        let text_compaction_collector = TextCompactionCollector::new();
 
         // Discover existing tag field CFs before opening the database
         // RocksDB/Speedb requires all existing CFs to be opened
@@ -130,7 +126,7 @@ impl IndexSpec {
             DocTable::reverse_lookup_cf_descriptor(),
             InvertedIndex::cf_descriptor(TermIndexCfConfig::new(
                 deleted_ids.clone(),
-                compaction_collector.clone(),
+                text_compaction_collector.clone(),
             )),
         ];
 
@@ -150,7 +146,7 @@ impl IndexSpec {
 
         // Create TagInvertedIndex for each existing tag field
         let mut tag_inverted_indexes = HashMap::new();
-        for field_index in existing_tag_fields {
+        for &field_index in &existing_tag_fields {
             tag_inverted_indexes.insert(
                 field_index,
                 Arc::new(TagInvertedIndex::new(database.clone(), field_index)),
@@ -160,11 +156,10 @@ impl IndexSpec {
         Ok(Self {
             name,
             doc_table: DocTable::new(document_type, database.clone(), deleted_ids.clone())?,
-            term_inverted_index: InvertedIndex::new(database.clone()),
+            term_inverted_index: InvertedIndex::new(database.clone(), text_compaction_collector),
             tag_inverted_indexes: RwLock::new(tag_inverted_indexes),
             deleted_ids,
             database,
-            compaction_collector,
         })
     }
 
@@ -306,9 +301,34 @@ impl IndexSpec {
         self.database.clone()
     }
 
-    /// Triggers a full compaction on the inverted index and applies the delta.
+    /// Triggers a full compaction on all tag inverted indexes.
     ///
-    /// This is the main entry point for GC compaction with memory synchronization.
+    /// This runs the merge operator on each tag column family, filtering out
+    /// deleted document IDs to reclaim disk space and improve query performance.
+    fn compact_tag_inverted_indexes(&self) {
+        // unwrap: RwLock is never poisoned - we don't panic while holding the lock
+        let indexes = self.tag_inverted_indexes.read().unwrap();
+        for (_, tag_index) in indexes.iter() {
+            tag_index.compact_full();
+        }
+    }
+
+    /// Triggers full compaction on all indexes (text and tag) and applies the delta.
+    ///
+    /// This method takes a snapshot of `deleted_ids` before compaction starts, then
+    /// performs compaction on both text and tag inverted indexes. After compaction
+    /// completes, all doc IDs from the snapshot are removed from `deleted_ids`.
+    ///
+    /// # Why Snapshot-Based Cleanup?
+    ///
+    /// We assume that all deleted IDs in the snapshot are handled during compaction
+    /// because the compaction process visits all keys in the indexes. The merge operator
+    /// filters out any deleted doc IDs it encounters, so after a full compaction pass,
+    /// all deleted IDs have been processed.
+    ///
+    /// Note: Having `deleted_ids` be a superset of the actual doc IDs in the indexes
+    /// (e.g., due to replication timing) does not cause any logical harm - the merge
+    /// operator simply skips doc IDs that don't exist in a given index.
     ///
     /// # Arguments
     /// * `c_index_spec` - Pointer to the C `IndexSpec` struct for FFI calls
@@ -316,46 +336,28 @@ impl IndexSpec {
     /// # Safety
     /// `c_index_spec` must be a valid pointer to a C `IndexSpec` struct that remains
     /// valid for the duration of this function call.
-    pub unsafe fn compact_text_inverted_index(&self, c_index_spec: *mut ffi::IndexSpec) {
-        // Clear the collector before compaction to ensure we only collect
-        // data from this compaction run.
-        self.compaction_collector.clear();
+    pub unsafe fn compact_all(&self, c_index_spec: *mut ffi::IndexSpec) {
+        let snapshot_deleted_ids = self.doc_table.deleted_ids().collect_all();
 
-        // Run compaction. The merge operator will record deletions to the collector.
-        self.term_inverted_index.compact_full();
+        // 1. Run TEXT compaction (clears collector, compacts, and applies delta internally)
+        // SAFETY: Caller guarantees c_index_spec is valid.
+        unsafe { self.term_inverted_index.compact_full(c_index_spec) };
 
-        // Take the collected delta from the merge operator
-        let delta = self.compaction_collector.take();
+        // 2. Run TAG compaction
+        self.compact_tag_inverted_indexes();
 
-        if delta.is_empty() {
-            // No delta to apply
-            return;
-        }
+        // 3. Remove the deleted_id that have been cleaned.
+        let removed_count = self
+            .doc_table
+            .deleted_ids()
+            .remove_batch(snapshot_deleted_ids);
 
-        // Apply the delta to C structures and Rust-owned DeletedIds
-        // SAFETY: The caller guarantees c_index_spec is a valid IndexSpec pointer.
-        let Some(guard) = (unsafe { IndexSpecLockGuard::new(c_index_spec) }) else {
-            tracing::warn!("compact called with null c_index_spec, skipping delta application");
-            return;
-        };
-        apply_delta(&delta, &guard, self.doc_table.deleted_ids());
+        tracing::debug!(removed_count, "Removed doc IDs from DeletedIds");
 
         tracing::debug!(
             index_name = self.name(),
             "Compaction with delta application complete"
         );
-    }
-
-    /// Triggers a full compaction on all tag inverted indexes.
-    ///
-    /// This runs the merge operator on each tag column family, filtering out
-    /// deleted document IDs to reclaim disk space and improve query performance.
-    pub fn compact_tag_inverted_indexes(&self) {
-        // unwrap: RwLock is never poisoned - we don't panic while holding the lock
-        let indexes = self.tag_inverted_indexes.read().unwrap();
-        for (_, tag_index) in indexes.iter() {
-            tag_index.compact_full();
-        }
     }
 
     /// Collects metrics for the text inverted index column family.

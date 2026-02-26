@@ -1,6 +1,6 @@
 use pretty_assertions::assert_eq;
 use redisearch_disk::{
-    compaction::CompactionDeltaCollector,
+    compaction::TextCompactionCollector,
     index_spec::{
         deleted_ids::DeletedIdsStore,
         inverted_index::{
@@ -20,7 +20,7 @@ use tempfile::TempDir;
 #[test]
 fn test_compaction_aggregation() {
     let deleted_ids = DeletedIdsStore::new();
-    let collector = CompactionDeltaCollector::new();
+    let collector = TextCompactionCollector::new();
     let config = TermIndexCfConfig::new(deleted_ids.clone(), collector);
     let cf_descriptor = TermIndexConfig::cf_descriptor(config);
 
