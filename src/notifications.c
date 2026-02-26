@@ -504,13 +504,27 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 }
 
 
-void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+static bool useSanitizerShutdownHandler(void) {
+  return getenv("RS_GLOBAL_DTORS") != NULL;
+}
+
+void ShutdownEventProd(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  REDISMODULE_NOT_USED(data);
+
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  if (getenv("RS_GLOBAL_DTORS")) {
-    RediSearch_SanitizerCleanupModule();
-  } else {
-    RediSearch_Shutdown();
-  }
+  RediSearch_Shutdown();
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
+}
+
+void ShutdownEventSanitizer(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  REDISMODULE_NOT_USED(data);
+
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
+  RediSearch_SanitizerCleanupModule();
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
@@ -574,8 +588,11 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to shutdown events");
-  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
+  RedisModuleEventCallback shutdownCb = useSanitizerShutdownHandler() ?
+      ShutdownEventSanitizer : ShutdownEventProd;
+  RedisModule_Log(ctx, "notice", "Subscribe to shutdown events (%s handler)",
+      shutdownCb == ShutdownEventSanitizer ? "sanitizer" : "production");
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, shutdownCb);
 
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
