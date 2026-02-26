@@ -174,3 +174,24 @@ cxx_library(
     preferred_linkage = "static",
     visibility = ["PUBLIC"],
 )
+
+# ================================= phonetics ======================================
+
+cxx_library(
+    name = "phonetics",
+    srcs = [
+        "phonetics/double_metaphone.c",
+    ],
+    headers = [
+        "phonetics/double_metaphone.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "phonetics/double_metaphone.h",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
