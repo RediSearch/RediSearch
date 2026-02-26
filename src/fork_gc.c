@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fork_gc.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
 #include "triemap.h"
 #include "util/arr.h"
 #include "search_ctx.h"
@@ -494,9 +493,12 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     return status;
   }
 
+  // Reusable buffer for entry data across loop iterations.
+  char *entryData = NULL;
+  size_t entryDataCap = 0;
+
   // Per-node streaming apply loop: read entries one at a time from the pipe.
   while (status == FGC_COLLECTED) {
-    char *entryData = NULL;
     IndexSpec *sp = NULL;
     StrongRef spec_ref = {0};
 
@@ -522,7 +524,10 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       goto loop_cleanup;
     }
     size_t entryLen = nodeLen - sizeof(nodePosition) - sizeof(nodeGeneration);
-    entryData = rm_malloc(entryLen);
+    if (entryLen > entryDataCap) {
+      entryData = rm_realloc(entryData, entryLen);
+      entryDataCap = entryLen;
+    }
     if (FGC_recvFixed(gc, entryData, entryLen) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
@@ -575,8 +580,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       RedisSearchCtx_UnlockSpec(&_sctx);
       IndexSpecRef_Release(spec_ref);
     }
-    rm_free(entryData);
   }
+  rm_free(entryData);
 
   // Conditionally trim empty leaves (re-acquire lock).
   if (status == FGC_COLLECTED && rt && gc->cleanNumericEmptyNodes) {
