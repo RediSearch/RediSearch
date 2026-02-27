@@ -1313,8 +1313,6 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // update timeout for current cursor read
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
-  // Reset Reply state
-  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_NotReplied, memory_order_release);
 
   if (!num) {
     num = req->cursorConfig.chunkSize;
@@ -1399,6 +1397,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
+    // Reset Reply state
+    atomic_store_explicit(&req->syncCtx.replyState, ReplyState_NotReplied, memory_order_release);
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);
