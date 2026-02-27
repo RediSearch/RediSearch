@@ -14,7 +14,7 @@
 //! - `in_order`: Require terms to appear in order
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
@@ -117,6 +117,53 @@ where
             in_order,
             result: RSIndexResult::intersect(num_children),
         }
+    }
+
+    /// Builder: set the weight on the aggregate result.
+    ///
+    /// Mirrors the `weight` parameter of the C `NewIntersectionIterator`.
+    #[must_use]
+    pub fn weight(mut self, weight: f64) -> Self {
+        self.result = self.result.weight(weight);
+        self
+    }
+
+    /// Dynamically append a new child iterator.
+    ///
+    /// Intended for the `AddIntersectionIteratorChild` FFI, which mirrors the C
+    /// `AddIntersectIterator` function used by the query optimizer to attach an
+    /// extra child to an existing intersection before iteration begins.
+    ///
+    /// Updates `num_expected` if the new child has a lower estimate than the current minimum.
+    pub fn push_child(&mut self, child: I) {
+        let est = child.num_estimated();
+        if est < self.num_expected {
+            self.num_expected = est;
+        }
+        self.children.push(child);
+    }
+
+    /// Replace the child at `idx` with `new_child`, returning the old child.
+    ///
+    /// Used by `ForEachIntersectionChildMut` to hand ownership of each child to C
+    /// (e.g. for profile wrapping) and then receive the new owner back.
+    pub fn replace_child(&mut self, idx: usize, new_child: I) -> I {
+        std::mem::replace(&mut self.children[idx], new_child)
+    }
+
+    /// Returns the number of child iterators.
+    pub fn num_children(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns a shared reference to the child at `idx`.
+    pub fn child_at(&self, idx: usize) -> &I {
+        &self.children[idx]
+    }
+
+    /// Returns a mutable iterator over all child iterators.
+    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
+        self.children.iter_mut()
     }
 
     /// Returns `true` if the current result needs a proximity check after consensus.
@@ -240,6 +287,13 @@ where
     /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
+        // Reset all per-document accumulating fields before building the new aggregate.
+        // This mirrors C's `AggregateResult_Reset` which resets freq, fieldMask, and metrics.
+        self.result.freq = 0;
+        self.result.field_mask = 0;
+        // SAFETY: `self.result` is a valid, initialized `RSIndexResult`.
+        unsafe { ResultMetrics_Reset_func(&mut self.result) };
+
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }

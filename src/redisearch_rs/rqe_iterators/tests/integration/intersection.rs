@@ -16,8 +16,8 @@
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
-    intersection::Intersection,
+    id_list::IdListSorted, intersection::Intersection, RQEIterator, RQEValidateStatus,
+    SkipToOutcome,
 };
 
 use crate::utils::{Mock, MockRevalidateResult};
@@ -1199,13 +1199,13 @@ fn revalidate_moved_skip_to_returns_none() {
 #[cfg(not(miri))]
 mod slop_and_order {
     use ffi::{
-        IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, t_docId,
+        t_docId, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
     };
-    use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
+    use inverted_index::{full::Full, InvertedIndex, RSIndexResult, RSOffsetSlice};
     use query_term::RSQueryTerm;
     use rqe_iterators::{
-        NoOpChecker, RQEIterator, SkipToOutcome, intersection::Intersection, inverted_index::Term,
+        intersection::Intersection, inverted_index::Term, NoOpChecker, RQEIterator, SkipToOutcome,
     };
     use rqe_iterators_test_utils::MockContext;
 

@@ -15,27 +15,16 @@ extern "C" {
 
 #include "iterator_api.h"
 
-typedef struct IntersectionIterator {
-  QueryIterator base;
-
-  // The iterators to intersect
-  QueryIterator **its;
-  uint32_t num_its;
-
-  int max_slop;
-  bool in_order;
-
-  size_t num_expected;
-} IntersectionIterator;
-
 /**
  * Create a new intersection iterator.
- * @param its The iterators to intersect. Taking ownership of the iterators.
+ * The implementation is provided by Rust (see `iterators_ffi/src/intersection.rs`).
+ *
+ * @param its The iterators to intersect. Takes ownership of both the array and each iterator.
  * @param num The number of iterators.
  * @param max_slop The maximum slop allowed for the intersection. Negative value for no slop validation.
  * @param in_order Whether the intersection should be in order.
- * @param weight The weight of the intersection.
- * @return A new intersection iterator, or an empty iterator if any of the iterators are NULL.
+ * @param weight The weight of the intersection result.
+ * @return A new intersection iterator, or an empty/single-child iterator after reduction.
  */
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight);
 

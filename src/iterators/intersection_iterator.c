@@ -12,6 +12,20 @@
 #include "union_iterator.h"
 #include "index_result.h"
 
+
+typedef struct IntersectionIterator {
+  QueryIterator base;
+
+  // The iterators to intersect
+  QueryIterator **its;
+  uint32_t num_its;
+
+  int max_slop;
+  bool in_order;
+
+  size_t num_expected;
+} IntersectionIterator;
+
 /**************************** Read + SkipTo Helpers ****************************/
 
 static inline bool II_currentIsRelevant(IntersectionIterator *it) {
