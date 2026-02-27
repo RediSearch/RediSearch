@@ -84,18 +84,6 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
             ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
             QITR_PushRP(qctx, profileRP);
           }
-        } else {
-          // Create a depleter processor for foreground depletion (WORKERS == 0)
-          // This depletes all results synchronously on the main thread while
-          // the spec lock is held, preventing crashes when the index is
-          // modified between cursor creation and first read.
-          ResultProcessor *depleter = RPDepleter_New();
-          QITR_PushRP(qctx, depleter);
-          if (isProfile) {
-            // Wrap the depleter with a Profile RP to match the expected end processor type
-            ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
-            QITR_PushRP(qctx, profileRP);
-          }
         }
     }
     if (depleteInBackground) {
@@ -132,21 +120,19 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
+    const ResultProcessorType expected = IsProfile(req) ? RP_PROFILE : RP_SAFE_LOADER;
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
-        // In profile mode, the end processor must be RP_PROFILE (which wraps the depleter)
-        if (IsProfile(req) && areq->pipeline.qctx.endProc->type != RP_PROFILE) {
+        if (IsProfile(req) && areq->pipeline.qctx.endProc->type != expected) {
             QueryError_SetWithoutUserDataFmt(
                 &req->tailPipelineError,
                 QUERY_ERROR_CODE_GENERIC,
                 "Expected %s processor at end of pipeline, found %s",
-                RPTypeToString(RP_PROFILE),
+                RPTypeToString(expected),
                 RPTypeToString(areq->pipeline.qctx.endProc->type));
             array_free(upstreams);
             return REDISMODULE_ERR;
         }
-        // In non-profile mode, the end processor is either RP_SAFE_DEPLETER (background)
-        // or RP_DEPLETER (foreground). Both implement the same Next interface.
         array_ensure_append_1(upstreams, areq->pipeline.qctx.endProc);
     }
 
