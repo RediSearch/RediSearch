@@ -130,9 +130,14 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
 
   // For RP_SAFE_DEPLETER, use depletion time as the total time instead of
-  // RPProfile time because the actual work happens in the background thread
+  // RPProfile time because the actual work happens in the background thread.
   if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
     totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPSafeDepleter_GetDepletionTime(rp->upstream));
+  } else if (rp->upstream && rp->upstream->type == RP_DEPLETER) {
+    // For RP_DEPLETER (foreground depletion), use depletion time as the total time
+    // because depletion is triggered via RPDepleter_StartDepletion() which bypasses
+    // the wrapping RP_PROFILE to avoid consuming the first result.
+    totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPDepleter_GetDepletionTime(rp->upstream));
   }
 
   if (printProfileClock) {

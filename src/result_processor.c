@@ -2618,6 +2618,7 @@ typedef struct {
   size_t cur_idx;                  // Current index for yielding results
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
+  rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
 } RPDepleter;
 
 /**
@@ -2628,12 +2629,19 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   RPStatus rc;
   SearchResult *r = rm_calloc(1, sizeof(*r));
 
+  // Track depletion time for profiling
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
+
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     self->depleted_results++;
   }
+
+  // Record depletion time
+  self->depletionTime = rs_wall_clock_elapsed_ns(&start);
 
   SearchResult_Destroy(r);
   rm_free(r);
@@ -2700,4 +2708,35 @@ ResultProcessor *RPDepleter_New() {
   ret->base.type = RP_DEPLETER;
   ret->depleted_results = 0;
   return &ret->base;
+}
+
+/**
+ * Starts depletion for the depleter without consuming any results.
+ * @param base The depleter processor (must be RP_DEPLETER type)
+ */
+void RPDepleter_StartDepletion(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+
+  // Deplete all results from upstream
+  RPDepleter_Deplete(self);
+
+  // Switch to yield mode so subsequent Next() calls return buffered results
+  self->base.Next = RPDepleter_Next_Yield;
+}
+
+/**
+ * Get the depletion time for RPDepleter.
+ */
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+  return self->depletionTime;
+}
+
+/**
+ * Starts depletion for all depleters in the array.
+ */
+void RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  for (size_t i = 0; i < array_len(depleters); i++) {
+    RPDepleter_StartDepletion(depleters[i]);
+  }
 }

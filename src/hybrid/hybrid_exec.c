@@ -445,24 +445,20 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
       return REDISMODULE_ERR;
     }
-    // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
-    arrayof(ResultProcessor*) depleters = NULL;
-    if (backgroundDepletion) {
-      depleters = array_new(ResultProcessor *, req->nrequests);
-    }
+    // Helper array to collect depleters so we can deplete them all at once before returning the cursors
+    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
+    ResultProcessorType expectedDepleterType = backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER;
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
-      ResultProcessor *rp = areq->pipeline.qctx.endProc;
-      if (IsProfile(req) && rp->type == RP_PROFILE) {
-        rp = rp->upstream;
+      ResultProcessor *depleter = areq->pipeline.qctx.endProc;
+      if (IsProfile(req) && depleter->type == RP_PROFILE) {
+        depleter = depleter->upstream;
       }
-      if (backgroundDepletion) {
-        if (rp->type != RP_SAFE_DEPLETER) {
-          break;
-        }
-        array_ensure_append_1(depleters, rp);
+      if (depleter->type != expectedDepleterType) {
+        break;
       }
+      array_ensure_append_1(depleters, depleter);
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
       if (!cursor) {
         break;
@@ -476,9 +472,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     if (array_len(cursors) != req->nrequests) {
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
-      if (depleters) {
-        array_free(depleters);
-      }
+      array_free(depleters);
       // verify error exists
       RS_ASSERT(QueryError_HasError(status));
       return REDISMODULE_ERR;
@@ -486,8 +480,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     if (backgroundDepletion) {
       int rc = RPSafeDepleter_DepleteAll(depleters);
-      array_free(depleters);
       if (rc != RS_RESULT_OK) {
+        array_free(depleters);
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
         if (rc == RS_RESULT_TIMEDOUT) {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
@@ -499,7 +493,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         }
         return REDISMODULE_ERR;
       }
+    } else {
+      // Foreground depletion for WORKERS == 0
+      // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
+      RPDepleter_DepleteAll(depleters);
     }
+    array_free(depleters);
     replyWithCursors(replyCtx, cursors);
     array_free(cursors);
     return REDISMODULE_OK;
