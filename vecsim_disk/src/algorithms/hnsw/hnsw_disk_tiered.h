@@ -621,13 +621,14 @@ int TieredHNSWDiskIndex<DataType, DistType>::addVector(const void* data, labelTy
 
     // Step 1: Lock flat buffer and verify no duplicate labels
     // ASSUMPTION: Caller guarantees no duplicate labels. We assert this for safety.
-    std::unique_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+    {
+        std::lock_guard<std::shared_mutex> flat_lock(this->flatIndexGuard);
 
-    assert(!this->frontendIndex->isLabelExists(label) && !hnsw_index->isLabelExists(label) &&
-           "Duplicate label - caller must ensure uniqueness across both indices");
+        assert(!this->frontendIndex->isLabelExists(label) && !hnsw_index->isLabelExists(label) &&
+               "Duplicate label - caller must ensure uniqueness across both indices");
 
-    this->frontendIndex->addVector(data, label);
-    flat_lock.unlock();
+        this->frontendIndex->addVector(data, label);
+    }
 
     // Step 2: Create InsertDiskJob and submit it
     // NOTE: No state is captured on the main thread.
@@ -683,26 +684,17 @@ void TieredHNSWDiskIndex<DataType, DistType>::runGC() {
 template <typename DataType, typename DistType>
 VecSimQueryReply* TieredHNSWDiskIndex<DataType, DistType>::topKQueryImp(const void* queryBlob, size_t k,
                                                                         VecSimQueryParams* queryParams) const {
-    // Check flat buffer (RAII lock for exception safety)
-    std::shared_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+    // Check flat buffer (scoped lock for RAII)
+    VecSimQueryReply* flat_results = nullptr;
+    {
+        std::shared_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+        if (this->frontendIndex->indexSize() > 0) {
+            flat_results = this->frontendIndex->topKQuery(queryBlob, k, queryParams);
+        }
+    } // Lock released here via RAII
 
-    if (this->frontendIndex->indexSize() == 0) {
-        flat_lock.unlock();
-
-        // Query backend only (no flat results to merge)
-        auto processed_query_ptr = this->frontendIndex->preprocessQuery(queryBlob);
-        const void* processed_query = processed_query_ptr.get();
-
-        auto results = this->backendIndex->topKQuery(processed_query, k, queryParams);
-
-        return results;
-    }
-
-    // Query flat buffer first
-    auto flat_results = this->frontendIndex->topKQuery(queryBlob, k, queryParams);
-    flat_lock.unlock();
-
-    if (flat_results->code != VecSim_QueryReply_OK) {
+    // Early exit: check for query error
+    if (flat_results && flat_results->code != VecSim_QueryReply_OK) {
         return flat_results;
     }
 
@@ -711,6 +703,10 @@ VecSimQueryReply* TieredHNSWDiskIndex<DataType, DistType>::topKQueryImp(const vo
     const void* processed_query = processed_query_ptr.get();
 
     auto main_results = this->backendIndex->topKQuery(processed_query, k, queryParams);
+
+    if (!flat_results) {
+        return main_results;
+    }
 
     if (main_results->code != VecSim_QueryReply_OK) {
         VecSimQueryReply_Free(flat_results);

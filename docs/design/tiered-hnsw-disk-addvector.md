@@ -70,7 +70,7 @@ addVector(blob, label):
     4. Create and submit insert job:
        - Create InsertDiskJob with {label}  // No state captured on main thread!
        - Track job in labelToInsertJobs map
-       - flat_lock.unlock()  // Explicit unlock before submit
+       - flat_lock.unlock()  // Explicit unlock before submit (handle with proper RAII lock guards)
        - submitDiskJob(job)
 
     5. Return 1 (always a new vector per contract)
