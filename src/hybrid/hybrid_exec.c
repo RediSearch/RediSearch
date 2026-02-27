@@ -687,6 +687,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         HybridRequest_UnlockCursors(req);
         if (rc == RS_RESULT_TIMEDOUT) {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
+        } else if (rc == RS_RESULT_ERROR) {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+            "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
         } else {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
         }
@@ -1141,10 +1144,18 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
+  // Acquire read lock before building pipeline (matching AREQ_Execute_Callback)
+  RedisSearchCtx_LockSpecRead(sctx);
+
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
   } else {
+    // buildPipelineAndExecute failed - release the lock if still held.
+    // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
+    // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
+    // safely handles this case by checking sctx->flags before unlocking.
+    RedisSearchCtx_UnlockSpec(sctx);
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
       HybridRequest_GetError(hreq, &status);
@@ -1152,6 +1163,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     }
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
   }
+
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
   blockedClientHybridCtx_destroy(BCHCtx);
