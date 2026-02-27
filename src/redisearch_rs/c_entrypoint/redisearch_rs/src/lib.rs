@@ -33,4 +33,4 @@ pub use triemap_ffi as triemap;
 pub use types_ffi as types;
 pub use varint_ffi as varint;
 
-include!(concat!(env!("OUT_DIR"), "/link_guard.rs"));
+// include!(concat!(env!("OUT_DIR"), "/link_guard.rs"));
