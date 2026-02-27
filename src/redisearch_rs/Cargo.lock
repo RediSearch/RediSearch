@@ -3166,10 +3166,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "workspace_hack"
-version = "0.1.0"
-
-[[package]]
 name = "writeable"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

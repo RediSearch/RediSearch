@@ -3599,7 +3599,7 @@ cargo.rust_library(
         "min-redis-compatibility-version-6-0",
     ],
     rustc_flags = [
-        "-L$(location //src/redisearch_rs:redis-module-99.99.99-build-script-run[out_dir])",
+        "-L$(location //src/redisearch_rs/third-party:redis-module-99.99.99-build-script-run[out_dir])",
         "@$(location :redis-module-99.99.99-build-script-run[rustc_flags])",
     ],
     visibility = [],

@@ -43,6 +43,10 @@ rust_bindgen(
         "src/redisearch_rs/headers/document_rs.h",
         "src/redisearch_rs/headers/numeric_range_tree.h",
     ],
+    blocklist_types = [
+        "RSQueryTerm",
+        "RSTokenFlags"
+    ],
     include_directories = ["src", "src/redisearch_rs/headers", "src/inverted_index", "src/buffer", "src/ttl_table", "src/trie"],
     deps = [
         "//deps:RedisModulesSDK",

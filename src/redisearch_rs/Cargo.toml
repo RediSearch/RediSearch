@@ -39,7 +39,6 @@ members = [
     "varint",
     "varint_bencher",
     "wildcard",
-    "workspace_hack",
     "idf",
 ]
 
