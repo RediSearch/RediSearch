@@ -50,6 +50,7 @@ private:
       base.SkipTo = MockIterator_SkipTo;
       base.Rewind = MockIterator_Rewind;
       base.Revalidate = MockIterator_Revalidate;
+      base.SortWeight = NULL;
 
       std::sort(docIds.begin(), docIds.end());
       auto new_end = std::unique(docIds.begin(), docIds.end());
