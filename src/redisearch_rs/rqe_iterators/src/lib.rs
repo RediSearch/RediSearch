@@ -141,6 +141,18 @@ pub trait RQEIterator<'index> {
     fn is_wildcard(&self) -> bool {
         false
     }
+
+    /// Heuristic weight used by [`Intersection`] to order children.
+    ///
+    /// A *lower* value means the child is placed first and acts as the pivot, minimising
+    /// the number of `SkipTo` calls during query execution. The final sort key is
+    /// `num_estimated() * sort_weight()`.
+    ///
+    /// Returns `1.0` by default (no adjustment). Compound iterators override this to
+    /// reflect their internal cost (e.g. `Intersection` returns `1 / n_children`).
+    fn sort_weight(&self) -> f64 {
+        1.0
+    }
 }
 
 // Implement RQEIterator for any Box<I> where I: RQEIterator + ?Sized.
@@ -184,6 +196,10 @@ impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
 
     fn is_wildcard(&self) -> bool {
         (**self).is_wildcard()
+    }
+
+    fn sort_weight(&self) -> f64 {
+        (**self).sort_weight()
     }
 }
 

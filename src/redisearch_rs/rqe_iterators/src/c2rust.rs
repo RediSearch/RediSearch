@@ -316,4 +316,14 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::Wildcard | IteratorType::InvIdxWildcard
         )
     }
+
+    fn sort_weight(&self) -> f64 {
+        if let Some(callback) = self.SortWeight {
+            // SAFETY: The callback was set by `RQEIteratorWrapper::boxed_new` and is valid
+            // to call with a shared pointer to this iterator.
+            unsafe { callback(self.header.as_ptr()) }
+        } else {
+            1.0
+        }
+    }
 }

@@ -54,6 +54,7 @@ where
                 Revalidate: Some(revalidate::<I>),
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
+                SortWeight: Some(sort_weight::<I>),
             },
             inner,
         });
@@ -213,6 +214,16 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
     wrapper.inner.num_estimated()
+}
+
+extern "C" fn sort_weight<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+) -> f64 {
+    debug_assert!(!base.is_null());
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
+    wrapper.inner.sort_weight()
 }
 
 extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {
