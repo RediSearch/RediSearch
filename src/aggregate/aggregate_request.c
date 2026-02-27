@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
-#include "aggregate_exec_common.h"
 #include "reducer.h"
 
 #include <query.h>

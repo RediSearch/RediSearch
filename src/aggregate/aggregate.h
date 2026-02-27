@@ -31,14 +31,11 @@
 #define RS_Atomic(T) std::atomic<T>
 extern "C" {
 #else
-#include <stdatomic.h>
 #define RS_Atomic(T) _Atomic(T)
+#include <stdatomic.h>
 #endif
 
 #define DEFAULT_LIMIT 10
-
-// Forward declaration for Cursor (defined in cursor.h)
-typedef struct Cursor Cursor;
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
@@ -325,7 +322,6 @@ typedef struct AREQ {
 
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
-
 } AREQ;
 
 /**

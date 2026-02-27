@@ -455,9 +455,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (IsProfile(req) && depleter->type == RP_PROFILE) {
         depleter = depleter->upstream;
       }
-      if (depleter->type != expectedDepleterType) {
-        break;
-      }
+      RS_ASSERT(depleter->type == expectedDepleterType);
       array_ensure_append_1(depleters, depleter);
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
       if (!cursor) {
