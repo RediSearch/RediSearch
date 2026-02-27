@@ -255,9 +255,16 @@ jobs:
       - name: Run sccache-cache
         if: ${{ !contains(fromJSON('["amazonlinux:2", "mariner:2"]'), needs.get-config.outputs.container) }}
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: "sccache"
+
+      # Export sccache environment variables for subsequent steps
+      # These must be written to $GITHUB_ENV to persist beyond the sccache-action step
+      # CARGO_INCREMENTAL=0 is required because incremental compilation is incompatible with sccache
+      - name: Configure sccache environment
+        if: ${{ !contains(fromJSON('["amazonlinux:2", "mariner:2"]'), needs.get-config.outputs.container) }}
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+          echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
 
       - name: Checkout Redis (node20)
         if: steps.node20.outputs.supported == 'true'
