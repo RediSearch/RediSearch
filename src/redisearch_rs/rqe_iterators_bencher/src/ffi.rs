@@ -133,6 +133,40 @@ impl QueryIterator {
         })
     }
 
+    /// Give up ownership of the raw pointer without calling `Free`.
+    ///
+    /// Used when passing the iterator to a C function that takes ownership
+    /// (e.g. `NewIntersectionIterator`), so that the C side is responsible for freeing it.
+    ///
+    /// TODO: remove once the C FFI layer is no longer needed.
+    #[inline(always)]
+    pub fn into_raw(self) -> *mut ffi::QueryIterator {
+        let ptr = self.0;
+        std::mem::forget(self);
+        ptr
+    }
+
+    /// Create a C intersection from two pre-built term `QueryIterator`s.
+    ///
+    /// Takes ownership of both children — they will be freed when the intersection is freed.
+    #[inline(always)]
+    pub fn new_intersection_from_term_its(
+        child1: Self,
+        child2: Self,
+        max_slop: i32,
+        in_order: bool,
+    ) -> Self {
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(2 * std::mem::size_of::<*mut ffi::QueryIterator>())
+                as *mut *mut ffi::QueryIterator
+        };
+        unsafe {
+            *children_ptr.add(0) = child1.into_raw();
+            *children_ptr.add(1) = child2.into_raw();
+        }
+        Self(unsafe { ffi::NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
+    }
+
     /// Creates a new intersection iterator from child ID list iterators.
     ///
     /// # Arguments

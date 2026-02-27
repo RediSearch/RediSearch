@@ -235,7 +235,7 @@ where
             return Ok(None);
         };
 
-        if dbg!(self.needs_relevancy_check()) {
+        if self.needs_relevancy_check() {
             match self.find_consensus_with_relevancy_check(target)? {
                 Some(_) => Ok(Some(&mut self.result)),
                 None => Ok(None),

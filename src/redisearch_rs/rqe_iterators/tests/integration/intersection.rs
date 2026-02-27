@@ -1320,7 +1320,7 @@ mod slop_and_order {
 
         // Read all results: expected docs 1 and 4
         let r = ii.read().expect("read failed").expect("expected doc 1");
-        assert_eq!(dbg!(r.doc_id), 1);
+        assert_eq!(r.doc_id, 1);
         assert_eq!(ii.last_doc_id(), 1);
 
         let r = ii.read().expect("read failed").expect("expected doc 4");
