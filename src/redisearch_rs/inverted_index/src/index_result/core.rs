@@ -559,7 +559,7 @@ impl<'index> RSIndexResult<'index> {
     ///
     /// Ported from C `IndexResult_IsWithinRange` in `src/index_result/index_result.c`.
     pub fn is_within_range(&self, max_slop: i32, in_order: bool) -> bool {
-        if max_slop < 0 {
+        if max_slop < 0 && !in_order {
             return true;
         }
         let Some(agg) = self.as_aggregate() else {
@@ -620,7 +620,8 @@ fn within_range_in_order(iters: &mut [OffsetPositionIterator<'_>], max_slop: i32
             };
             let last_pos = if i == 0 { 0 } else { positions[i - 1] };
 
-            // Advance while the position is behind the previous term's position.
+            // Order check: advance past positions that come before the previous term,
+            // ensuring terms appear in sequence.
             while pos != RS_OFFSETVECTOR_EOF && pos < last_pos {
                 pos = iters[i].next_position();
             }
@@ -633,6 +634,8 @@ fn within_range_in_order(iters: &mut [OffsetPositionIterator<'_>], max_slop: i32
 
             if i > 0 {
                 span += pos as i32 - last_pos as i32 - 1;
+                // Early slop check: abandon this candidate as soon as the accumulated
+                // gap exceeds the budget, before processing remaining terms.
                 if max_slop >= 0 && span > max_slop {
                     break;
                 }
@@ -642,7 +645,8 @@ fn within_range_in_order(iters: &mut [OffsetPositionIterator<'_>], max_slop: i32
         if exhausted {
             return false;
         }
-        if max_slop >= 0 && span <= max_slop {
+        // Final slop check: the full span across all terms is within budget.
+        if max_slop < 0 || span <= max_slop {
             return true;
         }
     }
