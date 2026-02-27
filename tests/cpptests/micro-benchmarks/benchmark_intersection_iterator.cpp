@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "src/iterators/iterator_api.h"
-#include "src/iterators/intersection_iterator.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 
 class BM_IntersectionIterator : public benchmark::Fixture {
 public:
