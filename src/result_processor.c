@@ -2733,10 +2733,23 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(ResultProcessor *base) {
 }
 
 /**
- * Starts depletion for all depleters in the array.
+ * Triggers depletion for all depleters in the array.
+ * @param depleters Array of depleter processors (must be RP_DEPLETER type)
+ * @return RS_RESULT_OK if all depleters completed successfully,
+ *         RS_RESULT_TIMEDOUT if any depleter timed out,
+ *         RS_RESULT_ERROR if any depleter encountered an error
  */
-void RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  int result = RS_RESULT_OK;
   for (size_t i = 0; i < array_len(depleters); i++) {
     RPDepleter_StartDepletion(depleters[i]);
+    RPDepleter *depleter = (RPDepleter *)depleters[i];
+    // Check if this depleter encountered an error during depletion
+    if (depleter->last_rc == RS_RESULT_TIMEDOUT) {
+      result = RS_RESULT_TIMEDOUT;
+    } else if (depleter->last_rc == RS_RESULT_ERROR && result != RS_RESULT_TIMEDOUT) {
+      result = RS_RESULT_ERROR;
+    }
   }
+  return result;
 }

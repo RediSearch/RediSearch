@@ -494,7 +494,17 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     } else {
       // Foreground depletion for WORKERS == 0
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
-      RPDepleter_DepleteAll(depleters);
+      int rc = RPDepleter_DepleteAll(depleters);
+      if (rc != RS_RESULT_OK) {
+        array_free(depleters);
+        array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
+        if (rc == RS_RESULT_TIMEDOUT) {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
+        } else {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
+        }
+        return REDISMODULE_ERR;
+      }
     }
     array_free(depleters);
     replyWithCursors(replyCtx, cursors);

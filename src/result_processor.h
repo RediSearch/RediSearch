@@ -316,8 +316,11 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(ResultProcessor *depleter);
 /**
 * Triggers depletion for all depleters in the array.
 * @param depleters Array of depleter processors (must be RP_DEPLETER type)
+* @return RS_RESULT_OK if all depleters completed successfully,
+*         RS_RESULT_TIMEDOUT if any depleter timed out,
+*         RS_RESULT_ERROR if any depleter encountered an error
 */
-void RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
 * Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
