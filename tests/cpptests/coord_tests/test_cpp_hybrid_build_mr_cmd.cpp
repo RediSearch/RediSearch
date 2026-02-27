@@ -197,8 +197,7 @@ protected:
         if (hybridParams.scoringCtx) {
             HybridScoringContext_Free(hybridParams.scoringCtx);
         }
-        HybridRequest_Free(hreq);
-        NumShards = originalNumShards;
+        HybridRequest_DecrRef(hreq);
     }
 
     // Helper function to find K value in MRCommand
