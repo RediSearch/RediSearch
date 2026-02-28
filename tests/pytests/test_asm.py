@@ -586,9 +586,7 @@ def test_ft_aggregate_withcursor_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID')
@@ -629,9 +627,7 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
@@ -671,9 +667,7 @@ def test_ft_aggregate_withcursor_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.HYBRID')
@@ -758,9 +752,7 @@ def test_add_shard_and_migrate_aggregate_withcursor_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.HYBRID')
