@@ -3827,11 +3827,13 @@ static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
-int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) {
+// Helper for commands that use uniqueStringsReducer to merge results from shards.
+// Used by FT.TAGVALS and FT.ALIASLIST.
+static int UniqueStringsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                       int min_argc) {
+  if (argc < min_argc) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
-    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -3846,39 +3848,18 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
   MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
   return REDISMODULE_OK;
 }
 
-// Handler for FT.ALIASLIST in cluster mode - merges alias arrays from all shards
+int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return UniqueStringsCommandHandler(ctx, argv, argc, 3);
+}
+
 int AliasListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  } else if (!SearchCluster_Ready()) {
-    // Check that the cluster state is valid
-    return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-  RS_AutoMemory(ctx);
-
-  VERIFY_ACL(ctx, argv[1])
-
-  if (NumShards == 1) {
-    return genericCallUnderscoreVariant(ctx, argv, argc);
-  } else if (cannotBlockCtx(ctx)) {
-    return ReplyBlockDeny(ctx, argv[0]);
-  }
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
-  MRCommand_SetPrefix(&cmd, "_FT");
-
-  // Use uniqueStringsReducer to merge and deduplicate alias lists from all shards
-  MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
-  return REDISMODULE_OK;
+  return UniqueStringsCommandHandler(ctx, argv, argc, 2);
 }
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
