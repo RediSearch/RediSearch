@@ -472,8 +472,6 @@ void RLookup_Cleanup(RLookup *l);
  */
 void RLookupKey_Free(RLookupKey *k);
 
-int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
-
 /**
  * Find a key in the lookup table by name. Returns NULL if not found.
  */
@@ -487,7 +485,7 @@ RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uin
 /**
  * Set the path of a RLookupKey.
  */
-void RLookupKey_SetPath(RLookupKey *key, const char *path);
+inline void RLookupKey_SetPath(RLookupKey *key, const char *path);
 
 
 /**
@@ -532,6 +530,8 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 }
 #endif
 
+// Must be included after all type definitions above, as rlookup_load.h
+// uses types defined in this file.
 #include "rlookup_load.h"
 
 #endif
