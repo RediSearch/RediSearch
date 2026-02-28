@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rlookup_load.h"
+#include "json.h"
 #include "module.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
