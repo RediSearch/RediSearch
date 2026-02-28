@@ -455,16 +455,6 @@ typedef struct {
 } RLookupLoadOptions;
 
 /**
- * Attempt to load a document into the row. The document's fields are placed into
- * their corresponding slots.
- *
- * @param lt Lookup table. Contains the keys to load.
- * @param dst row that should contain the data
- * @param options options controlling the load process
- */
-int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
-
-/**
  * Sets the `IndexSpecCache` of the lookup. If cache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent
  */
@@ -482,12 +472,22 @@ void RLookup_Cleanup(RLookup *l);
  */
 void RLookupKey_Free(RLookupKey *k);
 
-/**
- * Initialize the lookup with fields from hash.
- */
-int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr, QueryError *status);
-
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
+
+/**
+ * Find a key in the lookup table by name. Returns NULL if not found.
+ */
+RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len);
+
+/**
+ * Allocate a new RLookupKey and add it to the RLookup table.
+ */
+RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags);
+
+/**
+ * Set the path of a RLookupKey.
+ */
+void RLookupKey_SetPath(RLookupKey *key, const char *path);
 
 
 /**
@@ -528,11 +528,10 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
                                RLookupRow *destRow, RLookup *destLookup,
                                bool createMissingKeys);
 
-// exposed to be called from Rust, was inline before that.
-int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
-
 #ifdef __cplusplus
 }
 #endif
+
+#include "rlookup_load.h"
 
 #endif
