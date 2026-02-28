@@ -73,7 +73,7 @@ static inline void RLookupKey_MergeFlags(RLookupKey* key, uint32_t flags) {
     key->_flags |= flags;
 }
 
-inline void RLookupKey_SetPath(RLookupKey* key, const char * path) {
+void RLookupKey_SetPath(RLookupKey* key, const char * path) {
     key->_path = path;
 }
 

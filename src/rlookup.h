@@ -485,7 +485,7 @@ RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uin
 /**
  * Set the path of a RLookupKey.
  */
-inline void RLookupKey_SetPath(RLookupKey *key, const char *path);
+void RLookupKey_SetPath(RLookupKey *key, const char *path);
 
 
 /**
