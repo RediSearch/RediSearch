@@ -4668,6 +4668,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", SetFtSpellcheckInfo,         SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
     DEFINE_COMMAND("FT.HYBRID",     SafeCmd(DistHybridCommand),        "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.CURSOR",     NULL,                              "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.ALIASLIST",  SafeCmd(AliasListCommandHandler),  "readonly", SetFtAliaslistInfo,          SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
   };
   if (CreateSearchCommands(ctx, readCommands, sizeof(readCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -4690,7 +4691,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT.ALIASLIST",     SafeCmd(AliasListCommandHandler),                        "readonly",       SetFtAliaslistInfo,             SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.CONFIG",         NULL,                                                    "readonly",       RegisterCoordConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                !isClusterEnabled,   noKeyArgs, false),
 
