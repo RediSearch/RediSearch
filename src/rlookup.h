@@ -530,8 +530,4 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 }
 #endif
 
-// Must be included after all type definitions above, as rlookup_load.h
-// uses types defined in this file.
-#include "rlookup_load.h"
-
 #endif
