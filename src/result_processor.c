@@ -2662,6 +2662,7 @@ typedef struct {
   size_t cur_idx;                  // Current index for yielding results
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
+  rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
 } RPDepleter;
 
 /**
@@ -2673,6 +2674,10 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   SearchResult *r = rm_calloc(1, sizeof(*r));
   *r = SearchResult_New();
 
+  // Track depletion time for profiling
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
+
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
@@ -2680,6 +2685,9 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     *r = SearchResult_New();
     self->depleted_results++;
   }
+
+  // Record depletion time
+  self->depletionTime = rs_wall_clock_elapsed_ns(&start);
 
   SearchResult_Destroy(r);
   rm_free(r);
@@ -2746,4 +2754,48 @@ ResultProcessor *RPDepleter_New() {
   ret->base.type = RP_DEPLETER;
   ret->depleted_results = 0;
   return &ret->base;
+}
+
+/**
+ * Starts depletion for the depleter without consuming any results.
+ * @param base The depleter processor (must be RP_DEPLETER type)
+ */
+void RPDepleter_StartDepletion(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+
+  // Deplete all results from upstream
+  RPDepleter_Deplete(self);
+
+  // Switch to yield mode so subsequent Next() calls return buffered results
+  self->base.Next = RPDepleter_Next_Yield;
+}
+
+/**
+ * Get the depletion time for RPDepleter.
+ */
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+  return self->depletionTime;
+}
+
+/**
+ * Triggers depletion for all depleters in the array.
+ * @param depleters Array of depleter processors (must be RP_DEPLETER type)
+ * @return RS_RESULT_OK if all depleters completed successfully,
+ *         RS_RESULT_TIMEDOUT if any depleter timed out,
+ *         RS_RESULT_ERROR if any depleter encountered an error
+ */
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  int result = RS_RESULT_OK;
+  for (size_t i = 0; i < array_len(depleters); i++) {
+    RPDepleter_StartDepletion(depleters[i]);
+    RPDepleter *depleter = (RPDepleter *)depleters[i];
+    // Check if this depleter encountered an error during depletion
+    if (depleter->last_rc == RS_RESULT_TIMEDOUT) {
+      result = RS_RESULT_TIMEDOUT;
+    } else if (depleter->last_rc == RS_RESULT_ERROR && result != RS_RESULT_TIMEDOUT) {
+      result = RS_RESULT_ERROR;
+    }
+  }
+  return result;
 }
