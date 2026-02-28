@@ -1128,7 +1128,8 @@ static int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -1765,7 +1766,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_ALIASUPDATE,         AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALIASDEL,            AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALIASDEL_IF_EX,      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALIASLIST,           AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALIASLIST,           AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, true),
 
     // Suggestion commands key specs should be 1, 1, 1
     DEFINE_COMMAND(RS_SUGADD_CMD,     RSSuggestAddCommand,    "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),

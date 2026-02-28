@@ -3780,8 +3780,8 @@ def testAliasList(env):
     env.expect('ft.aliaslist', 'nonexistent').error().contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent')
 
     # Error on alias name (not index name) - aliases cannot be used
-    # The local handler resolves the alias and returns a different error
-    env.expect('ft.aliaslist', 'alias2').error().contains('Unknown index name')
+    # The INDEXSPEC_LOAD_NOALIAS flag ensures we only accept actual index names
+    env.expect('ft.aliaslist', 'alias2').error().contains('SEARCH_INDEX_NOT_FOUND Index not found: alias2')
 
 def testEmptyDoc(env):
     conn = getConnectionByEnv(env)
