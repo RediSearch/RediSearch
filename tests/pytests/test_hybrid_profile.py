@@ -9,7 +9,8 @@ search_result_processors = [
     ['Type', 'Index', 'Results processed', ANY],
     ['Type', 'Scorer', 'Results processed', ANY],
     ['Type', 'Sorter', 'Results processed', ANY],
-    ['Type', 'Loader', 'Results processed', ANY]
+    ['Type', 'Loader', 'Results processed', ANY],
+    ['Type', 'Depleter', 'Results processed', ANY],
 ]
 
 search_result_processors_background_depletion = [
@@ -50,7 +51,8 @@ expected_shard_standalone_profile = [[
             ['Type', 'Index', 'Results processed', ANY],
             ['Type', 'Metrics Applier', 'Results processed', ANY],
             ['Type', 'Vector Normalizer', 'Results processed', ANY],
-            ['Type', 'Loader', 'Results processed', ANY]
+            ['Type', 'Loader', 'Results processed', ANY],
+            ['Type', 'Depleter', 'Results processed', ANY]
         ]
     ]
 ]]
@@ -165,7 +167,8 @@ query_and_profile = [
                     ['Type', 'Metrics Applier', 'Results processed', ANY],
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY]
+                    ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ]
         ],
@@ -245,6 +248,7 @@ query_and_profile = [
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ],
             'VSIM',
@@ -265,7 +269,8 @@ query_and_profile = [
                     ['Type', 'Vector Normalizer', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
                     # Additional loader for LOAD *
-                    ['Type', 'Loader', 'Results processed', ANY]
+                    ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ]
         ],
@@ -358,7 +363,8 @@ query_and_profile = [
                     ['Type', 'Metrics Applier', 'Results processed', ANY],
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Vector Normalizer', 'Results processed', ANY],
-                    ['Type', 'Loader', 'Results processed', ANY]
+                    ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ]
         ],
@@ -428,6 +434,7 @@ query_and_profile = [
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ],
             'VSIM',
@@ -448,6 +455,7 @@ query_and_profile = [
                     ['Type', 'Vector Normalizer', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ]
         ],
@@ -521,7 +529,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 2],
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Loader', 'Results processed', 2]
+                    ['Type', 'Loader', 'Results processed', 2],
+                    ['Type', 'Depleter', 'Results processed', 2]
                 ]
             ],
             'VSIM',
@@ -535,7 +544,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 4],
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
-                    ['Type', 'Loader', 'Results processed', 4]
+                    ['Type', 'Loader', 'Results processed', 4],
+                    ['Type', 'Depleter', 'Results processed', 4]
                 ]
             ]
         ]],
@@ -599,6 +609,7 @@ query_and_profile = [
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ],
             'VSIM',
@@ -618,6 +629,7 @@ query_and_profile = [
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Vector Normalizer', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ]
         ],
@@ -684,7 +696,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 2],
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
-                    ['Type', 'Loader', 'Results processed', 2]
+                    ['Type', 'Loader', 'Results processed', 2],
+                    ['Type', 'Depleter', 'Results processed', 2]
                 ]
             ],
             'VSIM',
@@ -698,7 +711,8 @@ query_and_profile = [
                     ['Type', 'Index', 'Results processed', 4],
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
-                    ['Type', 'Loader', 'Results processed', 4]
+                    ['Type', 'Loader', 'Results processed', 4],
+                    ['Type', 'Depleter', 'Results processed', 4]
                 ]
             ]
         ]],
@@ -755,6 +769,7 @@ query_and_profile = [
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ],
             'VSIM',
@@ -774,6 +789,7 @@ query_and_profile = [
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Vector Normalizer', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
+                    ['Type', 'Depleter', 'Results processed', ANY]
                 ]
             ]
         ],

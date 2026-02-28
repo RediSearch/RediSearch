@@ -298,6 +298,31 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(ResultProcessor *rp);
 ResultProcessor *RPDepleter_New();
 
 /**
+* Starts depletion for the depleter without consuming any results.
+* This is used for foreground depletion in WORKERS == 0 mode to pre-fill
+* the buffer while the spec lock is held.
+* @param depleter The depleter processor (must be RP_DEPLETER type)
+*/
+void RPDepleter_StartDepletion(ResultProcessor *depleter);
+
+/**
+* Get the depletion time for RPDepleter.
+* This is the time spent depleting upstream results synchronously.
+* @param depleter The depleter processor (must be RP_DEPLETER type)
+* @return The depletion time in nanoseconds
+*/
+rs_wall_clock_ns_t RPDepleter_GetDepletionTime(ResultProcessor *depleter);
+
+/**
+* Triggers depletion for all depleters in the array.
+* @param depleters Array of depleter processors (must be RP_DEPLETER type)
+* @return RS_RESULT_OK if all depleters completed successfully,
+*         RS_RESULT_TIMEDOUT if any depleter timed out,
+*         RS_RESULT_ERROR if any depleter encountered an error
+*/
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
+
+/**
 * Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
 * @param safeDepleters Array of safe depleter processors
 * @param count Number of safe depleter processors in the array
