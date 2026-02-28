@@ -1101,10 +1101,11 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
-    // Add back the previous index. this shouldn't fail
+    // Add back the previous index. This shouldn't fail - use INDEXALIAS_NO_LIMIT_CHECK
+    // to bypass the alias limit during rollback to ensure we restore the original state
     if (spOrig) {
       QueryError e2 = QueryError_Default();
-      IndexAlias_Add(alias, Orig_ref, 0, &e2);
+      IndexAlias_Add(alias, Orig_ref, INDEXALIAS_NO_LIMIT_CHECK, &e2);
       QueryError_ClearError(&e2);
     }
     rc = QueryError_ReplyAndClear(ctx, &status);
@@ -1137,7 +1138,8 @@ static int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   size_t count = array_len(sp->aliases);
-  RedisModule_ReplyWithArray(ctx, count);
+  // Use Set for RESP3 consistency with the documentation and cluster-mode handler
+  RedisModule_ReplyWithSet(ctx, count);
   for (size_t i = 0; i < count; i++) {
     size_t len;
     const char *alias = HiddenString_GetUnsafe(sp->aliases[i], &len);
