@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "redismodule.h"
+
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
