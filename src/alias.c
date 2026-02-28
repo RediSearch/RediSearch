@@ -42,7 +42,7 @@ static int AliasTable_Add(AliasTable *table, const HiddenString *alias, StrongRe
   // Skip this check during RDB loading or rollback operations to preserve data integrity
   if (!(options & INDEXALIAS_NO_LIMIT_CHECK)) {
     size_t currentAliasCount = array_len(spec->aliases);
-    if ((long long)currentAliasCount >= RSGlobalConfig.maxAliasesPerIndex) {
+    if (currentAliasCount >= MAX_ALIASES_PER_INDEX) {
       QueryError_SetError(error, QUERY_ERROR_CODE_ALIAS_LIMIT_EXCEEDED, "Maximum number of aliases per index exceeded");
       return REDISMODULE_ERR;
     }
