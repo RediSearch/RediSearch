@@ -192,6 +192,8 @@ typedef struct {
   uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // Limit the number of aliases that can be created for a single index
+  long long maxAliasesPerIndex;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
@@ -311,6 +313,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
+#define DEFAULT_MAX_ALIASES_PER_INDEX 100
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define DEFAULT_MAX_CURSOR_IDLE 300000
@@ -388,6 +391,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
+    .maxAliasesPerIndex = DEFAULT_MAX_ALIASES_PER_INDEX,                       \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \

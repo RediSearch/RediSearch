@@ -543,6 +543,26 @@ int SetFtAliasdelInfo(RedisModuleCommand *cmd) {
   return RedisModule_SetCommandInfo(cmd, &info);
 }
 
+// Info for FT.ALIASLIST
+int SetFtAliaslistInfo(RedisModuleCommand *cmd) {
+  const RedisModuleCommandInfo info = {
+    .version = REDISMODULE_COMMAND_INFO_VERSION,
+    .summary = "Lists all aliases for the index",
+    .complexity = "O(N) where N is the number of aliases",
+    .args = (RedisModuleCommandArg[]){
+      {
+        .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
+        .type = REDISMODULE_ARG_TYPE_STRING,
+      },
+      {0}
+    },
+    .arity = 2,
+    .since = "2.12.0",
+  };
+  return RedisModule_SetCommandInfo(cmd, &info);
+}
+
 // Info for FT.TAGVALS
 int SetFtTagvalsInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {

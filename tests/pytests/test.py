@@ -3757,6 +3757,32 @@ def testAliasAddIfNX(env):
 def testAliasDelIfX(env):
     env.expect('FT._ALIASDELIFX a1').ok()
 
+def testAliasList(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'text')
+
+    # No aliases initially
+    env.expect('ft.aliaslist', 'idx').equal([])
+
+    # Add some aliases
+    env.cmd('ft.aliasAdd', 'alias1', 'idx')
+    env.cmd('ft.aliasAdd', 'alias2', 'idx')
+
+    # List should contain both aliases
+    res = env.cmd('ft.aliaslist', 'idx')
+    env.assertEqual(sorted(res), sorted(['alias1', 'alias2']))
+
+    # Delete one alias
+    env.cmd('ft.aliasDel', 'alias1')
+    env.expect('ft.aliaslist', 'idx').equal(['alias2'])
+
+    # Error on non-existent index
+    env.expect('ft.aliaslist', 'nonexistent').error().contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent')
+
+    # Error on alias name (not index name) - aliases cannot be used
+    # The local handler resolves the alias and returns a different error
+    env.expect('ft.aliaslist', 'alias2').error().contains('Unknown index name')
+
 def testEmptyDoc(env):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE idx SCHEMA t TEXT').ok()

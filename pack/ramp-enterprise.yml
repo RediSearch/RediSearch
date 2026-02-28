@@ -45,6 +45,7 @@ exclude_commands:
     - FT._ALTERIFNX
     - FT._ALIASADDIFNX
     - FT._ALIASDELIFX
+    - FT.ALIASLIST
     - _FT.CONFIG
     - _FT.DEBUG
     - _FT.PROFILE

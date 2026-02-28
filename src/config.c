@@ -63,6 +63,7 @@ configPair_t __configPairs[] = {
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"MAX_ALIASES_PER_INDEX",           "search-max-aliases-per-index"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
   {"MAXDOCTABLESIZE",                 "search-max-doctablesize"},
   {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
@@ -1106,6 +1107,17 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
+// MAX_ALIASES_PER_INDEX
+CONFIG_SETTER(setMaxAliasesPerIndex) {
+  int acrc = AC_GetLongLong(ac, &config->maxAliasesPerIndex, AC_F_GE1);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getMaxAliasesPerIndex) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->maxAliasesPerIndex);
+}
+
 // ENABLE_UNSTABLE_FEATURES
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
@@ -1479,6 +1491,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Max number of cursors for a given index that can be opened inside of a shard. Default is 128",
          .setValue = setIndexCursorLimit,
          .getValue = getIndexCursorLimit},
+        {.name = "MAX_ALIASES_PER_INDEX",
+         .helpText = "Max number of aliases that can be created for a single index. Default is 100",
+         .setValue = setMaxAliasesPerIndex,
+         .getValue = getMaxAliasesPerIndex},
         {.name = "NO_MEM_POOLS",
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,
@@ -1923,6 +1939,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.indexCursorLimit)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-max-aliases-per-index", DEFAULT_MAX_ALIASES_PER_INDEX,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.maxAliasesPerIndex)
     )
   )
 

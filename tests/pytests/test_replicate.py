@@ -380,6 +380,7 @@ def test_WriteCommandsOnReplica():
     ['FT.SPELLCHECK', 'idx', 'held' ],
     ['FT.SUGGET', 'h:sug{3}', 'hello'],
     ['FT.SUGLEN', 'h:sug{3}'],
+    ['FT.ALIASLIST', 'idx'],
   ]
 
   # Run read and write commands on the master - should not raise RO exception

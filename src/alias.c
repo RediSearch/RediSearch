@@ -8,6 +8,7 @@
 */
 #include "alias.h"
 #include "spec.h"
+#include "config.h"
 #include "util/dict.h"
 #include "rmutil/rm_assert.h"
 
@@ -36,6 +37,14 @@ static int AliasTable_Add(AliasTable *table, const HiddenString *alias, StrongRe
   // look up and see if it exists:
   dictEntry *e, *existing = NULL;
   IndexSpec *spec = StrongRef_Get(spec_ref);
+
+  // Check if we've reached the maximum number of aliases for this index
+  size_t currentAliasCount = array_len(spec->aliases);
+  if ((long long)currentAliasCount >= RSGlobalConfig.maxAliasesPerIndex) {
+    QueryError_SetError(error, QUERY_ERROR_CODE_ALIAS_LIMIT_EXCEEDED, "Maximum number of aliases per index exceeded");
+    return REDISMODULE_ERR;
+  }
+
   e = dictAddRaw(table->d, (void *)alias, &existing);
   if (existing) {
     QueryError_SetError(error, QUERY_ERROR_CODE_INDEX_EXISTS, "Alias already exists");
