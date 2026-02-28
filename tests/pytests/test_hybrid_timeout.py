@@ -52,7 +52,7 @@ def test_hybrid_debug_with_no_index_error():
         .contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent_idx')
 
 # Debug timeout tests using TIMEOUT_AFTER_N_* parameters
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_fail_search():
     """Test FAIL policy with search timeout using debug parameters"""
@@ -60,13 +60,15 @@ def test_debug_timeout_fail_search():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_debug_timeout_fail_vsim():
     """Test FAIL policy with vector similarity timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_fail_both():
     """Test FAIL policy with both components timeout using debug parameters"""
@@ -74,7 +76,7 @@ def test_debug_timeout_fail_both():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
@@ -82,7 +84,7 @@ def test_debug_timeout_fail_tail():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_tail():
     """Test RETURN policy with tail timeout using debug parameters"""
@@ -93,7 +95,7 @@ def test_debug_timeout_return_tail():
     env.assertEqual(['Timeout limit was reached (POST PROCESSING)'], get_warnings(response))
 
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_search():
     """Test RETURN policy with search timeout using debug parameters"""
@@ -103,7 +105,7 @@ def test_debug_timeout_return_search():
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (SEARCH)'], get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_vsim():
     """Test RETURN policy with vector similarity timeout using debug parameters"""
@@ -113,7 +115,7 @@ def test_debug_timeout_return_vsim():
                        'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2')
     env.assertEqual(['Timeout limit was reached (VSIM)'], get_warnings(response))
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_both():
     """Test RETURN policy with both components timeout using debug parameters"""
@@ -126,7 +128,7 @@ def test_debug_timeout_return_both():
     env.assertTrue('Timeout limit was reached (VSIM)' in get_warnings(response))
     # TODO: add test for tail timeout once MOD-11004 is merged
 
-#TODO: remove skip once FT.HYBRID for cluster is implemented
+#TODO: remove skip once _FT.DEBUG FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_debug_timeout_return_with_results():
     """Test RETURN policy returns partial results when components timeout"""

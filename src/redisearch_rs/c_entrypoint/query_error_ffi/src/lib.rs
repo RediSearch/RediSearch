@@ -462,14 +462,10 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
     const OUT_OF_MEMORY_SHARD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryShard.to_c_str();
 
     // FT.HYBRID specific warning constants (with subquery source)
-    const TIMED_OUT_SEARCH_CSTR: &CStr = QueryWarningCode::TimedOutSearch.to_c_str();
-    const TIMED_OUT_VSIM_CSTR: &CStr = QueryWarningCode::TimedOutVsim.to_c_str();
     const REACHED_MAX_PREFIX_EXPANSIONS_SEARCH_CSTR: &CStr =
         QueryWarningCode::ReachedMaxPrefixExpansionsSearch.to_c_str();
     const REACHED_MAX_PREFIX_EXPANSIONS_VSIM_CSTR: &CStr =
         QueryWarningCode::ReachedMaxPrefixExpansionsVsim.to_c_str();
-    const OUT_OF_MEMORY_SEARCH_CSTR: &CStr = QueryWarningCode::OutOfMemorySearch.to_c_str();
-    const OUT_OF_MEMORY_VSIM_CSTR: &CStr = QueryWarningCode::OutOfMemoryVsim.to_c_str();
 
     // Safety: see safety requirement above.
     let message = unsafe { CStr::from_ptr(message) };
@@ -485,18 +481,10 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::OutOfMemoryShard
     }
     // Check FT.HYBRID specific warnings
-    else if message == TIMED_OUT_SEARCH_CSTR {
-        QueryWarningCode::TimedOutSearch
-    } else if message == TIMED_OUT_VSIM_CSTR {
-        QueryWarningCode::TimedOutVsim
-    } else if message == REACHED_MAX_PREFIX_EXPANSIONS_SEARCH_CSTR {
+    else if message == REACHED_MAX_PREFIX_EXPANSIONS_SEARCH_CSTR {
         QueryWarningCode::ReachedMaxPrefixExpansionsSearch
     } else if message == REACHED_MAX_PREFIX_EXPANSIONS_VSIM_CSTR {
         QueryWarningCode::ReachedMaxPrefixExpansionsVsim
-    } else if message == OUT_OF_MEMORY_SEARCH_CSTR {
-        QueryWarningCode::OutOfMemorySearch
-    } else if message == OUT_OF_MEMORY_VSIM_CSTR {
-        QueryWarningCode::OutOfMemoryVsim
     } else {
         QueryWarningCode::Ok
     }

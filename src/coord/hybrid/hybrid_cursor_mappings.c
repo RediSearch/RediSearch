@@ -271,32 +271,6 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards,
                         QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[VECTOR_INDEX]);
                     }
                     break;
-                // Timeout warnings
-                case QUERY_WARNING_CODE_TIMED_OUT_SEARCH:
-                    isWarning = true;
-                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
-                        hreq->subqueriesReturnCodes[SEARCH_INDEX] = RS_RESULT_TIMEDOUT;
-                    }
-                    break;
-                case QUERY_WARNING_CODE_TIMED_OUT_VSIM:
-                    isWarning = true;
-                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
-                        hreq->subqueriesReturnCodes[VECTOR_INDEX] = RS_RESULT_TIMEDOUT;
-                    }
-                    break;
-                // OOM warnings
-                case QUERY_WARNING_CODE_OUT_OF_MEMORY_SEARCH:
-                    isWarning = true;
-                    if (hreq && SEARCH_INDEX < (int)hreq->nrequests) {
-                        QueryError_SetQueryOOMWarning(&hreq->errors[SEARCH_INDEX]);
-                    }
-                    break;
-                case QUERY_WARNING_CODE_OUT_OF_MEMORY_VSIM:
-                    isWarning = true;
-                    if (hreq && VECTOR_INDEX < (int)hreq->nrequests) {
-                        QueryError_SetQueryOOMWarning(&hreq->errors[VECTOR_INDEX]);
-                    }
-                    break;
                 case QUERY_WARNING_CODE_OK:
                 default:
                     // Not a known warning, will be treated as error below
