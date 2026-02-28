@@ -441,9 +441,9 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 /// This supports the following warning codes:
 /// - [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
 ///   [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`]
-/// - FT.HYBRID specific: [`QueryWarningCode::TimedOutSearch`], [`QueryWarningCode::TimedOutVsim`],
-///   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`], [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`],
-///   [`QueryWarningCode::OutOfMemorySearch`], [`QueryWarningCode::OutOfMemoryVsim`]
+/// - FT.HYBRID specific:
+///   [`QueryWarningCode::ReachedMaxPrefixExpansionsSearch`],
+///   [`QueryWarningCode::ReachedMaxPrefixExpansionsVsim`],
 ///
 /// If another message is provided, [`QueryWarningCode::Ok`] is returned.
 ///
