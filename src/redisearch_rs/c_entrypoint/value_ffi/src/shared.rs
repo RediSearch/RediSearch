@@ -26,8 +26,7 @@ use value::{
 /// - (3) `str` must point to a valid, C string with a length of at most `u32::MAX` bytes;
 /// - (4) `str` must not be aliased.
 /// - (5) `str` must point to a location allocated using `rm_alloc`
-/// - (6) `RedisModule_Alloc` must not be mutated for the lifetime of the
-///   `OpaqueRsValue`.
+/// - (6) `RedisModule_Alloc` must not be mutated for the lifetime of the `RsValue`.
 ///
 /// @param str The string to wrap (ownership is transferred)
 /// @param len The length of the string
