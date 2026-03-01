@@ -153,7 +153,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     ASSERT_TRUE(io != nullptr);
 
     // Save all indexes to RDB using existing function (while spec is still in globals)
-    IndexSpec_RdbSave(io, spec, false);
+    IndexSpec_RdbSave(io, spec, 0);
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Reset read position to load it back
@@ -283,7 +283,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
     // Then write the index 30 times
     for (int i = 0; i < 30; i++) {
-        IndexSpec_RdbSave(io, spec, false);
+        IndexSpec_RdbSave(io, spec, 0);
     }
     EXPECT_EQ(0, RMCK_IsIOError(io));
 

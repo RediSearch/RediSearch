@@ -102,8 +102,7 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
 /**
  * Checks if SST persistence is enabled for the given RDB context.
  */
-bool CheckRdbSstPersistence(RedisModuleIO *rdb, const char* prefix) {
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+bool CheckRdbSstPersistence(RedisModuleCtx *ctx, const char* prefix) {
   const bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   RedisModule_Log(ctx, "notice", "%s, SST persistence: %s", prefix, useSst ? "true" : "false");
   return useSst;
@@ -3193,7 +3192,7 @@ void Indexes_ScanAndReindex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, bool useSst) {
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // Save the name plus the null terminator
   HiddenString_SaveToRdb(sp->specName, rdb);
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
@@ -3224,24 +3223,26 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, bool useSst) {
     RedisModule_SaveUnsigned(rdb, 0);
   }
 
+  const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
   // Disk index
   // Check if we are using SST files with this RDB. If so, we save the disk-related
   // RAM-based data-structures to the RDB.
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
-  if (sp->diskSpec && useSst) {
+  if (sp->diskSpec && storeDiskRdbData) {
     // If we're saving from the main process (not a fork), we need to acquire
     // the read lock to ensure consistent access to the data structures.
     // In a forked child process, the memory is a snapshot so no lock is needed.
-    bool inFork = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_IS_CHILD;
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-    if (!inFork) {
+    const bool shouldTakeSpecLock = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD); 
+    if (shouldTakeSpecLock) {
       RedisSearchCtx_LockSpecRead(&sctx);
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
-    if (!inFork) {
+    if (shouldTakeSpecLock) {
       RedisSearchCtx_UnlockSpec(&sctx);
     }
   }
@@ -3547,7 +3548,7 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 }
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
-  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Load");
+  const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load");
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return REDISMODULE_ERR;
@@ -3578,8 +3579,8 @@ cleanup:
 }
 
 void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
-
-  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Save");
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  const int contextFlags = RedisModule_GetContextFlags(ctx);
 
   RedisModule_SaveUnsigned(rdb, dictSize(specDict_g));
 
@@ -3588,7 +3589,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    IndexSpec_RdbSave(rdb, sp, useSst);
+    IndexSpec_RdbSave(rdb, sp, contextFlags);
   }
 
   dictReleaseIterator(iter);
@@ -3601,7 +3602,7 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
 }
 
 void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
-  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Load Logic");
+  const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
   if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
     // Legacy index, loaded in order to upgrade from an old version
     return IndexSpec_LegacyRdbLoad(rdb, encver);
@@ -3682,8 +3683,9 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
-  const bool useSst = CheckRdbSstPersistence(rdb, "RDB Save Wrapper");
-  IndexSpec_RdbSave(rdb, value, useSst);
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  const int contextFlags = RedisModule_GetContextFlags(ctx);
+  IndexSpec_RdbSave(rdb, value, contextFlags);
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
