@@ -18,24 +18,7 @@ import time
 
 import pytest
 
-
-def create_float32_vector(values: list[float]) -> bytes:
-    """Create a FLOAT32 vector as bytes."""
-    return struct.pack(f'{len(values)}f', *values)
-
-
-def get_vecsim_info(conn, index_name, field_name):
-    """Get vector index info as a dictionary."""
-    info = conn.execute_command('_FT.DEBUG', 'VECSIM_INFO', index_name, field_name)
-    # Convert list of key-value pairs to dict
-    result = {}
-    for i in range(0, len(info), 2):
-        key = info[i].decode() if isinstance(info[i], bytes) else info[i]
-        value = info[i + 1]
-        if isinstance(value, bytes):
-            value = value.decode()
-        result[key] = value
-    return result
+from vecsim_common import create_float32_vector, get_vecsim_info
 
 
 def test_create_hnsw_disk_index(redis_env):

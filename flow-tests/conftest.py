@@ -35,6 +35,10 @@ def pytest_configure(config):
 
     These defaults are used by Env() when creating Redis test environments.
     """
+    # Register custom markers
+    config.addinivalue_line(
+        "markers", "module_args(args): pass custom module arguments to Redis"
+    )
     # Set RLTest module path
     module_path = os.getenv('RLTEST_MODULE')
     if module_path:
@@ -80,6 +84,12 @@ def redis_env(request):
     Each test gets its own subdirectory in the logs folder, ensuring complete
     isolation even when running tests in parallel.
 
+    Custom module arguments can be passed using the @pytest.mark.module_args marker:
+
+        @pytest.mark.module_args('WORKERS 2 TIERED_HNSW_BUFFER_LIMIT 10')
+        def test_with_custom_args(redis_env):
+            ...
+
     Raises:
         Exception: If the Redis environment fails to start, is not healthy,
                    or crashes during the test execution
@@ -120,6 +130,10 @@ def redis_env(request):
         f.write('enable-module-command yes\n') # Required for `MODULE ..` commands
         redis_config_file = f.name
 
+    # Check for custom module arguments via @pytest.mark.module_args marker
+    module_args_marker = request.node.get_closest_marker('module_args')
+    module_args = module_args_marker.args[0] if module_args_marker else None
+
     env = None
     try:
         # Create RLTest environment with defaults set in pytest_configure
@@ -128,7 +142,13 @@ def redis_env(request):
         # This ensures each test has its own redisearch database directory
         # and prevents conflicts when running tests in parallel
         # RLTest will use test_log_dir as the cwd when spawning Redis processes
-        env = Env(testName=test_name, redisConfigFile=redis_config_file, logDir=str(test_log_dir), decodeResponses=True)
+        env = Env(
+            testName=test_name,
+            redisConfigFile=redis_config_file,
+            logDir=str(test_log_dir),
+            decodeResponses=True,
+            moduleArgs=module_args
+        )
 
         # Verify the environment is up and healthy
         if not env.isUp():

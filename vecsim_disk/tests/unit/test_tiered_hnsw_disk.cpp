@@ -11,6 +11,7 @@
 #include "test_utils.h"
 #include "tests_utils.h"      // VectorSimilarity test utilities (populate_float_vec, etc.)
 #include "mock_thread_pool.h" // VectorSimilarity's tieredIndexMock
+#include "mock_job_queue.h"   // Shared mock job queue for tiered disk tests
 #include "vecsim_disk_api.h"
 #include "algorithms/hnsw/hnsw_disk_tiered.h"
 #include "factory/components/disk_calculator.h"
@@ -26,77 +27,7 @@
 using namespace test_utils;
 using sq8 = vecsim_types::sq8;
 
-// Shared mock job queue for all tiered HNSW disk tests
-struct MockJobQueue {
-    std::vector<AsyncJob*> jobs;
-    mutable std::recursive_mutex jobs_mutex;
-
-    void submitJob(AsyncJob* job) {
-        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
-        jobs.push_back(job);
-    }
-
-    void submitJobs(const std::vector<AsyncDiskJob*>& job_list) {
-        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
-        for (auto* job : job_list) {
-            jobs.push_back(job);
-        }
-    }
-
-    size_t size() const {
-        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
-        return jobs.size();
-    }
-
-    AsyncJob* getJob(size_t index) {
-        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
-        return (index < jobs.size()) ? jobs[index] : nullptr;
-    }
-
-    AsyncJob* getLastJob() {
-        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
-        return jobs.empty() ? nullptr : jobs.back();
-    }
-
-    void clear() {
-        std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
-        jobs.clear();
-    }
-
-    // Execute all pending jobs, draining the queue
-    // Jobs submitted during execution (e.g., repair jobs from inserts) are also executed
-    void executeAll() {
-        while (true) {
-            AsyncJob* job = nullptr;
-            {
-                std::lock_guard<std::recursive_mutex> lock(jobs_mutex);
-                if (jobs.empty()) {
-                    break;
-                }
-                job = jobs.front();
-                jobs.erase(jobs.begin());
-            }
-            // Execute without holding lock - allows new jobs to be submitted
-            if (job) {
-                job->Execute(job);
-            }
-        }
-    }
-};
-
 static MockJobQueue mock_queue;
-
-// Static callback function matching SubmitCB signature
-static int mockSubmitCallback(void* job_queue, void* index_ctx, AsyncJob** jobs, JobCallback* CBs, size_t jobs_len) {
-    auto* queue = static_cast<MockJobQueue*>(index_ctx);
-    {
-        std::lock_guard<std::recursive_mutex> lock(queue->jobs_mutex);
-        for (size_t i = 0; i < jobs_len; ++i) {
-            queue->jobs.push_back(jobs[i]);
-        }
-    }
-    return VecSim_OK;
-}
 
 class TieredHNSWDiskTest : public ::testing::Test {
 protected:
@@ -1099,7 +1030,7 @@ TEST_F(TieredHNSWDiskAsyncJobTest, InsertJobConsistencyLockIntegration) {
     EXPECT_EQ(mock_queue.size(), 1);
 
     // Get the insert job from the mock queue
-    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.getLastJob());
+    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.takeLastJob());
     ASSERT_NE(insert_job, nullptr);
     EXPECT_EQ(insert_job->label, 100);
 
@@ -1178,7 +1109,7 @@ TEST_F(TieredHNSWDiskAsyncJobTest, RepairJobNoConsistencyLockIntegration) {
     tiered_index->addVector(vector, 100);
 
     // Get and execute the insert job from the mock queue
-    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.getLastJob());
+    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.takeLastJob());
     ASSERT_NE(insert_job, nullptr);
     insert_job->Execute(insert_job);
 
@@ -1906,7 +1837,7 @@ TEST_F(TieredHNSWDiskAsyncJobTest, DeleteVectorFromHNSW) {
     float vector[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
     EXPECT_EQ(tiered_index->addVector(vector, 100), 1);
 
-    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.getLastJob());
+    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.takeLastJob());
     ASSERT_NE(insert_job, nullptr);
     insert_job->Execute(insert_job);
 
@@ -1963,7 +1894,7 @@ TEST_F(TieredHNSWDiskAsyncJobTest, DeleteVectorIdempotent) {
     float vector[DIM] = {1.0f, 2.0f, 3.0f, 4.0f};
     EXPECT_EQ(tiered_index->addVector(vector, 100), 1);
 
-    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.getLastJob());
+    auto* insert_job = static_cast<InsertDiskJob*>(mock_queue.takeLastJob());
     ASSERT_NE(insert_job, nullptr);
     insert_job->Execute(insert_job);
 

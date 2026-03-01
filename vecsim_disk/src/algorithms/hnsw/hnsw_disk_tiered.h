@@ -14,6 +14,7 @@
 #include "algorithms/hnsw/hnsw_disk.h"
 #include "storage/hnsw_storage.h"
 #include "utils/consistency_lock.h"
+#include "throttle.h"
 #include <algorithm>
 #include <atomic>
 #include <concepts>
@@ -134,7 +135,6 @@ private:
 
     VecSimQueryReply* topKQueryImp(const void* queryBlob, size_t k, VecSimQueryParams* queryParams) const;
 
-public:
     // Custom deleter for pending jobs that auto-submits when ref count reaches 0
     // This is used for jobs like DELETE_FINALIZE that should be submitted when all
     // jobs they're pending on have completed.
@@ -307,6 +307,15 @@ public:
 
             // Remove from flat buffer
             this->frontendIndex->deleteVector(insert_job->label);
+
+            // Disable throttling if flat buffer has space
+            size_t flat_size = this->frontendIndex->indexSize();
+            if (flat_size == this->flatBufferLimit - 1) {
+                TIERED_LOG(VecSimCommonStrings::LOG_DEBUG_STRING,
+                           "executeInsertJob: Flat buffer has space (size=%zu, limit=%zu), disabling throttle",
+                           flat_size, this->flatBufferLimit);
+                VecSimDisk_InvokeDisableThrottle();
+            }
 
             // Allocate ID, store quantized data, register label atomically in HNSW
             internalId =
@@ -539,6 +548,27 @@ public:
             submitted_jobs.clear();
         }
 
+        // If throttle was enabled (buffer is/was full), disable it to balance the global counter.
+        // No lock needed: destructor runs single-threaded after all references are released,
+        // and is_destroyed prevents any concurrent addVector/executeInsertJob operations.
+        //
+        // Use >= for defensive safety: size > limit should never happen because:
+        // 1. addVector() runs on the main thread only and adds one vector at a time
+        // 2. We check == limit immediately after adding, so we can't exceed it
+        // 3. Workers only remove vectors from flat buffer (decreasing size)
+        // If size > limit somehow occurs, it indicates a bug - but we still need to disable.
+        size_t flat_size = this->frontendIndex->indexSize();
+        if (flat_size >= this->flatBufferLimit) {
+            if (flat_size > this->flatBufferLimit) {
+                // This should never happen given the constraints above - log for debugging
+                TIERED_LOG(VecSimCommonStrings::LOG_WARNING_STRING,
+                           "~TieredHNSWDiskIndex: Flat buffer size (%zu) exceeds limit (%zu) - "
+                           "unexpected state, disabling throttle anyway",
+                           flat_size, this->flatBufferLimit);
+            }
+            VecSimDisk_InvokeDisableThrottle();
+        }
+
         // Backend and frontend indices are freed by the base class destructor
         // via VecSimIndex_Free(), which properly saves the allocator before
         // calling delete (avoiding the use-after-free in operator delete).
@@ -610,13 +640,6 @@ template <typename DataType, typename DistType>
 int TieredHNSWDiskIndex<DataType, DistType>::addVector(const void* data, labelType label) {
     auto* hnsw_index = get_hnsw_index();
 
-    // Check if flat buffer is full - for now just log warning (throttling TBD)
-    if (this->frontendIndex->indexSize() >= this->flatBufferLimit) {
-        TIERED_LOG(VecSimCommonStrings::LOG_WARNING_STRING,
-                   "Flat buffer is full (size=%zu, limit=%zu), continuing to add vector",
-                   this->frontendIndex->indexSize(), this->flatBufferLimit);
-    }
-
     assert(!hnsw_index->isMultiValue() && "Multi-value HNSW is not supported for MVP1");
 
     // Step 1: Lock flat buffer and verify no duplicate labels
@@ -628,6 +651,15 @@ int TieredHNSWDiskIndex<DataType, DistType>::addVector(const void* data, labelTy
                "Duplicate label - caller must ensure uniqueness across both indices");
 
         this->frontendIndex->addVector(data, label);
+
+        // Enable throttling if flat buffer is full
+        size_t flat_size = this->frontendIndex->indexSize();
+        if (flat_size == this->flatBufferLimit) {
+            TIERED_LOG(VecSimCommonStrings::LOG_DEBUG_STRING,
+                       "Flat buffer is full (size=%zu, limit=%zu), continuing to add vector", flat_size,
+                       this->flatBufferLimit);
+            VecSimDisk_InvokeEnableThrottle();
+        }
     }
 
     // Step 2: Create InsertDiskJob and submit it
@@ -648,6 +680,14 @@ int TieredHNSWDiskIndex<DataType, DistType>::deleteVector(labelType label) {
         std::unique_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
         if (this->frontendIndex->isLabelExists(label)) {
             this->frontendIndex->deleteVector(label);
+            // Disable throttling if flat buffer has space
+            size_t flat_size = this->frontendIndex->indexSize();
+            if (flat_size == this->flatBufferLimit - 1) {
+                TIERED_LOG(VecSimCommonStrings::LOG_DEBUG_STRING,
+                           "deleteVector: Flat buffer has space (size=%zu, limit=%zu), disabling throttle", flat_size,
+                           this->flatBufferLimit);
+                VecSimDisk_InvokeDisableThrottle();
+            }
             return 1;
         }
     }

@@ -27,3 +27,12 @@ upload-artifacts:
 	@$(ROOT)/deps/RediSearch/sbin/upload-artifacts
 
 .PHONY: upload-artifacts
+
+ifeq ($(TEST),)
+  PYTEST_ARGS :=
+else
+  PYTEST_ARGS := --test $(TEST)
+endif
+
+pytest:
+	@$(BUILD_SCRIPT) test-flow --redis-lib-path /usr/local/lib $(PYTEST_ARGS)
