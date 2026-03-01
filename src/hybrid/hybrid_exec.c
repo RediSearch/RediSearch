@@ -25,6 +25,7 @@
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "info/info_redis/block_client.h"
+#include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
@@ -439,10 +440,24 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     RedisModule_EndReply(reply);
 }
 
+// Try to claim reply ownership, send error reply, and mark as replied.
+// Returns true if we replied, false if someone else owns the reply.
+static inline bool HybridRequest_TryReplyWithError(HybridRequest *req, RedisModuleCtx *ctx, QueryError *status) {
+  if (!HybridRequest_TryClaimReply(req)) {
+    return false;
+  }
+  QueryError_ReplyAndClear(ctx, status);
+  HybridRequest_MarkReplied(req);
+  return true;
+}
+
 int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
     HybridRequest *req = StrongRef_Get(hybrid_ref);
     if (req->nrequests == 0) {
       QueryError_SetError(&req->tailPipelineError, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
+      if (!HybridRequest_TryReplyWithError(req, replyCtx, &req->tailPipelineError)) {
+        QueryError_ClearError(&req->tailPipelineError);
+      }
       return REDISMODULE_ERR;
     }
     // helper array to collect depleters so in async we can deplete them all at once before returning the cursors
@@ -497,7 +512,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         return REDISMODULE_ERR;
       }
     }
-    replyWithCursors(replyCtx, cursors);
+    // Try claiming reply ownership before replying
+    if (HybridRequest_TryClaimReply(req)) {
+      replyWithCursors(replyCtx, cursors);
+    }
     array_free(cursors);
     return REDISMODULE_OK;
 }
@@ -569,6 +587,39 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
   return ret;
 }
 
+// Timeout callback for HybridRequest execution in Run in Threads mode.
+// Called on the main thread when the blocking client times out (FAIL policy only).
+static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!node || !node->privdata) {
+    // Shouldn't happen, but handle gracefully
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    return REDISMODULE_OK;
+  }
+
+  HybridRequest *hreq = (HybridRequest *)node->privdata;
+  // Signal timeout to background thread
+  HybridRequest_SetTimedOut(hreq);
+
+  if (HybridRequest_TryClaimReply(hreq)) {
+    // We claimed it - reply with timeout error
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !(hreq->reqflags & QEXEC_F_INTERNAL));
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    HybridRequest_MarkReplied(hreq);
+  } else {
+    // Background thread owns reply - wait for it to finish if still in progress
+    while (atomic_load_explicit(&hreq->syncCtx.replyState, memory_order_acquire) == ReplyState_Replying) {
+      // Busy wait until background thread transitions to REPLIED
+    }
+  }
+
+  return REDISMODULE_OK;
+}
+
 // Build the pipeline and execute
 // if result is REDISMODULE_OK, the hreq and hybridParams are freed by the function thread
 // otherwise, the caller is responsible for freeing them
@@ -580,10 +631,16 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     // TODO: Dump the entire hreq when explain is implemented
-    // Create a dummy AREQ for BlockQueryClientWithTimeout (it expects an AREQ but we'll use the first one)
-    AREQ *dummy_req = hreq->requests[0];
     // Pass 0 and NULL - no Redis-level timeout for hybrid (for now)
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, dummy_req, 0, NULL);
+    BlockedClientTimeoutCB timeoutCB = NULL;
+    int blockedClientTimeoutMS = 0;
+    // Determine timeout callback based on policy
+    if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+      timeoutCB = HybridQueryTimeoutFailCallback;
+      blockedClientTimeoutMS = hreq->reqConfig.queryTimeoutMS;
+    }
+
+    RedisModuleBlockedClient* blockedClient = BlockHybridQueryClientWithTimeout(ctx, spec_ref, hreq, blockedClientTimeoutMS, timeoutCB);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 
@@ -657,6 +714,17 @@ void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintInFormat(reply, printHybridProfileShards, ctx, printHybridProfileCoordinator, ctx);
 }
 
+// This function should only be called from the main thread (calling RunInThread() is not thread safe)
+// HybridRequest execution flags are not set when this function is called currently
+static bool shouldCheckInPipelineTimeoutHybrid(HybridRequest *hreq) {
+  // We should check for timeout in pipeline only if timeout is > 0
+  // and when the policy is RETURN or the policy is FAIL, without workers.
+  return hreq->reqConfig.queryTimeoutMS > 0 &&
+         (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
+          (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+
+}
+
 /**
  * Main command handler for FT.HYBRID command.
  *
@@ -714,6 +782,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
+  // Check if we should check for timeout in pipeline
+  HybridRequest_SetSkipTimeoutChecks(hybridRequest, !shouldCheckInPipelineTimeoutHybrid(hybridRequest));
+
   // Copy dispatch time to each subquery AREQ for profile printing
   for (size_t i = 0; i < hybridRequest->nrequests; i++) {
     hybridRequest->requests[i]->profileClocks.coordDispatchTime = hybridRequest->profileClocks.coordDispatchTime;
@@ -761,7 +832,6 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   WeakRef_Release(BCHCtx->spec_ref);
   rm_free(BCHCtx);
 }
-
 /**
  * Background execution callback for hybrid requests.
  * This function is called by the worker thread to execute hybrid requests.
@@ -779,8 +849,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
-    QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    QueryError_ReplyAndClear(outctx, &status);
+    if (!HybridRequest_TryReplyWithError(hreq, outctx, &status)) {
+      QueryError_ClearError(&status);
+    }
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientHybridCtx_destroy(BCHCtx);
     return;
@@ -796,7 +867,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
   } else if (QueryError_HasError(&status)) {
-    QueryError_ReplyAndClear(outctx, &status);
+    if (!HybridRequest_TryReplyWithError(hreq, outctx, &status)) {
+      QueryError_ClearError(&status);
+    }
   }
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);

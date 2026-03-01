@@ -16,12 +16,15 @@ extern "C" {
 
 struct IndexSpec;
 struct AREQ;
+struct HybridRequest;
 struct Cursor;
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 
 RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req,
                                                       int timeoutMS, BlockedClientTimeoutCB timeoutCallback);
+RedisModuleBlockedClient* BlockHybridQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, struct HybridRequest* hreq,
+                                                             int timeoutMS, BlockedClientTimeoutCB timeoutCallback);
 RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, Cursor* cursor, size_t count, int timeoutMS);
 
 #ifdef __cplusplus

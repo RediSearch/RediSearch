@@ -12,6 +12,7 @@
 #include "util/references.h"
 #include "query.h"
 #include "aggregate/aggregate.h"
+#include "hybrid/hybrid_request.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
@@ -45,6 +46,31 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   AREQ_IncrRef(req);
   BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &req->ast, req,
                                                     (BlockedQueryNode_FreePrivData)AREQ_DecrRef);
+
+  // Prepare context for the worker thread
+  // Since we are still in the main thread, and we already validated the
+  // spec's existence, it is safe to directly get the strong reference from the spec
+  // found in buildRequest.
+  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, timeoutCallback, FreeQueryNode, timeoutMS);
+  RedisModule_BlockClientSetPrivateData(blockedClient, node);
+  // report block client start time
+  RedisModule_BlockedClientMeasureTimeStart(blockedClient);
+  return blockedClient;
+}
+
+RedisModuleBlockedClient *BlockHybridQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref, HybridRequest *hreq,
+                                                             int timeoutMS, RedisModuleCmdFunc timeoutCallback) {
+  // Assert that if timeoutMS is provided, then timeoutCallback is also provided.
+  RS_ASSERT(timeoutMS == 0 || timeoutCallback != NULL);
+
+  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
+  RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
+  // HybridRequest ownership: shared between blockedClientHybridCtx (background thread) and BlockedQueryNode (timeout callback).
+  // Take a reference for the timeout callback access via node->privdata.
+  // This reference is released in FreeQueryNode via the freePrivData callback after timeout/reply callback completes.
+  HybridRequest_IncrRef(hreq);
+  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &hreq->requests[0]->ast, hreq,
+                                                    (BlockedQueryNode_FreePrivData)HybridRequest_DecrRef);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
