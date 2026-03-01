@@ -206,11 +206,13 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
     goto cleanup;
   }
 
-  // Handle AND/OR operators with short-circuit evaluation
+  // Short circuits:
+  // 1. AND with false (-> false)
+  // 2. OR with true (-> true)
+  // 3. Missing property for comparison operators (-> false)
   if (pred->cond == RSCondition_And || pred->cond == RSCondition_Or) {
     int left_bool = RSValue_BoolTest(l);
 
-    // Short-circuit: AND with false, OR with true
     if ((pred->cond == RSCondition_And && !left_bool) ||
         (pred->cond == RSCondition_Or && left_bool)) {
       RSValue_SetNumber(result, left_bool);
@@ -218,7 +220,6 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
       goto cleanup;
     }
   } else {
-    // For comparison operators, missing property means comparison fails (returns false)
     if (rc_left == EXPR_EVAL_MISSING) {
       RSValue_SetNumber(result, 0);
       rc = EXPR_EVAL_OK;
@@ -229,14 +230,11 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   // Evaluate right side
   int rc_right = evalInternal(eval, pred->right, r);
 
-  // If the right side returned an actual error, fail the evaluation
   if (rc_right == EXPR_EVAL_ERR) {
     goto cleanup;
-  }
-
-  // For comparison operators, missing property on right side means comparison fails
-  if (rc_right == EXPR_EVAL_MISSING &&
-      pred->cond != RSCondition_And && pred->cond != RSCondition_Or) {
+  } else if (rc_right == EXPR_EVAL_MISSING &&
+             pred->cond != RSCondition_And && pred->cond != RSCondition_Or) {
+    // Missing property for comparison operators (-> false)
     RSValue_SetNumber(result, 0);
     rc = EXPR_EVAL_OK;
     goto cleanup;
