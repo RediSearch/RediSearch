@@ -67,7 +67,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
     // 1. For func_exists, always allow NULL values
     // 2. For all other functions, NULL values are errors
     if (internalRes == EXPR_EVAL_ERR ||
-       (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
+       (internalRes == EXPR_EVAL_MISSING && f->Call != func_exists)) {
       goto cleanup;
     }
   }
@@ -201,7 +201,12 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   // Evaluate left side first
   int rc_left = evalInternal(eval, pred->left, l);
 
-  // Short-circuit evaluation for AND/OR operators
+  // If left side returned a real error, fail immediately.
+  if (rc_left == EXPR_EVAL_ERR) {
+    goto cleanup;
+  }
+
+  // Handle AND/OR operators with short-circuit evaluation
   if (pred->cond == RSCondition_And || pred->cond == RSCondition_Or) {
     int left_bool = RSValue_BoolTest(l);
 
@@ -212,13 +217,28 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
       rc = EXPR_EVAL_OK;
       goto cleanup;
     }
+  } else {
+    // For comparison operators, missing property means comparison fails (returns false)
+    if (rc_left == EXPR_EVAL_MISSING) {
+      RSValue_SetNumber(result, 0);
+      rc = EXPR_EVAL_OK;
+      goto cleanup;
+    }
   }
 
   // Evaluate right side
   int rc_right = evalInternal(eval, pred->right, r);
 
-  // If the right side returned an actual error (not NULL), fail the evaluation
+  // If the right side returned an actual error, fail the evaluation
   if (rc_right == EXPR_EVAL_ERR) {
+    goto cleanup;
+  }
+
+  // For comparison operators, missing property on right side means comparison fails
+  if (rc_right == EXPR_EVAL_MISSING &&
+      pred->cond != RSCondition_And && pred->cond != RSCondition_Or) {
+    RSValue_SetNumber(result, 0);
+    rc = EXPR_EVAL_OK;
     goto cleanup;
   }
 
@@ -257,7 +277,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", RLookupKey_GetName(e->lookupObj));
     }
     RSValue_SetNull(res);
-    return EXPR_EVAL_NULL;
+    return EXPR_EVAL_MISSING;
   }
 
   setReferenceValue(res, value);
