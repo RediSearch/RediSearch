@@ -94,8 +94,10 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
 
   double n1, n2;
   if (!RSValue_ToNumber(l, &n1) || !RSValue_ToNumber(r, &n2)) {
-
-    QueryError_SetError(eval->err, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, NULL);
+    if (eval->mode == EVAL_MODE_QUERY) {
+      RS_ASSERT(eval->err);
+      QueryError_SetError(eval->err, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, NULL);
+    }
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
@@ -133,6 +135,9 @@ cleanup:
 }
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
+  // Always pass eval->err to comparison functions so RSValue_Cmp returns 0 on type mismatch
+  // (rather than falling back to string comparison). Any errors set internally are ignored
+  // in INDEX mode - we only guard our explicit QueryError_SetError calls with mode checks.
   QueryError *qerr = eval ? eval->err : NULL;
 
   l = RSValue_Dereference(l);
@@ -220,7 +225,6 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   // Evaluate the predicate (handles AND, OR, and comparison operators)
   res = getPredicateBoolean(eval, l, r, pred->cond);
 
-  // TODO - FIX this to work for the indexing path without failing for NULLs (sets the error..)
   if (!eval->err || QueryError_IsOk(eval->err)) {
     RSValue_SetNumber(result, res);
     rc = EXPR_EVAL_OK;
@@ -240,7 +244,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     // No lookup object. This means that the key does not exist
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
-    if (eval->err) {
+    if (eval->mode == EVAL_MODE_QUERY && eval->err) {
       QueryError_SetError(eval->err, QUERY_ERROR_CODE_NO_PROP_KEY, NULL);
     }
     return EXPR_EVAL_ERR;
@@ -249,7 +253,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   /** Find the actual value */
   RSValue *value = RLookupRow_Get(e->lookupObj, eval->srcrow);
   if (!value) {
-    if (eval->err) {
+    if (eval->mode == EVAL_MODE_QUERY && eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ERROR_CODE_NO_PROP_VAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", RLookupKey_GetName(e->lookupObj));
     }
     RSValue_SetNull(res);
@@ -341,16 +345,19 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-EvalCtx *EvalCtx_Create() {
+EvalCtx *EvalCtx_Create(EvalMode mode) {
   EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
 
   RLookup _lk = RLookup_New();
   r->lk = _lk;
-  QueryError _status = QueryError_Default();
-  r->status = _status;
 
   r->ee.lookup = &r->lk;
   r->ee.srcrow = &r->row;
+  r->ee.mode = mode;
+
+  // Always allocate error - needed for RSValue_Cmp to behave correctly
+  // (return 0 on type mismatch rather than falling back to string comparison)
+  r->status = QueryError_Default();
   r->ee.err = &r->status;
 
   r->res = RSValue_NewNull();
@@ -361,14 +368,14 @@ EvalCtx *EvalCtx_Create() {
 }
 
 EvalCtx *EvalCtx_FromExpr(RSExpr *expr) {
-  EvalCtx *r = EvalCtx_Create();
+  EvalCtx *r = EvalCtx_Create(EVAL_MODE_QUERY);
   r->_expr = expr;
   r->_own_expr = false;
   return r;
 }
 
 EvalCtx *EvalCtx_FromString(const HiddenString *expr) {
-  EvalCtx *r = EvalCtx_Create();
+  EvalCtx *r = EvalCtx_Create(EVAL_MODE_QUERY);
   if (!expr) {
   	r->ee.root = NULL;
   } else {
@@ -434,14 +441,13 @@ int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *expr) {
 /**
  * ResultProcessor type which evaluates expressions
  */
-typedef struct RPEvaluator RPEvaluator;
-struct RPEvaluator {
+typedef struct RPEvaluator {
   ResultProcessor base;
   ExprEval eval;
   RSValue *val;
   const RLookupKey *outkey;
   int isFilter;
-};
+} RPEvaluator;
 
 #define RESULT_EVAL_ERR RS_RESULT_MAX + 1
 

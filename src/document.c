@@ -911,7 +911,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto CleanUp;
   }
 
-  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
+  ExprEval evaluator = {.mode = EVAL_MODE_INDEX, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   rv = RSValue_NewUndefined();
   if (ExprEval_Eval(&evaluator, rv) != EXPR_EVAL_OK) {
     goto CleanUp;

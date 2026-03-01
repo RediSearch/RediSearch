@@ -661,7 +661,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypeComparison) {
 
 TEST_F(ExprTest, testEvalCtxEvalExprNullExpr) {
   // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when called with NULL expression
-  EvalCtx *ctx = EvalCtx_Create();
+  EvalCtx *ctx = EvalCtx_Create(EVAL_MODE_QUERY);
   ASSERT_NE(ctx, nullptr);
 
   // Calling EvalCtx_EvalExpr with NULL should set _expr to NULL and return error
@@ -674,7 +674,7 @@ TEST_F(ExprTest, testEvalCtxEvalExprNullExpr) {
 TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
   // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when the expression
   // references a property that doesn't exist in the lookup registry
-  EvalCtx *ctx = EvalCtx_Create();
+  EvalCtx *ctx = EvalCtx_Create(EVAL_MODE_QUERY);
   ASSERT_NE(ctx, nullptr);
 
   // Create an expression that references a property @foo
@@ -699,8 +699,7 @@ TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
 // when fields are missing from the document
 TEST_F(ExprTest, testAndExpressionWithMissingFields) {
   // Create a lookup with both d1 and d2 keys, but only d2 has a value
-  RLookup lk;
-  RLookup_Init(&lk, NULL);
+  RLookup lk = RLookup_New();
   auto *kd1 = RLookup_GetKey_Write(&lk, "d1", RLOOKUP_F_NOFLAGS);
   auto *kd2 = RLookup_GetKey_Write(&lk, "d2", RLOOKUP_F_NOFLAGS);
   ASSERT_NE(kd1, nullptr);
@@ -720,6 +719,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -739,6 +739,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -758,6 +759,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -777,6 +779,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -790,8 +793,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
   // Test 5: Both fields missing
   // Expected: false (0)
   {
-    RLookup lk_empty;
-    RLookup_Init(&lk_empty, NULL);
+    RLookup lk_empty = RLookup_New();
     auto *kd1_empty = RLookup_GetKey_Write(&lk_empty, "d1", RLOOKUP_F_NOFLAGS);
     auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
     ASSERT_NE(kd1_empty, nullptr);
@@ -803,6 +805,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     ctx.lookup = &lk_empty;
     ctx.srcrow = &row_empty;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -821,8 +824,7 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
 // Test OR expressions with missing fields
 TEST_F(ExprTest, testOrExpressionWithMissingFields) {
   // Create a lookup with both d1 and d2 keys, but only d2 has a value
-  RLookup lk;
-  RLookup_Init(&lk, NULL);
+  RLookup lk = RLookup_New();
   auto *kd1 = RLookup_GetKey_Write(&lk, "d1", RLOOKUP_F_NOFLAGS);
   auto *kd2 = RLookup_GetKey_Write(&lk, "d2", RLOOKUP_F_NOFLAGS);
   ASSERT_NE(kd1, nullptr);
@@ -842,6 +844,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -861,6 +864,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -880,6 +884,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -899,6 +904,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     ctx.lookup = &lk;
     ctx.srcrow = &row;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
@@ -912,8 +918,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
   // Test 5: Both fields missing
   // Expected: false (0)
   {
-    RLookup lk_empty;
-    RLookup_Init(&lk_empty, NULL);
+    RLookup lk_empty = RLookup_New();
     auto *kd1_empty = RLookup_GetKey_Write(&lk_empty, "d1", RLOOKUP_F_NOFLAGS);
     auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
     ASSERT_NE(kd1_empty, nullptr);
@@ -925,6 +930,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     ctx.lookup = &lk_empty;
     ctx.srcrow = &row_empty;
     ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
 
     ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
     int rc = ctx.eval();
