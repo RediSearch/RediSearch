@@ -64,7 +64,7 @@ pub struct NumericRange {
 /// hashed into HyperLogLog registers. We hash the raw bytes (bit
 /// representation) rather than the numeric value — see
 /// [`NumericRange::update_cardinality`] for rationale.
-fn update_cardinality(hll: &mut Hll, value: f64) {
+pub(crate) fn update_cardinality(hll: &mut Hll, value: f64) {
     hll.add(&value.to_ne_bytes());
 }
 

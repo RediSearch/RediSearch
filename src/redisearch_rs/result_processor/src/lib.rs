@@ -463,6 +463,7 @@ pub(crate) mod test {
 
     /// Assert that Rust error types translate to the correct C ret code
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
             let mut chain = Chain::new();
@@ -481,6 +482,7 @@ pub(crate) mod test {
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn none_signals_eof() {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_none());
@@ -493,6 +495,7 @@ pub(crate) mod test {
 
     /// Assert that `Ok(Some(())` in Rust translates to the `OK` in C
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn ok_some_signals_ok() {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_some());
@@ -505,6 +508,7 @@ pub(crate) mod test {
 
     /// Assert that C return codes translate to the correct Rust error types
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn c_ret_code_to_error() {
         // This function sets up a result processor in memory that mimics a C result processor
         // sidestepping all the the rust logic
@@ -585,6 +589,7 @@ pub(crate) mod test {
 
     /// Assert that the search result is passed correctly
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn search_result_passing() {
         struct Upstream;
         impl ResultProcessor for Upstream {

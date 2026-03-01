@@ -11,6 +11,9 @@
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
+// Manually added since not supported by bitflags
+#define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
+
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
@@ -19,7 +22,7 @@ typedef struct RSValue RSValue;
 #define ALIGNED(n) __attribute__((aligned(n)))
 
 
-enum RLookupKeyFlag
+enum RLookup_F
 #ifdef __cplusplus
   : uint32_t
 #endif // __cplusplus
@@ -28,66 +31,66 @@ enum RLookupKeyFlag
    * This field is (or assumed to be) part of the document itself.
    * This is a basic flag for a loaded key.
    */
-  DocSrc = 1,
+  RLOOKUP_F_DOCSRC = 1,
   /**
    * This field is part of the index schema.
    */
-  SchemaSrc = 2,
+  RLOOKUP_F_SCHEMASRC = 2,
   /**
    * Check the sorting table, if necessary, for the index of the key.
    */
-  SvSrc = 4,
+  RLOOKUP_F_SVSRC = 4,
   /**
    * This key was created by the query itself (not in the document)
    */
-  QuerySrc = 8,
+  RLOOKUP_F_QUERYSRC = 8,
   /**
    * Copy the key string via strdup. `name` may be freed
    */
-  NameAlloc = 16,
+  RLOOKUP_F_NAMEALLOC = 16,
   /**
    * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
    */
-  Override = 32,
+  RLOOKUP_F_OVERRIDE = 32,
   /**
    * Request that the key is returned for loading even if it is already loaded.
    */
-  ForceLoad = 64,
+  RLOOKUP_F_FORCELOAD = 64,
   /**
    * This key is unresolved. Its source needs to be derived from elsewhere
    */
-  Unresolved = 128,
+  RLOOKUP_F_UNRESOLVED = 128,
   /**
    * This field is hidden within the document and is only used as a transient
    * field for another consumer. Don't output this field.
    */
-  Hidden = 256,
+  RLOOKUP_F_HIDDEN = 256,
   /**
    * The opposite of [`RLookupKeyFlag::Hidden`]. This field is specified as an explicit return in
    * the RETURN list, so ensure that this gets emitted. Only set if
    * explicitReturn is true in the aggregation request.
    */
-  ExplicitReturn = 512,
+  RLOOKUP_F_EXPLICITRETURN = 512,
   /**
    * This key's value is already available in the RLookup table,
    * if it was opened for read but the field is sortable and not normalized,
    * so the data should be exactly the same as in the doc.
    */
-  ValAvailable = 1024,
+  RLOOKUP_F_VALAVAILABLE = 1024,
   /**
    * This key's value was loaded (by a loader) from the document itself.
    */
-  IsLoaded = 2048,
+  RLOOKUP_F_ISLOADED = 2048,
   /**
    * This key type is numeric
    */
-  Numeric = 4096,
+  RLOOKUP_F_NUMERIC = 4096,
 };
 #ifndef __cplusplus
-typedef uint32_t RLookupKeyFlag;
+typedef uint32_t RLookup_F;
 #endif // __cplusplus
 
-enum RLookupOption
+enum RLookup_Opt
 #ifdef __cplusplus
   : uint32_t
 #endif // __cplusplus
@@ -96,15 +99,15 @@ enum RLookupOption
    * If the key cannot be found, do not mark it as an error, but create it and
    * mark it as F_UNRESOLVED
    */
-  AllowUnresolved = 1,
+  RLOOKUP_OPT_ALLOWUNRESOLVED = 1,
   /**
    * If a loader was added to load the entire document, this flag will allow
    * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
    */
-  AllLoaded = 2,
+  RLOOKUP_OPT_ALLLOADED = 2,
 };
 #ifndef __cplusplus
-typedef uint32_t RLookupOption;
+typedef uint32_t RLookup_Opt;
 #endif // __cplusplus
 
 typedef struct IndexSpecCache IndexSpecCache;
@@ -169,20 +172,7 @@ typedef struct RLookupKey {
 /**
  * A type with size `N`.
  */
-typedef uint8_t Size_48[48];
-
-/**
- * A type with size `N`.
- */
 typedef uint8_t Size_40[40];
-
-#if defined(ENABLE_ASSERT)
-typedef Size_48 OpaqueRLookupSize;
-#endif
-
-#if !defined(ENABLE_ASSERT)
-typedef Size_40 OpaqueRLookupSize;
-#endif
 
 /**
  * An opaque lookup which can be passed by value to C.
@@ -191,16 +181,8 @@ typedef Size_40 OpaqueRLookupSize;
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookup {
-  OpaqueRLookupSize _0;
+  Size_40 _0;
 } RLookup;
-
-#if defined(ENABLE_ASSERT)
-typedef Size_48 OpaqueRLookupRowSize;
-#endif
-
-#if !defined(ENABLE_ASSERT)
-typedef Size_40 OpaqueRLookupRowSize;
-#endif
 
 /**
  * An opaque lookup row which can be passed by value to C.
@@ -209,7 +191,7 @@ typedef Size_40 OpaqueRLookupRowSize;
  * structure exactly.
  */
 typedef struct ALIGNED(8) RLookupRow {
-  OpaqueRLookupRowSize _0;
+  Size_40 _0;
 } RLookupRow;
 
 #ifdef __cplusplus
@@ -553,7 +535,7 @@ uint32_t RLookup_GetRowLen(const struct RLookup *lookup);
 struct RLookup RLookup_New(void);
 
 /**
- * Initialize the lookup. If cache is provided, then it will be used as an
+ * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
  * # Safety
@@ -564,7 +546,8 @@ struct RLookup RLookup_New(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_Init(struct RLookup *lookup, struct IndexSpecCache *spcache);
+void RLookup_SetCache(struct RLookup *lookup,
+                      struct IndexSpecCache *spcache);
 
 /**
  * Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
@@ -620,15 +603,36 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                QueryError *status);
 
 /**
- * Returns a newly created [`RLookupRow`].
+ * Return an iterator over an [`RLookup`]'s key list.
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RLookupRow RLookupRow_New(const struct RLookup *lookup);
+RLookupIterator RLookup_Iter(const struct RLookup *lookup);
+
+/**
+ * Return an iterator over an [`RLookup`]'s key list with editing operations.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 3. The caller must treat the returned `current` pointer as pinned. Specifically
+ *    a. Not move (memcpy/memmove) out of the pointer.
+ *    b. The pointed-to value must remain at its original address in memory and never be relocated.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
+
+/**
+ * Returns a newly created [`RLookupRow`].
+ */
+struct RLookupRow RLookupRow_New(void);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.

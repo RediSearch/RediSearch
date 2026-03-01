@@ -34,6 +34,7 @@ walkdir.workspace = true
 [dependencies]
 buffer = { workspace = true }
 fnv_ffi = { path = "../fnv_ffi" }
+idf_ffi = { path = "../idf_ffi" }
 inverted_index_ffi = { path = "../inverted_index_ffi" }
 iterators_ffi = { path = "../iterators_ffi" }
 query_error_ffi = { path = "../query_error_ffi" }
@@ -43,6 +44,7 @@ slots_tracker_ffi = { path = "../slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../sorting_vector_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }
+numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
 varint_ffi = { path = "../varint_ffi" }
 workspace_hack.workspace = true
 module_init_ffi = { path = "../module_init_ffi" }

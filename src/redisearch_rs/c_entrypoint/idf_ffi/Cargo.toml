@@ -1,0 +1,16 @@
+[package]
+name = "idf_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+idf = { workspace = true }
+workspace_hack.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[lints]
+workspace = true

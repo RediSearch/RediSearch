@@ -14,12 +14,9 @@
 
 use std::{hint::black_box, time::Duration};
 
-use ::ffi::t_docId;
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 use rqe_iterators::{IdList, RQEIterator, empty::Empty, optional::Optional, wildcard::Wildcard};
-
-use crate::{RedisModule_Alloc, ffi};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -53,24 +50,6 @@ impl Bencher {
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Optional - Read Dense");
 
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    ffi::QueryIterator::new_optional_full_child_wildcard(
-                        Self::LARGE_MAX,
-                        Self::WEIGHT,
-                    )
-                },
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
@@ -94,26 +73,6 @@ impl Bencher {
 
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Optional - SkipTo Dense");
-
-        group.bench_function("C", |b| {
-            let step = Self::STEP;
-            b.iter_batched_ref(
-                || {
-                    ffi::QueryIterator::new_optional_full_child_wildcard(
-                        Self::LARGE_MAX,
-                        Self::WEIGHT,
-                    )
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
 
         group.bench_function("Rust", |b| {
             let step = Self::STEP;
@@ -143,21 +102,6 @@ impl Bencher {
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Optional - SkipTo Sparse");
-
-        group.bench_function("C", |b| {
-            let step = Self::STEP;
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_optional_virtual_only(Self::LARGE_MAX, Self::WEIGHT),
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
 
         group.bench_function("Rust", |b| {
             let step = Self::STEP;
@@ -208,19 +152,6 @@ impl Bencher {
                     criterion::BatchSize::SmallInput,
                 );
             });
-
-            group.bench_function(format!("C child_ratio={}", ratio), |b| {
-                b.iter_batched(
-                    || Self::make_c_optional_with_id_list(child_ratio_f),
-                    |it| {
-                        while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                            black_box(it.current());
-                        }
-                        it.free();
-                    },
-                    criterion::BatchSize::SmallInput,
-                );
-            });
         }
 
         group.finish();
@@ -247,31 +178,5 @@ impl Bencher {
 
         let child = IdList::new(child_doc_ids);
         Optional::new(Self::LARGE_MAX, Self::WEIGHT, child)
-    }
-
-    /// # Safety
-    ///
-    /// Callee needs to make sure to Free the memory
-    unsafe fn make_c_child_doc_ids(child_ratio: f64) -> (*mut t_docId, u64) {
-        let doc_id_vec = Self::make_child_doc_ids(child_ratio);
-        let n = doc_id_vec.len();
-        let out = unsafe { RedisModule_Alloc(std::mem::size_of::<t_docId>() * n) } as *mut t_docId;
-        unsafe { out.copy_from(doc_id_vec.as_slice().as_ptr(), n) };
-        (out, n as u64)
-    }
-
-    fn make_c_optional_with_id_list(child_ratio: f64) -> ffi::QueryIterator {
-        let (child_doc_ids_array, ids_len) = unsafe { Self::make_c_child_doc_ids(child_ratio) };
-
-        // SAFETY: our wrapper ensures to free the child doc ids array
-        let child = unsafe {
-            iterators_ffi::id_list::NewSortedIdListIterator(
-                child_doc_ids_array,
-                ids_len,
-                Self::WEIGHT,
-            ) as *mut ffi::QueryIterator
-        };
-
-        ffi::QueryIterator::new_optional_full_child(Self::LARGE_MAX, Self::WEIGHT, child)
     }
 }

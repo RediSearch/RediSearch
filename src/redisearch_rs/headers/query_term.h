@@ -10,16 +10,6 @@ typedef struct RSToken RSToken;
 
 
 /**
- * Flags associated with query tokens and terms.
- *
- * Extension-set token flags — up to 31 bits are available for extensions,
- * since 1 bit is reserved for the `expanded` flag on [`RSToken`].
- *
- * [`RSToken`]: https://github.com/RediSearch/RediSearch
- */
-typedef uint32_t RSTokenFlags;
-
-/**
  * A single term being evaluated at query time.
  *
  * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),
@@ -28,38 +18,20 @@ typedef uint32_t RSTokenFlags;
  *
  * # Memory layout
  *
- * This struct is `#[repr(C)]` so that C code can access its fields directly.
+ * All fields are private and accessed via type-safe methods and FFI functions.
+ * C code accesses fields via FFI accessor functions, not direct struct access.
  */
-typedef struct RSQueryTerm {
-  /**
-   * The term string, always NULL-terminated.
-   */
-  char *str;
-  /**
-   * The term length in bytes.
-   *
-   * It doesn't count the null terminator.
-   */
-  uintptr_t len;
-  /**
-   * Inverse document frequency of the term in the index.
-   *
-   * See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>.
-   */
-  double idf;
-  /**
-   * Each term in the query gets an incremental id.
-   */
-  int32_t id;
-  /**
-   * Flags given by the engine or by the query expander.
-   */
-  RSTokenFlags flags;
-  /**
-   * Inverse document frequency for BM25 scoring.
-   */
-  double bm25_idf;
-} RSQueryTerm;
+typedef struct RSQueryTerm RSQueryTerm;
+
+/**
+ * Flags associated with query tokens and terms.
+ *
+ * Extension-set token flags — up to 31 bits are available for extensions,
+ * since 1 bit is reserved for the `expanded` flag on [`RSToken`].
+ *
+ * [`RSToken`]: https://github.com/RediSearch/RediSearch
+ */
+typedef uint32_t RSTokenFlags;
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,6 +64,84 @@ struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
  * - After this call, `t` is dangling and must not be used.
  */
 void Term_Free(struct RSQueryTerm *t);
+
+/**
+ * Get the IDF (inverse document frequency) value from a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+double QueryTerm_GetIDF(const struct RSQueryTerm *term);
+
+/**
+ * Get the BM25 IDF value from a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
+
+/**
+ * Set both IDF values (TF-IDF and BM25) on a query term.
+ *
+ * This is a convenience function for setting both values at once.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
+
+/**
+ * Get the term ID.
+ *
+ * Each term in the query gets an incremental ID assigned during parsing.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+int QueryTerm_GetID(const struct RSQueryTerm *term);
+
+/**
+ * Get the term string length in bytes (excluding null terminator).
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+uintptr_t QueryTerm_GetLen(const struct RSQueryTerm *term);
+
+/**
+ * Get the string pointer from a query term.
+ *
+ * Returns a pointer to the null-terminated byte string. The string may not be valid UTF-8.
+ *
+ * # Safety
+ *
+ * `term` must be valid and non-null. Returned pointer is valid for the lifetime of the term.
+ */
+const char *QueryTerm_GetStr(const struct RSQueryTerm *term);
+
+/**
+ * Get both the string pointer and length from a query term.
+ *
+ * This is useful for C code that needs to work with the byte slice directly.
+ * The string may not be valid UTF-8.
+ *
+ * # Safety
+ *
+ * - `term` must be valid and non-null
+ * - `out_len` must be a valid pointer to write the length to
+ */
+const char *QueryTerm_GetStrAndLen(const struct RSQueryTerm *term, uintptr_t *out_len);
 
 #ifdef __cplusplus
 }  // extern "C"

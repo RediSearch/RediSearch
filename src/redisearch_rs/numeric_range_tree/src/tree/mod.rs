@@ -23,7 +23,7 @@ mod insert;
 #[cfg(all(feature = "unittest", not(miri)))]
 mod invariants;
 
-pub use gc::{NodeGcDelta, SingleNodeGcResult};
+pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
 
 use ffi::t_docId;
 
@@ -219,6 +219,11 @@ impl NumericRangeTree {
         &self.nodes[idx]
     }
 
+    /// Resolve a [`NodeIndex`] to a mutable reference to the node.
+    pub fn node_mut(&mut self, idx: NodeIndex) -> &mut NumericRangeNode {
+        &mut self.nodes[idx]
+    }
+
     /// Get a reference to the root node.
     pub fn root(&self) -> &NumericRangeNode {
         &self.nodes[self.root]
@@ -284,6 +289,11 @@ impl NumericRangeTree {
     /// Returns an iterator over all nodes in the tree (depth-first traversal).
     pub fn iter(&self) -> crate::ReversePreOrderDfsIterator<'_> {
         crate::ReversePreOrderDfsIterator::new(self)
+    }
+
+    /// Returns an iterator over all nodes in the tree, alongside their indices (depth-first traversal).
+    pub fn indexed_iter(&self) -> crate::IndexedReversePreOrderDfsIterator<'_> {
+        crate::IndexedReversePreOrderDfsIterator::new(self)
     }
 
     /// Calculate the total memory usage of the tree, in bytes.

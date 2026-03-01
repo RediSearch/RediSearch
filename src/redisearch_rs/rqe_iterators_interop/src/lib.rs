@@ -205,7 +205,7 @@ extern "C" fn rewind<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIt
 }
 
 extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
-    base: *mut QueryIterator,
+    base: *const QueryIterator,
 ) -> usize {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());

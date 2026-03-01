@@ -10,7 +10,7 @@
 
 #include "slots_tracker.h"
 #include "util/khash.h"
-#include "deps/rmutil/rm_assert.h"
+#include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include <stdlib.h>
 #include <pthread.h>

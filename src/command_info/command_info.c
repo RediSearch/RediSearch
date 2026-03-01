@@ -244,6 +244,11 @@ int SetFtCreateInfo(RedisModuleCommand *cmd) {
                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
               },
               {
+                .name = "geoshape",
+                .token = "GEOSHAPE",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
                 .name = "vector",
                 .token = "VECTOR",
                 .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,

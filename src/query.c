@@ -1433,7 +1433,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // Open the TagIndex - in disk mode it contains sentinel values for tag enumeration
   // In memory mode it contains InvertedIndex pointers
-  TagIndex *idx = TagIndex_Open(node->fs, DONT_CREATE_INDEX, q->sctx->spec->diskSpec);
+  TagIndex *idx = TagIndex_Open(node->fs);
   if (!idx) {
     // There are no documents to traverse.
     return NULL;

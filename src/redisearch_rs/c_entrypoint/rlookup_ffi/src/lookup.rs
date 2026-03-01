@@ -15,6 +15,7 @@ use rlookup::{
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
+    pin::Pin,
     ptr::{self, NonNull},
     slice,
 };
@@ -475,7 +476,7 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
     RLookup::new().into_opaque()
 }
 
-/// Initialize the lookup. If cache is provided, then it will be used as an
+/// Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
 /// alternate source for lookups whose fields are absent.
 ///
 /// # Safety
@@ -486,7 +487,7 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Init(
+pub unsafe extern "C" fn RLookup_SetCache(
     lookup: Option<NonNull<OpaqueRLookup>>,
     spcache: Option<NonNull<ffi::IndexSpecCache>>,
 ) {
@@ -498,7 +499,7 @@ pub unsafe extern "C" fn RLookup_Init(
         unsafe { IndexSpecCache::from_raw(spcache) }
     });
 
-    lookup.init(spcache);
+    lookup.set_cache(spcache);
 }
 
 /// Returns `true` if this `RLookup` has an associated [`IndexSpecCache`].
@@ -569,7 +570,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     // Safety: ensured by caller (3.)
-    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
 
     // Safety: ensured by caller (4.)
     let index_spec = unsafe { index_spec.unwrap().as_ref() };
@@ -583,6 +584,57 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let status = unsafe { status.unwrap().as_mut() };
 
     lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+}
+
+/// Return an iterator over an [`RLookup`]'s key list.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_Iter(lookup: *const OpaqueRLookup) -> ffi::RLookupIterator {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+
+    let current = lookup
+        .cursor()
+        .current()
+        .map_or(ptr::null(), |c| ptr::from_ref(c).cast::<ffi::RLookupKey>());
+
+    ffi::RLookupIterator { current }
+}
+
+/// Return an iterator over an [`RLookup`]'s key list with editing operations.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+/// 3. The caller must treat the returned `current` pointer as pinned. Specifically
+///    a. Not move (memcpy/memmove) out of the pointer.
+///    b. The pointed-to value must remain at its original address in memory and never be relocated.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_IterMut(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+) -> ffi::RLookupIteratorMut {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    let current = lookup.cursor_mut().current().map_or(ptr::null_mut(), |c| {
+        ptr::from_mut(
+            // Safety: ensured by caller (2., 3.)
+            // Both this function and the caller guarantee that the value behind the pointer is never moved.
+            unsafe { Pin::into_inner_unchecked(c) },
+        )
+        .cast::<ffi::RLookupKey>()
+    });
+
+    ffi::RLookupIteratorMut { current }
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.

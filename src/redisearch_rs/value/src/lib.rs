@@ -21,11 +21,6 @@ mod rs_value_ffi;
 #[cfg(feature = "c_ffi_impl")]
 pub use rs_value_ffi::*;
 
-#[cfg(feature = "test_utils")]
-mod test_utils;
-#[cfg(feature = "test_utils")]
-pub use test_utils::RSValueMock;
-
 mod collection;
 pub mod shared;
 pub mod strings;
@@ -80,6 +75,17 @@ impl RsValue {
             RsValue::Ref(_) => "Ref",
             RsValue::Trio(_) => "Trio",
             RsValue::Map(_) => "Map",
+        }
+    }
+
+    /// Returns the string bytes of the value, if it is a string type.
+    pub fn as_str_bytes(&self) -> Option<&[u8]> {
+        match self {
+            RsValue::RmAllocString(str) => Some(str.as_bytes()),
+            RsValue::ConstString(str) => Some(str.as_bytes()),
+            RsValue::RedisString(str) => Some(str.as_bytes()),
+            RsValue::String(str) => Some(str.as_str().as_bytes()),
+            _ => None,
         }
     }
 }

@@ -184,7 +184,7 @@ pub unsafe extern "C" fn GetMetricOwnKeyRef(header: *mut QueryIterator) -> *mut 
 /// 1. `header` is a valid non-null pointer to a [`QueryIterator`].
 /// 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetMetricType(header: *mut QueryIterator) -> MetricType {
+pub unsafe extern "C" fn GetMetricType(header: *const QueryIterator) -> MetricType {
     debug_assert!(!header.is_null());
 
     // SAFETY: Safe thanks to 1.

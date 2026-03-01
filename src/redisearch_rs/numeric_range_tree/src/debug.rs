@@ -27,31 +27,32 @@ struct BlocksEfficiencyStats {
 /// Reply with a summary of the numeric range tree.
 ///
 /// This implements the FT.DEBUG NUMIDX_SUMMARY command response format.
+/// When `tree` is `None` (index not yet created), all values are reported as zero.
 ///
 /// # Safety
 ///
 /// - `ctx` must be a valid Redis module context.
-pub unsafe fn debug_summary(ctx: *mut RedisModuleCtx, tree: &NumericRangeTree) {
+pub unsafe fn debug_summary(ctx: *mut RedisModuleCtx, tree: Option<&NumericRangeTree>) {
     // SAFETY: ctx is valid per function docs
     let mut replier = unsafe { Replier::new(ctx) };
     let mut arr = replier.array();
 
     arr.simple_string(c"numRanges");
-    arr.long_long(tree.num_ranges() as i64);
+    arr.long_long(tree.map_or(0, |t| t.num_ranges() as i64));
     arr.simple_string(c"numLeaves");
-    arr.long_long(tree.num_leaves() as i64);
+    arr.long_long(tree.map_or(0, |t| t.num_leaves() as i64));
     arr.simple_string(c"numEntries");
-    arr.long_long(tree.num_entries() as i64);
+    arr.long_long(tree.map_or(0, |t| t.num_entries() as i64));
     arr.simple_string(c"lastDocId");
-    arr.long_long(tree.last_doc_id() as i64);
+    arr.long_long(tree.map_or(0, |t| t.last_doc_id() as i64));
     arr.simple_string(c"revisionId");
-    arr.long_long(tree.revision_id() as i64);
+    arr.long_long(tree.map_or(0, |t| t.revision_id() as i64));
     arr.simple_string(c"emptyLeaves");
-    arr.long_long(tree.empty_leaves() as i64);
+    arr.long_long(tree.map_or(0, |t| t.empty_leaves() as i64));
     arr.simple_string(c"RootMaxDepth");
-    arr.long_long(tree.root().max_depth() as i64);
+    arr.long_long(tree.map_or(0, |t| t.root().max_depth() as i64));
     arr.simple_string(c"MemoryUsage");
-    arr.long_long(tree.mem_usage() as i64);
+    arr.long_long(tree.map_or(0, |t| t.mem_usage() as i64));
 }
 
 /// Reply with a dump of the numeric index entries.
@@ -59,33 +60,37 @@ pub unsafe fn debug_summary(ctx: *mut RedisModuleCtx, tree: &NumericRangeTree) {
 /// This implements the FT.DEBUG DUMP_NUMIDX command response format.
 /// Each range in the tree is dumped as an array of document IDs.
 /// If `with_headers` is true, each range's entries are prefixed with header info.
+/// When `tree` is `None` (index not yet created), an empty array is returned.
 ///
 /// # Safety
 ///
 /// - `ctx` must be a valid Redis module context.
 pub unsafe fn debug_dump_index(
     ctx: *mut RedisModuleCtx,
-    tree: &NumericRangeTree,
+    tree: Option<&NumericRangeTree>,
     with_headers: bool,
 ) {
     // SAFETY: ctx is valid per function docs
     let mut replier = unsafe { Replier::new(ctx) };
     let mut arr = replier.array();
 
-    for node in tree.iter() {
-        if let Some(range) = node.range() {
-            if with_headers {
-                let mut fixed_arr = arr.fixed_array(2);
-                range
-                    .entries()
-                    .summary()
-                    .reply_with_inverted_index_header(&mut fixed_arr);
-                reply_range_entries(&mut fixed_arr.array(), range);
-            } else {
-                reply_range_entries(&mut arr.array(), range);
+    if let Some(tree) = tree {
+        for node in tree.iter() {
+            if let Some(range) = node.range() {
+                if with_headers {
+                    let mut fixed_arr = arr.fixed_array(2);
+                    range
+                        .entries()
+                        .summary()
+                        .reply_with_inverted_index_header(&mut fixed_arr);
+                    reply_range_entries(&mut fixed_arr.array(), range);
+                } else {
+                    reply_range_entries(&mut arr.array(), range);
+                }
             }
         }
     }
+    // None → empty array (no iterations)
 }
 
 /// Reply with a dump of the numeric index tree structure.
@@ -93,30 +98,41 @@ pub unsafe fn debug_dump_index(
 /// This implements the FT.DEBUG DUMP_NUMIDXTREE command response format.
 /// The tree structure is dumped as a nested map.
 /// If `minimal` is true, range entries are omitted.
+/// When `tree` is `None` (index not yet created), all values are zero with an empty root.
 ///
 /// # Safety
 ///
 /// - `ctx` must be a valid Redis module context.
-pub unsafe fn debug_dump_tree(ctx: *mut RedisModuleCtx, tree: &NumericRangeTree, minimal: bool) {
+pub unsafe fn debug_dump_tree(
+    ctx: *mut RedisModuleCtx,
+    tree: Option<&NumericRangeTree>,
+    minimal: bool,
+) {
     // SAFETY: ctx is valid per function docs
     let mut replier = unsafe { Replier::new(ctx) };
     let mut map = replier.map();
 
-    map.kv_long_long(c"numRanges", tree.num_ranges() as i64);
-    map.kv_long_long(c"numEntries", tree.num_entries() as i64);
-    map.kv_long_long(c"lastDocId", tree.last_doc_id() as i64);
-    map.kv_long_long(c"revisionId", tree.revision_id() as i64);
-    map.kv_long_long(c"uniqueId", u32::from(tree.unique_id()) as i64);
-    map.kv_long_long(c"emptyLeaves", tree.empty_leaves() as i64);
+    map.kv_long_long(c"numRanges", tree.map_or(0, |t| t.num_ranges() as i64));
+    map.kv_long_long(c"numEntries", tree.map_or(0, |t| t.num_entries() as i64));
+    map.kv_long_long(c"lastDocId", tree.map_or(0, |t| t.last_doc_id() as i64));
+    map.kv_long_long(c"revisionId", tree.map_or(0, |t| t.revision_id() as i64));
+    map.kv_long_long(
+        c"uniqueId",
+        tree.map_or(0, |t| u32::from(t.unique_id()) as i64),
+    );
+    map.kv_long_long(c"emptyLeaves", tree.map_or(0, |t| t.empty_leaves() as i64));
 
-    let stats = {
+    let stats = if let Some(tree) = tree {
         let mut root_map = map.kv_map(c"root");
         reply_node_debug(&mut root_map, tree, tree.root_index(), minimal)
+    } else {
+        map.kv_fixed_map(c"root", 0);
+        BlocksEfficiencyStats::default()
     };
 
     {
         let mut stats_map = map.kv_fixed_map(c"Tree stats", 1);
-        let num_ranges = tree.num_ranges();
+        let num_ranges = tree.map_or(0, |t| t.num_ranges());
         let avg_efficiency = if num_ranges > 0 {
             stats.total_efficiency / num_ranges as f64
         } else {

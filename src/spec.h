@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "redismodule.h"
+#include "config.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
@@ -528,7 +529,7 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp);
+void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
@@ -787,8 +788,9 @@ void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
  * @param term Pointer to term string (NOT null-terminated)
  * @param term_len Length of term in bytes
  * @param doc_count_decrement Number of documents to decrement from the term's count
+ * @return true if the term was completely emptied and deleted from the trie
  */
-void IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
                                       size_t doc_count_decrement);
 
 /**

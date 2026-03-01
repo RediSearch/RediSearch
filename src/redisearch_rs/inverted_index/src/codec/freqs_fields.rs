@@ -64,6 +64,34 @@ impl Decoder for FreqsFields {
     fn base_result<'index>() -> RSIndexResult<'index> {
         RSIndexResult::term()
     }
+
+    fn seek<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let (freq, field_mask) = loop {
+            let [delta, freq, field_mask] = match qint_decode::<3, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break (freq, field_mask);
+            }
+        };
+
+        result.doc_id = base;
+        result.field_mask = field_mask as t_fieldMask;
+        result.freq = freq;
+        Ok(true)
+    }
 }
 
 /// Encode and decode the delta, frequency and field mask of a record.
@@ -112,6 +140,35 @@ impl Decoder for FreqsFieldsWide {
 
     fn base_result<'index>() -> RSIndexResult<'index> {
         RSIndexResult::term()
+    }
+
+    fn seek<'index>(
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let (freq, field_mask) = loop {
+            let [delta, freq] = match qint_decode::<2, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error),
+            };
+            let field_mask = t_fieldMask::read_as_varint(cursor)?;
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break (freq, field_mask);
+            }
+        };
+
+        result.doc_id = base;
+        result.field_mask = field_mask;
+        result.freq = freq;
+        Ok(true)
     }
 }
 

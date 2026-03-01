@@ -177,8 +177,8 @@ static IteratorStatus II_SkipTo(QueryIterator *base, t_docId docId) {
   return rc;
 }
 
-static size_t II_NumEstimated(QueryIterator *base) {
-  IntersectionIterator *it = (IntersectionIterator *)base;
+static size_t II_NumEstimated(const QueryIterator *base) {
+  const IntersectionIterator *it = (const IntersectionIterator *)base;
   return it->num_expected;
 }
 
@@ -223,7 +223,7 @@ static inline double iteratorFactor(const QueryIterator *it) {
 }
 
 typedef int (*CompareFunc)(const void *a, const void *b);
-static int cmpIter(QueryIterator **it1, QueryIterator **it2) {
+static int cmpIter(const QueryIterator *const *it1, const QueryIterator *const *it2) {
   double factor1 = iteratorFactor(*it1);
   double factor2 = iteratorFactor(*it2);
   double est1 = (*it1)->NumEstimated(*it1) * factor1;
@@ -238,7 +238,7 @@ static void II_SetEstimation(IntersectionIterator *it) {
   RS_ASSERT(it->num_its); // Ensure there is at least one iterator, so we can set num_expected to SIZE_MAX temporarily
   it->num_expected = SIZE_MAX;
   for (uint32_t i = 0; i < it->num_its; ++i) {
-    QueryIterator *cur = it->its[i];
+    const QueryIterator *cur = it->its[i];
     size_t amount = cur->NumEstimated(cur);
     if (amount < it->num_expected) {
       it->num_expected = amount;

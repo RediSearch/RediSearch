@@ -43,21 +43,6 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 
-// Helper functions for reply state management (used in Run in Threads mode)
-
-// Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
-// false if already claimed or replied (state was REPLYING or REPLIED).
-static inline bool AREQ_TryClaimReply(AREQ *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
-
-// Mark reply as complete. Must only be called after successfully claiming reply.
-static inline void AREQ_MarkReplied(AREQ *req) {
-  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
-}
-
 // Try to claim reply ownership, send error reply, and mark as replied.
 // Returns true if we replied, false if someone else owns the reply.
 static inline bool AREQ_TryReplyWithError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
@@ -78,7 +63,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(kk))) {
     return RSSortingVector_Get(sv, RLookupKey_GetSvIdx(kk));
   } else {
-    return RLookup_GetItem(kk, SearchResult_GetRowData(r));
+    return RLookupRow_Get(kk, SearchResult_GetRowData(r));
   }
 }
 
@@ -222,7 +207,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         // For duo value, we use the left value here (not the right value)
         v = RSValue_Trio_GetLeft(v);
       }
-      if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
+      if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_F_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
         if (rsv == NULL) {
@@ -272,7 +257,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
           continue;
         }
-        const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
+        const RSValue *v = RLookupRow_Get(kk, SearchResult_GetRowData(r));
         RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
         RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
@@ -1181,7 +1166,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
     AREQ_MarkReplied(req);
   } else {
     // Background thread owns reply - wait for it to finish if still in progress
-    while (atomic_load_explicit(&req->replyState, memory_order_acquire) == ReplyState_Replying) {
+    while (atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire) == ReplyState_Replying) {
       // Busy wait until background thread transitions to REPLIED
     }
   }
@@ -1329,7 +1314,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   // update timeout for current cursor read
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
   // Reset Reply state
-  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_NotReplied, memory_order_release);
 
   if (!num) {
     num = req->cursorConfig.chunkSize;

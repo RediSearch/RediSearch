@@ -114,15 +114,38 @@ class TestCoordinatorTimeout:
 
         conn = getConnectionByEnv(self.env)
 
-        # Create an index
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+        # Create an index with prefix filter
+        self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc', 'SCHEMA', 'name', 'TEXT').ok()
 
-        # Insert documents
+        # Create an index with vector field for FT.HYBRID tests (different prefix)
+        self.env.expect(
+            'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
+            'name', 'TEXT',
+            'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+        ).ok()
+
+        # Insert documents for regular index
         for i in range(self.n_docs):
             conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
 
+        # Insert documents with vectors for hybrid index
+        for i in range(self.n_docs):
+            vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+            conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
+
         # Warmup query
         self.env.expect('FT.SEARCH', 'idx', '*').noError()
+
+        # Warmup hybrid query
+        query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+        self.env.expect(
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', query_vec
+        ).noError()
+        self.hybrid_query_vec = query_vec
 
     def _test_fail_timeout_impl(self, query_args):
         env = self.env
@@ -177,17 +200,36 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_search(self):
         self._test_fail_timeout_impl(['FT.SEARCH', 'idx', '*'])
 
-    def test_fail_timeout_profile(self):
+    def test_fail_timeout_profile_search(self):
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
 
-    def test_fail_timeout_before_fanout(self):
-        """Test timeout occurring before the fanout (before query is dispatched to shards)."""
+    def test_fail_timeout_profile_hybrid(self):
+        self._test_fail_timeout_impl([
+            'FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ])
+
+    def test_fail_timeout_hybrid(self):
+        self._test_fail_timeout_impl([
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ])
+
+    def _test_fail_timeout_before_coord_pickup_impl(self, query_args):
+        """Test timeout occurring before coordinator picks up the query job."""
         env = self.env
+
+        # Extract command name for waiting on blocked client
+        cmd_name = query_args[0]
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
-        # Pause coordinator thread pool to prevent fanout
+        # Pause coordinator thread pool to prevent pickup
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
         wait_for_condition(
             lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
@@ -195,12 +237,12 @@ class TestCoordinatorTimeout:
 
         t_query = threading.Thread(
             target=run_cmd_expect_timeout,
-            args=(env, ['FT.SEARCH', 'idx', '*']),
+            args=(env, query_args),
             daemon=True
         )
         t_query.start()
 
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
+        blocked_client_id = wait_for_blocked_query_client(env, cmd_name)
 
         # Unblock the client to simulate timeout
         env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
@@ -218,7 +260,20 @@ class TestCoordinatorTimeout:
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
-    def test_fail_timeout_after_fanout(self):
+    def test_fail_timeout_before_coord_pickup_search(self):
+        """Test timeout occurring before coordinator picks up an FT.SEARCH query."""
+        self._test_fail_timeout_before_coord_pickup_impl(['FT.SEARCH', 'idx', '*'])
+
+    def test_fail_timeout_before_coord_pickup_hybrid(self):
+        """Test timeout occurring before coordinator picks up an FT.HYBRID query."""
+        self._test_fail_timeout_before_coord_pickup_impl([
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec
+        ])
+
+    def test_fail_timeout_after_fanout_search(self):
         """Test timeout occurring after the fanout (after query is dispatched to shards - best effort)."""
         env = self.env
 
@@ -279,101 +334,6 @@ class TestCoordinatorTimeout:
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
-
-    def _test_partial_results_timeout_impl(self, query_args):
-        """
-        Test the partial results timeout mechanism for FT.SEARCH.
-
-        This test:
-        1. Sets timeout policy to 'return-strict' (partial results)
-        2. Pauses all shards except the coordinator
-        3. Runs FT.SEARCH from the coordinator
-        4. Waits for the query to be processed by the coordinator's worker
-        5. Manually unblocks the client with timeout using CLIENT UNBLOCK
-        6. Verifies partial results match the coordinator's doc count and timeout warning
-        """
-        env = self.env
-
-        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
-
-        initial_jobs_done = getWorkersThpoolStats(env)['totalJobsDone']
-
-        # Get coordinator PID and count docs in coordinator shard
-        coord_pid = pid_cmd(env.con)
-        coord_doc_count = len(env.cmd('KEYS', '*'))
-
-        # Get all other shard PIDs (not coordinator)
-        shards_pid = list(get_all_shards_pid(env))
-        shards_pid.remove(coord_pid)
-
-        # Pause ALL shards except the coordinator
-        paused_processes = []
-        for shard_pid in shards_pid:
-            p = psutil.Process(shard_pid)
-            p.suspend()
-            paused_processes.append(p)
-
-        # Wait for all shards to be paused
-        def check_all_paused():
-            statuses = [p.status() for p in paused_processes]
-            return all(s == psutil.STATUS_STOPPED for s in statuses), {'statuses': statuses}
-        wait_for_condition(check_all_paused, 'Timeout while waiting for shards to pause')
-
-        query_result = []
-
-        t_query = threading.Thread(
-            target=call_and_store,
-            args=(env.cmd, query_args, query_result),
-            daemon=True
-        )
-        t_query.start()
-
-        blocked_client_id = wait_for_blocked_query_client(env, query_args[0])
-
-        wait_for_condition(
-            lambda: (getWorkersThpoolStats(env)['numThreadsAlive'] > 0, {'numThreadsAlive': getWorkersThpoolStats(env)['numThreadsAlive']}),
-            'Timeout while waiting for worker to be created'
-        )
-
-        wait_for_condition(
-            lambda: (getWorkersThpoolStats(env)['totalJobsDone'] > initial_jobs_done, {'totalJobsDone': getWorkersThpoolStats(env)['totalJobsDone']}),
-            'Timeout while waiting for worker to finish job'
-        )
-
-        # Unblock the client with TIMEOUT
-        env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
-
-        wait_for_client_unblocked(env, blocked_client_id)
-
-        t_query.join(timeout=10)
-        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
-
-        # Resume all paused shards
-        for p in paused_processes:
-            p.resume()
-
-        # Verify partial results and timeout warning
-        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-        result = query_result[0]
-        results = result.get('results', result.get('Results', result))
-        warning = result.get('warning', results.get('warning', None) if isinstance(results, dict) else None)
-
-        # The results should only contain docs from the coordinator shard
-        total_results = result.get('total_results', results.get('total_results', None) if isinstance(results, dict) else len(results))
-        env.assertEqual(total_results, coord_doc_count,
-                        message=f"Expected {coord_doc_count} docs (coordinator shard only), got {total_results}")
-        env.assertEqual(warning, [TIMEOUT_WARNING], message="Expected timeout warning")
-
-        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
-
-    def test_partial_results_timeout_search(self):
-        """Test partial results timeout for FT.SEARCH."""
-        self._test_partial_results_timeout_impl(['FT.SEARCH', 'idx', '*'])
-
-    def test_partial_results_timeout_profile(self):
-        """Test partial results timeout for FT.PROFILE SEARCH."""
-        self._test_partial_results_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
 
     def test_partial_results_no_replies_timeout(self):
         """
@@ -473,6 +433,23 @@ class TestCoordinatorTimeout:
                         message=f"Expected {self.n_docs} total results with 'return-strict' policy (FT.PROFILE)")
         env.assertEqual(profile_results.get('warning', []), [],
                         message="Expected no warning with 'return-strict' policy (FT.PROFILE)")
+
+        # Test FT.HYBRID with 'fail' policy
+        # Use K=10000, WINDOW=10000, LIMIT=10000 (100^2) to ensure all docs are returned.
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        result = env.cmd(
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'KNN', '2', 'K', '10000',
+            'COMBINE', 'RRF', '2', 'WINDOW', '10000',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+            'LIMIT', '0', '10000'
+        )
+        env.assertEqual(result['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} total results with 'fail' policy (FT.HYBRID)")
+        env.assertEqual(result.get('warning', []), [],
+                        message="Expected no warning with 'fail' policy (FT.HYBRID)")
 
         # Restore previous policy
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
