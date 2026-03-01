@@ -336,7 +336,7 @@ impl IndexSpec {
     /// # Safety
     /// `c_index_spec` must be a valid pointer to a C `IndexSpec` struct that remains
     /// valid for the duration of this function call.
-    pub unsafe fn compact_all(&self, c_index_spec: *mut ffi::IndexSpec) {
+    pub unsafe fn compact_all(&self, c_index_spec: *mut ffi::IndexSpec) -> usize {
         let snapshot_deleted_ids = self.doc_table.deleted_ids().collect_all();
 
         // 1. Run TEXT compaction (clears collector, compacts, and applies delta internally)
@@ -358,6 +358,7 @@ impl IndexSpec {
             index_name = self.name(),
             "Compaction with delta application complete"
         );
+        removed_count
     }
 
     /// Collects metrics for the text inverted index column family.

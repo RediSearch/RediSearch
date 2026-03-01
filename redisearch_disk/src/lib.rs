@@ -326,17 +326,17 @@ extern "C" fn index_spec_mark_to_be_deleted(index: *mut RedisSearchDiskIndexSpec
 unsafe extern "C" fn index_spec_run_gc(
     index: *mut RedisSearchDiskIndexSpec,
     c_index_spec: *mut c_void,
-) {
+) -> usize {
     // SAFETY: See safety point 1 above.
     let Some(index) = (unsafe { IndexSpec::try_as_ref(index) }) else {
         warn!("index_spec_run_gc called with null index pointer, skipping");
-        return;
+        return 0;
     };
 
     // Check for null c_index_spec pointer to avoid undefined behavior.
     if c_index_spec.is_null() {
         warn!("index_spec_run_gc called with null c_index_spec pointer, skipping");
-        return;
+        return 0;
     }
 
     debug!(
@@ -347,7 +347,7 @@ unsafe extern "C" fn index_spec_run_gc(
     // SAFETY: See safety point 2 above - c_index_spec must be valid.
     // We cast from c_void to the typed ffi::IndexSpec pointer.
     // SAFETY: c_index_spec is guaranteed to be a valid pointer by the caller.
-    unsafe { index.compact_all(c_index_spec.cast::<ffi::IndexSpec>()) };
+    unsafe { index.compact_all(c_index_spec.cast::<ffi::IndexSpec>()) }
 }
 
 /// Saves index spec's disk-related state to RDB.
