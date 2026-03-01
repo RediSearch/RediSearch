@@ -3235,14 +3235,14 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     // In a forked child process, the memory is a snapshot so no lock is needed.
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-    const bool shouldTakeSpecLock = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD); 
-    if (shouldTakeSpecLock) {
+    const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD); 
+    if (inMainProcess) {
       RedisSearchCtx_LockSpecRead(&sctx);
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
-    if (shouldTakeSpecLock) {
+    if (inMainProcess) {
       RedisSearchCtx_UnlockSpec(&sctx);
     }
   }
