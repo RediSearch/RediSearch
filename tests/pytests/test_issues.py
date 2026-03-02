@@ -1880,5 +1880,10 @@ def test_mod_14112(env: Env):
              '127.0.0.1:9',
              'MASTER'
   ).ok()
+  # Wait for the topology to be applied
+  wait_for_condition(
+    lambda: (env.cmd('SEARCH.CLUSTERINFO')[5][0][7] == 9, {}),
+    'Failed waiting for topology to be applied'
+  )
   # Verify that `FT.SEARCH` queries return an error (not crash)
   env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')

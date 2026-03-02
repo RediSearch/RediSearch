@@ -144,7 +144,12 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats();
 /**
  * Increase the number of logically deleted documents in all indices by `toAdd`.
  */
-void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
+void IndexsGlobalStats_IncreaseLogicallyDeleted(int64_t toAdd);
+
+/**
+ * Decrease the number of logically deleted documents in all indices by `toRemove`.
+ */
+void IndexsGlobalStats_DecreaseLogicallyDeleted(int64_t toSubtract);
 
 /**
  * Get the number of logically deleted documents in all indices.

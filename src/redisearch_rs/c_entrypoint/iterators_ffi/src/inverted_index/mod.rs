@@ -8,6 +8,7 @@
 */
 
 mod numeric;
+mod term;
 mod wildcard;
 
 use numeric::NumericIterator;

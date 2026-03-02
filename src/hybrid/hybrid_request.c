@@ -194,8 +194,16 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * @param nrequests Number of requests in the array
  * @return Newly allocated HybridRequest, or NULL on failure
  */
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
-    HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
+/**
+ * Initialize an already-allocated (zeroed) HybridRequest.
+ * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ *
+ * @param hybridReq Pointer to zeroed HybridRequest to initialize
+ * @param sctx The search context for the hybrid request
+ * @param requests Array of AREQ pointers, the hybrid request takes ownership
+ * @param nrequests Number of requests in the array
+ */
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
@@ -223,7 +231,37 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     hybridReq->profileClocks.initClock = now;
+
+    // Initialize timeout coordination fields
+    RequestSyncCtx_Init(&hybridReq->syncCtx);
+}
+
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
+    HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
+    HybridRequest_Init(hybridReq, sctx, requests, nrequests);
     return hybridReq;
+}
+
+bool HybridRequest_TimedOut(HybridRequest *req) {
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
+}
+
+void HybridRequest_SetTimedOut(HybridRequest *req) {
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+}
+
+bool HybridRequest_TryClaimReply(HybridRequest *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+void HybridRequest_MarkReplied(HybridRequest *req) {
+  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
+}
+
+uint8_t HybridRequest_GetReplyState(HybridRequest *req) {
+  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
@@ -251,7 +289,7 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
  *
  * @param req The HybridRequest to free
  */
-void HybridRequest_Free(HybridRequest *req) {
+static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
     // Free all individual AREQ requests and their pipelines
@@ -308,6 +346,19 @@ void HybridRequest_Free(HybridRequest *req) {
     }
 
     rm_free(req);
+}
+
+HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
+  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
+  return req;
+}
+
+void HybridRequest_DecrRef(HybridRequest *req) {
+  // Use ACQ_REL: release ensures our writes are visible before decrement,
+  // acquire ensures we see all writes from other threads when refcount reaches 0.
+  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
+    HybridRequest_Free(req);
+  }
 }
 
 /**

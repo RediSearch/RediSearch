@@ -1069,7 +1069,7 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
         (IndexReader::FreqsFieldsWide(ir), InvertedIndex::FreqsFieldsWide(ii)) => {
             ir.is_index(ii.inner())
         }
-        (IndexReader::FreqsOnly(ir), InvertedIndex::FreqsOnly(ii)) => ir.is_index(ii),
+        (IndexReader::FreqsOnly(ir), InvertedIndex::FreqsOnly(ii)) => ir.points_to_ii(ii),
         (IndexReader::FieldsOnly(ir), InvertedIndex::FieldsOnly(ii)) => ir.is_index(ii.inner()),
         (IndexReader::FieldsOnlyWide(ir), InvertedIndex::FieldsOnlyWide(ii)) => {
             ir.is_index(ii.inner())
@@ -1080,17 +1080,17 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
         (IndexReader::FieldsOffsetsWide(ir), InvertedIndex::FieldsOffsetsWide(ii)) => {
             ir.is_index(ii.inner())
         }
-        (IndexReader::OffsetsOnly(ir), InvertedIndex::OffsetsOnly(ii)) => ir.is_index(ii),
-        (IndexReader::FreqsOffsets(ir), InvertedIndex::FreqsOffsets(ii)) => ir.is_index(ii),
-        (IndexReader::DocIdsOnly(ir), InvertedIndex::DocIdsOnly(ii)) => ir.is_index(ii),
-        (IndexReader::RawDocIdsOnly(ir), InvertedIndex::RawDocIdsOnly(ii)) => ir.is_index(ii),
-        (IndexReader::Numeric(ir), InvertedIndex::Numeric(ii)) => ir.is_index(ii.inner()),
+        (IndexReader::OffsetsOnly(ir), InvertedIndex::OffsetsOnly(ii)) => ir.points_to_ii(ii),
+        (IndexReader::FreqsOffsets(ir), InvertedIndex::FreqsOffsets(ii)) => ir.points_to_ii(ii),
+        (IndexReader::DocIdsOnly(ir), InvertedIndex::DocIdsOnly(ii)) => ir.points_to_ii(ii),
+        (IndexReader::RawDocIdsOnly(ir), InvertedIndex::RawDocIdsOnly(ii)) => ir.points_to_ii(ii),
+        (IndexReader::Numeric(ir), InvertedIndex::Numeric(ii)) => ir.points_to_ii(ii.inner()),
         (IndexReader::NumericFiltered(ir), InvertedIndex::Numeric(ii)) => ir.is_index(ii.inner()),
         (IndexReader::NumericGeoFiltered(ir), InvertedIndex::Numeric(ii)) => {
             ir.is_index(ii.inner())
         }
         (IndexReader::NumericFloatCompression(ir), InvertedIndex::NumericFloatCompression(ii)) => {
-            ir.is_index(ii.inner())
+            ir.points_to_ii(ii.inner())
         }
         (
             IndexReader::NumericFilteredFloatCompression(ir),

@@ -12,7 +12,7 @@
 #include "iterators_rs.h"
 #include "search_disk.h"
 
-bool IsWildcardIterator(QueryIterator *it) {
+bool IsWildcardIterator(const QueryIterator *it) {
   return (it && (it->type == WILDCARD_ITERATOR || it->type == INV_IDX_WILDCARD_ITERATOR));
 }
 
