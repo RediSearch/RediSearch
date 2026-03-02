@@ -320,36 +320,3 @@ int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *optio
 
   return rv;
 }
-
-int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst, IndexSpec *spec, const char *keyptr, QueryError *status) {
-  SchemaRule *rule = spec->rule;
-
-  // create rlookupkeys
-  int nkeys = array_len(rule->filter_fields);
-  RLookupKey **keys = rm_malloc(nkeys * sizeof(*keys));
-  for (int i = 0; i < nkeys; ++i) {
-    int idx = rule->filter_fields_index[i];
-    if (idx == -1) {
-      keys[i] = createNewKey(it, rule->filter_fields[i], strlen(rule->filter_fields[i]), RLOOKUP_F_NOFLAGS);
-      continue;
-    }
-    FieldSpec *fs = spec->fields + idx;
-    size_t length = 0;
-    const char *name = HiddenString_GetUnsafe(fs->fieldName, &length);
-    keys[i] = createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
-    RLookupKey_SetPath(keys[i], HiddenString_GetUnsafe(fs->fieldPath, NULL));
-  }
-
-  // load
-  RLookupLoadOptions opt = {.keys = (const RLookupKey **)keys,
-                            .nkeys = nkeys,
-                            .sctx = sctx,
-                            .keyPtr = keyptr,
-                            .type = rule->type,
-                            .status = status,
-                            .forceLoad = 1,
-                            .mode = RLOOKUP_LOAD_KEYLIST };
-  int rv = loadIndividualKeys(it, dst, &opt);
-  rm_free(keys);
-  return rv;
-}
