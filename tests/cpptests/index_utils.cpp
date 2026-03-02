@@ -13,6 +13,7 @@
 #include "src/forward_index.h"
 #include "inverted_index.h"
 #include "src/redis_index.h"
+#include "numeric_range_tree.h"
 
 std::string numToDocStr(unsigned id) {
   return "doc" + std::to_string(id);
@@ -93,33 +94,4 @@ NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, field, strlen(field));
 
   return openNumericOrGeoIndex(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
-}
-
-size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range) {
-    if (!rt) {
-        return 0;
-    }
-
-    NumericRangeTreeIterator *Iterator = NumericRangeTreeIterator_New(rt);
-    NumericRangeNode *currNode = NULL;
-
-    size_t total_tree_mem = 0;
-
-    while ((currNode = NumericRangeTreeIterator_Next(Iterator))) {
-        if (!currNode->range) {
-            continue;
-        }
-        size_t curr_node_memory = InvertedIndex_MemUsage(currNode->range->entries);
-
-        // Ensure stats are correct
-        if (curr_node_memory != currNode->range->invertedIndexSize) {
-            *failed_range = currNode;
-            break;
-        }
-
-        total_tree_mem += curr_node_memory;
-    }
-
-    NumericRangeTreeIterator_Free(Iterator);
-    return total_tree_mem;
 }

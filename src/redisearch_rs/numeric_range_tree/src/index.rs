@@ -14,7 +14,7 @@
 
 use ffi::IndexFlags_Index_StoreNumeric;
 use inverted_index::{
-    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, RSIndexResult,
+    EntriesTrackingIndex, IndexBlock, IndexReader, IndexReaderCore, NumericReader, RSIndexResult,
     debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
@@ -173,6 +173,9 @@ pub enum NumericIndexReader<'a> {
     /// Reader over compressed entries.
     Compressed(IndexReaderCore<'a, NumericFloatCompression>),
 }
+
+/// Marker trait for readers producing numeric values.
+impl<'index> NumericReader<'index> for NumericIndexReader<'index> {}
 
 impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
     fn next_record(&mut self, result: &mut RSIndexResult<'a>) -> std::io::Result<bool> {

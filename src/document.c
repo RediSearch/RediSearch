@@ -13,6 +13,7 @@
 #include "forward_index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
+#include "redisearch_rs/headers/numeric_range_tree.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
@@ -589,15 +590,15 @@ FIELD_BULK_INDEXER(numericIndexer) {
   }
 
   if (!fdata->isMulti) {
-    NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
-    ctx->spec->stats.invertedSize += rv.sz;
-    ctx->spec->stats.numRecords += rv.numRecords;
+    AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
+    ctx->spec->stats.invertedSize += rv.size_delta;
+    ctx->spec->stats.numRecords += rv.num_records_delta;
   } else {
     for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
       double numval = fdata->arrNumeric[i];
-      NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
-      ctx->spec->stats.invertedSize += rv.sz;
-      ctx->spec->stats.numRecords += rv.numRecords;
+      AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
+      ctx->spec->stats.invertedSize += rv.size_delta;
+      ctx->spec->stats.numRecords += rv.num_records_delta;
     }
   }
 
@@ -759,7 +760,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  TagIndex *tidx = TagIndex_Open(&ctx->spec->fields[fs->index], CREATE_INDEX, ctx->spec->diskSpec);
+  TagIndex *tidx = TagIndex_Ensure(&ctx->spec->fields[fs->index], ctx->spec->diskSpec);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;
@@ -900,7 +901,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RSValue *rv = NULL;
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_SetCache(&lookup_s, spcache);
-  RLookup_EnableOptions(&lookup_s, RLOOKUP_OPT_ALL_LOADED); // Setting this option will cause creating keys of non-sortable fields possible
+  RLookup_EnableOptions(&lookup_s, RLOOKUP_OPT_ALLLOADED); // Setting this option will cause creating keys of non-sortable fields possible
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
     goto CleanUp;
   }

@@ -8,13 +8,13 @@
 */
 
 use std::{
-    fmt::Display,
+    fmt,
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
 };
 
 use icu_casemap::CaseMapper;
-use value::RSValueTrait;
+use value::RSValueFFI;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
 ///
@@ -22,8 +22,8 @@ use value::RSValueTrait;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IndexOutOfBounds(());
 
-impl Display for IndexOutOfBounds {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for IndexOutOfBounds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Index out of bounds")
     }
 }
@@ -38,46 +38,46 @@ impl std::error::Error for IndexOutOfBounds {}
 ///
 /// The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
 /// are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RSSortingVector<T: RSValueTrait> {
-    values: Box<[T]>,
+#[derive(Debug, Clone)]
+pub struct RSSortingVector {
+    values: Box<[RSValueFFI]>,
 }
 
-impl<T: RSValueTrait> RSSortingVector<T> {
+impl RSSortingVector {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
         Self {
-            values: vec![T::create_null(); len].into_boxed_slice(),
+            values: vec![RSValueFFI::null_static(); len].into_boxed_slice(),
         }
     }
 
     /// Returns an immutable reference to the value at index `index`,
     /// or `None` if the index is out-of-bounds for this sorting vector.
-    pub fn get(&self, index: usize) -> Option<&T> {
+    pub fn get(&self, index: usize) -> Option<&RSValueFFI> {
         self.values.get(index)
     }
 
     /// Returns an iterator over the values in the sorting vector.
-    pub fn iter(&self) -> Iter<'_, T> {
+    pub fn iter(&self) -> Iter<'_, RSValueFFI> {
         self.values.iter()
     }
 
     /// Returns a mutable iterator over the values in the sorting vector.
-    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, RSValueFFI> {
         self.values.iter_mut()
     }
 
     /// Set a number (double) at the given index
     pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = T::create_num(num);
+        *spot = RSValueFFI::new_num(num);
         Ok(())
     }
 
     /// Set a string at the given index.
     pub fn try_insert_string(&mut self, idx: usize, str: Vec<u8>) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = T::create_string(str);
+        *spot = RSValueFFI::new_string(str);
         Ok(())
     }
 
@@ -95,23 +95,20 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Set a value at the given index
-    pub fn try_insert_val(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
+    pub fn try_insert_val(
+        &mut self,
+        idx: usize,
+        value: RSValueFFI,
+    ) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
         *spot = value;
-        Ok(())
-    }
-
-    /// Set a reference to the value at the given index
-    pub fn try_insert_val_as_ref(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
-        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = T::create_ref(value);
         Ok(())
     }
 
     /// Set a null value at the given index
     pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = T::create_null();
+        *spot = RSValueFFI::null_static();
         Ok(())
     }
 
@@ -128,24 +125,16 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     /// approximate the memory size of the sorting vector.
     ///
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
-    /// as in C. We have another implementation for the Rust type based on it's [RSValueTrait] implementation.
+    /// as in C.
     pub fn get_memory_size(&self) -> usize {
-        let mut sz = if T::is_ptr_type() {
-            // Each RSValue is a pointer, so we multiply by the size of a pointer
-            self.values.len() * std::mem::size_of::<*const T>()
-        } else {
-            // Each RSValue is in the heap array, so we multiply by the size of the type
-            self.values.len() * T::mem_size()
-        };
+        let mut sz = self.values.len() * size_of::<RSValueFFI>();
 
         for idx in 0..self.values.len() {
             if self.values[idx].is_null() {
                 continue;
             }
-            if T::is_ptr_type() {
-                // count the size of the struct if not null, like in C we add the pointer and the struct size
-                sz += T::mem_size();
-            }
+
+            sz += RSValueFFI::mem_size();
 
             // the original behavior would by-pass references in the middle of the chain
             // fixup in: MOD-10347
@@ -159,8 +148,8 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 }
 
-impl<A: RSValueTrait> FromIterator<A> for RSSortingVector<A> {
-    fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
+impl FromIterator<RSValueFFI> for RSSortingVector {
+    fn from_iter<T: IntoIterator<Item = RSValueFFI>>(iter: T) -> Self {
         Self {
             values: iter.into_iter().collect(),
         }
@@ -168,9 +157,9 @@ impl<A: RSValueTrait> FromIterator<A> for RSSortingVector<A> {
 }
 
 // Consuming iterator: yields owned T by consuming the vector.
-impl<T: RSValueTrait> IntoIterator for RSSortingVector<T> {
-    type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
+impl IntoIterator for RSSortingVector {
+    type Item = RSValueFFI;
+    type IntoIter = std::vec::IntoIter<RSValueFFI>;
     fn into_iter(self) -> Self::IntoIter {
         // this does not use a new allocation
         Vec::from(self.values).into_iter()
@@ -178,11 +167,11 @@ impl<T: RSValueTrait> IntoIterator for RSSortingVector<T> {
 }
 
 // implementing Index opens the usage of the bracket operators `[]` to access elements in the sorting vector.
-impl<I, T: RSValueTrait> Index<I> for RSSortingVector<T>
+impl<I> Index<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[T]>,
+    I: std::slice::SliceIndex<[RSValueFFI]>,
 {
-    type Output = <[T] as std::ops::Index<I>>::Output;
+    type Output = <[RSValueFFI] as std::ops::Index<I>>::Output;
 
     fn index(&self, index: I) -> &Self::Output {
         self.values.index(index)
@@ -190,9 +179,9 @@ where
 }
 
 // implementing IndexMut opens the usage of the bracket operators `[]` to mutate elements in the sorting vector.
-impl<I, T: RSValueTrait> IndexMut<I> for RSSortingVector<T>
+impl<I> IndexMut<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[T]>,
+    I: std::slice::SliceIndex<[RSValueFFI]>,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.values.index_mut(index)

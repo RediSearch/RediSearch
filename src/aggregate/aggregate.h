@@ -213,6 +213,27 @@ typedef enum {
   ReplyState_Replied = 2,     // A reply has been completed
 } ReplyState;
 
+/**
+ * Common synchronization context for request types (AREQ, HybridRequest).
+ * Provides thread-safe coordination between main thread (timeout callback)
+ * and background thread (query execution).
+ */
+typedef struct RequestSyncCtx {
+  // Timeout signaling flag set by timeout callback on main thread
+  RS_Atomic(bool) timedOut;
+  // Reply ownership state, coordinates reply between main and background thread
+  RS_Atomic(uint8_t) replyState;
+  // Reference count for shared ownership between timeout callback (main thread) and background thread
+  uint8_t refcount;
+} RequestSyncCtx;
+
+// Initialize a RequestSyncCtx with default values
+static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
+  ctx->timedOut = false;
+  ctx->replyState = ReplyState_NotReplied;
+  ctx->refcount = 1;
+}
+
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -296,16 +317,11 @@ typedef struct AREQ {
 
   ProfilePrinterCtx profileCtx;
 
-  // Timeout signaling flag for Run in Threads mode (set by timeout callback on main thread)
-  RS_Atomic(bool) timedOut;
-  // Reply ownership state, coordinates reply between main and background thread
-  // Uses ReplyState enum: NOT_REPLIED -> REPLYING -> REPLIED transitions
-  RS_Atomic(uint8_t) replyState;
-  // Flag to indicate whether to check for timeout using clock checks
+  // Synchronization context for timeout handling
+  RequestSyncCtx syncCtx;
+
+  // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
-  // Reference count for shared ownership between QueryNode (timeout callback) and background thread.
-  // Initialized to 1. Free when reaches 0.
-  uint8_t refcount;
 } AREQ;
 
 /**
@@ -527,6 +543,11 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
+
+// Reply state management for coordinating replies between main thread (timeout callback) and background thread
+bool AREQ_TryClaimReply(AREQ *req);
+void AREQ_MarkReplied(AREQ *req);
+uint8_t AREQ_GetReplyState(AREQ *req);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;

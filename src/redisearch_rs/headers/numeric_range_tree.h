@@ -382,11 +382,11 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * - `t` must point to a valid [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
  */
-struct AddResult NumericRangeTree_Add(struct NumericRangeTree *t,
-                                      t_docId doc_id,
-                                      double value,
-                                      int isMulti,
-                                      uintptr_t maxDepthRange);
+struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t,
+                                       t_docId doc_id,
+                                       double value,
+                                       int isMulti,
+                                       uintptr_t maxDepthRange);
 
 /**
  * Free a [`NumericRangeTree`] and all its contents.

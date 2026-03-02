@@ -17,6 +17,7 @@ extern "C" {
 #include "src/iterators/inverted_index_iterator.h"
 #include "src/index_result.h"
 #include "src/tag_index.h"
+#include "numeric_range_tree.h"
 #include "redisearch_rs/headers/triemap.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 
@@ -440,7 +441,7 @@ private:
         // Get the tag index from the spec using TagIndex_Open
         const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "tag_field", strlen("tag_field"));
         ASSERT_TRUE(fs != nullptr);
-        tagIdx = TagIndex_Open(const_cast<FieldSpec *>(fs), CREATE_INDEX, NULL);
+        tagIdx = TagIndex_Ensure(const_cast<FieldSpec *>(fs), NULL);
         ASSERT_TRUE(tagIdx != nullptr);
 
         // Create tag inverted index for a specific tag value

@@ -44,6 +44,7 @@ slots_tracker_ffi = { path = "../slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../sorting_vector_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }
+numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
 varint_ffi = { path = "../varint_ffi" }
 workspace_hack.workspace = true
 module_init_ffi = { path = "../module_init_ffi" }

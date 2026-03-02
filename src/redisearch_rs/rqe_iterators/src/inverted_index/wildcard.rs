@@ -102,7 +102,7 @@ where
         // SAFETY: 4. guarantees the encoding variant matches E.
         let ii = E::from_opaque(existing_docs);
 
-        !self.it.reader.is_index(ii)
+        !self.it.reader.points_to_ii(ii)
     }
 
     /// Get a reference to the underlying reader.

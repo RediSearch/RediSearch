@@ -34,8 +34,8 @@ static void OI_Free(QueryIterator *base) {
   rm_free(base);
 }
 
-static size_t OI_NumEstimated(QueryIterator *base) {
-  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
+static size_t OI_NumEstimated(const QueryIterator *base) {
+  const OptionalOptimizedIterator *oi = (const OptionalOptimizedIterator *)base;
   return oi->wcii ? oi->wcii->NumEstimated(oi->wcii) : oi->maxDocId;
 }
 

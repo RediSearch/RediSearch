@@ -374,7 +374,7 @@ error:
 void EvalCtx_Destroy(EvalCtx *r) {
   RSValue_DecrRef(r->res);
   if (r->_expr && r->_own_expr) {
-    ExprAST_Free((RSExpr *) r->_expr);
+    ExprAST_Free(r->_expr);
   }
   RLookupRow_Reset(&r->row);
   RLookup_Cleanup(&r->lk);
@@ -389,7 +389,7 @@ int EvalCtx_Eval(EvalCtx *r) {
     return EXPR_EVAL_ERR;
   }
   r->ee.root = r->_expr;
-  if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
+  if (ExprAST_GetLookupKeys(r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
     return EXPR_EVAL_ERR;
   }
   return ExprEval_Eval(&r->ee, r->res);
@@ -496,7 +496,7 @@ static void rpevalFree(ResultProcessor *rp) {
   BlkAlloc_FreeAll(&ee->eval.stralloc, NULL, NULL, 0);
   rm_free(ee);
 }
-static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *lookup,
+static ResultProcessor *RPEvaluator_NewCommon(RSExpr *ast, const RLookup *lookup,
                                               const RLookupKey *dstkey, int isFilter) {
   RPEvaluator *rp = rm_calloc(1, sizeof(*rp));
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
@@ -509,12 +509,12 @@ static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *
   return &rp->base;
 }
 
-ResultProcessor *RPEvaluator_NewProjector(const RSExpr *ast, const RLookup *lookup,
+ResultProcessor *RPEvaluator_NewProjector(RSExpr *ast, const RLookup *lookup,
                                           const RLookupKey *dstkey) {
   return RPEvaluator_NewCommon(ast, lookup, dstkey, 0);
 }
 
-ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup) {
+ResultProcessor *RPEvaluator_NewFilter(RSExpr *ast, const RLookup *lookup) {
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }
 

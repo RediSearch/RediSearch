@@ -172,11 +172,11 @@ static inline bool RLookup_HasIndexSpecCache(const RLookup* rlookup) {
 
 // If the key cannot be found, do not mark it as an error, but create it and
 // mark it as F_UNRESOLVED
-#define RLOOKUP_OPT_UNRESOLVED_OK 0x01
+#define RLOOKUP_OPT_ALLOWUNRESOLVED 0x01
 
 // If a loader was added to load the entire document, this flag will allow
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
-#define RLOOKUP_OPT_ALL_LOADED 0x02
+#define RLOOKUP_OPT_ALLLOADED 0x02
 
 /**
  * Row data for a lookup key. This abstracts the question of "where" the
@@ -240,7 +240,7 @@ typedef enum {
 /**
  * Request that the key is returned for loading even if it is already loaded.
  */
-#define RLOOKUP_F_FORCE_LOAD 0x40
+#define RLOOKUP_F_FORCELOAD 0x40
 
 /**
  * This key is unresolved. Its source needs to be derived from elsewhere
@@ -265,7 +265,7 @@ typedef enum {
  * if it was opened for read but the field is sortable and not normalized,
  * so the data should be exactly the same as in the doc.
  */
-#define RLOOKUP_F_VAL_AVAILABLE 0x400
+#define RLOOKUP_F_VALAVAILABLE 0x400
 
 /**
  * This key's value was loaded (by a loader) from the document itself.
@@ -275,13 +275,13 @@ typedef enum {
 /**
  * This key type is numeric
  */
-#define RLOOKUP_T_NUMERIC 0x1000
+#define RLOOKUP_F_NUMERIC 0x1000
 
 // Flags that are allowed to be passed to GetKey
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN | \
-                               RLOOKUP_F_FORCE_LOAD)
+                               RLOOKUP_F_FORCELOAD)
 // Flags do not persist to the key, they are just options to GetKey()
-#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCELOAD)
 
 /**
  * Get a RLookup key for a given name.
@@ -429,7 +429,7 @@ typedef struct {
   DocumentType type;
 
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */
-  const RLookupKey *const *keys;
+  const RLookupKey **keys;
 
   /** Number of keys in keys array */
   size_t nkeys;
@@ -529,19 +529,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
                                bool createMissingKeys);
 
 // exposed to be called from Rust, was inline before that.
-int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
-
-// exposed to be called from Rust, was inline before that.
 int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
-
-// exposed to be called from Rust, was inline before that.
-RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type);
-
-// exposed to be called from Rust, was inline before that.
-RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype);
-
-// exposed to be called from Rust, is part of a dependency and was inline before that.
-size_t sdslen__(const char* s);
 
 #ifdef __cplusplus
 }

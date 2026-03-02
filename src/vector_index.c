@@ -104,7 +104,8 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
-  VecSimIndex *vecsim = openVectorIndex(vq->field, DONT_CREATE_INDEX);
+  // Cast is safe: openVectorIndex only mutates fieldSpec when create_if_missing is true.
+  VecSimIndex *vecsim = openVectorIndex((FieldSpec *)vq->field, DONT_CREATE_INDEX);
   if (!vecsim) {
     return NULL;
   }
