@@ -293,7 +293,8 @@ jobs:
         with:
           payload: |
             {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "repository": "RediSearch"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}
