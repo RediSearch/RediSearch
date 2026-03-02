@@ -378,7 +378,7 @@ where
                         Term::new(
                             ii.reader(),
                             self.mock_ctx.sctx(),
-                            RSQueryTerm::new(b"term", 1, 0),
+                            RSQueryTerm::new("term", 1, 0),
                             1.0,
                             NoOpChecker,
                         )
@@ -438,7 +438,7 @@ where
                         Term::new(
                             ii.reader(),
                             self.mock_ctx.sctx(),
-                            RSQueryTerm::new(b"term", 1, 0),
+                            RSQueryTerm::new("term", 1, 0),
                             1.0,
                             NoOpChecker,
                         )
@@ -466,7 +466,7 @@ where
                         Term::new(
                             ii.reader(),
                             self.mock_ctx.sctx(),
-                            RSQueryTerm::new(b"term", 1, 0),
+                            RSQueryTerm::new("term", 1, 0),
                             1.0,
                             NoOpChecker,
                         )

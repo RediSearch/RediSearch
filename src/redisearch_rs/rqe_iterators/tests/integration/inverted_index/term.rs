@@ -73,7 +73,7 @@ impl TermBaseTest {
             Term::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                RSQueryTerm::new(b"term", 1, 0),
+                RSQueryTerm::new("term", 1, 0),
                 1.0,
                 NoOpChecker,
             )
@@ -124,7 +124,7 @@ fn term_filter() {
         Term::new(
             reader,
             test.test.mock_ctx.sctx(),
-            RSQueryTerm::new(b"term", 1, 0),
+            RSQueryTerm::new("term", 1, 0),
             1.0,
             NoOpChecker,
         )
@@ -201,7 +201,7 @@ mod not_miri {
                 Term::new(
                     reader,
                     self.test.context.sctx,
-                    RSQueryTerm::new(b"term", 1, 0),
+                    RSQueryTerm::new("term", 1, 0),
                     1.0,
                     checker,
                 )
@@ -224,7 +224,7 @@ mod not_miri {
                 Term::new(
                     reader,
                     self.test.context.sctx,
-                    RSQueryTerm::new(b"term", 1, 0),
+                    RSQueryTerm::new("term", 1, 0),
                     1.0,
                     checker,
                 )
@@ -323,7 +323,7 @@ mod not_miri {
                 Term::new(
                     reader,
                     self.test.context.sctx,
-                    RSQueryTerm::new(b"term", 1, 0),
+                    RSQueryTerm::new("term", 1, 0),
                     1.0,
                     NoOpChecker,
                 )
@@ -399,7 +399,7 @@ mod not_miri {
         // tries to look it up.
         let field_mask = test.test.context.text_field_bit();
         let reader = test.test.context.term_inverted_index().reader(field_mask);
-        let gc_collected_term = RSQueryTerm::new(b"gc_collected", 1, 0);
+        let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
         // SAFETY: reader and sctx are valid pointers from the test context.
         let mut it = unsafe {
             Term::new(
