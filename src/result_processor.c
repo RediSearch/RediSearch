@@ -1596,8 +1596,7 @@ typedef struct {
   pthread_mutex_t mutex;
   uint32_t num_depleters;  // Number of depleters to sync
   atomic_int num_locked;   // Number of depleters that have locked the index
-  atomic_int num_skipped;  // Number of depleters that skipped locking (timeout before start or lock failure)
-  atomic_bool any_failed;  // Set to true if any depleter failed to acquire the lock
+  atomic_int num_skipped_lock;  // Number of depleters that skipped locking (timeout before start or lock failure)
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
 } DepleterSync;
@@ -1617,8 +1616,8 @@ StrongRef DepleterSync_New(uint32_t num_depleters, bool take_index_lock) {
   pthread_mutex_init(&sync->mutex, NULL);
   sync->num_depleters = num_depleters;
   sync->take_index_lock = take_index_lock;
-  atomic_store(&sync->num_skipped, 0);
-  atomic_store(&sync->any_failed, false);
+  atomic_store(&sync->num_locked, 0);
+  atomic_store(&sync->num_skipped_lock, 0);
   return StrongRef_New(sync, DepleterSync_Free);
 }
 
@@ -1675,10 +1674,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
-      // Set the shared flag to indicate at least one depleter failed
-      atomic_store(&sync->any_failed, true);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
-      atomic_fetch_add(&sync->num_skipped, 1);
+      atomic_fetch_add(&sync->num_skipped_lock, 1);
       return;
     }
     lock_acquired = true;
@@ -1733,7 +1730,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
     self->last_rc = RS_RESULT_TIMEDOUT;
     if (sync->take_index_lock) {
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
-      atomic_fetch_add(&sync->num_skipped, 1);
+      atomic_fetch_add(&sync->num_skipped_lock, 1);
     }
   }
 
@@ -1777,7 +1774,7 @@ static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
 // will be returned
 // Waits for all the depletion threads to complete the lock acquisition phase.
 // Each depleter will either: acquire a lock (num_locked++), or skip
-// (num_skipped++).
+// (num_skipped_lock++).
 // Once all depleters have completed this phase, the main thread releases its
 // lock. This ensures all the safe depleters that acquired locks see a
 // consistent index state.
@@ -1785,8 +1782,8 @@ static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, Red
   if (sync->take_index_lock && !sync->index_released) {
     // Load the atomic counters
     int num_locked = atomic_load(&sync->num_locked);
-    int num_skipped = atomic_load(&sync->num_skipped);
-    int total_handled = num_locked + num_skipped;
+    int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
+    int total_handled = num_locked + num_skipped_lock;
     RS_ASSERT(total_handled <= sync->num_depleters);
 
     if (total_handled == sync->num_depleters) {
@@ -1983,13 +1980,13 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   // lock.
   // Use the atomic flag which is only set on actual lock failures, not upstream
   // errors
-  bool any_failed = atomic_load(&sync->any_failed);
+  bool num_skipped_lock = atomic_load(&sync->num_skipped_lock);
 
   // Note: The main thread's lock was already released in WaitForDepletionToStart
   // after all depleters acquired their locks (or when any failed).
   // This early release prevents deadlock with SafeLoader GIL acquisition.
 
-  if (any_failed) {
+  if (num_skipped_lock > 0) {
     // At least one depleter failed to acquire the lock
     // Return error to propagate the failure up the call stack
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
