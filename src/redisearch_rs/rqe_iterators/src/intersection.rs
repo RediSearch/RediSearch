@@ -115,6 +115,7 @@ where
                 Some(doc_id) => {
                     self.build_aggregate_result(doc_id);
                     if self.current_is_relevant() {
+                        self.last_doc_id = doc_id;
                         return Ok(Some(doc_id));
                     }
                     // Not relevant — advance past this document and retry.
@@ -198,8 +199,6 @@ where
     /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
-        self.last_doc_id = doc_id;
-
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }
@@ -250,6 +249,7 @@ where
             match self.find_consensus(target)? {
                 Some(doc_id) => {
                     self.build_aggregate_result(doc_id);
+                    self.last_doc_id = doc_id;
                     Ok(Some(&mut self.result))
                 }
                 None => Ok(None),
@@ -271,12 +271,14 @@ where
                 Some(found_id) => {
                     self.build_aggregate_result(found_id);
                     if found_id == doc_id && self.current_is_relevant() {
+                        self.last_doc_id = found_id;
                         return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                     }
                     // Either we landed on a different doc, or the exact match wasn't relevant.
                     // In both cases, find the next relevant result.
                     let next_target = if self.current_is_relevant() {
                         // Consensus on a different doc_id that IS relevant — return it.
+                        self.last_doc_id = found_id;
                         return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
                     } else {
                         // Not relevant — advance past this document.
@@ -296,6 +298,7 @@ where
             match self.find_consensus(doc_id)? {
                 Some(found_id) => {
                     self.build_aggregate_result(found_id);
+                    self.last_doc_id = found_id;
                     if found_id == doc_id {
                         Ok(Some(SkipToOutcome::Found(&mut self.result)))
                     } else {

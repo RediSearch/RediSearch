@@ -233,7 +233,7 @@ pub struct OffsetPositionIterator<'a> {
 
 impl<'a> OffsetPositionIterator<'a> {
     /// Create a new iterator over the given delta-varint encoded offset data.
-    pub fn new(data: &'a [u8]) -> Self {
+    pub const fn new(data: &'a [u8]) -> Self {
         Self {
             cursor: Cursor::new(data),
             last_value: 0,

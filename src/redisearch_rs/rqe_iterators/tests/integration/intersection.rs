@@ -1297,6 +1297,9 @@ mod slop_and_order {
 
         assert!(matches!(ii.read(), Ok(None)));
         assert!(ii.at_eof());
+        // last_doc_id must remain at the last *successfully returned* doc (3), not the
+        // non-relevant candidate (4) that was scanned internally before hitting EOF.
+        assert_eq!(ii.last_doc_id(), 3);
         // Reading after EOF should return EOF again
         assert!(matches!(ii.read(), Ok(None)));
 
@@ -1318,6 +1321,8 @@ mod slop_and_order {
         // SkipTo(4) → EOF (doc 4 is in both but fails slop=0)
         assert!(matches!(ii.skip_to(4), Ok(None)));
         assert!(ii.at_eof());
+        // last_doc_id must stay at 3, not advance to the non-relevant candidate 4.
+        assert_eq!(ii.last_doc_id(), 3);
 
         // SkipTo beyond EOF → still EOF
         assert!(matches!(ii.skip_to(5), Ok(None)));
@@ -1400,6 +1405,9 @@ mod slop_and_order {
 
         assert!(matches!(ii.read(), Ok(None)));
         assert!(ii.at_eof());
+        // last_doc_id must remain at the last *successfully returned* doc (1), not the
+        // non-relevant candidates (3, 4) scanned internally before hitting EOF.
+        assert_eq!(ii.last_doc_id(), 1);
         // Reading after EOF should return EOF again
         assert!(matches!(ii.read(), Ok(None)));
 
@@ -1416,9 +1424,31 @@ mod slop_and_order {
         // SkipTo(2) → EOF (no more docs pass slop=0 and in_order)
         assert!(matches!(ii.skip_to(2), Ok(None)));
         assert!(ii.at_eof());
+        // last_doc_id must stay at 1, not advance to the non-relevant candidates 3 and 4.
+        assert_eq!(ii.last_doc_id(), 1);
 
         // SkipTo beyond EOF → still EOF
         assert!(matches!(ii.skip_to(3), Ok(None)));
+        assert!(ii.at_eof());
+    }
+
+    /// When no doc satisfies the relevancy constraint and the second child runs out of
+    /// docs before the first child does, the iterator must return EOF cleanly.
+    ///
+    /// - foo (first child): doc 1 (pos 3), doc 2 (pos 1)
+    /// - bar (second child): doc 1 (pos 1) only
+    /// - in_order=true (prevents child sorting, so foo stays first): doc 1 fails because
+    ///   bar@1 comes before foo@3; foo then tries doc 2, but bar has no doc ≥ 2 → EOF.
+    #[test]
+    fn relevancy_retry_hits_eof_in_second_consensus() {
+        let foo_index = make_term_index(&[(1, 3), (2, 1)]);
+        let bar_index = make_term_index(&[(1, 1)]);
+        let mock_ctx = MockContext::new(2, 2);
+
+        let mut ii = make_intersection!(foo_index, bar_index, mock_ctx, -1, true);
+
+        // No doc satisfies in_order: doc 1 fails (bar@1 < foo@3), doc 2 is only in foo.
+        assert!(matches!(ii.read(), Ok(None)));
         assert!(ii.at_eof());
     }
 }
