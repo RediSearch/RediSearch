@@ -162,4 +162,8 @@ where
 
         self.it.revalidate()
     }
+
+    fn is_wildcard(&self) -> bool {
+        true
+    }
 }

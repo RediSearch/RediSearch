@@ -126,4 +126,8 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.child.revalidate()
     }
+
+    fn is_wildcard(&self) -> bool {
+        self.child.is_wildcard()
+    }
 }
