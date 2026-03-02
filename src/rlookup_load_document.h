@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef RLOOKUP_LOAD_H
-#define RLOOKUP_LOAD_H
+#ifndef RLOOKUP_LOAD_DOCUMENT_H
+#define RLOOKUP_LOAD_DOCUMENT_H
 #include "rlookup.h"
 
 #ifdef __cplusplus

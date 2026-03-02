@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
-#include "rlookup_load.h"
+#include "rlookup_load_document.h"
 
 #include <math.h>
 #include <ctype.h>

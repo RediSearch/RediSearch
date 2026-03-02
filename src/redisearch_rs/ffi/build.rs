@@ -80,7 +80,7 @@ fn main() {
         src.join("redisearch.h"),
         src.join("result_processor.h"),
         src.join("rlookup.h"),
-        src.join("rlookup_load.h"),
+        src.join("rlookup_load_document.h"),
         src.join("rules.h"),
         src.join("score_explain.h"),
         src.join("search_ctx.h"),
