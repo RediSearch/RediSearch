@@ -156,13 +156,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 # gcc
 check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_DISCARDED_QUALIFIERS)
 if(HAS_DISCARDED_QUALIFIERS)
-    add_compile_options(-Werror=discarded-qualifiers)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=discarded-qualifiers>)    
 endif()
 
 # clang
 check_c_compiler_flag("-Werror=incompatible-pointer-types-discards-qualifiers" HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
 if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
-    add_compile_options(-Werror=incompatible-pointer-types-discards-qualifiers)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=incompatible-pointer-types-discards-qualifiers>)    
 endif()
 
 add_compile_definitions(
