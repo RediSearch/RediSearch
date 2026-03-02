@@ -23,6 +23,7 @@ numeric_range_tree.workspace = true
 query_error.workspace = true
 query_term.workspace = true
 thiserror.workspace = true
+triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
 redis_mock.workspace = true
 value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
