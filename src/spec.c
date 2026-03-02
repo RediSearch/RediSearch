@@ -3941,7 +3941,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
           specOp->op = SpecOp_Del;
         }
       }
-      // Clean up the row and lookup between iterations (indexes)
+      // Clean up state between iterations (indexes)
+      QueryError_ClearError(&r->status);
       RLookup_Cleanup(&r->lk);
       RLookupRow_Reset(&r->row);
     }
