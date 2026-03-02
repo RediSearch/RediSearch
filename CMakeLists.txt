@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 
+include(CheckCCompilerFlag)
+
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 # The `binroot` path includes a platform+profile segment
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
