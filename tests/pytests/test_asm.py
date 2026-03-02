@@ -117,7 +117,7 @@ def query_shards_hybrid(env, query, shards, expected):
         except Exception as e:
             error_str = str(e)
             # Check for lock acquisition errors
-            if "Failed to acquire index lock" in error_str:
+            if "SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock" in error_str:
                 # This is expected when a writer is waiting for the lock
                 env.debugPrint(f"Shard {shard_idx}: Lock acquisition error (expected during concurrent writes)")
                 # Accept this as a valid outcome - don't add to results, don't fail the test

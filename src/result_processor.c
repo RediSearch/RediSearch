@@ -1981,7 +1981,7 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   RedisSearchCtx *searchCtx = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync, &searchCtx)) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to start background depletion");
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
 
@@ -2025,11 +2025,7 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   }
 
   // Check if any depleter failed to acquire the lock
-  // This can happen when a writer (e.g., RESTORE) is waiting for the spec write
-  // lock.
-  // Use the atomic flag which is only set on actual lock failures, not upstream
-  // errors
-  bool num_skipped_lock = atomic_load(&sync->num_skipped_lock);
+  int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
 
   // Note: The main thread's lock was already released in WaitForDepletionToStart
   // after all depleters acquired their locks (or when any failed).
@@ -2038,7 +2034,7 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   if (num_skipped_lock > 0) {
     // At least one depleter failed to acquire the lock
     // Return error to propagate the failure up the call stack
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
       "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
     return RS_RESULT_ERROR;
   }
