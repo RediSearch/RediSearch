@@ -43,9 +43,11 @@ void SearchDisk_Close();
  * @param indexName Name of the index to open
  * @param indexNameLen Length of the index name
  * @param type Document type
+ * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
+ *        without SST persistence to ensure stale data is cleared)
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called

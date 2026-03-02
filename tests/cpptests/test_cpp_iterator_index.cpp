@@ -17,6 +17,7 @@ extern "C" {
 #include "src/iterators/inverted_index_iterator.h"
 #include "src/index_result.h"
 #include "src/tag_index.h"
+#include "numeric_range_tree.h"
 #include "redisearch_rs/headers/triemap.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 

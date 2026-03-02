@@ -13,6 +13,7 @@
 #include "forward_index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
+#include "redisearch_rs/headers/numeric_range_tree.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
@@ -589,15 +590,15 @@ FIELD_BULK_INDEXER(numericIndexer) {
   }
 
   if (!fdata->isMulti) {
-    NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
-    ctx->spec->stats.invertedSize += rv.sz;
-    ctx->spec->stats.numRecords += rv.numRecords;
+    AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
+    ctx->spec->stats.invertedSize += rv.size_delta;
+    ctx->spec->stats.numRecords += rv.num_records_delta;
   } else {
     for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
       double numval = fdata->arrNumeric[i];
-      NRN_AddRv rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
-      ctx->spec->stats.invertedSize += rv.sz;
-      ctx->spec->stats.numRecords += rv.numRecords;
+      AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
+      ctx->spec->stats.invertedSize += rv.size_delta;
+      ctx->spec->stats.numRecords += rv.num_records_delta;
     }
   }
 

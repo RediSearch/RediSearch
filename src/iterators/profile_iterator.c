@@ -59,8 +59,8 @@ static void PI_Free(struct QueryIterator *self) {
   rm_free(self);
 }
 
-static size_t PI_NumEstimated(struct QueryIterator *self) {
-  ProfileIterator *pi = (ProfileIterator *)self;
+static size_t PI_NumEstimated(const struct QueryIterator *self) {
+  const ProfileIterator *pi = (const ProfileIterator *)self;
   return pi->child->NumEstimated(pi->child);
 }
 

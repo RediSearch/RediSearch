@@ -19,6 +19,7 @@ field.workspace = true
 idf.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
+numeric_range_tree.workspace = true
 query_error.workspace = true
 query_term.workspace = true
 thiserror.workspace = true

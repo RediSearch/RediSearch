@@ -7,56 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{borrow::Cow, ffi::c_char, fmt::Debug, mem::ManuallyDrop, ptr::NonNull, slice};
+use std::marker::PhantomData;
+use std::ops::Deref;
+use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, slice};
 
-/// A trait that defines the behavior of a RediSearch RSValue.
-///
-/// The trait is temporary until we have a proper Rust port of the RSValue type.
-///
-/// This trait is used to create, manipulate, and free RSValue instances. It can be implemented
-/// as a mock type for testing purposes, and by a new-type in the ffi layer to interact with the
-/// C API.
-pub trait RSValueTrait: Clone + Debug
-where
-    Self: Sized,
-{
-    /// Creates a new RSValue instance which is null
-    fn create_null() -> Self;
+pub struct RSValueFFIRef<'a>(ManuallyDrop<RSValueFFI>, PhantomData<&'a ffi::RSValue>);
 
-    /// Creates a new RSValue instance with a string value.
-    ///
-    /// NB: `Vec<u8>` rather than `String` because we cannot assume the contents are always valid UTF-8.
-    fn create_string(s: Vec<u8>) -> Self;
+impl Deref for RSValueFFIRef<'_> {
+    type Target = RSValueFFI;
 
-    /// Creates a new RSValue instance with a number (double) value.
-    fn create_num(num: f64) -> Self;
-
-    /// Creates a new RSValue instance that is a reference to the given value.
-    fn create_ref(value: Self) -> Self;
-
-    /// Checks if the RSValue is null
-    fn is_null(&self) -> bool;
-
-    /// Gets a reference to the RSValue instance, if it is a reference type or None.
-    fn deep_deref(&self) -> ManuallyDrop<Cow<'_, Self>>;
-
-    /// gets the string slice of the RSValue instance, if it is a string type or None otherwise.
-    fn as_str_bytes(&self) -> Option<&[u8]>;
-
-    /// Gets the number (double) value of the RSValue instance, if it is a number type or None otherwise.
-    fn as_num(&self) -> Option<f64>;
-
-    /// Gets the type of the RSValue instance, it either null, string, number, or reference.
-    fn get_type(&self) -> ffi::RSValueType;
-
-    /// Returns true if the RSValue is stored as a pointer on the heap (the C implementation)
-    fn is_ptr_type() -> bool;
-
-    /// Returns the approximate memory size of the RSValue instance.
-    fn mem_size() -> usize;
-
-    /// Returns the reference count or `None` if the value type does not participate in reference counting.
-    fn refcount(&self) -> usize;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 /// [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
@@ -67,23 +29,6 @@ where
 /// 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
 #[repr(transparent)]
 pub struct RSValueFFI(NonNull<ffi::RSValue>);
-
-impl RSValueFFI {
-    /// Constructs an `RSValueFFI` from a raw pointer.
-    ///
-    /// # Safety
-    ///
-    /// 1. The `ptr` must be a [valid] pointer to a [`ffi::RSValue`].
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub const unsafe fn from_raw(ptr: NonNull<ffi::RSValue>) -> Self {
-        Self(ptr)
-    }
-
-    pub const fn as_ptr(&self) -> *mut ffi::RSValue {
-        self.0.as_ptr()
-    }
-}
 
 // Clone is used to increment the reference count of the underlying C struct.
 impl Clone for RSValueFFI {
@@ -102,44 +47,66 @@ impl Drop for RSValueFFI {
     }
 }
 
-impl RSValueTrait for RSValueFFI {
-    fn create_null() -> Self {
+impl RSValueFFI {
+    /// Constructs an `RSValueFFI` from a raw pointer.
+    ///
+    /// # Safety
+    ///
+    /// 1. The `ptr` must be a [valid] pointer to a [`ffi::RSValue`].
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub const unsafe fn from_raw(ptr: NonNull<ffi::RSValue>) -> Self {
+        Self(ptr)
+    }
+
+    pub const fn as_ptr(&self) -> *mut ffi::RSValue {
+        self.0.as_ptr()
+    }
+
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        this.0 == other.0
+    }
+
+    pub fn null_static() -> Self {
         // Safety: RSValue_NullStatic returns an immutable global ptr
         let val = unsafe { ffi::RSValue_NullStatic() };
         RSValueFFI(NonNull::new(val).expect("RSValue_NullStatic returned a null pointer"))
     }
 
-    fn create_string(str: Vec<u8>) -> Self {
+    pub fn new_num(num: f64) -> Self {
+        // Safety: RSValue_FromDouble expects a valid double value.
+        let num = unsafe { ffi::RSValue_NewNumber(num) };
+        RSValueFFI(NonNull::new(num).expect("RSValue_NewNumber returned a null pointer"))
+    }
+
+    pub fn new_string(str: Vec<u8>) -> Self {
         // Safety: RSValue_NewString receives a valid C string pointer (1) and length
         let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), str.len()) };
 
         Self(NonNull::new(value).expect("RSValue_NewCopiedString returned a null pointer"))
     }
 
-    fn create_num(num: f64) -> Self {
-        // Safety: RSValue_FromDouble expects a valid double value.
-        let num = unsafe { ffi::RSValue_NewNumber(num) };
-        RSValueFFI(NonNull::new(num).expect("RSValue_NewNumber returned a null pointer"))
+    pub fn get_type(&self) -> ffi::RSValueType {
+        // Safety: self.0 is a valid pointer to an RSValue struct which RSValue_Type expects.
+        unsafe { ffi::RSValue_Type(self.0.as_ptr()) }
     }
 
-    fn create_ref(value: Self) -> Self {
-        RSValueFFI(value.0)
-    }
-
-    fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         // Safety: RSValue_NullStatic returns an immutable global ptr
         self.0.as_ptr() == unsafe { ffi::RSValue_NullStatic() }
     }
 
-    fn deep_deref(&self) -> ManuallyDrop<Cow<'_, Self>> {
-        // Safety: self.0 is a valid pointer to an RSValue struct.
-        let deref_ptr = unsafe { ffi::RSValue_Dereference(self.0.as_ptr()) };
-        // Safety: deref_ptr is a valid pointer to an RSValue struct returned by RSValue_Dereference.
-        let self_ = unsafe { RSValueFFI::from_raw(NonNull::new(deref_ptr).unwrap()) };
-        ManuallyDrop::new(Cow::Owned(self_))
+    pub fn as_num(&self) -> Option<f64> {
+        if self.get_type() == ffi::RSValueType_RSValueType_Number {
+            // Safety: we checked the RSValue to be a number above.
+            let value = unsafe { ffi::RSValue_Number_Get(self.0.as_ptr()) };
+            Some(value)
+        } else {
+            None
+        }
     }
 
-    fn as_str_bytes(&self) -> Option<&[u8]> {
+    pub fn as_str_bytes(&self) -> Option<&[u8]> {
         if self.get_type() == ffi::RSValueType_RSValueType_String {
             let mut len: u32 = 0;
             // Safety: We tested that the type is a string, so we access it over the union safely.
@@ -153,53 +120,48 @@ impl RSValueTrait for RSValueFFI {
         }
     }
 
-    fn as_num(&self) -> Option<f64> {
-        if self.get_type() == ffi::RSValueType_RSValueType_Number {
-            // Safety: we checked the RSValue to be a number above.
-            let value = unsafe { ffi::RSValue_Number_Get(self.0.as_ptr()) };
-            Some(value)
-        } else {
-            None
-        }
+    pub fn deep_deref(&self) -> RSValueFFIRef<'_> {
+        // Safety: self.0 is a valid pointer to an RSValue struct.
+        let deref_ptr = unsafe { ffi::RSValue_Dereference(self.0.as_ptr()) };
+        // Safety: deref_ptr is a valid pointer to an RSValue struct returned by RSValue_Dereference.
+        let self_ = unsafe { RSValueFFI::from_raw(NonNull::new(deref_ptr).unwrap()) };
+        RSValueFFIRef(ManuallyDrop::new(self_), PhantomData)
     }
 
-    fn get_type(&self) -> ffi::RSValueType {
-        // Safety: self.0 is a valid pointer to an RSValue struct which RSValue_Type expects.
-        unsafe { ffi::RSValue_Type(self.0.as_ptr()) }
-    }
-
-    fn is_ptr_type() -> bool {
-        // Returns true if the RSValue is stored as a pointer on the heap (the C implementation).
-        true
-    }
-
-    fn mem_size() -> usize {
+    pub fn mem_size() -> usize {
         // Safety: Simply reading out a constant
         unsafe { ffi::RSValueSize }
     }
 
-    fn refcount(&self) -> usize {
+    pub fn refcount(&self) -> u16 {
         // Safety: self.0 is a valid pointer to an RSValue struct.
-        unsafe { ffi::RSValue_Refcount(self.0.as_ptr()) as usize }
+        unsafe { ffi::RSValue_Refcount(self.0.as_ptr()) }
     }
 }
 
 impl std::fmt::Debug for RSValueFFI {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RSValueFFI::")?;
+
         match self.get_type() {
             ffi::RSValueType_RSValueType_String => {
                 // Safety: We just checked the union type.
                 let str_val = self.as_str_bytes().unwrap();
                 // Safety: We assume that a valid C string is generated by the C side (valid and null-terminated).
                 let str_val = str::from_utf8(str_val).unwrap();
-                write!(f, "String({})", str_val)
+                write!(f, "String({str_val})")
             }
             ffi::RSValueType_RSValueType_Number => {
                 // Safety: We just checked the union type.
                 let num_val = self.as_num().unwrap();
-                write!(f, "Number({})", num_val)
+                write!(f, "Number({num_val})")
             }
-            unknown_type => write!(f, "Unknown value type: {}", unknown_type),
+            ffi::RSValueType_RSValueType_Null => {
+                write!(f, "Null")
+            }
+            unknown_type => {
+                write!(f, "Unknown(<type> {unknown_type})")
+            }
         }
     }
 }

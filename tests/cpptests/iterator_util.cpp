@@ -15,8 +15,8 @@ IteratorStatus MockIterator_Read(QueryIterator *base) {
 IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId) {
     return reinterpret_cast<MockIterator *>(base)->SkipTo(docId);
 }
-size_t MockIterator_NumEstimated(QueryIterator *base) {
-    return reinterpret_cast<MockIterator *>(base)->NumEstimated();
+size_t MockIterator_NumEstimated(const QueryIterator *base) {
+    return reinterpret_cast<const MockIterator *>(base)->NumEstimated();
 }
 void MockIterator_Rewind(QueryIterator *base) {
     reinterpret_cast<MockIterator *>(base)->Rewind();

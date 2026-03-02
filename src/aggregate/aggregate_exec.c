@@ -43,21 +43,6 @@ typedef struct {
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 
-// Helper functions for reply state management (used in Run in Threads mode)
-
-// Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
-// false if already claimed or replied (state was REPLYING or REPLIED).
-static inline bool AREQ_TryClaimReply(AREQ *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
-
-// Mark reply as complete. Must only be called after successfully claiming reply.
-static inline void AREQ_MarkReplied(AREQ *req) {
-  atomic_store_explicit(&req->replyState, ReplyState_Replied, memory_order_release);
-}
-
 // Try to claim reply ownership, send error reply, and mark as replied.
 // Returns true if we replied, false if someone else owns the reply.
 static inline bool AREQ_TryReplyWithError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
@@ -1181,7 +1166,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
     AREQ_MarkReplied(req);
   } else {
     // Background thread owns reply - wait for it to finish if still in progress
-    while (atomic_load_explicit(&req->replyState, memory_order_acquire) == ReplyState_Replying) {
+    while (atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire) == ReplyState_Replying) {
       // Busy wait until background thread transitions to REPLIED
     }
   }
@@ -1328,8 +1313,6 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ_ProfilePrinterCtx(req)->cursor_reads++;
   // update timeout for current cursor read
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
-  // Reset Reply state
-  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_release);
 
   if (!num) {
     num = req->cursorConfig.chunkSize;
@@ -1414,6 +1397,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
+    // Reset Reply state
+    atomic_store_explicit(&req->syncCtx.replyState, ReplyState_NotReplied, memory_order_release);
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);

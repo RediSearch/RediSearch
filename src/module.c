@@ -73,6 +73,8 @@
 #include "search_disk.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "coord/coord_request_ctx.h"
+#include "coord/hybrid/dist_hybrid.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
@@ -3621,10 +3623,11 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref)
-  };
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
+  handlerCtx.coordStartTime = coordInitialTime;
+  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3632,6 +3635,14 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
+
+// Forward declaration for initQueryTimeout (defined later in file)
+static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
+
+static void DistHybridFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
+}
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Capture start time for coordinator dispatch time tracking
@@ -3678,11 +3689,31 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref),
-    .numShards = NumShards  // Capture NumShards from main thread for thread-safe access
-  };
+  // Parse timeout from command args
+  size_t queryTimeoutMS;
+  QueryError status = QueryError_Default();
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
+
+
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
+  handlerCtx.coordStartTime = coordInitialTime;
+  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
+
+  handlerCtx.bcCtx.privdata = reqCtx;
+  handlerCtx.bcCtx.free_privdata = DistHybridFreePrivData;
+
+  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+    handlerCtx.bcCtx.callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+  }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3704,7 +3735,9 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {0};
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
   handlerCtx.spec_ref = (WeakRef){0};
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -4301,7 +4334,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Set MRCtx as privdata for the blocked client
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
 
-  SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
+  SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   sCmdCtx->handlerCtx.isProfile = isProfile;
