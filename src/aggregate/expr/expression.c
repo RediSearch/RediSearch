@@ -209,7 +209,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   // Short circuits:
   // 1. AND with false (-> false)
   // 2. OR with true (-> true)
-  // 3. Missing property for comparison operators (-> false)
+  // 3. Missing property for comparison operators (-> false/error depending on mode)
   if (pred->cond == RSCondition_And || pred->cond == RSCondition_Or) {
     int left_bool = RSValue_BoolTest(l);
 
@@ -219,12 +219,17 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
       rc = EXPR_EVAL_OK;
       goto cleanup;
     }
-  } else {
-    if (rc_left == EXPR_EVAL_MISSING) {
-      RSValue_SetNumber(result, 0);
-      rc = EXPR_EVAL_OK;
+  } else if (rc_left == EXPR_EVAL_MISSING) {
+    if (eval->mode == EVAL_MODE_QUERY) {
+      // In QUERY mode, missing property in comparison is an error
       goto cleanup;
     }
+    // In INDEX mode, missing property means comparison returns false.
+    // We do this here since the comparison flow (`RSValue_Cmp`) would break
+    // behavior if reached with missing values.
+    RSValue_SetNumber(result, 0);
+    rc = EXPR_EVAL_OK;
+    goto cleanup;
   }
 
   // Evaluate right side
@@ -234,7 +239,11 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
     goto cleanup;
   } else if (rc_right == EXPR_EVAL_MISSING &&
              pred->cond != RSCondition_And && pred->cond != RSCondition_Or) {
-    // Missing property for comparison operators (-> false)
+    if (eval->mode == EVAL_MODE_QUERY) {
+      // In QUERY mode, missing property in comparison is an error
+      goto cleanup;
+    }
+    // In INDEX mode, missing property means comparison returns false (see above explanation)
     RSValue_SetNumber(result, 0);
     rc = EXPR_EVAL_OK;
     goto cleanup;
