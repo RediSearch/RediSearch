@@ -8,18 +8,16 @@
 */
 
 use libc::size_t;
+use sorting_vector::RSSortingVector;
 use std::slice;
 use std::{
     ffi::{CStr, c_char},
     panic,
     ptr::NonNull,
 };
-use value::{RSValueFFI, RSValueTrait as _};
+use value::RSValueFFI;
 
 pub const RS_SORTABLES_MAX: usize = 1024;
-
-/// cbindgen:ignore
-pub type RSSortingVector = sorting_vector::RSSortingVector<RSValueFFI>;
 
 /// Gets a RSValue from the sorting vector at the given index.
 ///
@@ -93,7 +91,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNum(
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
-    vec.try_insert_val(idx, RSValueFFI::create_num(num))
+    vec.try_insert_val(idx, RSValueFFI::new_num(num))
         .unwrap_or_else(|_| {
             panic!("Index out of bounds: {} >= {}", idx, vec.len());
         });

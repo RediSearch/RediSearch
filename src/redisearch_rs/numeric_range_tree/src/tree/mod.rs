@@ -219,6 +219,11 @@ impl NumericRangeTree {
         &self.nodes[idx]
     }
 
+    /// Resolve a [`NodeIndex`] to a mutable reference to the node.
+    pub fn node_mut(&mut self, idx: NodeIndex) -> &mut NumericRangeNode {
+        &mut self.nodes[idx]
+    }
+
     /// Get a reference to the root node.
     pub fn root(&self) -> &NumericRangeNode {
         &self.nodes[self.root]

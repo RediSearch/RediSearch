@@ -48,7 +48,16 @@ typedef struct AsyncReadResult {
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
   void (*close)(RedisSearchDisk *disk);
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
+  /**
+   * @brief Open an index spec
+   * @param disk Pointer to the disk
+   * @param indexName Name of the index
+   * @param indexNameLen Length of the index name
+   * @param type Document type
+   * @param deleteBeforeOpen If true, delete any existing data before opening
+   * @return Pointer to the index spec, or NULL on error
+   */
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
   void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
@@ -159,8 +168,10 @@ typedef struct IndexDiskAPI {
    *
    * @param index Pointer to the disk index
    * @param user_data Opaque pointer to the C IndexSpec (used for FFI callbacks)
+   *
+   * @return Number of deletedIDs removed from the disk index
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
+  size_t (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

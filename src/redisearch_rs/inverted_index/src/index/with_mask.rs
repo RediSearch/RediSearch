@@ -110,6 +110,12 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     pub const fn inner(&self) -> &InvertedIndex<E> {
         &self.index
     }
+
+    /// Get a mutable reference to the inner inverted index.
+    #[cfg(feature = "test_utils")]
+    pub const fn inner_mut(&mut self) -> &mut InvertedIndex<E> {
+        &mut self.index
+    }
 }
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {

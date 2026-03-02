@@ -61,8 +61,8 @@ void UI_SyncIterList(UnionIterator *ui) {
   }
 }
 
-static size_t UI_NumEstimated(QueryIterator *base) {
-  UnionIterator *ui = (UnionIterator *)base;
+static size_t UI_NumEstimated(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
   size_t estimation = 0;
   for (size_t i = 0; i < ui->num_orig; ++i) {
     estimation += ui->its_orig[i]->NumEstimated(ui->its_orig[i]);

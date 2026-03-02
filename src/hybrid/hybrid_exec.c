@@ -178,7 +178,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
     .timeout = &hreq->sctx->time.timeout,
     .oomPolicy = hreq->reqConfig.oomPolicy,
-    .skipTimeoutChecks = hreq->sctx->time.skipTimeoutChecks,
+    .skipTimeoutChecks = !HybridRequest_ShouldCheckTimeout(hreq),
   };
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
@@ -235,25 +235,38 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
+    QueryError err = QueryError_Default();
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
 
+    // Check timeout before starting pipeline
+    if (HybridRequest_TimedOut(hreq)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      goto done_err;
+    }
+
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
+    if (!HybridRequest_TryClaimReply(hreq)) {
+      // Timeout callback owns reply - skip to cleanup without replying
+      goto done_err;
+    }
+
     // If an error occurred, or a timeout in strict mode - return a simple error
-    QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
     HybridRequest_ClearErrors(hreq);
     if (ShouldReplyWithError(QueryError_GetCode(&err), hreq->reqConfig.timeoutPolicy, false)) {
       // Track errors in global statistics
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&err), 1, COORD_ERR_WARN);
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
+      HybridRequest_MarkReplied(hreq);
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
       // Track timeout error in global statistics
       QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
       ReplyWithTimeoutError(reply);
+      HybridRequest_MarkReplied(hreq);
       goto done_err;
     }
 
@@ -314,6 +327,7 @@ done:
     }
 
     RedisModule_Reply_MapEnd(reply);
+    HybridRequest_MarkReplied(hreq);
 
 done_err:
     finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
@@ -383,7 +397,7 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
 }
 
 static void FreeHybridRequest(void *ptr) {
-  HybridRequest_Free((HybridRequest *)ptr);
+  HybridRequest_DecrRef((HybridRequest *)ptr);
 }
 
 int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *reply, bool coord) {

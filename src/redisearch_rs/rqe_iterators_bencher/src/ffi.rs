@@ -43,35 +43,6 @@ unsafe extern "C" {
 pub struct QueryIterator(*mut ffi::QueryIterator);
 
 impl QueryIterator {
-    #[inline(always)]
-    pub fn new_optional_full_child_wildcard(max_id: u64, weight: f64) -> Self {
-        let child = iterators_ffi::wildcard::NewWildcardIterator_NonOptimized(max_id, 1f64);
-        Self::new_optional_with_child(max_id, weight, child)
-    }
-
-    #[inline(always)]
-    pub fn new_optional_id_list(max_id: u64, weight: f64, ids: Vec<u64>) -> Self {
-        let Self(child) = Self::new_id_list(ids);
-        Self::new_optional_with_child(max_id, weight, child)
-    }
-
-    #[inline(always)]
-    fn new_optional_with_child(max_id: u64, weight: f64, child: *mut ffi::QueryIterator) -> Self {
-        let query_eval_ctx = new_redis_search_ctx(max_id);
-        let it = unsafe { ffi::NewOptionalIterator(child, query_eval_ctx, weight) };
-        free_redis_search_ctx(query_eval_ctx);
-        Self(it)
-    }
-
-    #[inline(always)]
-    pub fn new_optional_virtual_only(max_id: u64, weight: f64) -> Self {
-        let child = std::ptr::null_mut();
-        let query_eval_ctx = new_redis_search_ctx(max_id);
-        let it = unsafe { ffi::NewOptionalIterator(child, query_eval_ctx, weight) };
-        free_redis_search_ctx(query_eval_ctx);
-        Self(it)
-    }
-
     /// Create an empty iterator (returns no results).
     #[inline(always)]
     pub fn new_empty() -> Self {

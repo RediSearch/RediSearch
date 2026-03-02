@@ -1036,18 +1036,30 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  atomic_store_explicit(&req->timedOut, false, memory_order_relaxed);
-  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_relaxed);
-  req->refcount = 1;  // Initial reference
+  RequestSyncCtx_Init(&req->syncCtx);
   return req;
 }
 
 bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->timedOut, memory_order_acquire);
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
 }
 
 void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->timedOut, true, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+}
+
+bool AREQ_TryClaimReply(AREQ *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+void AREQ_MarkReplied(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
+}
+
+uint8_t AREQ_GetReplyState(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
@@ -1540,12 +1552,12 @@ static void AREQ_Free(AREQ *req) {
 }
 
 AREQ *AREQ_IncrRef(AREQ *req) {
-  __atomic_fetch_add(&req->refcount, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
   return req;
 }
 
 void AREQ_DecrRef(AREQ *req) {
-  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_ACQ_REL)) {
+  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
     AREQ_Free(req);
   }
 }

@@ -225,6 +225,6 @@ mod not_miri {
 
         let reader = it.reader();
         let ii = DocIdsOnly::from_opaque(test.test.context.wildcard_inverted_index());
-        assert!(reader.is_index(ii));
+        assert!(reader.points_to_ii(ii));
     }
 }

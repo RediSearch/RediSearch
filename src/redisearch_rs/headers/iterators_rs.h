@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
 #include "iterators/inverted_index_iterator.h"
+#include "numeric_range_tree.h"
 #include "query.h"
 
 
@@ -18,6 +19,25 @@
 typedef enum MetricType {
   VECTOR_DISTANCE,
 } MetricType;
+
+/**
+ * Result of creating numeric range iterators for all matching ranges.
+ *
+ * The `iterators` array is allocated with `RedisModule_Calloc`, so it can be
+ * passed directly to `NewUnionIterator` (which takes ownership and frees with
+ * `rm_free`). For the 0-range or 1-range cases, the caller must `rm_free`
+ * the array themselves.
+ */
+typedef struct NumericRangeIteratorsResult {
+  /**
+   * Array of iterators. NULL when `len == 0`.
+   */
+  QueryIterator **iterators;
+  /**
+   * Number of iterators in the array.
+   */
+  uintptr_t len;
+} NumericRangeIteratorsResult;
 
 #ifdef __cplusplus
 extern "C" {
@@ -119,7 +139,7 @@ void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
  *    remain valid for the lifetime of the returned iterator.
  * 9. `range_min` is smaller or equal to `range_max`.
  */
-QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx,
+QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndexNumeric *idx,
                                               const RedisSearchCtx *sctx,
                                               const FieldFilterContext *field_ctx,
                                               const NumericFilter *flt,
@@ -165,6 +185,69 @@ double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it)
  * The maximum range value from the filter, or positive infinity if no filter was provided.
  */
 double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it);
+
+/**
+ * Creates numeric range iterators for all ranges in the tree matching the filter.
+ *
+ * This combines the tree lookup and per-range iterator creation into a single
+ * call, eliminating the need for C-side loops over intermediate `Vector` results.
+ *
+ * # Returns
+ *
+ * A [`NumericRangeIteratorsResult`] containing the array of iterators and its length.
+ * The array is allocated with `RedisModule_Calloc`. When `len == 0`, `iterators` is NULL.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`].
+ * 2. `t` must remain valid for the lifetime of all returned iterators.
+ * 3. `sctx` must be a valid non-NULL pointer to a `RedisSearchCtx`.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
+ * 5. `f` must be a valid non-NULL pointer to a [`NumericFilter`].
+ * 6. `f` must remain valid for the lifetime of all returned iterators.
+ * 7. `field_ctx` must be a valid non-NULL pointer to a `FieldFilterContext`.
+ * 8. `field_ctx.field` must be a field index (tag == FieldMaskOrIndex_Index), not a field mask.
+ */
+struct NumericRangeIteratorsResult CreateNumericRangeIterators(const NumericRangeTree *t,
+                                                               const RedisSearchCtx *sctx,
+                                                               const NumericFilter *f,
+                                                               const FieldFilterContext *field_ctx);
+
+/**
+ * Creates a new term inverted index iterator for querying term fields.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the inverted index to query.
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_mask_or_index` - Field mask or field index to filter on.
+ * * `term` - Pointer to the query term. Ownership is transferred to the iterator.
+ * * `weight` - Weight to apply to the term results.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to a term `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `Redis_OpenInvertedIndex()`
+ *    pointer comparison.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
+ *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ */
+QueryIterator *NewInvIndIterator_TermQuery_Rs(const InvertedIndex *idx,
+                                              const RedisSearchCtx *sctx,
+                                              FieldMaskOrIndex field_mask_or_index,
+                                              RSQueryTerm *term,
+                                              double weight);
 
 /**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
@@ -257,7 +340,7 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
  * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
  * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
  */
-enum MetricType GetMetricType(QueryIterator *header);
+enum MetricType GetMetricType(const QueryIterator *header);
 
 /**
  * Create a new non-optimized optional iterator.

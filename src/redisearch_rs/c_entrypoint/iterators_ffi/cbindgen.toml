@@ -5,9 +5,13 @@ pragma_once = true
 after_includes = """
 #include "iterators/iterator_api.h"
 #include "iterators/inverted_index_iterator.h"
+#include "numeric_range_tree.h"
 #include "query.h"
 """
 
 [parse]
 parse_deps = true
 include = ["rqe_iterators"]
+
+[export.rename]
+"NumericIndex" = "InvertedIndexNumeric"

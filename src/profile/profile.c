@@ -28,10 +28,10 @@ typedef struct {
 } PrintProfileConfig;
 
 
-void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters,
+void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
-void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
+void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
   const InvIndIterator *it = (const InvIndIterator *)root;
   IndexFlags readerFlags = InvIndIterator_GetReaderFlags(it);
 
@@ -45,7 +45,7 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
       RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
     }
   } else if (readerFlags & Index_StoreNumeric) {
-    NumericInvIndIterator *numIt = (NumericInvIndIterator *)it;
+    const NumericInvIndIterator *numIt = (const NumericInvIndIterator *)it;
     const NumericFilter *flt = NumericInvIndIterator_GetNumericFilter(numIt);
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
@@ -438,15 +438,15 @@ void Profile_AddIters(QueryIterator **root) {
 }
 
 #define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \
-                                                  QueryIterator *root,        \
-                                                  ProfileCounters *counters,  \
+                                                  const QueryIterator *root,        \
+                                                  const ProfileCounters *counters,  \
                                                   double cpuTime,             \
                                                   int depth,                  \
                                                   int limited,                \
                                                   PrintProfileConfig *config)
 
 PRINT_PROFILE_FUNC(printUnionIt) {
-  UnionIterator *ui = (UnionIterator *)root;
+  const UnionIterator *ui = (const UnionIterator *)root;
   int printFull = !limited  || (ui->type & QN_UNION);
 
   RedisModule_Reply_Map(reply);
@@ -499,7 +499,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
-  IntersectionIterator *ii = (IntersectionIterator *)root;
+  const IntersectionIterator *ii = (const IntersectionIterator *)root;
 
   RedisModule_Reply_Map(reply);
 
@@ -554,8 +554,8 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 PRINT_PROFILE_METRIC(printMetricSortedByIdIt, "METRIC SORTED BY ID");
 PRINT_PROFILE_METRIC(printMetricSortedByScoreIt, "METRIC SORTED BY SCORE");
 
-void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters, double cpuTime,
-                  int depth, int limited, PrintProfileConfig *config, QueryIterator *child, const char *text) {
+void PrintIteratorChildProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters, double cpuTime,
+                  int depth, int limited, PrintProfileConfig *config, const QueryIterator *child, const char *text) {
   size_t nlen = 0;
   RedisModule_Reply_Map(reply);
     printProfileType(text);
@@ -565,7 +565,7 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
     printProfileCounters(counters);
 
     if (root->type == HYBRID_ITERATOR) {
-      HybridIterator *hi = (HybridIterator *)root;
+      const HybridIterator *hi = (const HybridIterator *)root;
       printProfileVectorSearchMode(hi->searchMode);
       if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
           hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
@@ -576,7 +576,7 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
     }
 
     if (root->type == OPTIMUS_ITERATOR) {
-      OptimizerIterator *oi = (OptimizerIterator *)root;
+      const OptimizerIterator *oi = (const OptimizerIterator *)root;
       printProfileOptimizationType(oi);
     }
 
@@ -596,7 +596,7 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, QueryIterator *root, Pr
 #define PRINT_PROFILE_SINGLE(name, IterType, text)                                     \
   PRINT_PROFILE_FUNC(name) {                                                           \
     PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config, \
-      ((IterType *)(root))->child, (text));                                            \
+      ((const IterType *)(root))->child, (text));                                      \
   }
 
 PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,                  "WILDCARD");
@@ -608,18 +608,17 @@ PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printOptionalIt) {
-  // Cast is safe: PrintIteratorChildProfile only reads from the child iterator.
   PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
-    (QueryIterator *)GetOptionalIteratorChild(root), "OPTIONAL");
+    GetOptionalIteratorChild(root), "OPTIONAL");
 }
 
 PRINT_PROFILE_FUNC(printProfileIt) {
-  ProfileIterator *pi = (ProfileIterator *)root;
+  const ProfileIterator *pi = (const ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, &pi->counters,
     rs_wall_clock_convert_ns_to_ms_d(pi->wallTime), depth, limited, config);
 }
 
-void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters,
+void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config) {
   if (root == NULL) return;
 

@@ -915,7 +915,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
   } else {
     self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
-    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALL_LOADED); // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
   }
 
   self->lk = lk;

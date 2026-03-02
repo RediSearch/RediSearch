@@ -32,7 +32,7 @@ QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double 
  */
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
 
-bool IsWildcardIterator(QueryIterator *it);
+bool IsWildcardIterator(const QueryIterator *it);
 
 #ifdef __cplusplus
 }

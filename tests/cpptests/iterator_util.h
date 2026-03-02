@@ -21,7 +21,7 @@
 extern "C" {
     IteratorStatus MockIterator_Read(QueryIterator *base);
     IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId);
-    size_t MockIterator_NumEstimated(QueryIterator *base);
+    size_t MockIterator_NumEstimated(const QueryIterator *base);
     void MockIterator_Rewind(QueryIterator *base);
     void MockIterator_Free(QueryIterator *base);
     ValidateStatus MockIterator_Revalidate(QueryIterator *base);
@@ -93,7 +93,7 @@ public:
       return status;
     }
 
-    size_t NumEstimated() {
+    size_t NumEstimated() const {
       return docIds.size();
     }
 
