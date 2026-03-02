@@ -224,7 +224,7 @@ inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = current->_next;
+        iterator->current = current->next;
 
         return true;
     }
@@ -242,7 +242,7 @@ inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = current->_next;
+        iterator->current = current->next;
 
         return true;
     }
