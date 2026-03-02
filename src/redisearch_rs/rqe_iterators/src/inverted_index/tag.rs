@@ -160,6 +160,11 @@ where
         !self.it.reader.points_to_ii(ii)
     }
 
+    /// Swap the reader's inverted index. Only used by C tests to trigger revalidation.
+    pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<E>) {
+        self.it.reader.swap_index(index);
+    }
+
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader

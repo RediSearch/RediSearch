@@ -104,30 +104,13 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
  * 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
  * 4. If `it` iterator type is IteratorType_INV_IDX_MISSING_ITERATOR, it has been created using `NewInvIndIterator_MissingQuery`.
- * 5. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR, INV_IDX_TERM_ITERATOR,
- *    and INV_IDX_MISSING_ITERATOR), its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+ * 5. If `it` iterator type is [`ffi::IteratorType_INV_IDX_TAG_ITERATOR`], it has been created using [`ffi::NewInvIndIterator_TagQuery`].
  *
  * # Returns
  *
  * The flags of the `IndexReader`.
  */
 IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
-
-/**
- * Swap the inverted index of an inverted index iterator. This is only used by C tests
- * to trigger revalidation on the iterator's underlying reader.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-NULL pointer to an `InvIndIterator`.
- * 2. If `it` iterator type is `IteratorType_INV_IDX_WILDCARD_ITERATOR`, it has been created
- *    using `NewInvIndIterator_WildcardQuery`.
- * 3. If `it` is a C iterator, its `reader` field must be a valid non-NULL
- *    pointer to an `IndexReader`.
- * 4. `ii` must be a valid non-NULL pointer to an `InvertedIndex` whose type matches the
- *    iterator's underlying index type.
- */
-void InvIndIterator_Rs_SwapIndex(InvIndIterator *it, const InvertedIndex *ii);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -304,12 +287,12 @@ struct NumericRangeIteratorsResult CreateNumericRangeIterators(const NumericRang
  * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
-QueryIterator *NewInvIndIterator_TagQuery_Rs(const InvertedIndex *idx,
-                                             const TagIndex *tag_idx,
-                                             const RedisSearchCtx *sctx,
-                                             FieldMaskOrIndex field_mask_or_index,
-                                             RSQueryTerm *term,
-                                             double weight);
+QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx,
+                                          const TagIndex *tag_idx,
+                                          const RedisSearchCtx *sctx,
+                                          FieldMaskOrIndex field_mask_or_index,
+                                          RSQueryTerm *term,
+                                          double weight);
 
 /**
  * Creates a new term inverted index iterator for querying term fields.
