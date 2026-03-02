@@ -6,8 +6,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "rlookup.h"
 #include "redisearch.h"
+#include "rlookup.h"
 #include "score_explain.h"
 #include "types_rs.h"
 
