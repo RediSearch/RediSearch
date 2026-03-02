@@ -43,9 +43,6 @@ typedef struct {
   const TagIndex *tagIdx; // not const, may reopen on revalidation
 } TagInvIndIterator;
 
-// Returns an iterator for a tag index, suitable for queries
-QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
-                                          RSQueryTerm *term, double weight);
 
 #ifdef __cplusplus
 }
