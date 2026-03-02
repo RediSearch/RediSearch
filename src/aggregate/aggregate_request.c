@@ -567,7 +567,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
 }
 
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
-                          QueryAST *ast, AggregatePlan *plan, QueryError *status) {
+                          QueryAST *ast, AggregatePlan *plan, bool isDiskIndex, QueryError *status) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
@@ -749,6 +749,15 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
     FieldList_RestrictReturn(&req->outFields);
   }
+
+  // Currently we don't support loading fields from disk indexes
+  // We require the NOCONTENT flag to be set or a RETURN 0 clause to be specified
+  if (isDiskIndex && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "NOCONTENT or RETURN 0 must be provided for disk indexes");
+    return REDISMODULE_ERR;
+  }
+
   return REDISMODULE_OK;
 }
 
@@ -1125,7 +1134,7 @@ static bool shouldCheckInPipelineTimeout(AREQ *req) {
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
+int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
   // Copy the arguments into an owned array of sds strings
@@ -1147,7 +1156,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
-  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
+  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 

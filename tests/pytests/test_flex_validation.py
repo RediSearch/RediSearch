@@ -227,3 +227,32 @@ def test_flex_gc_config_explicit_override(env):
     custom_env.expect(config_cmd(), 'GET', 'FORK_GC_RUN_INTERVAL').equal([['FORK_GC_RUN_INTERVAL', '60']])
     custom_env.expect(config_cmd(), 'GET', 'FORK_GC_CLEAN_THRESHOLD').equal([['FORK_GC_CLEAN_THRESHOLD', '500']])
     custom_env.stop()
+
+
+@skip(cluster=True)
+def test_flex_search_requires_nocontent_or_return0(env):
+    """In Flex mode, FT.SEARCH must use NOCONTENT (explicit) or RETURN 0."""
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello world').equal(1)
+
+    env.expect('FT.SEARCH', 'idx', 'hello') \
+        .error().contains('NOCONTENT or RETURN 0 must be provided for disk indexes')
+
+
+@skip(cluster=True)
+def test_flex_search_allows_nocontent(env):
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello world').equal(1)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True)
+def test_flex_search_allows_return_0(env):
+    env.expect('CONFIG', 'SET', 'search-_simulate-in-flex', 'yes').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello world').equal(1)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '0').equal([1, 'doc:1'])
