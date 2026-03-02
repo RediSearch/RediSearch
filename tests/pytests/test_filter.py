@@ -484,3 +484,316 @@ def testFilterWithMissingFields(env):
     env.assertEqual(res[0], 2)
     env.assertContains('h2', res)
     env.assertContains('h3', res)
+
+@skip(cluster=True)
+def test_filter_and_missing_field(env):
+    """Test that AND filter expressions work consistently when fields are missing"""
+    conn = getConnectionByEnv(env)
+
+    # --- Documents first (before index creation) ---
+    # Add document with only d2=1 (d1 is missing) BEFORE creating indexes
+    conn.execute_command('HSET', 'h1', 'd2', '1')
+
+    # Create index with filter: @d1==0 && @d2==0
+    env.expect('FT.CREATE', 'idx1', 'FILTER', '@d1==0 && @d2==0',
+               'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
+
+    # Create index with filter in reverse order: @d2==0 && @d1==0
+    env.expect('FT.CREATE', 'idx2', 'FILTER', '@d2==0 && @d1==0',
+               'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
+
+    # Both indexes should have 0 documents (d2=1, d1 missing)
+    result1 = env.cmd('FT.SEARCH', 'idx1', '*')
+    result2 = env.cmd('FT.SEARCH', 'idx2', '*')
+    env.assertEqual(result1, [0])
+    env.assertEqual(result2, [0])
+
+    # --- Documents after index creation ---
+    # Add document with d2=0 but d1 still missing - should NOT be indexed
+    conn.execute_command('HSET', 'h2', 'd2', '0')
+
+    result1 = env.cmd('FT.SEARCH', 'idx1', '*')
+    result2 = env.cmd('FT.SEARCH', 'idx2', '*')
+    env.assertEqual(result1, [0], message="h2 should NOT be indexed - d1 is missing")
+    env.assertEqual(result2, [0], message="h2 should NOT be indexed - d1 is missing")
+
+    # Add document with both fields matching - should be indexed (success case)
+    conn.execute_command('HSET', 'h3', 'd1', '0', 'd2', '0')
+
+    result1 = env.cmd('FT.SEARCH', 'idx1', '*')
+    result2 = env.cmd('FT.SEARCH', 'idx2', '*')
+    env.assertEqual(result1[0], 1, message="h3 should be indexed - both fields match")
+    env.assertEqual(result1[1], 'h3')
+    env.assertEqual(result2[0], 1, message="h3 should be indexed - both fields match")
+    env.assertEqual(result2[1], 'h3')
+    env.assertEqual(result1, result2)
+
+@skip(cluster=True)
+def test_filter_or_missing_field(env):
+    """Test that OR filter expressions work consistently when fields are missing"""
+    conn = getConnectionByEnv(env)
+
+    # --- Documents first (before index creation) ---
+    # Add document with only d2=1 (d1 is missing) BEFORE creating indexes
+    conn.execute_command('HSET', 'h1', 'd2', '1')
+
+    # Create index with filter: @d1==0 || @d2==0
+    env.expect('FT.CREATE', 'idx1', 'FILTER', '@d1==0 || @d2==0',
+               'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
+
+    # Create index with filter in reverse order: @d2==0 || @d1==0
+    env.expect('FT.CREATE', 'idx2', 'FILTER', '@d2==0 || @d1==0',
+               'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
+
+    waitForIndex(env, 'idx1')
+    waitForIndex(env, 'idx2')
+
+    # Both indexes should have 0 documents (d2=1 doesn't match, d1 missing)
+    result1 = env.cmd('FT.SEARCH', 'idx1', '*')
+    result2 = env.cmd('FT.SEARCH', 'idx2', '*')
+    env.assertEqual(result1[0], 0)
+    env.assertEqual(result2[0], 0)
+
+    # --- Documents after index creation ---
+    # Add document with d2=0 (d1 missing) - should be indexed because d2==0 is true
+    conn.execute_command('HSET', 'h2', 'd2', '0')
+
+    result1 = env.cmd('FT.SEARCH', 'idx1', '*')
+    result2 = env.cmd('FT.SEARCH', 'idx2', '*')
+    env.assertEqual(result1[0], 1, message="h2 should be indexed - d2==0 is true")
+    env.assertEqual(result1[1], 'h2')
+    env.assertEqual(result2[0], 1, message="h2 should be indexed - d2==0 is true")
+    env.assertEqual(result2[1], 'h2')
+    env.assertEqual(result1, result2)
+
+@skip(cluster=True)
+def test_filter_both_fields_missing(env):
+    """Test AND and OR filters when both fields are missing"""
+    conn = getConnectionByEnv(env)
+
+    # --- Documents first (before index creation) ---
+    # Add document with neither d1 nor d2 BEFORE creating index
+    conn.execute_command('HSET', 'h1', 'other', 'value')
+
+    env.expect('FT.CREATE', 'idx1', 'FILTER', '@d1==0 && @d2==0',
+               'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'idx2', 'FILTER', '@d1==1 || @d2==1',
+               'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
+
+    # Should have 0 documents because both fields are missing (treated as false)
+    result = env.cmd('FT.SEARCH', 'idx1', '*')
+    env.assertEqual(result, [0])
+    result = env.cmd('FT.SEARCH', 'idx2', '*')
+    env.assertEqual(result, [0])
+
+    # --- Documents after index creation ---
+    # Add another document with neither d1 nor d2
+    conn.execute_command('HSET', 'h2', 'other', 'data')
+
+    # Still should have 0 documents
+    result = env.cmd('FT.SEARCH', 'idx1', '*')
+    env.assertEqual(result, [0])
+    result = env.cmd('FT.SEARCH', 'idx2', '*')
+    env.assertEqual(result, [0])
+
+
+# Tests for type mismatches in filter expressions
+
+@skip(cluster=True)
+def test_filter_type_mismatch_numeric_comparison(env):
+    """Test that type mismatches in numeric comparisons are handled correctly"""
+    conn = getConnectionByEnv(env)
+
+    # Create index with numeric comparison filter
+    env.expect('FT.CREATE', 'idx', 'FILTER', '@price > 100',
+               'SCHEMA', 'price', 'TEXT', 'name', 'TEXT').ok()
+
+    # Add document with a non-numeric string in price field
+    conn.execute_command('HSET', 'h1', 'price', 'hello', 'name', 'test')
+
+    # Document should NOT be indexed because 'hello' > 100 should fail/return false
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result, [0], message="'hello' > 100 should fail, doc not indexed")
+
+    # Add document with valid numeric price
+    conn.execute_command('HSET', 'h2', 'price', '150', 'name', 'test2')
+
+    # This document SHOULD be indexed
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result[0], 1, message="150 > 100 should pass")
+    env.assertEqual(result[1], 'h2', message="Only h2 should be indexed")
+
+    # Add document with price below threshold
+    conn.execute_command('HSET', 'h3', 'price', '50', 'name', 'test3')
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result[0], 1, message="50 > 100 is false, only h2 indexed")
+    env.assertEqual(result[1], 'h2')
+
+
+@skip(cluster=True)
+def test_filter_comparison_operators_with_missing_fields(env):
+    """Test various comparison operators with missing fields"""
+    conn = getConnectionByEnv(env)
+
+    # Test less than
+    env.expect('FT.CREATE', 'idx_lt', 'FILTER', '@val < 10',
+               'SCHEMA', 'val', 'NUMERIC').ok()
+
+    # Test greater than
+    env.expect('FT.CREATE', 'idx_gt', 'FILTER', '@val > 10',
+               'SCHEMA', 'val', 'NUMERIC').ok()
+
+    # Test less than or equal
+    env.expect('FT.CREATE', 'idx_le', 'FILTER', '@val <= 10',
+               'SCHEMA', 'val', 'NUMERIC').ok()
+
+    # Test greater than or equal
+    env.expect('FT.CREATE', 'idx_ge', 'FILTER', '@val >= 10',
+               'SCHEMA', 'val', 'NUMERIC').ok()
+
+    # Test not equal
+    env.expect('FT.CREATE', 'idx_ne', 'FILTER', '@val != 10',
+               'SCHEMA', 'val', 'NUMERIC').ok()
+
+    # Test equal
+    env.expect('FT.CREATE', 'idx_eq', 'FILTER', '@val == 10',
+               'SCHEMA', 'val', 'NUMERIC').ok()
+
+    # Add document without 'val' field
+    conn.execute_command('HSET', 'h1', 'other', 'data')
+
+    # All indexes should have 0 documents (missing field treated as comparison failure)
+    for idx in ['idx_lt', 'idx_gt', 'idx_le', 'idx_ge', 'idx_ne', 'idx_eq']:
+        result = env.cmd('FT.SEARCH', idx, '*')
+        env.assertEqual(result, [0], message=f"Index {idx} should have 0 docs when field is missing")
+
+    # Now add documents with actual values to verify the filters work correctly
+    conn.execute_command('HSET', 'h_lt', 'val', '5')
+    conn.execute_command('HSET', 'h_gt', 'val', '15')
+    conn.execute_command('HSET', 'h_eq', 'val', '10')
+
+    # Verify each index now has the correct document
+    result = env.cmd('FT.SEARCH', 'idx_lt', '*')
+    env.assertEqual(result[0], 1, message="idx_lt should have 1 doc (5 < 10)")
+    env.assertEqual(result[1], 'h_lt')
+
+    result = env.cmd('FT.SEARCH', 'idx_gt', '*')
+    env.assertEqual(result[0], 1, message="idx_gt should have 1 doc (15 > 10)")
+    env.assertEqual(result[1], 'h_gt')
+
+    result = env.cmd('FT.SEARCH', 'idx_le', '*')
+    env.assertEqual(result[0], 2, message="idx_le should have 2 docs (5 <= 10, 10 <= 10)")
+    env.assertContains('h_lt', result)
+    env.assertContains('h_eq', result)
+
+    result = env.cmd('FT.SEARCH', 'idx_ge', '*')
+    env.assertEqual(result[0], 2, message="idx_ge should have 2 docs (15 >= 10, 10 >= 10)")
+    env.assertContains('h_gt', result)
+    env.assertContains('h_eq', result)
+
+    result = env.cmd('FT.SEARCH', 'idx_ne', '*')
+    env.assertEqual(result[0], 2, message="idx_ne should have 2 docs (5 != 10, 15 != 10)")
+    env.assertContains('h_lt', result)
+    env.assertContains('h_gt', result)
+
+    result = env.cmd('FT.SEARCH', 'idx_eq', '*')
+    env.assertEqual(result[0], 1, message="idx_eq should have 1 doc (10 == 10)")
+    env.assertEqual(result[1], 'h_eq')
+
+
+@skip(cluster=True)
+def test_filter_nested_expressions_with_missing_fields(env):
+    """Test nested AND/OR expressions with some fields missing"""
+    conn = getConnectionByEnv(env)
+
+    # Complex filter: (@a==1 && @b==2) || (@c==3 && @d==4)
+    env.expect('FT.CREATE', 'idx', 'FILTER', '(@a==1 && @b==2) || (@c==3 && @d==4)',
+               'SCHEMA', 'a', 'NUMERIC', 'b', 'NUMERIC', 'c', 'NUMERIC', 'd', 'NUMERIC').ok()
+
+    # Document with only a=1, b=2 (c and d missing) - should match first clause
+    conn.execute_command('HSET', 'h1', 'a', '1', 'b', '2')
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result[0], 1, message="h1 should match (@a==1 && @b==2)")
+    env.assertEqual(result[1], 'h1')
+
+    # Document with only c=3, d=4 (a and b missing) - should match second clause
+    conn.execute_command('HSET', 'h2', 'c', '3', 'd', '4')
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result[0], 2, message="h2 should match (@c==3 && @d==4)")
+    env.assertContains('h1', result)
+    env.assertContains('h2', result)
+
+    # Document with only a=1 (b, c, d missing) - should NOT match
+    conn.execute_command('HSET', 'h3', 'a', '1')
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result[0], 2, message="h3 should NOT match - b is missing so first clause fails")
+    env.assertContains('h1', result)
+    env.assertContains('h2', result)
+
+    # Document with all fields but wrong values - should NOT match
+    conn.execute_command('HSET', 'h4', 'a', '9', 'b', '9', 'c', '9', 'd', '9')
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result[0], 2, message="h4 should NOT match - wrong values")
+    env.assertContains('h1', result)
+    env.assertContains('h2', result)
+
+    # Document matching both clauses - should match
+    conn.execute_command('HSET', 'h5', 'a', '1', 'b', '2', 'c', '3', 'd', '4')
+    result = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(result[0], 3, message="h5 should match - both clauses true")
+    env.assertContains('h1', result)
+    env.assertContains('h2', result)
+    env.assertContains('h5', result)
+
+
+@skip(cluster=True)
+def test_filter_comparing_fields_with_missing_fields(env):
+    """Test that comparing two missing fields returns false (not true like NULL == NULL)"""
+    conn = getConnectionByEnv(env)
+
+    # Filter that compares two fields directly
+    env.expect('FT.CREATE', 'idx_eq', 'FILTER', '@field1 == @field2',
+               'SCHEMA', 'field1', 'NUMERIC', 'field2', 'NUMERIC').ok()
+
+    env.expect('FT.CREATE', 'idx_ne', 'FILTER', '@field1 != @field2',
+               'SCHEMA', 'field1', 'NUMERIC', 'field2', 'NUMERIC').ok()
+
+    # Add document where both fields are missing
+    conn.execute_command('HSET', 'h1', 'other', 'data')
+
+    # Both comparisons should return false when both fields are missing
+    # (missing property NULL is different from literal NULL)
+    result_eq = env.cmd('FT.SEARCH', 'idx_eq', '*')
+    env.assertEqual(result_eq, [0], message="@field1 == @field2 should be false when both are missing")
+
+    result_ne = env.cmd('FT.SEARCH', 'idx_ne', '*')
+    env.assertEqual(result_ne, [0], message="@field1 != @field2 should be false when both are missing")
+
+    # Add document where both fields exist and are equal
+    conn.execute_command('HSET', 'h2', 'field1', '5', 'field2', '5')
+    result_eq = env.cmd('FT.SEARCH', 'idx_eq', '*')
+    env.assertEqual(result_eq[0], 1, message="@field1 == @field2 should be true when both are 5")
+    env.assertEqual(result_eq[1], 'h2')
+
+    result_ne = env.cmd('FT.SEARCH', 'idx_ne', '*')
+    env.assertEqual(result_ne, [0], message="@field1 != @field2 should still be false (5 != 5 is false)")
+
+    # Add document where both fields exist and are not equal
+    conn.execute_command('HSET', 'h3', 'field1', '5', 'field2', '10')
+    result_eq = env.cmd('FT.SEARCH', 'idx_eq', '*')
+    env.assertEqual(result_eq[0], 1, message="@field1 == @field2 still only h2 (5 == 10 is false)")
+    env.assertEqual(result_eq[1], 'h2')
+
+    result_ne = env.cmd('FT.SEARCH', 'idx_ne', '*')
+    env.assertEqual(result_ne[0], 1, message="@field1 != @field2 should be true for h3 (5 != 10)")
+    env.assertEqual(result_ne[1], 'h3')
+
+    # Add document where only one field exists
+    conn.execute_command('HSET', 'h4', 'field1', '5')
+    result_eq = env.cmd('FT.SEARCH', 'idx_eq', '*')
+    env.assertEqual(result_eq[0], 1, message="Missing field2 - comparison should fail")
+    env.assertEqual(result_eq[1], 'h2')
+
+    result_ne = env.cmd('FT.SEARCH', 'idx_ne', '*')
+    env.assertEqual(result_ne[0], 1, message="Missing field2 - comparison should fail")
+    env.assertEqual(result_ne[1], 'h3')

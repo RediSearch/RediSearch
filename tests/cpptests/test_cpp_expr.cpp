@@ -818,6 +818,40 @@ TEST_F(ExprTest, testAndExpressionWithMissingFields) {
     RLookup_Cleanup(&lk_empty);
   }
 
+  // Test 6: Both fields present and match - should succeed
+  // Expected: true (1)
+  {
+    RLookup lk_full = RLookup_New();
+    auto *kd1_full = RLookup_GetKey_Write(&lk_full, "d1", RLOOKUP_F_NOFLAGS);
+    auto *kd2_full = RLookup_GetKey_Write(&lk_full, "d2", RLOOKUP_F_NOFLAGS);
+    ASSERT_NE(kd1_full, nullptr);
+    ASSERT_NE(kd2_full, nullptr);
+
+    RLookupRow row_full = {0};
+    RSValue *v1_full = RSValue_NewNumber(5);
+    RSValue *v2_full = RSValue_NewNumber(5);
+    RLookup_WriteOwnKey(kd1_full, &row_full, v1_full);
+    RLookup_WriteOwnKey(kd2_full, &row_full, v2_full);
+
+    TEvalCtx ctx("@d1==5 && @d2==5");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk_full;
+    ctx.srcrow = &row_full;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(1, RSValue_Number_Get(res)) << "@d1==5 && @d2==5 should be true when both fields are 5";
+
+    RLookupRow_Reset(&row_full);
+    RLookup_Cleanup(&lk_full);
+  }
+
   RLookup_Cleanup(&lk);
 }
 
