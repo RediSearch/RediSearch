@@ -485,15 +485,15 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
 
     if (backgroundDepletion) {
-      int rc = RPSafeDepleter_DepleteAll(depleters);
+      int rc = RPSafeDepleter_DepleteAll(depleters, status);
       array_free(depleters);
       if (rc != RS_RESULT_OK) {
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
         if (rc == RS_RESULT_TIMEDOUT) {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
         } else if (rc == RS_RESULT_ERROR) {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
-            "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+          // Error was already set by RPSafeDepleter_DepleteAll
+          RS_ASSERT(QueryError_HasError(status));
         } else {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
         }

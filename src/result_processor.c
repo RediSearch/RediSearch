@@ -1930,11 +1930,12 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
 * 4. The function must return only after all the depletion threads finished running
 * 5. If any depleter fails to acquire the lock (RS_RESULT_ERROR), return RS_RESULT_ERROR to propagate the failure
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
   DepleterSync *sync = NULL;
   RedisSearchCtx *searchCtx = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync, &searchCtx)) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
 
@@ -1991,6 +1992,8 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters) {
   if (any_failed) {
     // At least one depleter failed to acquire the lock
     // Return error to propagate the failure up the call stack
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
+      "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
     return RS_RESULT_ERROR;
   }
 
