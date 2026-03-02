@@ -8,7 +8,7 @@
 */
 
 pub use ffi::{
-    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
     RedisModule_Alloc, RedisModule_Free, ValidateStatus,
@@ -67,54 +67,46 @@ impl QueryIterator {
         Self(it)
     }
 
-    /// Creates a new missing-field inverted index iterator via the C path.
+    /// Give up ownership of the raw pointer without calling `Free`.
     ///
-    /// # Safety
-    ///
-    /// `idx` must be a valid pointer to a DocIdsOnly inverted index.
-    /// `sctx` must be a valid pointer to a `RedisSearchCtx` with valid `spec`
-    /// and `missingFieldDict`.
-    /// `field_index` must be a valid index into `sctx.spec.fields`.
+    /// Used when passing the iterator to a C function that takes ownership
+    /// (e.g. `NewIntersectionIterator`), so that the C side is responsible for freeing it.
     #[inline(always)]
-    pub unsafe fn new_missing(
-        idx: *const ffi::InvertedIndex,
-        sctx: *const ffi::RedisSearchCtx,
-        field_index: ffi::t_fieldIndex,
-    ) -> Self {
-        Self(unsafe { ffi::NewInvIndIterator_MissingQuery(idx, sctx, field_index) })
+    pub const fn into_raw(self) -> *mut ffi::QueryIterator {
+        self.0
     }
 
-    /// Creates a new tag inverted index iterator via the C path.
+    /// Create a C intersection from two pre-built term `QueryIterator`s.
     ///
-    /// # Safety
-    ///
-    /// `idx` must be a valid pointer to a [`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly) inverted index.
-    /// `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex).
-    /// `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) with valid `spec`.
-    /// `term` must be a heap-allocated [`RSQueryTerm`] (e.g. created by [`RSQueryTerm::new`]).
+    /// Takes ownership of both children — they will be freed when the intersection is freed.
     #[inline(always)]
-    pub unsafe fn new_tag(
-        idx: *const ffi::InvertedIndex,
-        tag_idx: *const ffi::TagIndex,
-        sctx: *const ffi::RedisSearchCtx,
-        term: *mut RSQueryTerm,
-        weight: f64,
+    pub fn new_intersection_from_term_its(
+        child1: Self,
+        child2: Self,
+        max_slop: i32,
+        in_order: bool,
     ) -> Self {
-        // SAFETY: `field::FieldMaskOrIndex` and `ffi::FieldMaskOrIndex` have the
-        // same binary representation.
-        let field_mask_or_index: ffi::FieldMaskOrIndex =
-            unsafe { std::mem::transmute(field::FieldMaskOrIndex::mask_all()) };
+        let children_ptr = unsafe {
+            RedisModule_Alloc.unwrap()(2 * std::mem::size_of::<*mut ffi::QueryIterator>())
+                as *mut *mut ffi::QueryIterator
+        };
+        unsafe {
+            *children_ptr.add(0) = child1.into_raw();
+            *children_ptr.add(1) = child2.into_raw();
+        }
+        Self(unsafe { ffi::NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
+    }
 
-        // SAFETY: The caller guarantees that `idx`, `tag_idx`, `sctx`, and
-        // `term` are valid pointers with the required properties.
+    #[inline(always)]
+    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex, sctx: *const ffi::RedisSearchCtx) -> Self {
+        let term = Box::into_raw(RSQueryTerm::new("term", 1, 0));
         Self(unsafe {
-            ffi::NewInvIndIterator_TagQuery(
-                idx,
-                tag_idx,
+            iterators_ffi::inverted_index::NewInvIndIterator_TermQuery(
+                ii.cast_const(),
                 sctx,
-                field_mask_or_index,
-                term.cast(),
-                weight,
+                field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
+                term,
+                1.0,
             )
         })
     }
@@ -271,4 +263,97 @@ fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
     unsafe {
         RedisModule_Free.unwrap()(ctx as *mut c_void);
     };
+}
+
+/// Create a minimal zeroed `RedisSearchCtx` with a valid `IndexSpec`.
+///
+/// The caller must call [`free_search_ctx`] to free the memory.
+fn new_search_ctx() -> *mut ffi::RedisSearchCtx {
+    let search_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
+            as *mut ffi::RedisSearchCtx
+    };
+    unsafe {
+        (*search_ctx) = std::mem::zeroed();
+    }
+    let spec = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
+    };
+    unsafe {
+        (*spec) = std::mem::zeroed();
+    }
+    unsafe {
+        (*search_ctx).spec = spec;
+    }
+    search_ctx
+}
+
+fn free_search_ctx(sctx: *mut ffi::RedisSearchCtx) {
+    unsafe {
+        RedisModule_Free.unwrap()((*sctx).spec as *mut c_void);
+        RedisModule_Free.unwrap()(sctx as *mut c_void);
+    }
+}
+
+/// Simple wrapper around the C InvertedIndex.
+/// All methods are inlined to avoid the overhead when benchmarking.
+pub struct InvertedIndex {
+    pub ii: *mut ffi::InvertedIndex,
+    sctx: *mut ffi::RedisSearchCtx,
+}
+
+impl Drop for InvertedIndex {
+    fn drop(&mut self) {
+        unsafe { inverted_index_ffi::InvertedIndex_Free(self.ii.cast()) };
+        free_search_ctx(self.sctx);
+    }
+}
+
+impl InvertedIndex {
+    #[inline(always)]
+    pub fn new(flags: ffi::IndexFlags) -> Self {
+        let mut memsize = 0;
+        let ptr = inverted_index_ffi::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
+        Self {
+            ii: ptr.cast(),
+            sctx: new_search_ctx(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn write_numeric_entry(&self, doc_id: u64, value: f64) {
+        unsafe {
+            inverted_index_ffi::InvertedIndex_WriteNumericEntry(self.ii.cast(), doc_id, value);
+        }
+    }
+
+    /// `term_ptr` and `offsets` must be valid for the lifetime of the index.
+    #[inline(always)]
+    pub fn write_term_entry(
+        &self,
+        doc_id: u64,
+        freq: u32,
+        field_mask: u32,
+        term: Option<Box<RSQueryTerm>>,
+        offsets: &[u8],
+    ) {
+        let offsets = inverted_index::RSOffsetSlice::from_slice(offsets);
+        let record = RSIndexResult::build_term()
+            .borrowed_record(term, offsets)
+            .doc_id(doc_id)
+            .field_mask(field_mask as u128)
+            .frequency(freq)
+            .build();
+        unsafe {
+            inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                self.ii.cast(),
+                &record as *const _ as *mut _,
+            );
+        }
+    }
+
+    #[inline(always)]
+    pub fn iterator_term(&self) -> QueryIterator {
+        unsafe { QueryIterator::new_term(self.ii, self.sctx) }
+    }
 }

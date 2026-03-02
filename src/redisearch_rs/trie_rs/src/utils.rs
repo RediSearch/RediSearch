@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-/// A version of `std`'s `strip_prefix` that's built on top of [`memchr::arch::is_prefix`].
+/// A version of `std`'s `strip_prefix` that's built on top of [`memchr::arch::all::is_prefix`].
 #[inline(always)]
 pub(crate) fn strip_prefix<'a>(haystack: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
     if !memchr::arch::all::is_prefix(haystack, prefix) {

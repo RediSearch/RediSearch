@@ -12,7 +12,6 @@
 #include "rmutil/args.h"
 #include "trie/trie_type.h"
 #include "query_error.h"
-#include "search_disk_utils.h"
 
 extern bool isCrdt;
 
@@ -53,9 +52,6 @@ Integer reply: the current size of the suggestion dictionary.
 int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4 || argc > 7) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.SUGADD")) {
-    return REDISMODULE_OK;
   }
   RETURN_ERROR_ON_CRDT(ctx);
 
@@ -129,9 +125,6 @@ Integer reply: the current size of the suggestion dictionary.
 */
 int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.SUGLEN")) {
-    return REDISMODULE_OK;
-  }
   RETURN_ERROR_ON_CRDT(ctx);
 
   Trie *tree = NULL;
@@ -171,9 +164,6 @@ Integer reply: 1 if the string was found and deleted, 0 otherwise.
 int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (argc != 3) return RedisModule_WrongArity(ctx);
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.SUGDEL")) {
-    return REDISMODULE_OK;
-  }
   RETURN_ERROR_ON_CRDT(ctx);
   RedisModule_ReplicateVerbatim(ctx);
 
@@ -287,9 +277,6 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
 
 int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.SUGGET")) {
-    return REDISMODULE_OK;
-  }
   RETURN_ERROR_ON_CRDT(ctx);
 
   Trie *tree = NULL;

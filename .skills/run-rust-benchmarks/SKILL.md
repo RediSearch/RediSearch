@@ -9,7 +9,7 @@ Run Rust benchmarks and compare performance with the C implementation.
 
 ## Arguments
 - `<crate>`: Run the given benchmark crate (e.g., `/run-rust-benchmarks rqe_iterators_bencher`)
-- `<crate> <bench>`: Run specific bench in a benchmakr crate (e.g., `/run-rust-benchmarks rqe_iterators_bencher "Iterator - InvertedIndex - Numeric - Read Dense"`)
+- `<crate> <bench>`: Run specific bench in a benchmark crate (e.g., `/run-rust-benchmarks rqe_iterators_bencher "Iterator - InvertedIndex - Numeric - Read Dense"`)
 
 Arguments provided: `$ARGUMENTS`
 
