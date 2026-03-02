@@ -22,6 +22,7 @@ pub mod metric;
 pub mod not;
 pub mod optional;
 pub mod profile;
+pub mod union;
 pub mod utils;
 pub mod wildcard;
 
@@ -33,6 +34,9 @@ pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Numeric, Term};
 pub use metric::Metric;
+pub use union::{
+    Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
+};
 pub use wildcard::Wildcard;
 
 #[derive(Debug, PartialEq)]
