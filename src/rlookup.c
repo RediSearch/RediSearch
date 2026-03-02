@@ -224,7 +224,7 @@ inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = current->next;
+        iterator->current = current->_next;
 
         return true;
     }
@@ -242,7 +242,7 @@ inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = current->next;
+        iterator->current = current->_next;
 
         return true;
     }
@@ -501,7 +501,7 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
 void RLookup_Cleanup(RLookup *lk) {
   RLookupKey *next, *cur = lk->_head;
   while (cur) {
-    next = cur->next;
+    next = cur->_next;
     RLookupKey_Free(cur);
     cur = next;
   }
