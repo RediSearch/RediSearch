@@ -27,6 +27,7 @@
 #include "rpnet.h"
 #include "coord/dist_utils.h"
 #include "info/global_stats.h"
+#include "search_disk.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
