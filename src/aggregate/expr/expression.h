@@ -160,8 +160,6 @@ typedef struct EvalCtx {
 } EvalCtx;
 
 EvalCtx *EvalCtx_Create(EvalMode mode);
-EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
-EvalCtx *EvalCtx_FromString(const HiddenString *exprstr);
 void EvalCtx_Destroy(EvalCtx *r);
 int EvalCtx_Eval(EvalCtx *r);
 int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);

@@ -394,31 +394,6 @@ EvalCtx *EvalCtx_Create(EvalMode mode) {
   return r;
 }
 
-EvalCtx *EvalCtx_FromExpr(RSExpr *expr) {
-  EvalCtx *r = EvalCtx_Create(EVAL_MODE_QUERY);
-  r->_expr = expr;
-  r->_own_expr = false;
-  return r;
-}
-
-EvalCtx *EvalCtx_FromString(const HiddenString *expr) {
-  EvalCtx *r = EvalCtx_Create(EVAL_MODE_QUERY);
-  if (!expr) {
-  	r->ee.root = NULL;
-  } else {
-    r->_expr = ExprAST_Parse(expr, r->ee.err);
-    if (r->ee.root == NULL) {
-  	  goto error;
-    }
-    r->_own_expr = true;
-  }
-  return r;
-
-error:
-  EvalCtx_Destroy(r);
-  return NULL;
-}
-
 void EvalCtx_Destroy(EvalCtx *r) {
   RSValue_DecrRef(r->res);
   if (r->_expr && r->_own_expr) {
