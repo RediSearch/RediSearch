@@ -3,6 +3,10 @@ set(CMAKE_CXX_STANDARD 20)
 # Collect source files
 file(GLOB SOURCES "*.cpp")
 
+# Respect BOOST_ROOT variable
+cmake_policy(SET CMP0144 NEW)
+# Use Boost's own config instead of FindBoost
+cmake_policy(SET CMP0167 NEW)
 # Find Boost (no need to specify `geometry` as it is header-only)
 find_package(Boost REQUIRED)
 

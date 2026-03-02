@@ -6,6 +6,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Collect source files
 file(GLOB SOURCES "*.cpp")
 
+# Respect BOOST_ROOT variable
+cmake_policy(SET CMP0144 NEW)
+# Use Boost's own config instead of FindBoost
+cmake_policy(SET CMP0167 NEW)
 # Find Boost
 find_package(Boost REQUIRED)
 
