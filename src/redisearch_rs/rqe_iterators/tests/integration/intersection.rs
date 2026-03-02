@@ -16,8 +16,8 @@
 
 use ffi::t_docId;
 use rqe_iterators::{
-    id_list::IdListSorted, intersection::Intersection, RQEIterator, RQEValidateStatus,
-    SkipToOutcome,
+    RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
+    intersection::Intersection,
 };
 
 use crate::utils::{Mock, MockRevalidateResult};
@@ -1058,6 +1058,27 @@ fn num_estimated_is_minimum() {
     );
 }
 
+/// Test: `num_estimated` is the minimum of all children even when `in_order=true` prevents sorting.
+///
+/// When `in_order=true`, children are NOT re-sorted by estimated count (their order is
+/// semantically meaningful for positional checks). The minimum must still be computed
+/// explicitly rather than relying on sort order as a side effect.
+#[test]
+fn num_estimated_is_minimum_in_order() {
+    // Deliberately pass the LARGEST child first — proves we don't rely on sort order.
+    let child1 = IdListSorted::new(vec![1, 2, 3, 4, 5]); // 5 elements — first, but NOT minimum
+    let child2 = IdListSorted::new(vec![1, 2, 3]);        // 3 elements — minimum
+    let child3 = IdListSorted::new(vec![1, 2, 3, 4]);     // 4 elements
+
+    let ii = Intersection::new(vec![child1, child2, child3], -1, true); // in_order=true
+
+    assert_eq!(
+        ii.num_estimated(),
+        3,
+        "num_estimated must be the minimum of all children, even when in_order=true prevents sorting"
+    );
+}
+
 /// Test: Children are processed in order of estimated count (smallest first)
 /// We can infer this indirectly by checking behavior with asymmetric children
 #[test]
@@ -1176,13 +1197,13 @@ fn revalidate_moved_skip_to_returns_none() {
 /// Document setup mirrors the C++ test.
 mod slop_and_order {
     use ffi::{
-        t_docId, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
+        IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, t_docId,
     };
-    use inverted_index::{full::Full, InvertedIndex, RSIndexResult, RSOffsetSlice};
+    use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
     use query_term::RSQueryTerm;
     use rqe_iterators::{
-        intersection::Intersection, inverted_index::Term, NoOpChecker, RQEIterator, SkipToOutcome,
+        NoOpChecker, RQEIterator, SkipToOutcome, intersection::Intersection, inverted_index::Term,
     };
     use rqe_iterators_test_utils::MockContext;
 
@@ -1316,7 +1337,7 @@ mod slop_and_order {
 
         let mut ii = make_intersection!(foo_index, bar_index, mock_ctx, -1, true);
 
-        assert_eq!(ii.num_estimated(), 4); // first child (foo) has 4 docs
+        assert_eq!(ii.num_estimated(), 3); // min(foo=4, bar=3) = 3
 
         // Read all results: expected docs 1 and 4
         let r = ii.read().expect("read failed").expect("expected doc 1");
@@ -1369,8 +1390,8 @@ mod slop_and_order {
 
         let mut ii = make_intersection!(foo_index, bar_index, mock_ctx, 0, true);
 
-        // num_estimated = first child (foo) has 4 docs (children not sorted for in_order)
-        assert_eq!(ii.num_estimated(), 4);
+        // num_estimated = min(foo=4, bar=3) = 3
+        assert_eq!(ii.num_estimated(), 3);
 
         // Read all results: expected doc 1 only
         let r = ii.read().expect("read failed").expect("expected doc 1");

@@ -69,7 +69,7 @@ where
         if !in_order {
             children.sort_by_cached_key(|c| c.num_estimated());
         }
-        let Some(num_expected) = children.first().map(|c| c.num_estimated()) else {
+        let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
             return Self {
                 children,
                 last_doc_id: 0,
