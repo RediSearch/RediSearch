@@ -109,9 +109,6 @@ pub trait WildcardIterator<'index>: RQEIterator<'index> {}
 /// [`Wildcard`] is obviously a wildcard iterator.
 impl<'index> WildcardIterator<'index> for Wildcard<'index> {}
 
-/// [`Empty`] is used as wildcard in the optimized version if the spec has no document.
-impl<'index> WildcardIterator<'index> for Empty {}
-
 /// [`inverted_index::Wildcard`](crate::inverted_index::Wildcard) is used in the optimized version.
 impl<'index, E> WildcardIterator<'index> for crate::inverted_index::Wildcard<'index, E>
 where
@@ -126,6 +123,62 @@ impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
     for crate::profile::Profile<'index, I>
 {
 }
+
+/// [`Empty`] is used as wildcard in the optimized version if the spec has no document.
+struct EmptyWildcard(Empty);
+
+impl<'index> RQEIterator<'index> for EmptyWildcard {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.0.current()
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.0.read()
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        self.0.skip_to(doc_id)
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        self.0.rewind()
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        self.0.num_estimated()
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        self.0.last_doc_id()
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        self.0.at_eof()
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        self.0.revalidate()
+    }
+
+    #[inline(always)]
+    fn is_wildcard(&self) -> bool {
+        true
+    }
+}
+
+/// [`EmptyIterator`] matches all documents (vacuously, since the index is empty).
+impl<'index> WildcardIterator<'index> for EmptyWildcard {}
 
 // TODO: new_wildcard_iterator_optimized() and new_wildcard_iterator() have to return
 // the actual IteratorType value so the ffi code can properly wrap it into a RQEIteratorWrapper.
@@ -194,7 +247,7 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
             };
             (it, IteratorType_INV_IDX_WILDCARD_ITERATOR)
         }
-        None => (Box::new(Empty), IteratorType_EMPTY_ITERATOR),
+        None => (Box::new(EmptyWildcard(Empty)), IteratorType_EMPTY_ITERATOR),
     }
 }
 
