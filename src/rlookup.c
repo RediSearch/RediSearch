@@ -65,10 +65,6 @@ inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
     return key->_flags;
 }
 
-static inline RLookupKey* RLookupKey_GetNext(RLookupKey* key) {
-    return key->_next;
-}
-
 static inline void RLookupKey_MergeFlags(RLookupKey* key, uint32_t flags) {
     key->_flags |= flags;
 }
@@ -228,7 +224,7 @@ inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = current->_next;
+        iterator->current = current->next;
 
         return true;
     }
@@ -246,7 +242,7 @@ inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = RLookupKey_GetNext(current);
+        iterator->current = current->next;
 
         return true;
     }
@@ -505,7 +501,7 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
 void RLookup_Cleanup(RLookup *lk) {
   RLookupKey *next, *cur = lk->_head;
   while (cur) {
-    next = RLookupKey_GetNext(cur);
+    next = cur->next;
     RLookupKey_Free(cur);
     cur = next;
   }
