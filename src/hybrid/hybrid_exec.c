@@ -1150,6 +1150,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
+    RedisSearchCtx_UnlockSpec(sctx);
   } else {
     // buildPipelineAndExecute failed - release the lock if still held.
     // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
