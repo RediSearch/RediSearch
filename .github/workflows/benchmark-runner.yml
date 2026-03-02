@@ -294,7 +294,7 @@ jobs:
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
-              "repository": ${{ github.repository }}
+              "repository": "${{ github.repository }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}

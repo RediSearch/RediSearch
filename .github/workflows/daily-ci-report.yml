@@ -21,20 +21,20 @@ on:
 jobs:
   generate-and-send-report:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      
+
       - name: Install dependencies
         run: |
           pip install requests
-      
+
       - name: Determine date
         id: date
         env:
@@ -54,7 +54,7 @@ jobs:
             echo "Using yesterday's date: $TARGET_DATE"
           fi
           echo "date=$TARGET_DATE" >> $GITHUB_OUTPUT
-      
+
       - name: Run collect_nightly_results.py
         id: collect
         continue-on-error: true
@@ -62,19 +62,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python scripts/collect_nightly_results.py --date "${{ steps.date.outputs.date }}"
-      
+
       - name: Handle collect failure
         if: steps.collect.outcome == 'failure'
         uses: slackapi/slack-github-action@v2
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}          
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
           webhook-type: incoming-webhook
           payload: |
             {
+              "repository": ${{ github.repository }}",
               "header": "❌ CI Report Generation Failed - ${{ steps.date.outputs.date }}",
               "error": "The collect_nightly_results.py script failed. Check workflow logs for details."
             }
-      
+
       - name: Read summary file
         id: summary
         run: |
@@ -89,7 +90,7 @@ jobs:
             echo "summary_exists=false" >> $GITHUB_OUTPUT
             echo "⚠️ Summary file not found: $SUMMARY_FILE"
           fi
-      
+
       - name: Read failure report file
         id: failure_report
         run: |
@@ -104,7 +105,7 @@ jobs:
             echo "failure_exists=false" >> $GITHUB_OUTPUT
             echo "⚠️ Failure report file not found: $FAILURE_FILE"
           fi
-      
+
       - name: Send reports to Slack
         if: steps.summary.outputs.summary_exists == 'true' || steps.failure_report.outputs.failure_exists == 'true'
         uses: slackapi/slack-github-action@v2
@@ -113,11 +114,12 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
+              "repository": "${{ github.repository }}",
               "header": "📊 Daily CI Report - ${{ steps.date.outputs.date }}",
               "summary_report": ${{ steps.summary.outputs.summary_exists == 'true' && steps.summary.outputs.summary_content || '"(No summary available)"' }},
               "failure_report": ${{ steps.failure_report.outputs.failure_exists == 'true' && steps.failure_report.outputs.failure_content || '"(No failures)"' }}
             }
-      
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -125,4 +127,3 @@ jobs:
           name: ci-reports-${{ steps.date.outputs.date }}
           path: merge-to-queue_${{ steps.date.outputs.date }}/
           retention-days: 30
-
