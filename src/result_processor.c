@@ -207,23 +207,25 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
  *    during QAST_Iterate() which already runs under the read-lock.
- * 2. SpeedB iterators capture an implicit snapshot at creation time, ensuring
+ * 2. Disk iterators capture an implicit snapshot at creation time, ensuring
  *    consistency for disk reads without needing to hold the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
 static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
+  // For disk indexes, return immediately, since we don't need to acquire the
+  // lock, nor to revalidate the iterators.
+  if (sctx->spec->diskSpec) {
+    return false;
+  }
+
   QueryIterator *it = self->iterator;
 
   if (sctx->flags != RS_CTX_UNSET) {
     return false;
   }
 
-  // For in-memory indexes, take the lock. For disk indexes, skip it -
-  // implicit snapshots provide consistency without blocking main thread.
-  if (!sctx->spec->diskSpec) {
-    RedisSearchCtx_LockSpecRead(sctx);
-  }
+  RedisSearchCtx_LockSpecRead(sctx);
 
   ValidateStatus rc = it->Revalidate(it);
 
