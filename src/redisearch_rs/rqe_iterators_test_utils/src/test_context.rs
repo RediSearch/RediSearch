@@ -689,6 +689,15 @@ impl TestContext {
         }
     }
 
+    /// Get a raw pointer to the tag inverted index suitable for FFI.
+    /// Panics if this is not a tag context.
+    pub fn tag_index_ptr(&self) -> *const ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Tag { inverted_index, .. } => inverted_index.as_ptr(),
+            _ => panic!("TestContext is not a Tag context"),
+        }
+    }
+
     /// Get the tag index for this context.
     /// Panics if this is not a tag context.
     pub fn tag_index(&self) -> ptr::NonNull<ffi::TagIndex> {
