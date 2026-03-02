@@ -90,6 +90,27 @@ void CoordReduceDebugCtx_IncrementReduceCount(void) {
 int CoordReduceDebugCtx_GetReduceCount(void) {
   return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
 }
+
+// Global hybrid reply debug context
+static HybridCursorReplyDebugCtx globalHybridCursorReplyDebugCtx = {0};
+
+bool HybridCursorReplyDebugCtx_IsPauseEnabled(void) {
+  return atomic_load(&globalHybridCursorReplyDebugCtx.pauseEnabled);
+}
+
+void HybridCursorReplyDebugCtx_SetPauseEnabled(bool enabled) {
+  atomic_store(&globalHybridCursorReplyDebugCtx.pauseEnabled, enabled);
+  // Reset pause state when changing enabled
+  atomic_store(&globalHybridCursorReplyDebugCtx.pause, false);
+}
+
+bool HybridCursorReplyDebugCtx_IsPaused(void) {
+  return atomic_load(&globalHybridCursorReplyDebugCtx.pause);
+}
+
+void HybridCursorReplyDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalHybridCursorReplyDebugCtx.pause, pause);
+}
 #endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
@@ -1989,6 +2010,64 @@ DEBUG_COMMAND(getCoordReduceCount) {
 
   return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
 }
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_HYBRID_CURSOR_REPLY <true/false>
+ * Enable/disable pausing before replyWithCursors in hybrid execution.
+ */
+DEBUG_COMMAND(setPauseBeforeHybridCursorReply) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    HybridCursorReplyDebugCtx_SetPauseEnabled(true);
+  } else if (!strcasecmp(op, "false")) {
+    HybridCursorReplyDebugCtx_SetPauseEnabled(false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_HYBRID_CURSOR_REPLY'");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_HYBRID_CURSOR_REPLY_PAUSED
+ */
+DEBUG_COMMAND(getIsHybridCursorReplyPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, HybridCursorReplyDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_HYBRID_CURSOR_REPLY_RESUME
+ */
+DEBUG_COMMAND(setHybridCursorReplyResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!HybridCursorReplyDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Hybrid reply is not paused");
+  }
+
+  HybridCursorReplyDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 #endif
 
 /**
@@ -2064,6 +2143,16 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
+  }
+  // Hybrid reply pause commands (only available with ENABLE_ASSERT)
+  if (!strcmp("SET_PAUSE_BEFORE_HYBRID_CURSOR_REPLY", op)) {
+    return setPauseBeforeHybridCursorReply(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_HYBRID_CURSOR_REPLY_PAUSED", op)) {
+    return getIsHybridCursorReplyPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_HYBRID_CURSOR_REPLY_RESUME", op)) {
+    return setHybridCursorReplyResume(ctx, argv + 1, argc - 1);
   }
 #endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");

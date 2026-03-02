@@ -11,6 +11,7 @@
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "debug_commands.h"
 
 #include "redismodule.h"
 #include "redisearch.h"
@@ -415,6 +416,23 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
     return REDISMODULE_OK;
 }
 
+#ifdef ENABLE_ASSERT
+// Helper function to pause before hybrid reply (for testing timeout during reply)
+static inline void debugPauseBeforeHybridCursorReply(HybridRequest *req) {
+  if (HybridCursorReplyDebugCtx_IsPauseEnabled()) {
+    HybridCursorReplyDebugCtx_SetPause(true);
+    while (HybridCursorReplyDebugCtx_IsPaused()) {
+      // Check if timed out - break to avoid deadlock with timeout callback
+      if (HybridRequest_TimedOut(req)) {
+        HybridCursorReplyDebugCtx_SetPause(false);
+        break;
+      }
+      usleep(1000);  // Spin-wait with 1ms sleep
+    }
+  }
+}
+#endif
+
 static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
@@ -514,7 +532,11 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
     // Try claiming reply ownership before replying
     if (HybridRequest_TryClaimReply(req)) {
+#ifdef ENABLE_ASSERT
+      debugPauseBeforeHybridCursorReply(req);
+#endif
       replyWithCursors(replyCtx, cursors);
+      HybridRequest_MarkReplied(req);
     }
     array_free(cursors);
     return REDISMODULE_OK;
@@ -839,8 +861,17 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
  * @param BCHCtx The blocked client context containing the request
  */
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
+
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
+
+  // Check if we timed out before executing the query (while the job was in the queue)
+  if (HybridRequest_TimedOut(hreq)) {
+    // Timeout callback owns reply - skip to cleanup without replying
+    blockedClientHybridCtx_destroy(BCHCtx);
+    return;
+  }
+
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();

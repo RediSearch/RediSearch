@@ -75,6 +75,19 @@ int CoordReduceDebugCtx_GetPauseBeforeN(void);
 void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
+
+// Struct used for debugging hybrid reply (pause before replyWithCursors)
+// Only available in debug builds to avoid affecting release performance
+typedef struct HybridCursorReplyDebugCtx {
+  atomic_bool pauseEnabled;    // Whether pause is enabled
+  atomic_bool pause;           // Atomic bool to wait for the resume command
+} HybridCursorReplyDebugCtx;
+
+// HybridCursorReplyDebugCtx API function declarations
+bool HybridCursorReplyDebugCtx_IsPauseEnabled(void);
+void HybridCursorReplyDebugCtx_SetPauseEnabled(bool enabled);
+bool HybridCursorReplyDebugCtx_IsPaused(void);
+void HybridCursorReplyDebugCtx_SetPause(bool pause);
 #endif
 
 // Yield counter functions

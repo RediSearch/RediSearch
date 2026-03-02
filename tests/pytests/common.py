@@ -1005,6 +1005,36 @@ def resetCoordReduceDebug(env):
     except Exception:
         pass  # Ignore error if coordinator is not paused
 
+# Hybrid Reply Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeHybridCursorReply(env, enabled):
+    """
+    Enable/disable pausing before replyWithCursors in hybrid execution.
+    enabled: True to enable pause, False to disable
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_HYBRID_CURSOR_REPLY',
+               'true' if enabled else 'false').ok()
+
+def getIsHybridCursorReplyPaused(env):
+    """Check if hybrid reply is currently paused."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_HYBRID_CURSOR_REPLY_PAUSED')
+
+def setHybridCursorReplyResume(env):
+    """Resume hybrid execution from a reply pause."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_HYBRID_CURSOR_REPLY_RESUME').ok()
+
+def resetHybridCursorReplyDebug(env):
+    """Reset the hybrid reply debug context (disable pause and resume).
+
+    Note: setHybridCursorReplyResume will error if hybrid reply is not currently paused,
+    which is expected in cleanup scenarios where it already resumed.
+    """
+    setPauseBeforeHybridCursorReply(env, False)
+    try:
+        # Use env.cmd here since we need to catch the exception
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_HYBRID_CURSOR_REPLY_RESUME')
+    except Exception:
+        pass  # Ignore error if not paused
+
 def isEnableAssertEnabled(env):
     """
     Check if ENABLE_ASSERT is enabled in the build.

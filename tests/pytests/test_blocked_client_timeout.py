@@ -920,3 +920,134 @@ class TestShardTimeout:
             env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+class TestShardTimeoutInCluster:
+    """Tests for the blocked client timeout mechanism for shards in a cluster."""
+    def __init__(self):
+        # Skip if not cluster
+        skipTest(cluster=False)
+
+        self.env = Env(protocol=3, moduleArgs='WORKERS 1 TIMEOUT 0')
+        self.n_docs = 100
+
+        # Create an index with vector field for FT.HYBRID tests (different prefix)
+        self.env.expect(
+            'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
+            'name', 'TEXT',
+            'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+        ).ok()
+
+        conn = getConnectionByEnv(self.env)
+
+        # Insert documents with vectors for hybrid index
+        for i in range(self.n_docs):
+            vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+            conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
+
+
+        query_vec = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+        self.env.expect(
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'PARAMS', '2', 'BLOB', query_vec
+        ).noError()
+        self.hybrid_query_vec = query_vec
+
+    def test_hybrid_shard_timeout_fail_before_pickup(self):
+        """Test shard timeout with FAIL policy in a cluster for FT.HYBRID.
+
+        This test pauses the WORKERS threadpool so the hybrid query job remains
+        in the job queue. The timeout occurs before any worker thread picks up
+        the job, so the timeout callback handles the entire response.
+        """
+        env = self.env
+        conn = getConnectionByEnv(env)
+        prev_on_timeout_policy = conn.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+
+        # Set timeout policy to FAIL
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Get initial jobs done count from all shards
+        initial_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
+
+        # Pause worker thread
+        env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+        # Run a query that will be blocked
+        t_query = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', self.hybrid_query_vec]),
+            daemon=True
+        )
+        t_query.start()
+
+        # Some cases cause the query client to change, so we check the client id explicitly
+        blocked_client_id = wait_for_blocked_query_client(env, '_FT.HYBRID', 'Client for query _FT.HYBRID not found')
+
+        # Unblock the client to simulate timeout
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        # Resume worker thread
+        env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+
+        # Can't drain workers because depleter might cause a deadlock
+        # Wait for jobs done to increase on all shards
+        def check_jobs_done():
+            current_jobs_done = [stats['totalJobsDone'] for stats in getWorkersThpoolStatsFromAllShards(env)]
+            done = all(current > initial for current, initial in zip(current_jobs_done, initial_jobs_done))
+            return done, {'current_jobs_done': current_jobs_done, 'initial_jobs_done': initial_jobs_done}
+
+        wait_for_condition(check_jobs_done, 'Timeout while waiting for shards to process query', timeout=30)
+
+        conn.execute_command('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def test_hybrid_shard_timeout_after_cursor_reply(self):
+
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        conn = getConnectionByEnv(env)
+        prev_on_timeout_policy = conn.execute_command('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+
+        # Set timeout policy to FAIL
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Set pause before hybrid cursor reply
+        setPauseBeforeHybridCursorReply(env, True)
+
+        # Run a query - expect normal results because reply is claimed before timeout
+        query_result = []
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', self.hybrid_query_vec], query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, '_FT.HYBRID', 'Client for query _FT.HYBRID not found')
+
+        # Wait for the query to be paused after TryClaimReply but before replyWithCursors
+        wait_for_condition(
+            lambda: (getIsHybridCursorReplyPaused(env) == True, {'paused': getIsHybridCursorReplyPaused(env)}),
+            'Timeout while waiting for hybrid cursor reply to pause'
+        )
+
+        # Trigger timeout - but reply was already claimed, so timeout callback should detect this
+        # This will also release the pause
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        # Since reply was claimed before timeout, we should get query results (not timeout error)
+        env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+        env.assertEqual(query_result[0][0], 100, message="Expected 100 results from hybrid query")
