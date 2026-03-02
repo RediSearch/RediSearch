@@ -28,7 +28,6 @@ value_ffi = { path = "../c_entrypoint/value_ffi" }
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 value = { workspace = true, features = ["c_ffi_impl"] }
-workspace_hack.workspace = true
 
 [dev-dependencies]
 approx.workspace = true

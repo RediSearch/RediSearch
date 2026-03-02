@@ -18,7 +18,6 @@ libc.workspace = true
 thin_vec.workspace = true
 trie_rs = { workspace = true }
 wildcard = { workspace = true }
-workspace_hack.workspace = true
 
 [dev-dependencies]
 redis_mock.workspace = true

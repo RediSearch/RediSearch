@@ -55,6 +55,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
+name = "annotate-snippets"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "710e8eae58854cdc1790fcb56cca04d712a17be849eeb81da2a724bf4bae2bc4"
+dependencies = [
+ "anstyle",
+ "unicode-width",
+]
+
+[[package]]
 name = "anstream"
 version = "0.6.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -153,9 +163,12 @@ version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
 dependencies = [
+ "annotate-snippets",
  "bitflags 2.11.0",
  "cexpr",
  "clang-sys",
+ "clap",
+ "clap_complete",
  "itertools 0.13.0",
  "log",
  "prettyplease",
@@ -184,7 +197,6 @@ name = "buffer"
 version = "0.0.1"
 dependencies = [
  "ffi",
- "workspace_hack",
 ]
 
 [[package]]
@@ -194,7 +206,6 @@ dependencies = [
  "bindgen",
  "cbindgen",
  "cc",
- "workspace_hack",
 ]
 
 [[package]]
@@ -218,9 +229,6 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 [[package]]
 name = "c_ffi_utils"
 version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
 
 [[package]]
 name = "c_trie"
@@ -228,7 +236,6 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "strum",
- "workspace_hack",
 ]
 
 [[package]]
@@ -358,6 +365,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2797f34da339ce31042b27d23607e051786132987f595b02ba4f6a6dffb7030a"
 dependencies = [
  "clap_builder",
+ "clap_derive",
 ]
 
 [[package]]
@@ -370,6 +378,27 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.5.66"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c757a3b7e39161a4e56f9365141ada2a6c915a8622c408ab6bb4b5d047371031"
+dependencies = [
+ "clap",
+]
+
+[[package]]
+name = "clap_derive"
+version = "4.5.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a92793da1a46a5f2a02a6f4c46c6496b28c43638adea8306fcb0caa1634f24e5"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote 1.0.44",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -523,7 +552,6 @@ version = "0.0.1"
 dependencies = [
  "strum",
  "thiserror",
- "workspace_hack",
 ]
 
 [[package]]
@@ -535,7 +563,6 @@ dependencies = [
  "cbindgen",
  "document",
  "libc",
- "workspace_hack",
 ]
 
 [[package]]
@@ -642,7 +669,6 @@ dependencies = [
  "document",
  "enumflags2",
  "query_term",
- "workspace_hack",
 ]
 
 [[package]]
@@ -654,7 +680,6 @@ dependencies = [
  "proc-macro2",
  "syn 2.0.117",
  "walkdir",
- "workspace_hack",
 ]
 
 [[package]]
@@ -662,7 +687,6 @@ name = "field"
 version = "0.0.1"
 dependencies = [
  "ffi",
- "workspace_hack",
 ]
 
 [[package]]
@@ -686,7 +710,6 @@ name = "fnv"
 version = "0.0.1"
 dependencies = [
  "hash32",
- "workspace_hack",
 ]
 
 [[package]]
@@ -694,7 +717,6 @@ name = "fnv_ffi"
 version = "0.0.1"
 dependencies = [
  "fnv",
- "workspace_hack",
 ]
 
 [[package]]
@@ -715,9 +737,6 @@ dependencies = [
 [[package]]
 name = "generational_slab"
 version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
 
 [[package]]
 name = "getrandom"
@@ -840,7 +859,6 @@ dependencies = [
  "proptest",
  "rustc-hash",
  "thiserror",
- "workspace_hack",
  "wyhash",
  "xxhash-rust",
 ]
@@ -944,7 +962,6 @@ version = "0.0.1"
 dependencies = [
  "approx",
  "rstest",
- "workspace_hack",
 ]
 
 [[package]]
@@ -953,7 +970,6 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "idf",
- "workspace_hack",
 ]
 
 [[package]]
@@ -997,7 +1013,6 @@ dependencies = [
  "smallvec",
  "thin_vec",
  "varint",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1012,7 +1027,6 @@ dependencies = [
  "query_term",
  "redis-module",
  "redis_mock",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1025,7 +1039,6 @@ dependencies = [
  "inverted_index",
  "rmp-serde",
  "serde",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1047,7 +1060,6 @@ dependencies = [
  "numeric_range_tree",
  "rqe_iterators",
  "rqe_iterators_interop",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1140,9 +1152,6 @@ dependencies = [
 [[package]]
 name = "license_header_linter"
 version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
 
 [[package]]
 name = "linkme"
@@ -1238,7 +1247,6 @@ dependencies = [
  "ffi",
  "tracing",
  "tracing_redismodule",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1335,7 +1343,6 @@ dependencies = [
  "redisearch_rs",
  "rstest",
  "tracing",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1355,7 +1362,6 @@ dependencies = [
  "rmp-serde",
  "serde",
  "tracing",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1550,7 +1556,6 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rand 0.9.2",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1559,7 +1564,6 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "strum",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1571,15 +1575,11 @@ dependencies = [
  "cbindgen",
  "query_error",
  "strum",
- "workspace_hack",
 ]
 
 [[package]]
 name = "query_term"
 version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
 
 [[package]]
 name = "query_term_ffi"
@@ -1589,7 +1589,6 @@ dependencies = [
  "cbindgen",
  "ffi",
  "query_term",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1742,7 +1741,6 @@ dependencies = [
  "ffi",
  "redis-module",
  "thiserror",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1753,7 +1751,6 @@ dependencies = [
  "redis-module",
  "tracing",
  "value",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1764,7 +1761,6 @@ dependencies = [
  "insta",
  "proptest",
  "redis_mock",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1793,7 +1789,6 @@ dependencies = [
  "types_ffi",
  "varint_ffi",
  "walkdir",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1843,7 +1838,6 @@ dependencies = [
  "redisearch_rs",
  "result_processor",
  "search_result",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1857,7 +1851,6 @@ dependencies = [
  "redisearch_rs",
  "result_processor",
  "result_processor_ffi",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1895,7 +1888,6 @@ dependencies = [
  "strum",
  "thiserror",
  "value",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1913,7 +1905,6 @@ dependencies = [
  "rlookup_ffi",
  "sorting_vector",
  "value",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1963,7 +1954,6 @@ dependencies = [
  "value",
  "value_ffi",
  "varint_ffi",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1985,7 +1975,6 @@ dependencies = [
  "redisearch_rs",
  "rqe_iterators",
  "rqe_iterators_test_utils",
- "workspace_hack",
 ]
 
 [[package]]
@@ -1995,7 +1984,6 @@ dependencies = [
  "ffi",
  "inverted_index",
  "rqe_iterators",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2012,7 +2000,6 @@ dependencies = [
  "query_error",
  "redis_mock",
  "varint_ffi",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2142,7 +2129,6 @@ dependencies = [
  "proc-macro2",
  "syn 2.0.117",
  "walkdir",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2161,7 +2147,6 @@ dependencies = [
  "enumflags2",
  "ffi",
  "inverted_index",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2173,7 +2158,6 @@ dependencies = [
  "inverted_index",
  "search_result",
  "unsafe-tools",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2268,9 +2252,6 @@ checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 [[package]]
 name = "slots_tracker"
 version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
 
 [[package]]
 name = "slots_tracker_ffi"
@@ -2279,7 +2260,6 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "slots_tracker",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2302,7 +2282,6 @@ dependencies = [
  "redisearch_rs",
  "sorting_vector",
  "value",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2315,7 +2294,6 @@ dependencies = [
  "libc",
  "sorting_vector",
  "value",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2439,9 +2417,6 @@ dependencies = [
 [[package]]
 name = "thin_vec"
 version = "0.0.1"
-dependencies = [
- "workspace_hack",
-]
 
 [[package]]
 name = "thin_vec_ffi"
@@ -2450,7 +2425,6 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "thin_vec",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2599,7 +2573,6 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-subscriber",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2616,7 +2589,6 @@ dependencies = [
  "trie_rs",
  "ureq",
  "wildcard 0.0.1",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2632,7 +2604,6 @@ dependencies = [
  "proptest-derive",
  "trie_rs",
  "wildcard 0.0.1",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2648,7 +2619,6 @@ dependencies = [
  "thin_vec",
  "trie_rs",
  "wildcard 0.0.1",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2659,7 +2629,6 @@ dependencies = [
  "cbindgen",
  "field",
  "inverted_index",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2673,6 +2642,12 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-width"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "unicode-xid"
@@ -2770,7 +2745,6 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "thiserror",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2783,7 +2757,6 @@ dependencies = [
  "ffi",
  "libc",
  "value",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2792,7 +2765,6 @@ version = "0.0.1"
 dependencies = [
  "proptest",
  "proptest-derive",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2801,7 +2773,6 @@ version = "0.0.1"
 dependencies = [
  "criterion",
  "varint",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2813,7 +2784,6 @@ dependencies = [
  "cbindgen",
  "ffi",
  "varint",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2962,7 +2932,6 @@ dependencies = [
  "memchr",
  "proptest",
  "wildcard 0.3.0",
- "workspace_hack",
 ]
 
 [[package]]
@@ -3194,46 +3163,6 @@ dependencies = [
  "serde_json",
  "unicode-xid 0.2.6",
  "wasmparser",
-]
-
-[[package]]
-name = "workspace_hack"
-version = "0.1.0"
-dependencies = [
- "bindgen",
- "bitflags 2.11.0",
- "clang-sys",
- "clap",
- "clap_builder",
- "either",
- "getrandom 0.2.17",
- "insta",
- "itertools 0.13.0",
- "libc",
- "memchr",
- "miniz_oxide",
- "num-traits 0.2.19",
- "once_cell",
- "ppv-lite86",
- "proc-macro2",
- "quote 1.0.44",
- "rand 0.9.2",
- "rand_chacha 0.9.0",
- "rand_core 0.6.4",
- "redis-module",
- "regex",
- "regex-automata",
- "regex-syntax",
- "semver",
- "serde",
- "serde_core",
- "serde_json",
- "syn 1.0.109",
- "syn 2.0.117",
- "thiserror",
- "toml",
- "tracing-core",
- "zerocopy",
 ]
 
 [[package]]

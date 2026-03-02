@@ -1,0 +1,923 @@
+load("@prelude//rust:cargo_package.bzl", "cargo")
+load(":utils.bzl", "cbindgen")
+
+genrule(
+    name = "workspace_metadata",
+    cmd = "cargo metadata --all-features --format-version 1 --manifest-path Cargo.toml > $OUT",
+    # srcs = glob([""]),
+    srcs = glob(["**/Cargo.toml", "**/*.rs"]),
+    out = "metadata.json",
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# Workspace crates
+# =============================================================================
+
+rust_library(
+    name = "generational_slab",
+    srcs = glob(["generational_slab/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "idf",
+    srcs = glob(["idf/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "qint",
+    srcs = glob(["qint/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "query_term",
+    srcs = glob(["query_term/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "slots_tracker",
+    srcs = glob(["slots_tracker/src/**/*.rs"]),
+    crate_root = "slots_tracker/src/lib.rs",
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "thin_vec",
+    srcs = glob(["thin_vec/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "varint",
+    srcs = glob(["varint/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "document",
+    srcs = glob(["document/src/**/*.rs"]),
+    deps = [
+        "//src/redisearch_rs/third-party:strum",
+        "//src/redisearch_rs/third-party:thiserror",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "fnv",
+    srcs = glob(["fnv/src/**/*.rs"]),
+    deps = [
+        "//src/redisearch_rs/third-party:hash32",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "wildcard",
+    srcs = glob(["wildcard/src/**/*.rs"]),
+    deps = [
+        "//src/redisearch_rs/third-party:memchr",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "ffi",
+    srcs = glob(["ffi/src/**/*.rs"]),
+    mapped_srcs = {
+        "//:c_bindings": "ffi/src/generated.rs",
+    },
+    deps = [
+        ":document",
+        ":query_term",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "buffer",
+    srcs = glob(["buffer/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "build_utils",
+    srcs = glob(["build_utils/src/**/*.rs"]),
+    deps = [
+        "//src/redisearch_rs/third-party:bindgen",
+        "//src/redisearch_rs/third-party:cbindgen",
+        "//src/redisearch_rs/third-party:cc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "c_trie",
+    srcs = glob(["c_trie/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        "//src/redisearch_rs/third-party:strum",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "field",
+    srcs = glob(["field/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "hyperloglog",
+    srcs = glob(["hyperloglog/src/**/*.rs"]),
+    deps = [
+        ":fnv",
+        "//src/redisearch_rs/third-party:bytecount",
+        "//src/redisearch_rs/third-party:hash32",
+        "//src/redisearch_rs/third-party:thiserror",
+        "//src/redisearch_rs/third-party:wyhash",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "inverted_index",
+    srcs = glob(["inverted_index/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":field",
+        ":qint",
+        ":query_term",
+        ":redis_reply",
+        ":thin_vec",
+        ":varint",
+        "//src/redisearch_rs/third-party:enumflags2",
+        "//src/redisearch_rs/third-party:serde",
+        "//src/redisearch_rs/third-party:smallvec",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "numeric_range_tree",
+    srcs = glob(["numeric_range_tree/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":generational_slab",
+        ":hyperloglog",
+        ":inverted_index",
+        ":redis_reply",
+        "//src/redisearch_rs/third-party:tracing",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "query_error",
+    srcs = glob(["query_error/src/**/*.rs"]),
+    deps = [
+        ":c_ffi_utils",  # c_entrypoint — will be defined later
+        "//src/redisearch_rs/third-party:strum",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "redis_json_api",
+    srcs = glob(["redis_json_api/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        "//src/redisearch_rs/third-party:redis-module",
+        "//src/redisearch_rs/third-party:thiserror",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "redis_mock",
+    srcs = glob(["redis_mock/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":value",
+        "//src/redisearch_rs/third-party:redis-module",
+        "//src/redisearch_rs/third-party:tracing",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "redis_reply",
+    srcs = glob(["redis_reply/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "result_processor",
+    srcs = glob(["result_processor/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":search_result",
+        "//src/redisearch_rs/third-party:libc",
+        "//src/redisearch_rs/third-party:pin-project",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "rlookup",
+    srcs = glob(["rlookup/src/**/*.rs"]),
+    deps = [
+        ":c_ffi_utils",  # c_entrypoint — will be defined later
+        ":document",
+        ":ffi",
+        ":redis_mock",
+        ":sorting_vector",
+        ":value",
+        "//src/redisearch_rs/third-party:enumflags2",
+        "//src/redisearch_rs/third-party:libc",
+        "//src/redisearch_rs/third-party:pin-project",
+        "//src/redisearch_rs/third-party:redis-module",
+        "//src/redisearch_rs/third-party:strum",
+        "//src/redisearch_rs/third-party:thiserror",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "rqe_iterators",
+    srcs = glob(["rqe_iterators/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":field",
+        ":inverted_index",
+        ":query_error",
+        ":query_term",
+        ":redis_mock",
+        ":types_ffi",    # c_entrypoint — will be defined later
+        ":value",
+        ":value_ffi",    # c_entrypoint — will be defined later
+        ":varint_ffi",   # c_entrypoint — will be defined later
+        ":numeric_range_tree",
+        ":idf",
+        "//src/redisearch_rs/third-party:libc",
+        "//src/redisearch_rs/third-party:thiserror",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "rqe_iterators_interop",
+    srcs = glob(["rqe_iterators_interop/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":inverted_index",
+        ":rqe_iterators",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "rqe_iterators_test_utils",
+    srcs = glob(["rqe_iterators_test_utils/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":field",
+        ":inverted_index",
+        ":inverted_index_ffi",  # c_entrypoint — will be defined later
+        ":query_error",
+        ":redis_mock",
+        ":varint_ffi",          # c_entrypoint — will be defined later
+        "//src/redisearch_rs/third-party:libc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "search_result",
+    srcs = glob(["search_result/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":inverted_index",
+        "//src/redisearch_rs/third-party:enumflags2",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "sorting_vector",
+    srcs = glob(["sorting_vector/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":value",
+        "//src/redisearch_rs/third-party:icu_casemap",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "tracing_redismodule",
+    srcs = glob(["tracing_redismodule/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        "//src/redisearch_rs/third-party:anstyle-query",
+        "//src/redisearch_rs/third-party:tracing",
+        "//src/redisearch_rs/third-party:tracing-core",
+        "//src/redisearch_rs/third-party:tracing-subscriber",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "trie_rs",
+    srcs = glob(["trie_rs/src/**/*.rs"]),
+    deps = [
+        ":wildcard",
+        "//src/redisearch_rs/third-party:lending-iterator",
+        "//src/redisearch_rs/third-party:libc",
+        "//src/redisearch_rs/third-party:memchr",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "value",
+    srcs = glob(["value/src/**/*.rs"]),
+    deps = [
+        ":c_ffi_utils",  # c_entrypoint — will be defined later
+        ":ffi",
+        "//src/redisearch_rs/third-party:redis-module",
+        "//src/redisearch_rs/third-party:thiserror",
+    ],
+    features = ["c_ffi_impl"],
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# FFI crates
+# =============================================================================
+
+rust_library(
+    name = "redisearch_rs",
+    srcs = glob(["c_entrypoint/redisearch_rs/src/**/*.rs"]),
+    preferred_linkage = "static",
+    deps = [
+        ":fnv_ffi",
+        ":idf_ffi",
+        ":inverted_index_ffi",
+        ":iterators_ffi",
+        ":module_init_ffi",
+        ":query_error_ffi",
+        ":query_term_ffi",
+        ":result_processor_ffi",
+        ":search_result_ffi",
+        ":slots_tracker_ffi",
+        ":sorting_vector_ffi",
+        ":triemap_ffi",
+        ":types_ffi",
+        ":varint_ffi",
+        ":buffer",
+        ":numeric_range_tree_ffi",
+        "//src/redisearch_rs/third-party:redis-module",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "document_ffi",
+    srcs = glob(["c_entrypoint/document_ffi/src/**/*.rs"]),
+    deps = [
+        ":document",
+        "//src/redisearch_rs/third-party:libc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "document_ffi_header",
+    crate = "document_ffi",
+    header = "document_rs.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/document_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "fnv_ffi",
+    srcs = glob(["c_entrypoint/fnv_ffi/src/**/*.rs"]),
+    deps = [
+        ":fnv",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "idf_ffi",
+    srcs = glob(["c_entrypoint/idf_ffi/src/**/*.rs"]),
+    deps = [
+        ":idf",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "idf_ffi_header",
+    crate = "idf_ffi",
+    header = "idf.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/idf_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "inverted_index_ffi",
+    srcs = glob(["c_entrypoint/inverted_index_ffi/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":inverted_index",
+        "//src/redisearch_rs/third-party:rmp-serde",
+        "//src/redisearch_rs/third-party:serde",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "inverted_index_ffi_header",
+    crate = "inverted_index_ffi",
+    header = "inverted_index.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/inverted_index_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "iterators_ffi",
+    srcs = glob(["c_entrypoint/iterators_ffi/src/**/*.rs"]),
+    deps = [
+        ":inverted_index_ffi",
+        ":numeric_range_tree",
+        ":ffi",
+        ":field",
+        ":inverted_index",
+        ":rqe_iterators",
+        ":rqe_iterators_interop",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "iterators_ffi_header",
+    crate = "iterators_ffi",
+    header = "iterators.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/iterators_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "module_init_ffi",
+    srcs = glob(["c_entrypoint/module_init_ffi/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":tracing_redismodule",
+        "//src/redisearch_rs/third-party:tracing",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "module_init_ffi_header",
+    crate = "module_init_ffi",
+    header = "module_init.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/module_init_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "numeric_range_tree_ffi",
+    srcs = glob(["c_entrypoint/numeric_range_tree_ffi/src/**/*.rs"]),
+    deps = [
+        ":inverted_index_ffi",
+        ":ffi",
+        ":generational_slab",
+        ":hyperloglog",
+        ":inverted_index",
+        ":numeric_range_tree",
+        "//src/redisearch_rs/third-party:redis-module",
+        "//src/redisearch_rs/third-party:rmp-serde",
+        "//src/redisearch_rs/third-party:serde",
+        "//src/redisearch_rs/third-party:tracing",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "numeric_range_tree_ffi_header",
+    crate = "numeric_range_tree_ffi",
+    header = "numeric_range_tree.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/numeric_range_tree_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "query_error_ffi",
+    srcs = glob(["c_entrypoint/query_error_ffi/src/**/*.rs"]),
+    deps = [
+        ":c_ffi_utils",
+        ":query_error",
+        "//src/redisearch_rs/third-party:strum",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "query_error_ffi_header",
+    crate = "query_error_ffi",
+    header = "query_error.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/query_error_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "query_term_ffi",
+    srcs = glob(["c_entrypoint/query_term_ffi/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":query_term",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "query_term_ffi_header",
+    crate = "query_term_ffi",
+    header = "query_term.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/query_term_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "result_processor_ffi",
+    srcs = glob(["c_entrypoint/result_processor_ffi/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":result_processor",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "result_processor_ffi_header",
+    crate = "result_processor_ffi",
+    header = "result_processor.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/result_processor_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "rlookup_ffi",
+    srcs = glob(["c_entrypoint/rlookup_ffi/src/**/*.rs"]),
+    deps = [
+        ":c_ffi_utils",
+        ":ffi",
+        ":rlookup",
+        ":sorting_vector",
+        ":value",
+        "//src/redisearch_rs/third-party:libc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "rlookup_ffi_header",
+    crate = "rlookup_ffi",
+    header = "rlookup.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/rlookup_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "search_result_ffi",
+    srcs = glob(["c_entrypoint/search_result_ffi/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":inverted_index",
+        ":search_result",
+        "//src/redisearch_rs/third-party:unsafe-tools",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "search_result_ffi_header",
+    crate = "search_result_ffi",
+    header = "search_result.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/search_result_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "slots_tracker_ffi",
+    srcs = glob(["c_entrypoint/slots_tracker_ffi/src/**/*.rs"]),
+    deps = [
+        ":slots_tracker",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "slots_tracker_ffi_header",
+    crate = "slots_tracker_ffi",
+    header = "slots_tracker.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/slots_tracker_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "sorting_vector_ffi",
+    srcs = glob(["c_entrypoint/sorting_vector_ffi/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":sorting_vector",
+        ":value",
+        "//src/redisearch_rs/third-party:libc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "sorting_vector_ffi_header",
+    crate = "sorting_vector_ffi",
+    header = "sorting_vector.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/sorting_vector_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "thin_vec_ffi",
+    srcs = glob(["c_entrypoint/thin_vec_ffi/src/**/*.rs"]),
+    deps = [
+        ":thin_vec",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "thin_vec_ffi_header",
+    crate = "thin_vec_ffi",
+    header = "thin_vec.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/thin_vec_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "triemap_ffi",
+    srcs = glob(["c_entrypoint/triemap_ffi/src/**/*.rs"]),
+    deps = [
+        ":thin_vec",
+        ":trie_rs",
+        ":wildcard",
+        "//src/redisearch_rs/third-party:lending-iterator",
+        "//src/redisearch_rs/third-party:libc",
+        "//src/redisearch_rs/third-party:redis-module",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "triemap_ffi_header",
+    crate = "triemap_ffi",
+    header = "triemap.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/triemap_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "types_ffi",
+    srcs = glob(["c_entrypoint/types_ffi/src/**/*.rs"]),
+    deps = [
+        ":field",
+        ":inverted_index",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "types_ffi_header",
+    crate = "types_ffi",
+    header = "types_rs.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/types_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "value_ffi",
+    srcs = glob(["c_entrypoint/value_ffi/src/**/*.rs"]),
+    deps = [
+        ":c_ffi_utils",
+        ":ffi",
+        ":value",
+        "//src/redisearch_rs/third-party:libc",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "value_ffi_header",
+    crate = "value_ffi",
+    header = "value.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/value_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "varint_ffi",
+    srcs = glob(["c_entrypoint/varint_ffi/src/**/*.rs"]),
+    deps = [
+        ":buffer",
+        ":ffi",
+        ":varint",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+cbindgen(
+    name = "varint_ffi_header",
+    crate = "varint_ffi",
+    header = "varint.h",
+    workspace_metadata = ":workspace_metadata",
+    srcs = [
+        "c_entrypoint/varint_ffi/cbindgen.toml"
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "c_ffi_utils",
+    srcs = glob(["c_entrypoint/c_ffi_utils/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# Bencher crates
+# =============================================================================
+
+rust_library(
+    name = "inverted_index_bencher",
+    srcs = glob(["inverted_index_bencher/src/**/*.rs"]),
+    deps = [
+        ":buffer",
+        ":ffi",
+        ":inverted_index",
+        ":query_term",
+        ":redis_mock",
+        "//src/redisearch_rs/third-party:criterion",
+        "//src/redisearch_rs/third-party:itertools",
+        "//src/redisearch_rs/third-party:redis-module",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "rqe_iterators_bencher",
+    srcs = glob(["rqe_iterators_bencher/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":field",
+        ":inverted_index",
+        ":inverted_index_ffi",  # c_entrypoint — will be defined later
+        ":iterators_ffi",       # c_entrypoint — will be defined later
+        ":query_term",
+        ":redis_mock",
+        ":redisearch_rs",       # c_entrypoint — will be defined later
+        ":rqe_iterators",
+        ":rqe_iterators_test_utils",
+        "//src/redisearch_rs/third-party:criterion",
+        "//src/redisearch_rs/third-party:itertools",
+        "//src/redisearch_rs/third-party:rand",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "trie_bencher",
+    srcs = glob(["trie_bencher/src/**/*.rs"]),
+    deps = [
+        ":ffi",
+        ":redis_mock",
+        ":trie_rs",
+        ":wildcard",
+        "//src/redisearch_rs/third-party:crc32fast",
+        "//src/redisearch_rs/third-party:criterion",
+        "//src/redisearch_rs/third-party:csv",
+        "//src/redisearch_rs/third-party:fs-err",
+        "//src/redisearch_rs/third-party:lending-iterator",
+        "//src/redisearch_rs/third-party:ureq",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "varint_bencher",
+    srcs = glob(["varint_bencher/src/**/*.rs"]),
+    deps = [
+        ":varint",
+        "//src/redisearch_rs/third-party:criterion",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# =============================================================================
+# Tool binaries
+# =============================================================================
+
+rust_binary(
+    name = "license_header_linter",
+    srcs = glob(["tools/license_header_linter/src/**/*.rs"]),
+    visibility = ["PUBLIC"],
+)
+
+rust_binary(
+    name = "ffi_geiger",
+    srcs = glob(["tools/ffi_geiger/src/**/*.rs"]),
+    deps = [
+        "//src/redisearch_rs/third-party:anyhow",
+        "//src/redisearch_rs/third-party:cargo_metadata",
+        "//src/redisearch_rs/third-party:proc-macro2",
+        "//src/redisearch_rs/third-party:syn",
+        "//src/redisearch_rs/third-party:walkdir",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+rust_binary(
+    name = "safety_report",
+    srcs = glob(["tools/safety_report/src/**/*.rs"]),
+    deps = [
+        "//src/redisearch_rs/third-party:anyhow",
+        "//src/redisearch_rs/third-party:cargo_metadata",
+        "//src/redisearch_rs/third-party:proc-macro2",
+        "//src/redisearch_rs/third-party:syn",
+        "//src/redisearch_rs/third-party:walkdir",
+    ],
+    visibility = ["PUBLIC"],
+)

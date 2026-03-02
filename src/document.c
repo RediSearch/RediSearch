@@ -13,7 +13,7 @@
 #include "forward_index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"
-#include "redisearch_rs/headers/numeric_range_tree.h"
+#include "numeric_range_tree.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"

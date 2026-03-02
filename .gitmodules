@@ -13,3 +13,9 @@
 [submodule "deps/RedisModulesSDK"]
 	path = deps/RedisModulesSDK
 	url = https://github.com/RedisLabs/RedisModulesSDK.git
+[submodule "deps/openssl"]
+	path = deps/openssl
+	url = https://github.com/openssl/openssl
+[submodule "deps/cpu_features"]
+	path = deps/cpu_features
+	url = https://github.com/google/cpu_features

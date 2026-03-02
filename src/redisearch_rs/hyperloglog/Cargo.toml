@@ -17,7 +17,6 @@ bytecount.workspace = true
 fnv.workspace = true
 hash32.workspace = true
 thiserror.workspace = true
-workspace_hack.workspace = true
 wyhash.workspace = true
 
 [dev-dependencies]

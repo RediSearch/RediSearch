@@ -32,7 +32,7 @@
 
 use std::{cell::UnsafeCell, pin::Pin, ptr};
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+include!("generated.rs");
 
 /// Access to the RediSearch Module context
 pub mod context;
@@ -85,9 +85,6 @@ impl QueryProcessingCtx {
         unsafe { *self.endProc.get() = result_processor_ptr };
     }
 }
-
-/// Rust implementation of `t_fieldMask` from `redisearch.h`
-pub type FieldMask = t_fieldMask;
 
 #[cfg(target_pointer_width = "64")]
 pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;

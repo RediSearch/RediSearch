@@ -33,7 +33,6 @@ redis_mock.workspace = true
 rqe_iterators = { workspace = true }
 rqe_iterators_test_utils = { workspace = true }
 rand.workspace = true
-workspace_hack.workspace = true
 
 # Crate required to invoke C symbols
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }

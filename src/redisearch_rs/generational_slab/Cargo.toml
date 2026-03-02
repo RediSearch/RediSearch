@@ -16,4 +16,3 @@ std = []
 workspace = true
 
 [dependencies]
-workspace_hack.workspace = true
