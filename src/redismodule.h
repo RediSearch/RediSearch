@@ -1,7 +1,7 @@
 #ifndef REDISMODULE_H
 #define REDISMODULE_H
 
-// clang-format off
+//clang-format off
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -11,6 +11,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define REDISMODULE_H_ENTERPRISE
 
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleKey RedisModuleKey;
@@ -71,14 +73,23 @@ typedef long long ustime_t;
 #define REDISMODULE_OPEN_KEY_ACCESS_TRIMMED (1<<22)
 
 
+/* RedisModule_OpenKey extra flags for the 'mode' argument in bigredis. */
+#define REDISMODULE_OPEN_KEY_RAMONLY (1<<24)
+#define REDISMODULE_OPEN_KEY_NO_LOOKUP (1<<25) /* no need for value, just a non null value */
+
 /* Mask of all REDISMODULE_OPEN_KEY_* values. Any new mode should be added to this list.
  * Should not be used directly by the module, use RM_GetOpenKeyModesAll instead.
  * Located here so when we will add new modes we will not forget to update it. */
-#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
+#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_RAMONLY | REDISMODULE_OPEN_KEY_NO_LOOKUP | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
 
 /* List push and pop */
 #define REDISMODULE_LIST_HEAD 0
 #define REDISMODULE_LIST_TAIL 1
+
+/* Flags for RedisModule_SwapPrefetchKey */
+#define REDISMODULE_SWAP_PREFETCH_FLAG_NOONE 0
+#define REDISMODULE_SWAP_PREFETCH_FLAG_NO_TOUCH (1<<0)
+#define REDISMODULE_SWAP_PREFETCH_FLAG_NO_DUP (1<<1) /* skip if already scheduled. */
 
 /* Key types. */
 #define REDISMODULE_KEYTYPE_EMPTY 0
@@ -221,6 +232,11 @@ typedef struct RedisModuleStreamID {
 /* Trim is in progress due to slot migration. */
 #define REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS (1<<26)
 
+/* Redis is out of ram according to the max-ram flag. */
+#define REDISMODULE_CTX_FLAGS_OOR (1<<30)
+/* Redis is currently loading, saving or preparing a partial RDB file that goes along with sst files. */
+#define REDISMODULE_CTX_FLAGS_SST_RDB (1<<29)
+
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
@@ -247,6 +263,8 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
 #define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
 #define REDISMODULE_NOTIFY_KEY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
+/* RL Extension: */
+#define REDISMODULE_NOTIFY_TRIMMED (1<<30)     /* trimmed by reshard trimming for pre ASM resharding */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
@@ -254,6 +272,10 @@ This flag should not be used directly by the module.
 #define _REDISMODULE_NOTIFY_NEXT (1<<18)
 
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
+
+/* Flags for RM_NotifyKeyspaceEventEx */
+#define REDISMODULE_NOTIFY_TO_SUBSCRIBER_MODULES (1<<0)
+#define REDISMODULE_NOTIFY_TO_SUBSCRIBER_CLIENTS (1<<1)
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
@@ -278,7 +300,36 @@ This flag should not be used directly by the module.
 #define REDISMODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)
 #define REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION (1<<2)
 
+/* AOF API defines (Should match AOF_SYNC_*) */
+#define REDISMODULE_AOF_DISABLED       -1
+#define REDISMODULE_AOF_FSYNC_NO        0
+#define REDISMODULE_AOF_FSYNC_ALWAYS    1
+#define REDISMODULE_AOF_FSYNC_EVERYSEC  2
+
 #define REDISMODULE_NOT_USED(V) ((void) V)
+
+/* Hook types */
+#define REDISMODULE_HOOK_RDB_AUX_SAVE   0       /* Called on RDB save, before keys */
+#define REDISMODULE_HOOK_RDB_AUX_LOAD   1       /* Called on RDB load, per AUX field */
+#define REDISMODULE_HOOK_CRON           2       /* Called every second */
+#define REDISMODULE_HOOK_CRON_HIGH_RATE 3       /* Called every few ms */
+#define REDISMODULE_HOOK_EMPTY_DB       4       /* called after db is emptied, on flushdb / slave resync, etc */
+#define REDISMODULE_HOOK_PRE_LOAD       5       /* Called before RDB/AOF loading */
+#define REDISMODULE_HOOK_POST_LOAD      6       /* Called after RDB/AOF loading */
+#define REDISMODULE_HOOK_CRON_LOADING   7       /* Called every once in a while during RDB/AOF loading */
+#define REDISMODULE_HOOK_DEL_SWAP_KEY   8       /* Called before deleting a swap keys in bigredis */
+#define REDISMODULE_HOOK_LOAD_SWAP_KEY  9       /* Called when a key is loaded from rdb directly into swap (without deserialization) */
+#define REDISMODULE_HOOK_MASTER_MODE    10
+
+typedef enum {
+    REDISMODULE_LOADING_RDB,
+    REDISMODULE_LOADING_AOF
+} RedisModuleLoadType;
+
+/* Command propagation flags for RM_ReplicateEx */
+#define REDISMODULE_PROPAGATE_NONE 0
+#define REDISMODULE_PROPAGATE_AOF  (1<<0)
+#define REDISMODULE_PROPAGATE_REPL (1<<1)
 
 /* Logging level strings */
 #define REDISMODULE_LOGLEVEL_DEBUG "debug"
@@ -309,6 +360,16 @@ typedef uint64_t RedisModuleTimerID;
 /* Do filter RedisModule_Call() commands initiated by module itself. */
 #define REDISMODULE_CMDFILTER_NOSELF    (1<<0)
 
+/* AutoMemEntry type field values. */
+#define REDISMODULE_AM_KEY 0
+#define REDISMODULE_AM_STRING 1
+#define REDISMODULE_AM_REPLY 2
+#define REDISMODULE_AM_FREED 3 /* Explicitly freed by user already. */
+#define REDISMODULE_AM_DICT 4
+#define REDISMODULE_AM_INFO 5
+#define REDISMODULE_AM_CONFIG 6
+#define REDISMODULE_AM_SLOTRANGEARRAY 7
+
 /* Declare that the module can handle errors with RedisModule_SetModuleOptions. */
 #define REDISMODULE_OPTIONS_HANDLE_IO_ERRORS    (1<<0)
 
@@ -328,6 +389,11 @@ typedef uint64_t RedisModuleTimerID;
  * This flag should not be used directly by the module.
  * Use RedisModule_GetModuleOptionsAll instead. */
 #define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<4)
+
+/* When set, Redis will not call RedisModule_MarkKeyAsDirty(), implicitly in
+ * RedisModule_ModuleTypeSetValue, and the module needs to do that when manually when keys
+ * are modified from the user's sperspective. */
+#define REDISMODULE_OPTION_NO_IMPLICIT_MARK_DIRTY (1<<31)
 
 /* Definitions for RedisModule_SetCommandInfo. */
 
@@ -520,7 +586,11 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_KEY 17
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
-#define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_SST_REPLICATION 20
+#define _REDISMODULE_EVENT_NEXT 21 /* Next event flag, should be updated if a new event added. */
+
+/* RL Extension: */
+#define REDISMODULE_EVENT_SHARDING 1000
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -530,6 +600,18 @@ typedef struct RedisModuleEvent {
 struct RedisModuleCtx;
 struct RedisModuleDefragCtx;
 typedef void (*RedisModuleEventCallback)(struct RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data);
+
+/* Big Module API - Callbacks
+ * ----------------------------
+ * Callback registered by modules for disk usage queries.
+ * This typedef is in the common section so it's visible to both core and modules. */
+#define REDISMODULE_BIG_CALLBACKS_VERSION 1
+typedef struct RedisModuleBigCallbacks {
+    uint64_t version;              /* Version of this structure for ABI compat. */
+    size_t (*getDiskUsage)(void);  /* Returns module's disk usage (SST files, etc.) */
+} RedisModuleBigCallbacksV1;
+
+#define RedisModuleBigCallbacks RedisModuleBigCallbacksV1
 
 /* IMPORTANT: When adding a new version of one of below structures that contain
  * event data (RedisModuleFlushInfoV1 for example) we have to avoid renaming the
@@ -606,6 +688,10 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_SWAPDB,
         1
     },
+    RedisModuleEvent_Sharding = {
+        REDISMODULE_EVENT_SHARDING,
+        1
+    },
     /* Deprecated since Redis 7.0, not used anymore. */
     __attribute__ ((deprecated))
     RedisModuleEvent_ReplBackup = {
@@ -639,6 +725,10 @@ static const RedisModuleEvent
     RedisModuleEvent_ClusterSlotMigrationTrim = {
         REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
         1
+    },
+    RedisModuleEvent_SSTReplication = {
+        REDISMODULE_EVENT_SST_REPLICATION,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -655,7 +745,10 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_LOADING_REPL_START 2
 #define REDISMODULE_SUBEVENT_LOADING_ENDED 3
 #define REDISMODULE_SUBEVENT_LOADING_FAILED 4
-#define _REDISMODULE_SUBEVENT_LOADING_NEXT 5
+#define REDISMODULE_SUBEVENT_LOADING_SST_START 5
+#define REDISMODULE_SUBEVENT_LOADING_RDB_ENDED 6
+#define REDISMODULE_SUBEVENT_LOADING_SST_ENDED 7
+#define _REDISMODULE_SUBEVENT_LOADING_NEXT 8
 
 #define REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED 0
 #define REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED 1
@@ -699,6 +792,12 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED 2
 #define _REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_NEXT 3
 
+#define REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT 0
+#define REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK 1
+#define REDISMODULE_SUBEVENT_SST_REPL_POST_FORK 2
+#define REDISMODULE_SUBEVENT_SST_REPL_ABORT 3
+#define _REDISMODULE_SUBEVENT_SST_REPL_NEXT 4
+
 #define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
 #define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
 #define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 2
@@ -716,6 +815,12 @@ static const RedisModuleEvent
 #define _REDISMODULE_SUBEVENT_SHUTDOWN_NEXT 0
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
 #define _REDISMODULE_SUBEVENT_SWAPDB_NEXT 0
+
+/* RL Extension: */
+#define REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED 0
+#define REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED 1
+#define REDISMODULE_SUBEVENT_SHARDING_TRIMMING_ENDED 2
+#define _REDISMODULE_SUBEVENT_SHARDING_NEXT 3
 
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED 0
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED 1
@@ -914,6 +1019,49 @@ typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleDigest RedisModuleDigest;
 typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
 typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
+typedef struct RedisModuleCtx RedisModuleCtx;
+
+/* Parameter passed to hook functions */
+typedef union {
+    struct {
+        int hz;
+        int cronloops;
+    } cron;
+    struct {
+        int hz;
+        RedisModuleLoadType type;
+    } cron_loading;
+    struct {
+        RedisModuleIO *io;
+    } rdb_aux_save;
+    struct {
+        const RedisModuleString *key;
+        const RedisModuleString *value;
+        int *error;
+    } rdb_aux_load;
+    struct {
+        int dbnum;
+        int async;
+    } empty_db;
+    struct {
+        RedisModuleLoadType type;
+    } pre_load;
+    struct {
+        RedisModuleLoadType type;
+    } post_load;
+    struct {
+        int dbid: 8;
+        int also_in_ram: 1;
+        RedisModuleString *key;
+    } del_swap_key;
+    struct {
+        int dbid: 8;
+        RedisModuleString *key;
+    } load_swap_key;
+    struct {
+        int enabled;
+    } master_mode;
+} RedisModuleHookArg;
 
 /* Function pointers needed by both the core and modules, these needs to be
  * exposed since you can't cast a function pointer to (void *). */
@@ -921,6 +1069,9 @@ typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_repor
 typedef void (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
 typedef int (*RedisModuleDefragFunc2)(RedisModuleDefragCtx *ctx);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
+typedef int (*RedisModuleHookFunc) (RedisModuleCtx *ctx, RedisModuleHookArg *arg);
+typedef void *(*RedisModulePreCommandFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+typedef void (*RedisModulePostCommandFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, void *privdata);
 typedef int (*RedisModuleDefragDictValueCallback)(RedisModuleDefragCtx *ctx, void *data, unsigned char *key, size_t keylen, void **newptr);
 
 /* ------------------------- End of common defines ------------------------ */
@@ -955,7 +1106,6 @@ typedef int (*RedisModuleDefragDictValueCallback)(RedisModuleDefragCtx *ctx, voi
 #endif
 
 /* Incomplete structures for compiler checks but opaque access. */
-typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct RedisModuleCommand RedisModuleCommand;
 typedef struct RedisModuleCallReply RedisModuleCallReply;
 typedef struct RedisModuleType RedisModuleType;
@@ -995,6 +1145,7 @@ typedef int (*RedisModuleTypeDefragFunc)(RedisModuleDefragCtx *ctx, RedisModuleS
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
+typedef void (*RedisModuleAppendOnlySyncCallback)(RedisModuleCtx *ctx, void *privdata, int aborted);
 typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *user_data);
 typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
@@ -1035,13 +1186,12 @@ typedef struct RedisModuleTypeMethods {
 #define REDISMODULE_GET_API(name) \
     RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))
 
-/* Default API declaration prefix (not 'extern' for backwards compatibility) */
-#ifndef REDISMODULE_MAIN
-#define REDISMODULE_API extern
-#endif
-
+/* Default API declaration prefix.
+ * Use 'extern' by default so that each translation unit declares the symbols.
+ * Only the file that calls RedisModule_Init should define REDISMODULE_API
+ * as empty before including this header to provide the actual definitions. */
 #ifndef REDISMODULE_API
-#define REDISMODULE_API
+#define REDISMODULE_API extern
 #endif
 
 /* Default API declaration suffix (compiler attributes) */
@@ -1112,6 +1262,7 @@ REDISMODULE_API const char * (*RedisModule_StringPtrLen)(const RedisModuleString
 REDISMODULE_API int (*RedisModule_ReplyWithError)(RedisModuleCtx *ctx, const char *err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithErrorFormat)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithSimpleString)(RedisModuleCtx *ctx, const char *msg) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithPostponedResponse)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithArray)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithMap)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithSet)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
@@ -1119,6 +1270,7 @@ REDISMODULE_API int (*RedisModule_ReplyWithAttribute)(RedisModuleCtx *ctx, long 
 REDISMODULE_API int (*RedisModule_ReplyWithNullArray)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithEmptyArray)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetArrayLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ReplySetPostponedResponseString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetMapLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetSetLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ReplySetAttributeLength)(RedisModuleCtx *ctx, long len) REDISMODULE_ATTR;
@@ -1156,6 +1308,7 @@ REDISMODULE_API mstime_t (*RedisModule_GetAbsExpire)(RedisModuleKey *key) REDISM
 REDISMODULE_API int (*RedisModule_SetAbsExpire)(RedisModuleKey *key, mstime_t expire) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ResetDataset)(int restart_aof, int async) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_DbSize)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API unsigned long long (*RedisModule_DbSizeById)(int dbid) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_RandomKey)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ZsetAdd)(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ZsetIncrby)(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr, double *newscore) REDISMODULE_ATTR;
@@ -1196,6 +1349,8 @@ REDISMODULE_API int (*RedisModule_PublishMessage)(RedisModuleCtx *ctx, RedisModu
 REDISMODULE_API int (*RedisModule_PublishMessageShard)(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlags)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AvoidReplicaTraffic)(void) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_EnablePostponeClients)(void) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_DisablePostponeClients)(void) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_PoolAlloc)(RedisModuleCtx *ctx, size_t bytes) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleType * (*RedisModule_CreateDataType)(RedisModuleCtx *ctx, const char *name, int encver, RedisModuleTypeMethods *typemethods) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ModuleTypeSetValue)(RedisModuleKey *key, RedisModuleType *mt, void *value) REDISMODULE_ATTR;
@@ -1204,6 +1359,7 @@ REDISMODULE_API RedisModuleType * (*RedisModule_ModuleTypeGetType)(RedisModuleKe
 REDISMODULE_API void * (*RedisModule_ModuleTypeGetValue)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsIOError)(RedisModuleIO *io) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleOptions)(RedisModuleCtx *ctx, int options) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetModuleOptions)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SignalModifiedKey)(RedisModuleCtx *ctx, RedisModuleString *keyname) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SaveUnsigned)(RedisModuleIO *io, uint64_t value) REDISMODULE_ATTR;
 REDISMODULE_API uint64_t (*RedisModule_LoadUnsigned)(RedisModuleIO *io) REDISMODULE_ATTR;
@@ -1272,6 +1428,8 @@ REDISMODULE_API RedisModuleString * (*RedisModule_DictNext)(RedisModuleCtx *ctx,
 REDISMODULE_API RedisModuleString * (*RedisModule_DictPrev)(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DictCompareC)(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DictCompare)(RedisModuleDictIter *di, const char *op, RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterPreCommandFunc)(RedisModuleCtx *ctx, RedisModulePreCommandFunc cb) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterPostCommandFunc)(RedisModuleCtx *ctx, RedisModulePostCommandFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterInfoFunc)(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_RegisterAuthCallback)(RedisModuleCtx *ctx, RedisModuleAuthCallback cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_InfoAddSection)(RedisModuleInfoCtx *ctx, const char *name) REDISMODULE_ATTR;
@@ -1438,11 +1596,67 @@ REDISMODULE_API int (*RedisModule_ConfigSetBool)(RedisModuleCtx *ctx, const char
 REDISMODULE_API int (*RedisModule_ConfigSetEnum)(RedisModuleCtx *ctx, const char *name, RedisModuleString *value, RedisModuleString **err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ConfigSetNumeric)(RedisModuleCtx *ctx, const char *name, long long value, RedisModuleString **err) REDISMODULE_ATTR;
 
-#define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
+/* bigredis extensions
+ * -------------------*/
+/* when not_on_swap is set, it means the key is not loaded from swap. */
+typedef void (*RedisModuleTypeKeyAddedToDbDictFunc)(RedisModuleCtx *ctx, RedisModuleString *key, void *value, int not_on_swap);
+/* Notification that a key's value is removed from ram (may still exist on swap).
+ * when not_on_swap is set it means the key does not exist on swap. */
+typedef void (*RedisModuleTypeRemovingKeyFromDbDictFunc)(RedisModuleCtx *ctx, RedisModuleString *key, void *value, int not_on_swap, int writing_to_swap);
 
-#ifdef REDISMODULE_SDK_RLEC
-#include "redismodule-rlec.h"
-#endif
+#define REDISMODULE_TYPE_EXT_METHOD_VERSION 1
+typedef struct RedisModuleTypeExtMethods {
+    uint64_t version;
+    RedisModuleTypeKeyAddedToDbDictFunc key_added_to_db_dict;
+    RedisModuleTypeRemovingKeyFromDbDictFunc removing_key_from_db_dict;
+} RedisModuleTypeExtMethods;
+
+REDISMODULE_API int (*RedisModule_SetDataTypeExtensions)(RedisModuleCtx *ctx, RedisModuleType *mt, RedisModuleTypeExtMethods *typemethods) REDISMODULE_ATTR;
+
+typedef void (*RedisModuleSwapPrefetchCB)(RedisModuleCtx *ctx, RedisModuleString *key, void* user_data);
+
+REDISMODULE_API int (*RedisModule_SwapPrefetchKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleSwapPrefetchCB fn, void *user_data, int flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_IsKeyInRam)(RedisModuleCtx *ctx, RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_BigModuleRegister)(RedisModuleCtx *ctx, RedisModuleBigCallbacks *callbacks) REDISMODULE_ATTR;
+REDISMODULE_API ssize_t (*RedisModule_BigWriteBufferBudgetInit)(RedisModuleCtx *ctx, int percentage) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_BigWriteBufferBudgetRelease)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API char* (*RedisModule_BigGetDbPath)(RedisModuleCtx *ctx, const char *index_name) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_BigRegisterDb)(RedisModuleCtx *ctx, void *db_handle, void **cf_handles, size_t num_cf_handles) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_BigRegisterDbAddCf)(RedisModuleCtx *ctx, void *db_handle, void *cf_handle) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_BigUnregisterDb)(RedisModuleCtx *ctx, void *db_handle) REDISMODULE_ATTR;
+
+/* CRDT Extended API functions
+ * ---------------------------*/
+REDISMODULE_API int (*RedisModule_RegisterHook)(RedisModuleCtx *ctx, int hook_type, RedisModuleHookFunc hook_func) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_SaveAuxField)(RedisModuleIO *io, const char *key, const char *value) REDISMODULE_ATTR;
+REDISMODULE_API void *(*RedisModule_Deserialize)(const RedisModuleString *str, const RedisModuleType *mt, RedisModuleTypeLoadFunc deserialize_func, int encver) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString *(*RedisModule_Serialize)(RedisModuleCtx *ctx, void *data, const RedisModuleType *mt, RedisModuleTypeSaveFunc serialize_func) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_Panic)(const char *file, int line, const char* fmt, ...) REDISMODULE_ATTR_PRINTF(3, 4) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply *(*RedisModule_CallArgv)(RedisModuleCtx *ctx, const char *cmdname, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply *(*RedisModule_CallOriginalArgv)(RedisModuleCtx *ctx, const char *cmdname, RedisModuleString **argv, int argc) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCallReply *(*RedisModule_CallOriginal)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_Multi)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_Exec)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SignalDirtyKey)(RedisModuleCtx *ctx, RedisModuleString *keyname) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplicateEx)(RedisModuleCtx *ctx, int flags, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplicateVerbatimEx)(RedisModuleCtx *ctx, int flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AppendOnlyPolicy)(void) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterAOFSyncCallback)(RedisModuleCtx *ctx, int numlocal, int numreplicas, RedisModuleAppendOnlySyncCallback callback, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_UnregisterAOFSyncCallbacks)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCtx *(*RedisModule_GetContextFromModuleKey)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetKeyMode)(RedisModuleKey *key) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_NotifyKeyspaceEventEx)(int type, const char *event, RedisModuleString *key, int dbid, int flags) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_AutoMemoryAdd)(RedisModuleCtx *ctx, int type, void *ptr) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AutoMemoryFreed)(RedisModuleCtx *ctx, int type, void *ptr) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCtx *(*RedisModule_CreateContextFromContext)(RedisModuleCtx *ctx, int keepflags) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_DestroyContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ScanCursorSetCursor)(RedisModuleScanCursor *cursor, unsigned long long c) REDISMODULE_ATTR;
+REDISMODULE_API unsigned long long (*RedisModule_ScanCursorGetCursor)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
+REDISMODULE_API const char *(*RedisModule_KeyTypeName)(RedisModuleKey *kp) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ShardingGetKeySlot)(RedisModuleString *keyname) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ShardingGetSlotRange)(int *first_slot, int *last_slot) REDISMODULE_ATTR;
+
+#define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR_UNUSED;
@@ -1470,6 +1684,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithError);
     REDISMODULE_GET_API(ReplyWithErrorFormat);
     REDISMODULE_GET_API(ReplyWithSimpleString);
+    REDISMODULE_GET_API(ReplyWithPostponedResponse);
     REDISMODULE_GET_API(ReplyWithArray);
     REDISMODULE_GET_API(ReplyWithMap);
     REDISMODULE_GET_API(ReplyWithSet);
@@ -1477,6 +1692,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithNullArray);
     REDISMODULE_GET_API(ReplyWithEmptyArray);
     REDISMODULE_GET_API(ReplySetArrayLength);
+    REDISMODULE_GET_API(ReplySetPostponedResponseString);
     REDISMODULE_GET_API(ReplySetMapLength);
     REDISMODULE_GET_API(ReplySetSetLength);
     REDISMODULE_GET_API(ReplySetAttributeLength);
@@ -1555,6 +1771,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetAbsExpire);
     REDISMODULE_GET_API(ResetDataset);
     REDISMODULE_GET_API(DbSize);
+    REDISMODULE_GET_API(DbSizeById);
     REDISMODULE_GET_API(RandomKey);
     REDISMODULE_GET_API(ZsetAdd);
     REDISMODULE_GET_API(ZsetIncrby);
@@ -1590,6 +1807,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetClientUserNameById);
     REDISMODULE_GET_API(GetContextFlags);
     REDISMODULE_GET_API(AvoidReplicaTraffic);
+    REDISMODULE_GET_API(EnablePostponeClients);
+    REDISMODULE_GET_API(DisablePostponeClients);
     REDISMODULE_GET_API(PoolAlloc);
     REDISMODULE_GET_API(CreateDataType);
     REDISMODULE_GET_API(ModuleTypeSetValue);
@@ -1598,6 +1817,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ModuleTypeGetValue);
     REDISMODULE_GET_API(IsIOError);
     REDISMODULE_GET_API(SetModuleOptions);
+    REDISMODULE_GET_API(GetModuleOptions);
     REDISMODULE_GET_API(SignalModifiedKey);
     REDISMODULE_GET_API(SaveUnsigned);
     REDISMODULE_GET_API(LoadUnsigned);
@@ -1837,9 +2057,49 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ConfigSetEnum);
     REDISMODULE_GET_API(ConfigSetNumeric);
 
-#ifdef REDISMODULE_RLEC_API_DEFS
-       REDISMODULE_RLEC_API_DEFS
-#endif
+    /* Bigredis Extensions */
+    REDISMODULE_GET_API(IsKeyInRam);
+    REDISMODULE_GET_API(SwapPrefetchKey);
+    REDISMODULE_GET_API(BigModuleRegister);
+    REDISMODULE_GET_API(BigWriteBufferBudgetInit);
+    REDISMODULE_GET_API(BigWriteBufferBudgetRelease);
+    REDISMODULE_GET_API(BigGetDbPath);
+    REDISMODULE_GET_API(BigRegisterDb);
+    REDISMODULE_GET_API(BigRegisterDbAddCf);
+    REDISMODULE_GET_API(BigUnregisterDb);
+
+    /* CRDT Extended API functions */
+    REDISMODULE_GET_API(RegisterPreCommandFunc);
+    REDISMODULE_GET_API(RegisterPostCommandFunc);
+    REDISMODULE_GET_API(SetDataTypeExtensions);
+    REDISMODULE_GET_API(SaveAuxField);
+    REDISMODULE_GET_API(RegisterHook);
+    REDISMODULE_GET_API(Serialize);
+    REDISMODULE_GET_API(Deserialize);
+    REDISMODULE_GET_API(Panic);
+    REDISMODULE_GET_API(CallArgv);
+    REDISMODULE_GET_API(CallOriginal);
+    REDISMODULE_GET_API(CallOriginalArgv);
+    REDISMODULE_GET_API(Multi);
+    REDISMODULE_GET_API(Exec);
+    REDISMODULE_GET_API(SignalDirtyKey);
+    REDISMODULE_GET_API(ReplicateEx);
+    REDISMODULE_GET_API(ReplicateVerbatimEx);
+    REDISMODULE_GET_API(AppendOnlyPolicy);
+    REDISMODULE_GET_API(RegisterAOFSyncCallback);
+    REDISMODULE_GET_API(UnregisterAOFSyncCallbacks);
+    REDISMODULE_GET_API(GetContextFromModuleKey);
+    REDISMODULE_GET_API(GetKeyMode);
+    REDISMODULE_GET_API(NotifyKeyspaceEventEx);
+    REDISMODULE_GET_API(AutoMemoryAdd);
+    REDISMODULE_GET_API(AutoMemoryFreed);
+    REDISMODULE_GET_API(CreateContextFromContext);
+    REDISMODULE_GET_API(DestroyContext);
+    REDISMODULE_GET_API(ScanCursorSetCursor);
+    REDISMODULE_GET_API(ScanCursorGetCursor);
+    REDISMODULE_GET_API(KeyTypeName);
+    REDISMODULE_GET_API(ShardingGetKeySlot);
+    REDISMODULE_GET_API(ShardingGetSlotRange);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
@@ -1847,7 +2107,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
 }
 
 #define RedisModule_Assert(_e) ((_e)?(void)0 : (RedisModule__Assert(#_e,__FILE__,__LINE__),exit(1)))
-
 #define RMAPI_FUNC_SUPPORTED(func) (func != NULL)
 
 #endif /* REDISMODULE_CORE */
