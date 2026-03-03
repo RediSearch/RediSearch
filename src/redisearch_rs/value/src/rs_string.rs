@@ -54,7 +54,7 @@ impl RsString {
         let ptr = Box::into_raw(vec.into_boxed_slice());
 
         Self {
-            ptr: ptr as *const c_char,
+            ptr: ptr.cast(),
             len: len as u32,
             kind: RsStringKind::RustGlobalAlloc,
         }
@@ -115,7 +115,7 @@ impl RsString {
     /// Gets the string pointed to by `ptr`/`len` as a byte slice.
     pub const fn as_bytes(&self) -> &[u8] {
         // Safety: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
-        unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
+        unsafe { std::slice::from_raw_parts(self.ptr.cast(), self.len as usize) }
     }
 }
 
