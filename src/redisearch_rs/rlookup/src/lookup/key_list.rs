@@ -164,7 +164,7 @@ impl<'a> KeyList<'a> {
     /// before reading from it and after writing to it.
     #[track_caller]
     #[cfg(any(debug_assertions, test))]
-    pub(crate) fn assert_valid(&self, ctx: &str) {
+    pub fn assert_valid(&self, ctx: &str) {
         let Some(head) = self.head else {
             assert!(
                 self.tail.is_none(),

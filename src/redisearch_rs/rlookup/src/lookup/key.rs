@@ -403,7 +403,7 @@ impl<'a> RLookupKey<'a> {
     }
 
     #[cfg(any(debug_assertions, test))]
-    pub(crate) fn assert_valid(&self, tail: &Self, ctx: &str) {
+    pub fn assert_valid(&self, tail: &Self, ctx: &str) {
         assert!(
             !self.flags.intersects(TRANSIENT_FLAGS),
             "{ctx} - key flags must not contain transient ({TRANSIENT_FLAGS:?}) flags. Found {:?}.",
