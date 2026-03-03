@@ -19,7 +19,7 @@ use std::ffi::c_char;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupKey_GetFlags(key: *const RLookupKey) -> u32 {
+pub unsafe extern "C-unwind" fn RLookupKey_GetFlags(key: *const RLookupKey) -> u32 {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn RLookupKey_GetFlags(key: *const RLookupKey) -> u32 {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupKey_GetDstIdx(key: *const RLookupKey) -> u16 {
+pub unsafe extern "C-unwind" fn RLookupKey_GetDstIdx(key: *const RLookupKey) -> u16 {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
@@ -52,7 +52,7 @@ pub unsafe extern "C" fn RLookupKey_GetDstIdx(key: *const RLookupKey) -> u16 {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupKey_GetSvIdx(key: *const RLookupKey) -> u16 {
+pub unsafe extern "C-unwind" fn RLookupKey_GetSvIdx(key: *const RLookupKey) -> u16 {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn RLookupKey_GetSvIdx(key: *const RLookupKey) -> u16 {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_char {
+pub unsafe extern "C-unwind" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_char {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn RLookupKey_GetName(key: *const RLookupKey) -> *const c_
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t {
+pub unsafe extern "C-unwind" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
@@ -97,7 +97,7 @@ pub unsafe extern "C" fn RLookupKey_GetNameLen(key: *const RLookupKey) -> size_t
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_char {
+pub unsafe extern "C-unwind" fn RLookupKey_GetPath(key: *const RLookupKey) -> *const c_char {
     // Safety: ensured by caller (1.)
     let key = unsafe { key.as_ref().unwrap() };
 
