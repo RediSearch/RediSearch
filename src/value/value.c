@@ -827,7 +827,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       if (obfuscate) {
         return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
-        char buf[128];
+        char buf[32];
         size_t len = RSValue_NumToString(v, buf, sizeof(buf));
         return sdscatlen(s, buf, len);
       }

@@ -146,7 +146,7 @@ int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
       break;
     }
     case RSValueType_Number: {
-      char tmpbuf[128];
+      char tmpbuf[32];
       size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(result, buf, len);
