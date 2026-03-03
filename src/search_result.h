@@ -20,11 +20,6 @@
 extern "C" {
 #endif
 
-static inline SearchResult SearchResult_New() {
-    SearchResult r = {0};
-    return r;
-}
-
 /**
  * Returns the document ID of `res`.
  *
