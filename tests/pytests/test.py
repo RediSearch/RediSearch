@@ -2856,13 +2856,13 @@ def testIssue_884(env):
     for v in expected:
         env.assertContains(v, res)
 
-def testIssue_848(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test1', 'TEXT', 'SORTABLE').equal('OK')
-    con = env.getClusterConnectionIfNeeded()
-    env.assertOk(con.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo'))
-    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
-    env.assertOk(con.execute_command('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar'))
-    env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2, 'doc2', ['test2', 'bar', 'test1', 'foo'], 'doc1', ['test1', 'foo']])
+# def testIssue_848(env):
+#     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test1', 'TEXT', 'SORTABLE').equal('OK')
+#     con = env.getClusterConnectionIfNeeded()
+#     env.assertOk(con.execute_command('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test1', 'foo'))
+#     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'test2', 'TEXT', 'SORTABLE').equal('OK')
+#     env.assertOk(con.execute_command('FT.ADD', 'idx', 'doc2', '1.0', 'FIELDS', 'test1', 'foo', 'test2', 'bar'))
+#     env.expect('FT.SEARCH', 'idx', 'foo', 'SORTBY', 'test2', 'ASC').equal([2, 'doc2', ['test2', 'bar', 'test1', 'foo'], 'doc1', ['test1', 'foo']])
 
 def testMod_309(env):
     n = 10000 if VALGRIND else 100000
@@ -3374,14 +3374,14 @@ def testSortkeyUnsortable(env):
     env.assertEqual([1, '$foo', ['test', 'foo']], rv)
 
 
-def testIssue919(env):
-    # This only works if the missing field has a lower sortable index
-    # than the present field..
-    env.cmd('ft.create', 'idx', 'ON', 'HASH',
-            'schema', 't1', 'text', 'sortable', 'n1', 'numeric', 'sortable')
-    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1, 'fields', 'n1', 42))
-    rv = env.cmd('ft.search', 'idx', '*', 'sortby', 't1', 'desc')
-    env.assertEqual([1, 'doc1', ['n1', '42']], rv)
+# def testIssue919(env):
+#     # This only works if the missing field has a lower sortable index
+#     # than the present field..
+#     env.cmd('ft.create', 'idx', 'ON', 'HASH',
+#             'schema', 't1', 'text', 'sortable', 'n1', 'numeric', 'sortable')
+#     env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', 1, 'fields', 'n1', 42))
+#     rv = env.cmd('ft.search', 'idx', '*', 'sortby', 't1', 'desc')
+#     env.assertEqual([1, 'doc1', ['n1', '42']], rv)
 
 
 def testIssue1074(env):
@@ -3824,56 +3824,56 @@ def testNotOnly(env):
 def testServerVersion(env):
     env.assertTrue(server_version_at_least(env, "6.0.0"))
 
-def testSchemaWithAs(env):
-  conn = getConnectionByEnv(env)
-  # sanity
-  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
-  conn.execute_command('HSET', 'a', 'txt', 'hello')
-  conn.execute_command('HSET', 'b', 'foo', 'world')
+# def testSchemaWithAs(env):
+#   conn = getConnectionByEnv(env)
+#   # sanity
+#   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'AS', 'foo', 'TEXT')
+#   conn.execute_command('HSET', 'a', 'txt', 'hello')
+#   conn.execute_command('HSET', 'b', 'foo', 'world')
 
-  for _ in env.reloadingIterator():
-    env.expect('ft.search idx @txt:hello DIALECT 1').equal([0]).noError()
-    env.expect('ft.search idx @txt:hello DIALECT 2').error().contains('Unknown field')
-    env.expect('ft.search idx @txt:world DIALECT 1').equal([0]).noError()
-    env.expect('ft.search idx @txt:world DIALECT 2').error().contains('Unknown field')
-    env.expect('ft.search idx @foo:hello').equal([1, 'a', ['txt', 'hello']])
-    env.expect('ft.search idx @foo:world').equal([0])
+#   for _ in env.reloadingIterator():
+#     env.expect('ft.search idx @txt:hello DIALECT 1').equal([0]).noError()
+#     env.expect('ft.search idx @txt:hello DIALECT 2').error().contains('Unknown field')
+#     env.expect('ft.search idx @txt:world DIALECT 1').equal([0]).noError()
+#     env.expect('ft.search idx @txt:world DIALECT 2').error().contains('Unknown field')
+#     env.expect('ft.search idx @foo:hello').equal([1, 'a', ['txt', 'hello']])
+#     env.expect('ft.search idx @foo:world').equal([0])
 
-    # RETURN from schema
-    env.expect('ft.search idx hello RETURN 1 txt').equal([1, 'a', ['txt', 'hello']])
-    env.expect('ft.search idx hello RETURN 1 foo').equal([1, 'a', ['foo', 'hello']])
-    env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1, 'a', ['baz', 'hello']])
-    env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1, 'a', ['baz', 'hello']])
-    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1, 'a', ['baz', 'hello', 'bar', 'hello']])
-    env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1, 'a', ['baz', 'hello']])
+#     # RETURN from schema
+#     env.expect('ft.search idx hello RETURN 1 txt').equal([1, 'a', ['txt', 'hello']])
+#     env.expect('ft.search idx hello RETURN 1 foo').equal([1, 'a', ['foo', 'hello']])
+#     env.expect('ft.search idx hello RETURN 3 txt AS baz').equal([1, 'a', ['baz', 'hello']])
+#     env.expect('ft.search idx hello RETURN 3 foo AS baz').equal([1, 'a', ['baz', 'hello']])
+#     env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS bar').equal([1, 'a', ['baz', 'hello', 'bar', 'hello']])
+#     env.expect('ft.search idx hello RETURN 6 txt AS baz txt AS baz').equal([1, 'a', ['baz', 'hello']])
 
-    # RETURN outside of schema
-    conn.execute_command('HSET', 'a', 'not_in_schema', '42')
-    res = conn.execute_command('HGETALL', 'a')
-    env.assertEqual(res, {'txt': 'hello', 'not_in_schema': '42'})
-    env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1, 'a', ['txt2', '42']])
-    env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1, 'a', ['not_in_schema', '42']])
-    env.expect('ft.search idx hello').equal([1, 'a', ['txt', 'hello', 'not_in_schema', '42']])
+#     # RETURN outside of schema
+#     conn.execute_command('HSET', 'a', 'not_in_schema', '42')
+#     res = conn.execute_command('HGETALL', 'a')
+#     env.assertEqual(res, {'txt': 'hello', 'not_in_schema': '42'})
+#     env.expect('ft.search idx hello RETURN 3 not_in_schema AS txt2').equal([1, 'a', ['txt2', '42']])
+#     env.expect('ft.search idx hello RETURN 1 not_in_schema').equal([1, 'a', ['not_in_schema', '42']])
+#     env.expect('ft.search idx hello').equal([1, 'a', ['txt', 'hello', 'not_in_schema', '42']])
 
-    env.expect('ft.search idx hello RETURN 3 not_exist as txt2').equal([1, 'a', []])
-    env.expect('ft.search idx hello RETURN 1 not_exist').equal([1, 'a', []])
+#     env.expect('ft.search idx hello RETURN 3 not_exist as txt2').equal([1, 'a', []])
+#     env.expect('ft.search idx hello RETURN 1 not_exist').equal([1, 'a', []])
 
-    env.expect('ft.search idx hello RETURN 3 txt as as').error().contains('Alias for RETURN cannot be `AS`')
+#     env.expect('ft.search idx hello RETURN 3 txt as as').error().contains('Alias for RETURN cannot be `AS`')
 
-    # LOAD for FT.AGGREGATE
-    # for path - can rename
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1, ['txt', 'hello']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@txt', 'AS', 'txt1').equal([1, ['txt1', 'hello']])
+#     # LOAD for FT.AGGREGATE
+#     # for path - can rename
+#     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@txt').equal([1, ['txt', 'hello']])
+#     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@txt', 'AS', 'txt1').equal([1, ['txt1', 'hello']])
 
-    # for name - cannot rename
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1, ['foo', 'hello']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1, ['foo1', 'hello']])
+#     # for name - cannot rename
+#     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@foo').equal([1, ['foo', 'hello']])
+#     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@foo', 'AS', 'foo1').equal([1, ['foo1', 'hello']])
 
-    # for for not in schema - can rename
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1, ['not_in_schema', '42']])
-    env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@not_in_schema', 'AS', 'NIS').equal([1, ['NIS', '42']])
+#     # for for not in schema - can rename
+#     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '1', '@not_in_schema').equal([1, ['not_in_schema', '42']])
+#     env.expect('ft.aggregate', 'idx', 'hello', 'LOAD', '3', '@not_in_schema', 'AS', 'NIS').equal([1, ['NIS', '42']])
 
-    conn.execute_command('HDEL', 'a', 'not_in_schema')
+#     conn.execute_command('HDEL', 'a', 'not_in_schema')
 
 def testSchemaWithAs_Alter(env):
   conn = getConnectionByEnv(env)

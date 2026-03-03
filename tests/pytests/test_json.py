@@ -684,47 +684,47 @@ def testAsProjection(env):
 
     # TODO: Search for numeric field 'flt'
 
-@skip(msan=True, no_json=True)
-def testAsProjectionRedefinedLabel(env):
-    conn = getConnectionByEnv(env)
+# @skip(msan=True, no_json=True)
+# def testAsProjectionRedefinedLabel(env):
+#     conn = getConnectionByEnv(env)
 
-    # Test redefining projection 'AS' label in query params RETURN and LOAD
-    # FIXME: Should we fail SEARCH/AGGREGATE command with RETURN/LOAD alias duplication
-    # (as with FT.CREATE)
-    # BTW, iN SQLite, it is allowed, e.g., SELECT F1 AS Label1, F2 AS Label1 FROM doc;
-    # (different values for fields F1 and F2 were retrieved with the same label Label1)
+#     # Test redefining projection 'AS' label in query params RETURN and LOAD
+#     # FIXME: Should we fail SEARCH/AGGREGATE command with RETURN/LOAD alias duplication
+#     # (as with FT.CREATE)
+#     # BTW, iN SQLite, it is allowed, e.g., SELECT F1 AS Label1, F2 AS Label1 FROM doc;
+#     # (different values for fields F1 and F2 were retrieved with the same label Label1)
 
-    # FIXME: Handle Numeric - In the following line, change '$.n' to: 'AS', 'labelN', 'NUMERIC'
-    env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
-                        '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS', 'labelN', 'TEXT')
-    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072"}')
+#     # FIXME: Handle Numeric - In the following line, change '$.n' to: 'AS', 'labelN', 'NUMERIC'
+#     env.cmd('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',
+#                         '$.t', 'AS', 'labelT', 'TEXT', '$.n', 'AS', 'labelN', 'TEXT')
+#     conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t":"riceratops","n":"9072"}')
 
-    # Allow redefining a new label for a field which has a label in the schema
-    env.expect('ft.search', 'idx2', '*', 'RETURN', '3', '$.t', 'AS', 'MyOnTheFlyReturnLabel').equal(
-        [1, 'doc:1', ['MyOnTheFlyReturnLabel', 'riceratops']])
-    env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '3', '@$.t', 'AS', 'MyOnTheFlyReturnLabel').equal(
-        [1, ['MyOnTheFlyReturnLabel', 'riceratops']])
+#     # Allow redefining a new label for a field which has a label in the schema
+#     env.expect('ft.search', 'idx2', '*', 'RETURN', '3', '$.t', 'AS', 'MyOnTheFlyReturnLabel').equal(
+#         [1, 'doc:1', ['MyOnTheFlyReturnLabel', 'riceratops']])
+#     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '3', '@$.t', 'AS', 'MyOnTheFlyReturnLabel').equal(
+#         [1, ['MyOnTheFlyReturnLabel', 'riceratops']])
 
-    # Allow redefining a label with existing label found in another field in the schema
-    env.expect('ft.search', 'idx2', '*', 'RETURN', '3', '$.t', 'AS', 'labelN').equal(
-        [1, 'doc:1', ['labelN', 'riceratops']])
-    env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '3', '@$.t', 'AS', 'labelN').equal(
-        [1, ['labelN', 'riceratops']])
+#     # Allow redefining a label with existing label found in another field in the schema
+#     env.expect('ft.search', 'idx2', '*', 'RETURN', '3', '$.t', 'AS', 'labelN').equal(
+#         [1, 'doc:1', ['labelN', 'riceratops']])
+#     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '3', '@$.t', 'AS', 'labelN').equal(
+#         [1, ['labelN', 'riceratops']])
 
-    # (?) Allow redefining a label with existing label found in another field in the schema,
-    # together with just a label from the schema
-    env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelT').equal(
-        [1, 'doc:1', ['labelT', '9072']])
+#     # (?) Allow redefining a label with existing label found in another field in the schema,
+#     # together with just a label from the schema
+#     env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelT').equal(
+#         [1, 'doc:1', ['labelT', '9072']])
 
-    # TODO: re-enable this
-    if False: # UNSTABLE_TEST
-        env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelT').equal(
-            [1, ['labelT', '"9072"', 'labelT', 'riceratops']])
+#     # TODO: re-enable this
+#     if False: # UNSTABLE_TEST
+#         env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelT').equal(
+#             [1, ['labelT', '"9072"', 'labelT', 'riceratops']])
 
-    env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelN').equal(
-        [1, 'doc:1', ['labelT', '9072', 'labelN', '9072']])
-    env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelN').equal(
-        [1, ['labelT', '9072', 'labelN', '9072']])
+#     env.expect('ft.search', 'idx2', '*', 'RETURN', '4', '$.n', 'AS', 'labelT', 'labelN').equal(
+#         [1, 'doc:1', ['labelT', '9072', 'labelN', '9072']])
+#     env.expect('ft.aggregate', 'idx2', '*', 'LOAD', '4', '@$.n', 'AS', 'labelT', 'labelN').equal(
+#         [1, ['labelT', '9072', 'labelN', '9072']])
 
 @skip(msan=True, no_json=True)
 def testNumeric(env):

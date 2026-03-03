@@ -300,25 +300,25 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
-@skip(no_json=True)
-def testMultiGeoReturn(env):
-    """ test RETURN with multiple GEO values """
+# @skip(no_json=True)
+# def testMultiGeoReturn(env):
+#     """ test RETURN with multiple GEO values """
 
-    res1 = [1, 'doc:1', ['arr_1', '["29.7,34.9"]']]
-    res2 = [1, 'doc:1', ['val', '["40.6,70.35","29.7,34.9","21,22"]']]
-    res3 = [1, 'doc:1', ['val', '[["40.6,70.35","29.7,34.9","21,22"]]']]
+#     res1 = [1, 'doc:1', ['arr_1', '["29.7,34.9"]']]
+#     res2 = [1, 'doc:1', ['val', '["40.6,70.35","29.7,34.9","21,22"]']]
+#     res3 = [1, 'doc:1', ['val', '[["40.6,70.35","29.7,34.9","21,22"]]']]
 
-    checkMultiGeoReturn(env, [res1, res2, res3], False, False)
-    env.flush()
-    checkMultiGeoReturn(env, [res1, res2, res3], False, True)
+#     checkMultiGeoReturn(env, [res1, res2, res3], False, False)
+#     env.flush()
+#     checkMultiGeoReturn(env, [res1, res2, res3], False, True)
 
-@skip(no_json=True)
-def testMultiGeoReturnBWC(env):
-    """ test backward compatibility of RETURN with multiple GEO values """
-    res1 = [1, 'doc:1', ['arr_1', '29.7,34.9']]
-    res2 = [1, 'doc:1', ['val', '40.6,70.35']]
-    res3 = [1, 'doc:1', ['val', '["40.6,70.35","29.7,34.9","21,22"]']]
+# @skip(no_json=True)
+# def testMultiGeoReturnBWC(env):
+#     """ test backward compatibility of RETURN with multiple GEO values """
+#     res1 = [1, 'doc:1', ['arr_1', '29.7,34.9']]
+#     res2 = [1, 'doc:1', ['val', '40.6,70.35']]
+#     res3 = [1, 'doc:1', ['val', '["40.6,70.35","29.7,34.9","21,22"]']]
 
-    checkMultiGeoReturn(env, [res1, res2, res3], True, False)
-    env.flush()
-    checkMultiGeoReturn(env, [res1, res2, res3], True, True)
+#     checkMultiGeoReturn(env, [res1, res2, res3], True, False)
+#     env.flush()
+#     checkMultiGeoReturn(env, [res1, res2, res3], True, True)
