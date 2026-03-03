@@ -10,6 +10,7 @@
 #include <inttypes.h>
 
 #include "document.h"
+#include "rlookup_load_document.h"
 #include "forward_index.h"
 #include "numeric_filter.h"
 #include "numeric_index.h"

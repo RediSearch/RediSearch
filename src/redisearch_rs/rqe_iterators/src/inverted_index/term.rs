@@ -84,6 +84,11 @@ where
         }
     }
 
+    /// Get a reference to the underlying reader.
+    pub const fn reader(&self) -> &R {
+        &self.it.reader
+    }
+
     /// Check if the iterator should abort revalidation.
     ///
     /// The term's inverted index may have been garbage-collected and
@@ -110,12 +115,16 @@ where
             .query_term()
             .expect("Term iterator should always have a query term");
 
-        // SAFETY: `context` is a valid `RedisSearchCtx` (1.) and `term.str_`
-        // is a valid C string with length `term.len`.
+        let str_ptr = term
+            .as_bytes()
+            .map_or(std::ptr::null(), |b| b.as_ptr().cast());
+
+        // SAFETY: `context` is a valid `RedisSearchCtx` (1.) and `str_ptr`
+        // is a valid byte slice of `term.len()` bytes.
         let idx = unsafe {
             ffi::Redis_OpenInvertedIndex(
                 self.context.as_ptr(),
-                term.str_ptr(),
+                str_ptr,
                 term.len(),
                 false,
                 std::ptr::null_mut(),

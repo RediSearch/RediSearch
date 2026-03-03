@@ -1222,9 +1222,8 @@ class testWarningsAndErrorsCluster:
                     'TIMEOUT_AFTER_N', 1, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     # Shards: +1 each again (total +2)
     for shardId in range(1, self.env.shardsCount + 1):
-      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
-      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2),
-                           message=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be +2 total")
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 2), msg=f"Shard {shardId} AGG INTERNAL_ONLY timeout error should be {base_err_shards[shardId] + 2}")
     # Coord: +2
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 2),
@@ -1235,9 +1234,8 @@ class testWarningsAndErrorsCluster:
                     'TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
     # Shards: +3 (timeout is returned by the coord, but each shard still times out)
     for shardId in range(1, self.env.shardsCount + 1):
-      info_dict = info_modules_to_dict(self.env.getConnection(shardId))
-      self.env.assertEqual(info_dict[WARN_ERR_SECTION][TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3),
-                           message=f"Shard {shardId} AGG coordinator timeout error should be +3 total")
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 3), msg=f"Shard {shardId} AGG coordinator timeout error should be {base_err_shards[shardId] + 3}")
     # Coord: +3
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 3),

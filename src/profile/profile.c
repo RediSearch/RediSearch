@@ -40,7 +40,9 @@ void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const Pr
     RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
     if (term != NULL) {
       printProfileType("TAG");
-      REPLY_KVSTR_SAFE("Term", QueryTerm_GetStr(term));
+      size_t term_len = 0;
+      const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
+      RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
     }
   } else if (readerFlags & Index_StoreNumeric) {
     const NumericInvIndIterator *numIt = (const NumericInvIndIterator *)it;
@@ -61,7 +63,9 @@ void printInvIdxIt(RedisModule_Reply *reply, const QueryIterator *root, const Pr
   } else {
     printProfileType("TEXT");
     RSQueryTerm *term = IndexResult_QueryTermRef(root->current);
-    REPLY_KVSTR_SAFE("Term", QueryTerm_GetStr(term));
+    size_t term_len = 0;
+    const char *term_str = QueryTerm_GetStrAndLen(term, &term_len);
+    RedisModule_ReplyKV_StringBuffer(reply, "Term", term_str, term_len);
   }
 
   // print counter and clock
