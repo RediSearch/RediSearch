@@ -203,9 +203,22 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
 /**
  * Handle initial spec lock and iterator revalidation.
  * Returns true if we should goto validate_current (VALIDATE_MOVED case).
+ *
+ * * For disk indexes, we skip the lock acquisition because:
+ * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
+ *    during QAST_Iterate() which already runs under the read-lock.
+ * 2. Disk iterators capture an implicit snapshot at creation time, ensuring
+ *    consistency for disk reads without needing to hold the lock.
+ * 3. This avoids blocking the main thread during disk IO operations.
  */
 static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
+  // For disk indexes, return immediately, since we don't need to acquire the
+  // lock, nor to revalidate the iterators.
+  if (sctx->spec->diskSpec) {
+    return false;
+  }
+
   QueryIterator *it = self->iterator;
 
   if (sctx->flags != RS_CTX_UNSET) {
@@ -213,6 +226,7 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   }
 
   RedisSearchCtx_LockSpecRead(sctx);
+
   ValidateStatus rc = it->Revalidate(it);
 
   if (rc == VALIDATE_ABORTED) {
@@ -232,7 +246,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RedisSearchCtx *sctx = self->sctx;
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
-    // Handle spec lock and revalidation
+  // Handle spec lock and revalidation
   bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
 
   // Always update it after revalidation as iterator may have been replaced
