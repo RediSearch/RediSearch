@@ -80,7 +80,8 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
  * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
- * 3. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR), its `reader`
+ * 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
+ * 4. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR and INV_IDX_TERM_ITERATOR), its `reader`
  *    field must be a valid non-NULL pointer to an `IndexReader`.
  *
  * # Returns
@@ -243,11 +244,11 @@ struct NumericRangeIteratorsResult CreateNumericRangeIterators(const NumericRang
  * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
-QueryIterator *NewInvIndIterator_TermQuery_Rs(const InvertedIndex *idx,
-                                              const RedisSearchCtx *sctx,
-                                              FieldMaskOrIndex field_mask_or_index,
-                                              RSQueryTerm *term,
-                                              double weight);
+QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx,
+                                           const RedisSearchCtx *sctx,
+                                           FieldMaskOrIndex field_mask_or_index,
+                                           RSQueryTerm *term,
+                                           double weight);
 
 /**
  * Creates a new wildcard inverted index iterator for querying all existing documents.

@@ -390,6 +390,13 @@ typedef uint64_t RedisModuleTimerID;
  * Use RedisModule_GetModuleOptionsAll instead. */
 #define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<4)
 
+/* Fork-specific option flags. Placed at high bits to maintain ABI compatibility
+ * with OSS Redis, which allocates option flags sequentially from bit 0. */
+
+/* Prevent direct-to-disk key writes during RDB loading and RESTORE in
+ * BigRedis mode. See RM_SetModuleOptions for details. */
+#define REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM    (1<<30)
+
 /* When set, Redis will not call RedisModule_MarkKeyAsDirty(), implicitly in
  * RedisModule_ModuleTypeSetValue, and the module needs to do that when manually when keys
  * are modified from the user's sperspective. */

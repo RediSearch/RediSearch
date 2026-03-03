@@ -14,6 +14,7 @@
 #include "ext/default.h"
 #include "result_processor_rs.h"
 #include "rlookup.h"
+#include "rlookup_load_document.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
