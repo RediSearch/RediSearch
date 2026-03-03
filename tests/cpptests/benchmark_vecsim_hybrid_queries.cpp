@@ -23,6 +23,7 @@
 #include "varint.h"
 #include "src/iterators/hybrid_reader.h"
 #include "src/iterators/inverted_index_iterator.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "src/iterators/union_iterator.h"
 
 #include "rmutil/alloc.h"

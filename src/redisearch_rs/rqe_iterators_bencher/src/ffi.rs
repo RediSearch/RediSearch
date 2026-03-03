@@ -89,18 +89,16 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex) -> Self {
-        let term: *mut ffi::RSQueryTerm = Box::into_raw(RSQueryTerm::new("term", 1, 0)).cast();
+    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex, sctx: *const ffi::RedisSearchCtx) -> Self {
+        let term = Box::into_raw(RSQueryTerm::new("term", 1, 0));
         Self(unsafe {
-            let field_mask_ffi = ffi::FieldMaskOrIndex {
-                __bindgen_anon_2: ffi::FieldMaskOrIndex__bindgen_ty_2 {
-                    mask_tag: 1, // FieldMaskOrIndex_Mask = 1
-                    __bindgen_padding_0: 0,
-                    mask: ffi::RS_FIELDMASK_ALL,
-                },
-            };
-
-            ffi::NewInvIndIterator_TermQuery(ii, ptr::null(), field_mask_ffi, term, 1.0)
+            iterators_ffi::inverted_index::NewInvIndIterator_TermQuery(
+                ii.cast_const(),
+                sctx,
+                field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
+                term,
+                1.0,
+            )
         })
     }
 
@@ -195,6 +193,36 @@ impl QueryIterator {
     pub fn current(&self) -> Option<&RSIndexResult<'static>> {
         let current = unsafe { (*self.0).current };
         unsafe { current.cast::<RSIndexResult>().as_ref() }
+    }
+}
+
+/// Create a minimal zeroed `RedisSearchCtx` with a valid `IndexSpec`.
+///
+/// The caller must call [`free_search_ctx`] to free the memory.
+fn new_search_ctx() -> *mut ffi::RedisSearchCtx {
+    let search_ctx = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
+            as *mut ffi::RedisSearchCtx
+    };
+    unsafe {
+        (*search_ctx) = std::mem::zeroed();
+    }
+    let spec = unsafe {
+        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
+    };
+    unsafe {
+        (*spec) = std::mem::zeroed();
+    }
+    unsafe {
+        (*search_ctx).spec = spec;
+    }
+    search_ctx
+}
+
+fn free_search_ctx(sctx: *mut ffi::RedisSearchCtx) {
+    unsafe {
+        RedisModule_Free.unwrap()((*sctx).spec as *mut c_void);
+        RedisModule_Free.unwrap()(sctx as *mut c_void);
     }
 }
 
@@ -295,20 +323,33 @@ impl QueryIterator {
 
 /// Simple wrapper around the C InvertedIndex.
 /// All methods are inlined to avoid the overhead when benchmarking.
-pub struct InvertedIndex(pub *mut ffi::InvertedIndex);
+pub struct InvertedIndex {
+    pub ii: *mut ffi::InvertedIndex,
+    sctx: *mut ffi::RedisSearchCtx,
+}
+
+impl Drop for InvertedIndex {
+    fn drop(&mut self) {
+        unsafe { inverted_index_ffi::InvertedIndex_Free(self.ii.cast()) };
+        free_search_ctx(self.sctx);
+    }
+}
 
 impl InvertedIndex {
     #[inline(always)]
     pub fn new(flags: ffi::IndexFlags) -> Self {
         let mut memsize = 0;
         let ptr = inverted_index_ffi::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
-        Self(ptr.cast())
+        Self {
+            ii: ptr.cast(),
+            sctx: new_search_ctx(),
+        }
     }
 
     #[inline(always)]
     pub fn write_numeric_entry(&self, doc_id: u64, value: f64) {
         unsafe {
-            inverted_index_ffi::InvertedIndex_WriteNumericEntry(self.0.cast(), doc_id, value);
+            inverted_index_ffi::InvertedIndex_WriteNumericEntry(self.ii.cast(), doc_id, value);
         }
     }
 
@@ -331,7 +372,7 @@ impl InvertedIndex {
         );
         unsafe {
             inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
-                self.0.cast(),
+                self.ii.cast(),
                 &record as *const _ as *mut _,
             );
         }
@@ -339,14 +380,7 @@ impl InvertedIndex {
 
     #[inline(always)]
     pub fn iterator_term(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_term(self.0) }
-    }
-}
-
-impl Drop for InvertedIndex {
-    #[inline(always)]
-    fn drop(&mut self) {
-        unsafe { inverted_index_ffi::InvertedIndex_Free(self.0.cast()) };
+        unsafe { QueryIterator::new_term(self.ii, self.sctx) }
     }
 }
 
@@ -381,7 +415,7 @@ mod tests {
         ii.write_term_entry(10, 1, 1, term(), &offsets);
         ii.write_term_entry(100, 1, 1, term(), &offsets);
 
-        let it = unsafe { QueryIterator::new_term(ii.0) };
+        let it = ii.iterator_term();
         assert_eq!(it.num_estimated(), 3);
 
         assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
