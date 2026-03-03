@@ -1,7 +1,7 @@
 #ifndef REDISMODULE_H
 #define REDISMODULE_H
 
-//clang-format off
+// clang-format off
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -1187,11 +1187,17 @@ typedef struct RedisModuleTypeMethods {
     RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))
 
 /* Default API declaration prefix.
- * Use 'extern' by default so that each translation unit declares the symbols.
- * Only the file that calls RedisModule_Init should define REDISMODULE_API
- * as empty before including this header to provide the actual definitions. */
-#ifndef REDISMODULE_API
+ * IMPORTANT: When copying the header, make sure to keep this logic intact.
+ * If REDISMODULE_MAIN is not defined, use 'extern' so that each translation
+ * unit declares the symbols without defining them.
+ * Only the file that defines REDISMODULE_MAIN (typically the one that calls
+ * RedisModule_Init) will define the actual symbols. */
+#ifndef REDISMODULE_MAIN
 #define REDISMODULE_API extern
+#endif
+
+#ifndef REDISMODULE_API
+#define REDISMODULE_API
 #endif
 
 /* Default API declaration suffix (compiler attributes) */
