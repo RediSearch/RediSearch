@@ -21,16 +21,18 @@ pub fn str_to_float(input: &[u8]) -> Option<f64> {
 ///
 /// Returns the amount of bytes written as per `snprint`: if that is >= `buf.len()` then
 /// it didn't fit (`snprintf` always places a nul-terminator at the end).
-pub fn num_to_str(float: f64, buf: &mut [u8]) -> usize {
-    let integer = float as i64;
-    let result = if integer as f64 == float {
+pub fn num_to_str(num: f64, buf: &mut [u8]) -> usize {
+    let representable_as_integer =
+        num.fract() == 0.0 && num >= i64::MIN as f64 && num < i64::MAX as f64;
+
+    let result = if representable_as_integer {
         // Safety: buf is valid by definition, formatting string and arguments match up.
         unsafe {
             snprintf(
                 buf.as_mut_ptr() as *mut c_char,
                 buf.len(),
                 c"%lld".as_ptr(),
-                integer,
+                num as i64,
             )
         }
     } else {
@@ -40,7 +42,7 @@ pub fn num_to_str(float: f64, buf: &mut [u8]) -> usize {
                 buf.as_mut_ptr() as *mut c_char,
                 buf.len(),
                 c"%.12g".as_ptr(),
-                float,
+                num,
             )
         }
     };
