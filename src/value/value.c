@@ -486,39 +486,6 @@ uint16_t RSValue_Refcount(const RSValue *v) {
 // Other Functions (utility, comparison, conversion, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
-void RSValue_ToString(RSValue *dst, RSValue *v) {
-  switch (v->_t) {
-    case RSValueType_String:
-      RSValue_MakeReference(dst, v);
-      break;
-    case RSValueType_RedisString: {
-      size_t sz;
-      const char *str = RedisModule_StringPtrLen(v->_rstrval, &sz);
-      RS_ASSERT(sz <= UINT32_MAX);
-      RSValue_SetConstString(dst, str, sz);
-      break;
-    }
-    case RSValueType_Number: {
-      char tmpbuf[128];
-      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
-      char *buf = rm_strdup(tmpbuf);
-      RSValue_SetString(dst, buf, len);
-      break;
-    }
-    case RSValueType_Reference:
-      return RSValue_ToString(dst, v->_ref);
-
-    case RSValueType_Trio:
-      return RSValue_ToString(dst, RSValue_Trio_GetLeft(v));
-
-    case RSValueType_Null:
-    default:
-      return RSValue_SetConstString(dst, "", 0);
-  }
-}
-
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into the double pointer */
