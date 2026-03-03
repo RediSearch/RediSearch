@@ -227,7 +227,11 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
 
     RSValue *arg = RSValue_DereferenceRefAndTrio(argv[argix++]);
     if (type == 's') {
-      if (RSValue_IsString(arg)) {
+      if (arg == RSValue_NullStatic()) {
+        // write null value
+        append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
+        continue;
+      } else if (RSValue_IsString(arg)) {
         size_t sz;
         const char *str = RSValue_StringPtrLen(arg, &sz);
         append_to_string(&out, &out_tail, &out_cap, str, sz);
@@ -235,8 +239,6 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
         char tmpbuf[32];
         size_t len = RSValue_NumToString(arg, tmpbuf);
         append_to_string(&out, &out_tail, &out_cap, tmpbuf, len);
-      } else {
-        append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
       }
     } else {
       QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown format specifier passed");
