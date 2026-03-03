@@ -417,6 +417,9 @@ QueryIterator *NewProfileIterator(QueryIterator *child);
 /**
  * Get the child iterator from a profile iterator.
  *
+ * The returned pointer borrows from the iterator — it is valid as long as
+ * the iterator is alive. The C caller only reads through this pointer.
+ *
  * # Safety
  *
  * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].

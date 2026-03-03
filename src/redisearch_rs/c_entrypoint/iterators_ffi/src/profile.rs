@@ -24,15 +24,18 @@ type ProfileIteratorImpl = Profile<'static, CRQEIterator>;
 /// 2. `child` must not be aliased.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut QueryIterator {
-    debug_assert!(!child.is_null());
-    let child = NonNull::new(child)
-        .expect("Trying to create a profile iterator using a NULL child iterator pointer");
+    debug_assert!(!child.is_null(), "child must not be null");
+    // SAFETY: 1.
+    let child = unsafe { NonNull::new_unchecked(child) };
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
     RQEIteratorWrapper::boxed_new(IteratorType_PROFILE_ITERATOR, Profile::new(child))
 }
 
 /// Get the child iterator from a profile iterator.
+///
+/// The returned pointer borrows from the iterator — it is valid as long as
+/// the iterator is alive. The C caller only reads through this pointer.
 ///
 /// # Safety
 ///
@@ -75,7 +78,8 @@ pub unsafe extern "C" fn ProfileIterator_GetCounters(
     );
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
-    wrapper.inner.counters()
+    let counters: &ProfileCounters = wrapper.inner.counters();
+    std::ptr::from_ref(counters)
 }
 
 /// Get the accumulated wall time in nanoseconds from a profile iterator.
