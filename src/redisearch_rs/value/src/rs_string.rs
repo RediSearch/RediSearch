@@ -34,8 +34,6 @@ pub struct RsString {
     ptr: *const c_char,
     len: u32,
     kind: RsStringKind,
-    #[cfg(debug_assertions)]
-    guaranteed_nul_terminated: bool,
 }
 
 impl RsString {
@@ -56,8 +54,6 @@ impl RsString {
             ptr: ptr as *const c_char,
             len: len as u32,
             kind: RsStringKind::RustAlloc,
-            #[cfg(debug_assertions)]
-            guaranteed_nul_terminated: true,
         }
     }
 
@@ -81,8 +77,6 @@ impl RsString {
             ptr,
             len,
             kind: RsStringKind::RmAlloc,
-            #[cfg(debug_assertions)]
-            guaranteed_nul_terminated: true,
         }
     }
 
@@ -107,8 +101,6 @@ impl RsString {
             ptr,
             len,
             kind: RsStringKind::Borrowed,
-            #[cfg(debug_assertions)]
-            guaranteed_nul_terminated: true,
         }
     }
 
@@ -119,11 +111,6 @@ impl RsString {
     ///
     /// In debug builds, panics if the string is possibly not nul-terminated.
     pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
-        #[cfg(debug_assertions)]
-        assert!(
-            self.guaranteed_nul_terminated,
-            "as_ptr_len() called on possibly non-nul-terminated string"
-        );
         (self.ptr, self.len)
     }
 
