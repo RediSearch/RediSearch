@@ -31,10 +31,6 @@ clientconfig:
       cpus: "2"
       memory: 2g
 
-tested-commands:
-  - HSET
-  - _FT.DEBUG
-
 exporter:
   redistimeseries:
     metrics:
