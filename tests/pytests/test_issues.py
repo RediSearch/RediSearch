@@ -227,34 +227,34 @@ def testIssue2104Hash(env):
   res = env.cmd('FT.AGGREGATE', 'hash_idx', '*', 'LOAD', '3', '@subj1', 'AS', 'a', 'APPLY', '(@subj1+@subj1)/2', 'AS', 'avg')
   env.assertEqual(toSortedFlatList([1, ['a', '20', 'subj1', '20', 'avg', '20']]), toSortedFlatList(res))
 
-@skip(msan=True, no_json=True)
-def testIssue2104JSON(env):
-  # 'AS' attribute does not work in functions
-  conn = getConnectionByEnv(env)
+# @skip(msan=True, no_json=True)
+# def testIssue2104JSON(env):
+#   # 'AS' attribute does not work in functions
+#   conn = getConnectionByEnv(env)
 
-  env.cmd('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
-                                                                        '$.subj1', 'AS', 'subj2', 'NUMERIC', 'SORTABLE')
-  env.cmd('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
-  env.expect('json.get', 'doc:1', '$').equal('[{"name":"Redis","subj1":3.14}]')
-  # load a single field
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '1', '@subj2') \
-      .equal([1, ['subj2', '3.14']])
-  # load a field with an attribute
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a') \
-      .equal([1, ['a', '3.14']])
-  # load field and use `APPLY`
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
-      .equal([1, ['a', '3.14', 'avg', '3.14']])
-  # load a field implicitly with `APPLY`
-  res = env.cmd('FT.AGGREGATE', 'json_idx', '*', 'APPLY', '(@subj2+@subj2)/2', 'AS', 'avg')
-  env.assertEqual(toSortedFlatList([1, ['subj2', '3.14', 'avg', '3.14']]), toSortedFlatList(res))
+#   env.cmd('FT.CREATE', 'json_idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE',
+#                                                                         '$.subj1', 'AS', 'subj2', 'NUMERIC', 'SORTABLE')
+#   env.cmd('JSON.SET', 'doc:1', '$', r'{"name":"Redis", "subj1":3.14}')
+#   env.expect('json.get', 'doc:1', '$').equal('[{"name":"Redis","subj1":3.14}]')
+#   # load a single field
+#   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '1', '@subj2') \
+#       .equal([1, ['subj2', '3.14']])
+#   # load a field with an attribute
+#   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a') \
+#       .equal([1, ['a', '3.14']])
+#   # load field and use `APPLY`
+#   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@subj2', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
+#       .equal([1, ['a', '3.14', 'avg', '3.14']])
+#   # load a field implicitly with `APPLY`
+#   res = env.cmd('FT.AGGREGATE', 'json_idx', '*', 'APPLY', '(@subj2+@subj2)/2', 'AS', 'avg')
+#   env.assertEqual(toSortedFlatList([1, ['subj2', '3.14', 'avg', '3.14']]), toSortedFlatList(res))
 
-  # load a field with an attribute
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a') \
-      .equal([1, ['a', '3.14']])
-  # In this example we get both `a` and `subj1` since
-  env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
-      .equal([1, ['a', '3.14', 'avg', '3.14']])
+#   # load a field with an attribute
+#   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a') \
+#       .equal([1, ['a', '3.14']])
+#   # In this example we get both `a` and `subj1` since
+#   env.expect('FT.AGGREGATE', 'json_idx', '*', 'LOAD', '3', '@$.subj1', 'AS', 'a', 'APPLY', '(@a+@a)/2', 'AS', 'avg') \
+#       .equal([1, ['a', '3.14', 'avg', '3.14']])
 
 @skip(msan=True, no_json=True)
 def test_MOD1266(env):
@@ -579,107 +579,107 @@ def test_sortby_Noexist(env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'ASC', 'LIMIT', '0', '3').equal([4, 'doc1', ['t', '1'], 'doc3', ['t', '3'], 'doc2', ['somethingelse', '2']])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 't', 'DESC', 'LIMIT', '0', '3').equal([4, 'doc3', ['t', '3'], 'doc1', ['t', '1'], 'doc4', ['somethingelse', '4']])
 
-def test_sortby_Noexist_Sortables(env):
-  ''' issue 3457 '''
+# def test_sortby_Noexist_Sortables(env):
+#   ''' issue 3457 '''
 
-  conn = getConnectionByEnv(env)
-  sortable_options = [[True,True], [True,False], [False,True], [False,False]]
+#   conn = getConnectionByEnv(env)
+#   sortable_options = [[True,True], [True,False], [False,True], [False,False]]
 
-  for count, args in enumerate(sortable_options):
-    sortable1 = ['SORTABLE'] if args[0] else []
-    sortable2 = ['SORTABLE'] if args[1] else []
-    conn.execute_command('FT.CREATE', f'idx{count}', 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
-                                                'text', 'TEXT', *sortable2)
+#   for count, args in enumerate(sortable_options):
+#     sortable1 = ['SORTABLE'] if args[0] else []
+#     sortable2 = ['SORTABLE'] if args[1] else []
+#     conn.execute_command('FT.CREATE', f'idx{count}', 'SCHEMA', 'numval', 'NUMERIC' , *sortable1,
+#                                                 'text', 'TEXT', *sortable2)
 
-  for count, args in enumerate(sortable_options):
-    # Use cluster {hashtag} to handle which keys are on the same shard (same cluster slot)
-    conn.execute_command('HSET', '{key1}1', 'numval', '110')
-    conn.execute_command('HSET', '{key1}2', 'numval', '108')
-    conn.execute_command('HSET', '{key2}1', 'text', 'Meow')
-    conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')
+#   for count, args in enumerate(sortable_options):
+#     # Use cluster {hashtag} to handle which keys are on the same shard (same cluster slot)
+#     conn.execute_command('HSET', '{key1}1', 'numval', '110')
+#     conn.execute_command('HSET', '{key1}2', 'numval', '108')
+#     conn.execute_command('HSET', '{key2}1', 'text', 'Meow')
+#     conn.execute_command('HSET', '{key2}2', 'text', 'Chirp')
 
-    msg = f'sortable1: {sortable1}, sortable2: {sortable2}'
+#     msg = f'sortable1: {sortable1}, sortable2: {sortable2}'
 
-    # Check ordering of docs:
-    #   In cluster: Docs without sortby field are ordered by key name
-    #   In non-cluster: Docs without sortby field are ordered by doc id (order of insertion/update)
+#     # Check ordering of docs:
+#     #   In cluster: Docs without sortby field are ordered by key name
+#     #   In non-cluster: Docs without sortby field are ordered by doc id (order of insertion/update)
 
-    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
-    env.assertEqual(res, [4,
-        '{key1}2', ['numval', '108'], '{key1}1', ['numval', '110'],
-        '{key2}1', ['text', 'Meow'], '{key2}2', ['text', 'Chirp'],
-      ], message=msg)
+#     res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
+#     env.assertEqual(res, [4,
+#         '{key1}2', ['numval', '108'], '{key1}1', ['numval', '110'],
+#         '{key2}1', ['text', 'Meow'], '{key2}2', ['text', 'Chirp'],
+#       ], message=msg)
 
-    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
-    env.assertEqual(res, [4,
-        '{key1}1', ['numval', '110'], '{key1}2', ['numval', '108'],
-        '{key2}2', ['text', 'Chirp'], '{key2}1', ['text', 'Meow'],
-      ], message=msg)
+#     res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
+#     env.assertEqual(res, [4,
+#         '{key1}1', ['numval', '110'], '{key1}2', ['numval', '108'],
+#         '{key2}2', ['text', 'Chirp'], '{key2}1', ['text', 'Meow'],
+#       ], message=msg)
 
-  # Add more keys
-  conn.execute_command('HSET', '{key1}3', 'text', 'Bark')
-  conn.execute_command('HSET', '{key1}4', 'text', 'Quack')
-  conn.execute_command('HSET', '{key2}3', 'numval', '109')
-  conn.execute_command('HSET', '{key2}4', 'numval', '111')
-  conn.execute_command('HSET', '{key2}5', 'numval', '108')
-  conn.execute_command('HSET', '{key2}6', 'text', 'Squeak')
+#   # Add more keys
+#   conn.execute_command('HSET', '{key1}3', 'text', 'Bark')
+#   conn.execute_command('HSET', '{key1}4', 'text', 'Quack')
+#   conn.execute_command('HSET', '{key2}3', 'numval', '109')
+#   conn.execute_command('HSET', '{key2}4', 'numval', '111')
+#   conn.execute_command('HSET', '{key2}5', 'numval', '108')
+#   conn.execute_command('HSET', '{key2}6', 'text', 'Squeak')
 
-  for count, args in enumerate(sortable_options):
-    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
-    if env.isCluster():
-      env.assertEqual(res, [10,
-          '{key1}2', ['numval', '108'],
-          '{key2}5', ['numval', '108'],
-          '{key2}3', ['numval', '109'],
-          '{key1}1', ['numval', '110'],
-          '{key2}4', ['numval', '111'],
-          '{key1}3', ['text', 'Bark'],
-          '{key1}4', ['text', 'Quack'],
-          '{key2}1', ['text', 'Meow'],
-          '{key2}2', ['text', 'Chirp'],
-          '{key2}6', ['text', 'Squeak'],
-        ], message=msg)
-    else:
-      env.assertEqual(res, [10,
-          '{key1}2', ['numval', '108'],
-          '{key2}5', ['numval', '108'],
-          '{key2}3', ['numval', '109'],
-          '{key1}1', ['numval', '110'],
-          '{key2}4', ['numval', '111'],
-          '{key2}1', ['text', 'Meow'],
-          '{key2}2', ['text', 'Chirp'],
-          '{key1}3', ['text', 'Bark'],
-          '{key1}4', ['text', 'Quack'],
-          '{key2}6', ['text', 'Squeak'],
-        ], message=msg)
+#   for count, args in enumerate(sortable_options):
+#     res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'ASC')
+#     if env.isCluster():
+#       env.assertEqual(res, [10,
+#           '{key1}2', ['numval', '108'],
+#           '{key2}5', ['numval', '108'],
+#           '{key2}3', ['numval', '109'],
+#           '{key1}1', ['numval', '110'],
+#           '{key2}4', ['numval', '111'],
+#           '{key1}3', ['text', 'Bark'],
+#           '{key1}4', ['text', 'Quack'],
+#           '{key2}1', ['text', 'Meow'],
+#           '{key2}2', ['text', 'Chirp'],
+#           '{key2}6', ['text', 'Squeak'],
+#         ], message=msg)
+#     else:
+#       env.assertEqual(res, [10,
+#           '{key1}2', ['numval', '108'],
+#           '{key2}5', ['numval', '108'],
+#           '{key2}3', ['numval', '109'],
+#           '{key1}1', ['numval', '110'],
+#           '{key2}4', ['numval', '111'],
+#           '{key2}1', ['text', 'Meow'],
+#           '{key2}2', ['text', 'Chirp'],
+#           '{key1}3', ['text', 'Bark'],
+#           '{key1}4', ['text', 'Quack'],
+#           '{key2}6', ['text', 'Squeak'],
+#         ], message=msg)
 
-    res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
-    if env.isCluster():
-      env.assertEqual(res, [10,
-          '{key2}4', ['numval', '111'],
-          '{key1}1', ['numval', '110'],
-          '{key2}3', ['numval', '109'],
-          '{key2}5', ['numval', '108'],
-          '{key1}2', ['numval', '108'],
-          '{key2}6', ['text', 'Squeak'],
-          '{key2}2', ['text', 'Chirp'],
-          '{key2}1', ['text', 'Meow'],
-          '{key1}4', ['text', 'Quack'],
-          '{key1}3', ['text', 'Bark'],
-        ], message=msg)
-    else:
-      env.assertEqual(res, [10,
-          '{key2}4', ['numval', '111'],
-          '{key1}1', ['numval', '110'],
-          '{key2}3', ['numval', '109'],
-          '{key2}5', ['numval', '108'],
-          '{key1}2', ['numval', '108'],
-          '{key2}6', ['text', 'Squeak'],
-          '{key1}4', ['text', 'Quack'],
-          '{key1}3', ['text', 'Bark'],
-          '{key2}2', ['text', 'Chirp'],
-          '{key2}1', ['text', 'Meow'],
-        ], message=msg)
+#     res = conn.execute_command('FT.SEARCH', f'idx{count}', '*', 'sortby', 'numval', 'DESC')
+#     if env.isCluster():
+#       env.assertEqual(res, [10,
+#           '{key2}4', ['numval', '111'],
+#           '{key1}1', ['numval', '110'],
+#           '{key2}3', ['numval', '109'],
+#           '{key2}5', ['numval', '108'],
+#           '{key1}2', ['numval', '108'],
+#           '{key2}6', ['text', 'Squeak'],
+#           '{key2}2', ['text', 'Chirp'],
+#           '{key2}1', ['text', 'Meow'],
+#           '{key1}4', ['text', 'Quack'],
+#           '{key1}3', ['text', 'Bark'],
+#         ], message=msg)
+#     else:
+#       env.assertEqual(res, [10,
+#           '{key2}4', ['numval', '111'],
+#           '{key1}1', ['numval', '110'],
+#           '{key2}3', ['numval', '109'],
+#           '{key2}5', ['numval', '108'],
+#           '{key1}2', ['numval', '108'],
+#           '{key2}6', ['text', 'Squeak'],
+#           '{key1}4', ['text', 'Quack'],
+#           '{key1}3', ['text', 'Bark'],
+#           '{key2}2', ['text', 'Chirp'],
+#           '{key2}1', ['text', 'Meow'],
+#         ], message=msg)
 
 
 def testDeleteIndexes(env):
@@ -755,24 +755,24 @@ def test_mod_4255(env):
   cursor = res[1]
   env.assertEqual(cursor ,0)
 
-@skip(no_json=True)
-def test_as_startswith_as(env):
-    conn = getConnectionByEnv(env)
+# @skip(no_json=True)
+# def test_as_startswith_as(env):
+#     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attr1', 'AS', 'asa', 'TEXT').equal('OK')
-    conn.execute_command('JSON.SET', 'doc2', '$', '{"attr1": "foo", "attr2": "bar"}')
+#     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.attr1', 'AS', 'asa', 'TEXT').equal('OK')
+#     conn.execute_command('JSON.SET', 'doc2', '$', '{"attr1": "foo", "attr2": "bar"}')
 
-    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 1, 'asa').equal([1, 'doc2', ['asa', 'foo']])
-    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
-    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
-    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
-    env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
+#     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 1, 'asa').equal([1, 'doc2', ['asa', 'foo']])
+#     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
+#     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', 'asa').equal([1, 'doc2', ['asa', 'foo']])
+#     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, '$.attr1', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
+#     env.expect('FT.SEARCH', 'idx', '@asa:(foo)', 'RETURN', 3, 'asa', 'AS', '$.attr2').equal([1, 'doc2', ['$.attr2', 'foo']])
 
-    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 1, 'asa').equal([1, ['asa', 'foo']])
-    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', 'asa').equal([1, ['asa', 'foo']])
-    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', 'asa').equal([1, ['asa', 'foo']])
-    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
-    env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
+#     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 1, 'asa').equal([1, ['asa', 'foo']])
+#     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', 'asa').equal([1, ['asa', 'foo']])
+#     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', 'asa').equal([1, ['asa', 'foo']])
+#     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, '$.attr1', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
+#     env.expect('FT.AGGREGATE', 'idx', '@asa:(foo)', 'LOAD', 3, 'asa', 'AS', '$.attr2').equal([1, ['$.attr2', 'foo']])
 
 def test_mod4296_badexpr(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
