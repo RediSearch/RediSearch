@@ -633,6 +633,8 @@ RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  */
 RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
+void RLookup_AssertValid(const struct RLookup *lookup);
+
 /**
  * Returns a newly created [`RLookupRow`].
  */
