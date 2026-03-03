@@ -229,7 +229,7 @@ pub unsafe extern "C-unwind" fn RLookup_GetKey_ReadEx<'a>(
 
     lookup
         .keys
-        .assert_valid("RLookup_GetKRLookup_GetKey_ReadExey_Read");
+        .assert_valid("RLookup_GetKey_ReadEx");
 
     lookup.get_key_read(name, flags).map(NonNull::from)
 }
