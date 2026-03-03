@@ -494,10 +494,10 @@ uint16_t RSValue_Refcount(const RSValue *v) {
 ///////////////////////////////////////////////////////////////
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
-into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
-not. If possible, we put the actual value into the double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d) {
-  if (RSValue_IsNull(v)) return 0;
+into a number. Return true if the value is a number or a numeric string and can be converted, or
+false if not. If possible, we put the actual value into the double pointer */
+bool RSValue_ToNumber(const RSValue *v, double *d) {
+  if (RSValue_IsNull(v)) return false;
   v = RSValue_Dereference(v);
 
   const char *p = NULL;
@@ -506,7 +506,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     // for numerics - just set the value and return
     case RSValueType_Number:
       *d = v->_numval;
-      return 1;
+      return true;
 
     case RSValueType_String:
       // C strings - take the ptr and len
@@ -526,7 +526,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     case RSValueType_Map:
     case RSValueType_Undef:
     default:
-      return 0;
+      return false;
   }
   // If we have a string - try to parse it
   if (p) {
@@ -535,13 +535,13 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     *d = fast_float_strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
-      return 0;
+      return false;
     }
 
-    return 1;
+    return true;
   }
 
-  return 0;
+  return false;
 }
 
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {

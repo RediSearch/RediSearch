@@ -189,7 +189,7 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32) -> *mut RsValue {
     // Safety: ensured by caller (1., 2.)
-    let slice = unsafe { std::slice::from_raw_parts(value as *const u8, len as usize) };
+    let slice = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len as usize) };
 
     let Some(number) = str_to_float(slice) else {
         return std::ptr::null_mut();

@@ -246,9 +246,9 @@ struct RsValue *RSValue_NewParsedNumber(const char *value, uint32_t len);
 struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 
 /**
- * Convert a value to a number, either returning the actual numeric values or by parsing
- * a string into a number. Return 1 if the value is a number or a numeric string that can
- * be converted, or 0 if not. The converted number is written to the `d` pointer.
+ * Convert the [`RsValue`] to a number. Returns `true` when this value is a number
+ * or a numeric string that can be converted and writes the number to `d`. If
+ * the value cannot be converted `false` is returned and nothing is written to `d`.
  *
  * # Safety
  *
@@ -258,7 +258,7 @@ struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RSValue_ToNumber(const struct RsValue *value, double *d);
+bool RSValue_ToNumber(const struct RsValue *value, double *d);
 
 /**
  * Formats the numeric value of an [`RsValue::Number`] as a string into the

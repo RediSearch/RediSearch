@@ -9,13 +9,13 @@
 
 use crate::util::expect_value;
 use libc::size_t;
-use std::ffi::{c_char, c_double, c_int};
-use value::util::{num_to_str, str_to_float};
+use std::ffi::{c_char, c_double};
 use value::RsValue;
+use value::util::{num_to_str, str_to_float};
 
-/// Convert a value to a number, either returning the actual numeric values or by parsing
-/// a string into a number. Return 1 if the value is a number or a numeric string that can
-/// be converted, or 0 if not. The converted number is written to the `d` pointer.
+/// Convert the [`RsValue`] to a number. Returns `true` when this value is a number
+/// or a numeric string that can be converted and writes the number to `d`. If
+/// the value cannot be converted `false` is returned and nothing is written to `d`.
 ///
 /// # Safety
 ///
@@ -25,31 +25,28 @@ use value::RsValue;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_double) -> c_int {
-    // Safety: ensured by caller (1.)
-    let Some(value) = (unsafe { value.as_ref() }) else {
-        return 0;
-    };
-
+pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_double) -> bool {
     // Safety: ensured by caller (2.)
     let d = unsafe { d.as_mut().expect("d is null") };
 
+    // Safety: ensured by caller (1.)
+    let Some(value) = (unsafe { value.as_ref() }) else {
+        return false;
+    };
+
     let value = value.fully_dereferenced_ref_and_trio();
 
-    let num = match value {
+    let Some(num) = (match value {
         RsValue::Number(n) => Some(*n),
         RsValue::String(string) => str_to_float(string.as_bytes()),
         RsValue::RedisString(string) => str_to_float(string.as_bytes()),
-        _ => return 0,
+        _ => None,
+    }) else {
+        return false;
     };
 
-    if let Some(num) = num {
-        *d = num;
-        return 1;
-    } else {
-        *d = 0.0;
-        return 0;
-    }
+    *d = num;
+    true
 }
 
 /// Formats the numeric value of an [`RsValue::Number`] as a string into the
@@ -75,7 +72,7 @@ pub unsafe extern "C" fn RSValue_NumToString(
     let value = unsafe { expect_value(value) };
 
     // Safety: ensured by caller (2.)
-    let buf = unsafe { std::slice::from_raw_parts_mut(buf as *mut u8, buflen as usize) };
+    let buf = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), buflen) };
 
     let RsValue::Number(num) = value else {
         panic!("Expected number")

@@ -412,7 +412,7 @@ uint16_t RSValue_Refcount(const RSValue *v);
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into the double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d);
+bool RSValue_ToNumber(const RSValue *v, double *d);
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval);
