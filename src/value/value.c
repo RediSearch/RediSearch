@@ -134,6 +134,13 @@ RSValue *RSValue_Dereference(const RSValue *v) {
   return (RSValue *)v;
 }
 
+RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v) {
+  if (!v) return NULL;
+  if (v->_t == RSValueType_Reference) return RSValue_DereferenceRefAndTrio(v->_ref);
+  if (v->_t == RSValueType_Trio) return RSValue_DereferenceRefAndTrio(RSValue_Trio_GetLeft(v));
+  return (RSValue *)v;
+}
+
 void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
