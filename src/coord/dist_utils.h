@@ -10,6 +10,7 @@
 #pragma once
 
 #include "../coord/rmr/rmr.h"
+#include "rpnet.h"
 
 #define CURSOR_EOF 0
 
@@ -17,7 +18,13 @@
 extern "C" {
 #endif
 
+// Cursor callback for network responses that uses barrier passed via privateData
+// privateData is expected to be a ShardResponseBarrier* (or NULL)
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+// Cursor callback for network responses that takes barrier explicitly
+// Use this when privateData is a different type that contains a ShardResponseBarrier*
+void netCursorCallbackWithBarrier(MRIteratorCallbackCtx *ctx, MRReply *rep, ShardResponseBarrier *barrier);
 
 #ifdef __cplusplus
 }

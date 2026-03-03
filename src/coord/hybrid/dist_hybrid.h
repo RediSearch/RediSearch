@@ -29,9 +29,7 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp,
-                            const VectorQuery *vq,
-                            size_t numShards);
+                            IndexSpec *sp, int *outKArgIndex);
 
 #ifdef __cplusplus
 }

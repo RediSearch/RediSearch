@@ -43,6 +43,11 @@ typedef struct HybridRequest {
 
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
+    int kArgIndex;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
