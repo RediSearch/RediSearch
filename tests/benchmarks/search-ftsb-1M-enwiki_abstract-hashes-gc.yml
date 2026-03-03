@@ -35,10 +35,6 @@ tested-commands:
   - HSET
   - _FT.DEBUG
 
-tested-groups:
-  - hash
-  - search
-
 exporter:
   redistimeseries:
     metrics:
@@ -48,5 +44,3 @@ exporter:
       - "$.'ALL STATS'.'_ft.debugs'.'Average Latency'"
       - "$.'ALL STATS'.'_ft.debugs'.'Min Latency'"
       - "$.'ALL STATS'.'_ft.debugs'.'Max Latency'"
-
-priority: 1
