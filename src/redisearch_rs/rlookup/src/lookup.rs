@@ -43,7 +43,7 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
 #[derive(Debug)]
 pub struct RLookup<'a> {
-    keys: KeyList<'a>,
+    pub keys: KeyList<'a>,
 
     // Flags/options
     options: RLookupOptions,
