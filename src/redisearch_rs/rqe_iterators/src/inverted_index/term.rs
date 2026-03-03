@@ -84,6 +84,11 @@ where
         }
     }
 
+    /// Get a reference to the underlying reader.
+    pub const fn reader(&self) -> &R {
+        &self.it.reader
+    }
+
     /// Check if the iterator should abort revalidation.
     ///
     /// The term's inverted index may have been garbage-collected and

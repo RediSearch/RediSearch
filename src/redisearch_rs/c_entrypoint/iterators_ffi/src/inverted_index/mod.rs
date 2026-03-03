@@ -11,8 +11,11 @@ mod numeric;
 mod term;
 mod wildcard;
 
+use inverted_index::IndexReader as _;
 use numeric::NumericIterator;
 use rqe_iterators_interop::RQEIteratorWrapper;
+pub use term::NewInvIndIterator_TermQuery;
+use term::TermIterator;
 
 /// Gets the flags of the underlying IndexReader from an inverted index iterator.
 ///
@@ -20,7 +23,8 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
-/// 3. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR), its `reader`
+/// 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
+/// 4. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR and INV_IDX_TERM_ITERATOR), its `reader`
 ///    field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
@@ -37,7 +41,7 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
 
     match it_ref.base.type_ {
         ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
-            // SAFETY: the numeric iterator is in Rust.
+            // SAFETY: 2. the numeric iterator is in Rust.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast())
             };
@@ -52,10 +56,17 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             // or `NewWildcardIterator` (RQEIteratorWrapper<Box<dyn RQEIterator>>).
             ffi::IndexFlags_Index_DocIdsOnly
         }
+        ffi::IteratorType_INV_IDX_TERM_ITERATOR => {
+            // SAFETY: 3. the term iterator is in Rust.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<TermIterator<'static>>::ref_from_header_ptr(it.cast())
+            };
+            wrapper.inner.reader().flags()
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 3.
+            // SAFETY: 4.
             let reader_ref = unsafe { &*reader };
             reader_ref.flags()
         }
@@ -93,6 +104,9 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
         }
         ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
             unimplemented!("Wildcard iterator is tested in Rust which does no use index swapping")
+        }
+        ffi::IteratorType_INV_IDX_TERM_ITERATOR => {
+            panic!("SwapIndex is not meant to be used with term iterators");
         }
         _ => {
             // C iterator

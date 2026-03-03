@@ -55,6 +55,12 @@ REDISMODULE_API int (*RedisModule_DisablePostponeClients)(void) REDISMODULE_ATTR
 #define REDISMODULE_CTX_FLAGS_OOR (1<<30)
 /* Redis is currently loading, saving or preparing a partial RDB file that goes along with sst files. */
 #define REDISMODULE_CTX_FLAGS_SST_RDB (1<<29)
+/* Fork-specific option flags. Placed at high bits to maintain ABI compatibility
+ * with OSS Redis, which allocates option flags sequentially from bit 0. */
+
+/* Prevent direct-to-disk key writes during RDB loading and RESTORE in
+ * BigRedis mode. See RM_SetModuleOptions for details. */
+#define REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM    (1<<30)
 //---------------------------------------------------------------------------------------------
 
 /* Keyspace changes notification classes. Every class is associated with a

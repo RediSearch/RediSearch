@@ -1262,6 +1262,8 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   }
 
   isFlex = SearchDisk_CheckEnableConfiguration(ctx);
+  // Flex mode is only available in Redis Enterprise
+  RS_LOG_ASSERT(!isFlex || IsEnterprise(), "Flex mode is only available in Redis Enterprise");
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {

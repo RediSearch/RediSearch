@@ -23,7 +23,7 @@ use rqe_iterators_interop::RQEIteratorWrapper;
 /// Handles all term-compatible encoding types. Types with field mask tracking use
 /// [`FilterMaskReader`] to filter records by field mask, while types without field
 /// mask data use the bare [`IndexReaderCore`].
-enum TermIndexReader<'index> {
+pub(super) enum TermIndexReader<'index> {
     // FieldMaskTrackingIndex types (with FilterMaskReader)
     Full(FilterMaskReader<IndexReaderCore<'index, full::Full>>),
     FullWide(FilterMaskReader<IndexReaderCore<'index, full::FullWide>>),
@@ -121,6 +121,10 @@ impl<'index> TermReader<'index> for TermIndexReader<'index> {
     }
 }
 
+/// Type alias for the Term iterator type used in the FFI wrapper.
+pub(super) type TermIterator<'index> =
+    Term<'index, TermIndexReader<'index>, FieldExpirationChecker>;
+
 /// Creates a new term inverted index iterator for querying term fields.
 ///
 /// # Parameters
@@ -149,7 +153,7 @@ impl<'index> TermReader<'index> for TermIndexReader<'index> {
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
 #[allow(improper_ctypes_definitions)] // `field_mask_or_index` contains `t_fieldMask` (u128)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewInvIndIterator_TermQuery_Rs(
+pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     idx: *const ffi::InvertedIndex,
     sctx: *const ffi::RedisSearchCtx,
     field_mask_or_index: FieldMaskOrIndex,
