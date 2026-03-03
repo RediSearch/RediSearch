@@ -19,6 +19,7 @@ use query_term::RSQueryTerm;
 /// Allocate a new [`RSQueryTerm`] from an [`RSToken`](ffi::RSToken).
 ///
 /// The term string is copied into a Rust-owned allocation (`Box<[u8]>`).
+/// Bytes are stored as-is without any UTF-8 conversion.
 /// The returned pointer must be freed with [`Term_Free`].
 ///
 /// # Safety
@@ -26,7 +27,7 @@ use query_term::RSQueryTerm;
 /// - `tok` must point to a valid `RSToken` and cannot be NULL.
 /// - `tok->str` may be NULL, in which case the resulting term will have a
 ///   NULL `str` field.
-/// - If not NULL, tok->str should be a valid byte slice of tok->len bytes.
+/// - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
 /// - The returned pointer is heap-allocated and must be freed with
 ///   [`Term_Free`].
 #[unsafe(no_mangle)]
@@ -46,7 +47,7 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *m
 
     // SAFETY: caller guarantees `tok_str` is valid for `tok_len` bytes.
     let slice = unsafe { std::slice::from_raw_parts(tok_str as *const u8, tok_len) };
-    Box::into_raw(RSQueryTerm::new(slice, id, tok_flags))
+    Box::into_raw(RSQueryTerm::new_bytes(slice, id, tok_flags))
 }
 
 /// Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
@@ -63,7 +64,7 @@ pub unsafe extern "C" fn Term_Free(t: *mut RSQueryTerm) {
     }
 
     // SAFETY: caller guarantees `t` was allocated by `NewQueryTerm`
-    // (i.e. via `Box::into_raw`). `RSQueryTerm::Drop` frees the string.
+    // (i.e. via `Box::into_raw`). The `Box<[u8]>` inside is freed automatically.
     let _ = unsafe { Box::from_raw(t) };
 }
 
@@ -125,7 +126,7 @@ pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
     unsafe { (*term).id() }
 }
 
-/// Get the term string length in bytes (excluding null terminator).
+/// Get the term string length in bytes.
 ///
 /// # Safety
 ///
@@ -138,24 +139,9 @@ pub unsafe extern "C" fn QueryTerm_GetLen(term: *const RSQueryTerm) -> usize {
     unsafe { (*term).len() }
 }
 
-/// Get the string pointer from a query term.
-///
-/// Returns a pointer to the null-terminated byte string. The string may not be valid UTF-8.
-///
-/// # Safety
-///
-/// `term` must be valid and non-null. Returned pointer is valid for the lifetime of the term.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn QueryTerm_GetStr(term: *const RSQueryTerm) -> *const std::ffi::c_char {
-    debug_assert!(!term.is_null(), "term cannot be NULL");
-    // SAFETY: caller guarantees `term` is valid
-    unsafe { (*term).str_ptr() }
-}
-
 /// Get both the string pointer and length from a query term.
 ///
 /// This is useful for C code that needs to work with the byte slice directly.
-/// The string may not be valid UTF-8.
 ///
 /// # Safety
 ///
@@ -169,9 +155,16 @@ pub unsafe extern "C" fn QueryTerm_GetStrAndLen(
     debug_assert!(!term.is_null(), "term cannot be NULL");
     debug_assert!(!out_len.is_null(), "out_len cannot be NULL");
     // SAFETY: caller guarantees `term` is valid and non-null
-    let len = unsafe { (*term).len() };
-    // SAFETY: caller guarantees `out_len` is valid and writable
-    unsafe { *out_len = len };
-    // SAFETY: caller guarantees `term` is valid and non-null
-    unsafe { (*term).str_ptr() }
+    match unsafe { (*term).as_bytes() } {
+        Some(bytes) => {
+            // SAFETY: caller guarantees `out_len` is valid and writable
+            unsafe { *out_len = bytes.len() };
+            bytes.as_ptr().cast()
+        }
+        None => {
+            // SAFETY: caller guarantees `out_len` is valid and writable
+            unsafe { *out_len = 0 };
+            std::ptr::null()
+        }
+    }
 }

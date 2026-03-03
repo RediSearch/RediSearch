@@ -90,7 +90,7 @@ impl QueryIterator {
 
     #[inline(always)]
     pub unsafe fn new_term(ii: *mut ffi::InvertedIndex) -> Self {
-        let term: *mut ffi::RSQueryTerm = Box::into_raw(RSQueryTerm::new(b"term", 1, 0)).cast();
+        let term: *mut ffi::RSQueryTerm = Box::into_raw(RSQueryTerm::new("term", 1, 0)).cast();
         Self(unsafe {
             let field_mask_ffi = ffi::FieldMaskOrIndex {
                 __bindgen_anon_2: ffi::FieldMaskOrIndex__bindgen_ty_2 {
@@ -371,7 +371,7 @@ mod tests {
 
         let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let term = || {
-            let mut t = RSQueryTerm::new(b"term", 1, 0);
+            let mut t = RSQueryTerm::new("term", 1, 0);
             t.set_idf(5.0);
             t.set_bm25_idf(10.0);
             Some(t)
