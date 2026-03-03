@@ -7,7 +7,7 @@ description: |
   3. Run continuous HSET updates with periodic GC trigger (1 GC per 1000 HSETs)
 
 dbconfig:
-  - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes-gc"
   - redis-topologies:
       - oss-standalone
   - configuration-parameters:
