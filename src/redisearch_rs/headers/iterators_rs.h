@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
-#include "iterators/inverted_index_iterator.h"
 #include "tag_index.h"
 #include "numeric_range_tree.h"
 #include "query.h"

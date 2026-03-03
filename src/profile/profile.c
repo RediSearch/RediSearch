@@ -8,7 +8,6 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/inverted_index_iterator.h"
 #include "iterators/not_iterator.h"
 #include "iterators/optional_iterator.h"
 #include "iterators/union_iterator.h"
