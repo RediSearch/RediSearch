@@ -545,28 +545,6 @@ void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
 void RSValue_SetConstString(struct RsValue *value, const char *str, uint32_t len);
 
 /**
- * Creates a heap-allocated `RsValue` by parsing a string as a number.
- * Returns an undefined value if the string cannot be parsed as a valid number.
- *
- * # Safety
- * - (1) `str` must be a valid const pointer to a char sequence of `len` bytes.
- *
- * @param p The string to parse
- * @param l The length of the string
- * @return A pointer to a heap-allocated `RsValue`
- */
-const struct RsValue *SharedRsValue_NewParsedNumber(const char *str, uintptr_t len);
-
-/**
- * Creates a heap-allocated `RsValue` containing a number from an int64.
- * This operation casts the passed `i64` to an `f64`, possibly losing information.
- *
- * @param ii The int64 value to convert and wrap
- * @return A pointer to a heap-allocated `RsValue` of type `RsValueType_Number`
- */
-const struct RsValue *SharedRsValue_NewNumberFromInt64(int64_t dd);
-
-/**
  * Decrement the reference count of the provided [`RsValue`] object. If this was
  * the last available reference, it frees the data.
  *

@@ -530,20 +530,18 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal: {
-      char buf[32];
-      size_t len;
-      const char *literal;
       const RSValue *v = RSValue_Dereference(expr->literal);
       if (RSValue_IsString(v)) {
-        literal = RSValue_StringPtrLen(v, &len);
+        size_t len;
+        const char *ptr = RSValue_StringPtrLen(v, &len);
+        RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, ptr);
       } else if (RSValue_IsNumber(v)) {
-        len = RSValue_NumToString(v, buf, sizeof(buf));
-        literal = buf;
+        char buf[32];
+        RSValue_NumToString(v, buf, sizeof(buf));
+        RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, buf);
       } else {
-        len = 0;
-        literal = "";
+        RedisModule_Reply_SimpleStringf(reply, "%s - Literal", typeStr);
       }
-      RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
     }
     case RSExpr_Property:
