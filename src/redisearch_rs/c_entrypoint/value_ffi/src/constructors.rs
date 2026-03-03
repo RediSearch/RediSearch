@@ -99,32 +99,6 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut R
 }
 
 /// Creates and returns a new **owned** [`RsValue::String`],
-/// taking ownership of the given `RedisModule_Alloc`-allocated buffer.
-///
-/// The caller must make sure to pass the returned [`RsValue`] to one of the
-/// ownership taking `RSValue_` functions, directly or indirectly.
-///
-/// # Safety
-///
-/// 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
-/// 2. `str` must be [valid] for reads of `len` bytes.
-/// 3. `str` **must not** be used or freed after this function is called, as this function
-///    takes ownership of the allocation.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewStringWithoutNulTerminator(
-    str: *mut c_char,
-    len: u32,
-) -> *mut RsValue {
-    // Safety: ensured by caller (1., 2., 3.)
-    let string = unsafe { RsString::rm_alloc_string_without_nul_terminator(str, len) };
-    let value = RsValue::String(string);
-    let shared_value = SharedRsValue::new(value);
-    shared_value.into_raw().cast_mut()
-}
-
-/// Creates and returns a new **owned** [`RsValue::String`],
 /// borrowing the given string buffer without taking ownership.
 ///
 /// The caller must make sure to pass the returned [`RsValue`] to one of the
