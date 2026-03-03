@@ -13,16 +13,15 @@ mod wildcard;
 
 use numeric::NumericIterator;
 use rqe_iterators_interop::RQEIteratorWrapper;
-use wildcard::WildcardIterator;
 
-/// Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
+/// Gets the flags of the underlying IndexReader from an inverted index iterator.
 ///
 /// # Safety
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
-/// 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
-/// 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+/// 3. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR), its `reader`
+///    field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
@@ -45,16 +44,18 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             wrapper.inner.flags()
         }
         ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
-            // SAFETY: 3. the wildcard iterator is in Rust.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<WildcardIterator<'static>>::ref_from_header_ptr(it.cast())
-            };
-            wrapper.inner.flags()
+            // Wildcard iterators always read from `spec.existingDocs`, which is
+            // created with `Index_DocIdsOnly` flags (see indexer.c). We return the
+            // flags directly instead of casting to a concrete wrapper type, because
+            // the iterator may have been created by either
+            // `NewInvIndIterator_WildcardQuery` (RQEIteratorWrapper<WildcardIterator>)
+            // or `NewWildcardIterator` (RQEIteratorWrapper<Box<dyn RQEIterator>>).
+            ffi::IndexFlags_Index_DocIdsOnly
         }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 4.
+            // SAFETY: 3.
             let reader_ref = unsafe { &*reader };
             reader_ref.flags()
         }

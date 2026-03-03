@@ -12,6 +12,7 @@ use thiserror::Error;
 
 use ::inverted_index::RSIndexResult;
 
+pub mod c2rust;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
@@ -33,7 +34,7 @@ pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Numeric, Term};
 pub use metric::Metric;
-pub use wildcard::Wildcard;
+pub use wildcard::{Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
@@ -124,6 +125,11 @@ pub trait RQEIterator<'index> {
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
     fn at_eof(&self) -> bool;
+
+    /// Returns `true` if this iterator matches all documents.
+    fn is_wildcard(&self) -> bool {
+        false
+    }
 }
 
 // Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
@@ -161,5 +167,9 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn at_eof(&self) -> bool {
         (**self).at_eof()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        (**self).is_wildcard()
     }
 }

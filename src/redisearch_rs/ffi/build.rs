@@ -83,6 +83,7 @@ fn main() {
         src.join("rules.h"),
         src.join("score_explain.h"),
         src.join("search_ctx.h"),
+        src.join("search_disk.h"),
         src.join("search_disk_api.h"),
         src.join("search_result.h"),
         src.join("sortable.h"),

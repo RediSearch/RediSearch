@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod c2rust;
-
 pub mod empty;
 pub mod id_list;
 pub mod inverted_index;
