@@ -8,7 +8,7 @@
 */
 
 use ffi::RedisModuleString;
-use std::ffi::{CString, c_char, c_double};
+use std::ffi::{c_char, c_double};
 use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
 
 /// Creates and returns a new **owned** [`RsValue::Undefined`].
@@ -183,7 +183,6 @@ pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> 
 ///
 /// 1. `str` must be a [valid], non-null pointer to a string buffer.
 /// 2. `str` must be [valid] for reads of `len` bytes.
-/// 3. The `len` bytes pointed to by `str` must not contain any null bytes.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -191,10 +190,7 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     // Safety: ensured by caller (1., 2.)
     let slice = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len as usize) };
 
-    // Safety: ensured by caller (3.)
-    let cstring = unsafe { CString::from_vec_unchecked(slice.to_vec()) };
-
-    let string = RsString::cstring(cstring);
+    let string = RsString::from_vec(slice.to_vec());
     let value = RsValue::String(string);
     let shared_value = SharedRsValue::new(value);
     shared_value.into_raw().cast_mut()

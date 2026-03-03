@@ -228,7 +228,6 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  *
  * 1. `str` must be a [valid], non-null pointer to a string buffer.
  * 2. `str` must be [valid] for reads of `len` bytes.
- * 3. The `len` bytes pointed to by `str` must not contain any null bytes.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

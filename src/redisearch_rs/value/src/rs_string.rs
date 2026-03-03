@@ -8,7 +8,7 @@
 */
 
 use ffi::RedisModule_Free;
-use std::ffi::{CString, c_char};
+use std::ffi::c_char;
 use std::fmt;
 
 enum RsStringKind {
@@ -45,14 +45,15 @@ impl RsString {
     /// # Panic
     ///
     /// Panics when the size is larger than `u32::MAX`.
-    pub fn cstring(str: CString) -> Self {
-        let len = str.count_bytes();
+    pub fn from_vec(mut vec: Vec<u8>) -> Self {
+        let len = vec.len();
         assert!(len <= u32::MAX as usize);
 
-        let ptr = str.into_raw();
+        vec.push(b'\0');
+        let ptr = Box::into_raw(vec.into_boxed_slice());
 
         Self {
-            ptr,
+            ptr: ptr as *const c_char,
             len: len as u32,
             kind: RsStringKind::RustAlloc,
             #[cfg(debug_assertions)]
@@ -166,8 +167,12 @@ impl Drop for RsString {
     fn drop(&mut self) {
         match self.kind {
             RsStringKind::RustAlloc => {
-                // SAFETY: `self.ptr` was created by `CString::into_raw` and has not been freed.
-                drop(unsafe { CString::from_raw(self.ptr.cast_mut().cast()) });
+                let slice = std::ptr::slice_from_raw_parts_mut(
+                    self.ptr.cast_mut().cast::<u8>(),
+                    (self.len as usize) + 1,
+                );
+                // SAFETY: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
+                drop(unsafe { Box::from_raw(slice) });
             }
             RsStringKind::RmAlloc => {
                 // SAFETY: Accessing a global function pointer initialized during module load.
