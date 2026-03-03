@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
+#include "rlookup_load_document.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "document.h"
