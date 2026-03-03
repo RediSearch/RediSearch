@@ -369,6 +369,9 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v);
 /* Return the value itself or its referred value */
 RSValue *RSValue_Dereference(const RSValue *v);
 
+/* Dereference through References and Trios to get to the leaf value */
+RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v);
+
 /**
  * Clears the underlying storage of the value, and makes it
  * be a reference to the NULL value

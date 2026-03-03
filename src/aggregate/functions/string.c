@@ -132,10 +132,7 @@ int func_to_number(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) 
 
 int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   // Dereference through References and Trios to get to the leaf value.
-  RSValue *v = RSValue_Dereference(argv[0]);
-  if (RSValue_IsTrio(v)) {
-    v = RSValue_Dereference(RSValue_Trio_GetLeft(v));
-  }
+  RSValue *v = RSValue_DereferenceRefAndTrio(argv[0]);
 
   switch (RSValue_Type(v)) {
     case RSValueType_String:
@@ -228,10 +225,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
       goto error;
     }
 
-    RSValue *arg = RSValue_Dereference(argv[argix++]);
-    if (RSValue_IsTrio(arg)) {
-      arg = RSValue_Dereference(RSValue_Trio_GetLeft(arg));
-    }
+    RSValue *arg = RSValue_DereferenceRefAndTrio(argv[argix++]);
     if (type == 's') {
       if (RSValue_IsString(arg)) {
         size_t sz;
