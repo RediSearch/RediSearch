@@ -114,7 +114,7 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
 /// - Panics if the value is not an [`RsValue::String`].
 /// - Panics (in debug mode) if the string data might not be nul-terminated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_String_GetNullTerminated(
+pub unsafe extern "C" fn RSValue_String_Get(
     value: *const RsValue,
     lenp: *mut u32,
 ) -> *const c_char {
@@ -125,44 +125,7 @@ pub unsafe extern "C" fn RSValue_String_GetNullTerminated(
         panic!("Expected 'String' type");
     };
 
-    let (ptr, len) = str.as_ptr_len_for_nul_terminated();
-
-    // Safety: ensured by caller (2.)
-    if let Some(lenp) = unsafe { lenp.as_mut() } {
-        *lenp = len;
-    }
-
-    ptr
-}
-
-/// Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
-/// length to `lenp`, if `lenp` is a non-null pointer.
-///
-/// The returned pointer borrows from the [`RsValue`] and must not outlive it.
-///
-/// # Safety
-///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-/// 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-///
-/// # Panic
-///
-/// Panics if the value is not an [`RsValue::String`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_String_GetSlice(
-    value: *const RsValue,
-    lenp: *mut u32,
-) -> *const c_char {
-    // Safety: ensured by caller (1.)
-    let value = unsafe { expect_value(value) };
-
-    let RsValue::String(str) = value else {
-        panic!("Expected 'String' type");
-    };
-
-    let (ptr, len) = str.as_ptr_len_for_slice();
+    let (ptr, len) = str.as_ptr_len();
 
     // Safety: ensured by caller (2.)
     if let Some(lenp) = unsafe { lenp.as_mut() } {
@@ -200,7 +163,7 @@ pub unsafe extern "C" fn RSValue_RedisString_Get(
 /// Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
 /// length to `len_ptr`.
 ///
-/// Unlike [`RSValue_String_GetNullTerminated`], this function handles all string variants (including
+/// Unlike [`RSValue_String_Get`], this function handles all string variants (including
 /// `RedisString`) and automatically dereferences `Ref` values and follows through the left
 /// element of `Trio` values. Returns null for non-string variants.
 ///
@@ -224,7 +187,7 @@ pub unsafe extern "C" fn RSValue_StringPtrLen(
 
     let (ptr, len) = match value {
         RsValue::String(str) => {
-            let (ptr, len) = str.as_ptr_len_for_slice();
+            let (ptr, len) = str.as_ptr_len();
             (ptr, len as usize)
         }
         RsValue::RedisString(str) => str.as_ptr_len(),

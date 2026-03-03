@@ -118,19 +118,12 @@ impl RsString {
     /// # Panic
     ///
     /// In debug builds, panics if the string is possibly not nul-terminated.
-    pub const fn as_ptr_len_for_nul_terminated(&self) -> (*const c_char, u32) {
+    pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
         #[cfg(debug_assertions)]
         assert!(
             self.guaranteed_nul_terminated,
-            "as_ptr_len_for_nul_terminated() called on possibly non-nul-terminated string"
+            "as_ptr_len() called on possibly non-nul-terminated string"
         );
-        (self.ptr, self.len)
-    }
-
-    /// Returns the string data pointer and length without ensuring nul-termination.
-    ///
-    /// Use this method when working with strings that may not be nul-terminated.
-    pub const fn as_ptr_len_for_slice(&self) -> (*const c_char, u32) {
         (self.ptr, self.len)
     }
 

@@ -284,26 +284,7 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  * - Panics if the value is not an [`RsValue::String`].
  * - Panics (in debug mode) if the string data might not be nul-terminated.
  */
-const char *RSValue_String_GetNullTerminated(const struct RsValue *value, uint32_t *lenp);
-
-/**
- * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
- * length to `lenp`, if `lenp` is a non-null pointer.
- *
- * The returned pointer borrows from the [`RsValue`] and must not outlive it.
- *
- * # Safety
- *
- * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- *
- * # Panic
- *
- * Panics if the value is not an [`RsValue::String`].
- */
-const char *RSValue_String_GetSlice(const struct RsValue *value, uint32_t *lenp);
+const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
 
 /**
  * Returns a read only reference to the underlying [`RedisModuleString`] of an [`RsValue`].
@@ -324,7 +305,7 @@ const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
  * Returns a pointer to the string data of an [`RsValue`] and optionally writes the string
  * length to `len_ptr`.
  *
- * Unlike [`RSValue_String_GetNullTerminated`], this function handles all string variants (including
+ * Unlike [`RSValue_String_Get`], this function handles all string variants (including
  * `RedisString`) and automatically dereferences `Ref` values and follows through the left
  * element of `Trio` values. Returns null for non-string variants.
  *
