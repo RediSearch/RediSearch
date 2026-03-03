@@ -78,7 +78,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     // as it will hold the only reference to it after the next line.
     rsv = hvalToValue(val, (RLookupKey_GetFlags(kk) & RLOOKUP_F_NUMERIC) ? RLOOKUP_C_DBL : RLOOKUP_C_STR);
     RedisModule_FreeString(RSDummyContext, val);
-  } else if (!strcmp(RLookupKey_GetPath(kk), UNDERSCORE_KEY)) {
+  } else if (RLookupKey_GetPath(kk) == NULL || !strcmp(RLookupKey_GetPath(kk), UNDERSCORE_KEY)) {
     const RedisModuleString *keyName = RedisModule_GetKeyNameFromModuleKey(*keyobj);
     rsv = hvalToValue(keyName, RLOOKUP_C_STR);
   } else {
