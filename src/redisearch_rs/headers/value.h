@@ -261,29 +261,6 @@ struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 int RSValue_ToNumber(const struct RsValue *value, double *d);
 
 /**
- * Converts an [`RsValue`] to a string and stores the result in `dst`.
- *
- * Automatically dereferences [`RsValue::Ref`] and [`RsValue::Trio`] types.
- *
- * - When `value` is an [`RsValue::String`], `dst` becomes a references to `value`.
- * - When `value` is an [`RsValue::RedisString`], the content of the redis string is
- *   made available as a `RsString::borrowed_string` and put in `dst`.
- * - When `value` is an [`RsValue::Number`], it is converted into a string and put in `dst`.
- * - Else, `dst` is set to point to an empty string.
- *
- * # Safety
- *
- * 1. `dst` must point to a valid **owned** [`RsValue`] obtained from an
- *    `RSValue_*` function returning an owned [`RsValue`] object.
- * 2. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
- */
-void RSValue_ToString(struct RsValue *dst, const struct RsValue *value);
-
-/**
  * Formats the numeric value of an [`RsValue::Number`] as a string into the
  * caller-provided buffer and returns the number of bytes written.
  *

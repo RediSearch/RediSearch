@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::util::{expect_shared_value, expect_value};
+use crate::util::expect_value;
 use libc::size_t;
 use std::ffi::{c_char, c_double, c_int};
 use value::util::{num_to_str, str_to_float};
-use value::{RsString, RsValue, SharedRsValue};
+use value::RsValue;
 
 /// Convert a value to a number, either returning the actual numeric values or by parsing
 /// a string into a number. Return 1 if the value is a number or a numeric string that can
@@ -50,65 +50,6 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
         *d = 0.0;
         return 0;
     }
-}
-
-/// Converts an [`RsValue`] to a string and stores the result in `dst`.
-///
-/// Automatically dereferences [`RsValue::Ref`] and [`RsValue::Trio`] types.
-///
-/// - When `value` is an [`RsValue::String`], `dst` becomes a references to `value`.
-/// - When `value` is an [`RsValue::RedisString`], the content of the redis string is
-///   made available as a `RsString::borrowed_string` and put in `dst`.
-/// - When `value` is an [`RsValue::Number`], it is converted into a string and put in `dst`.
-/// - Else, `dst` is set to point to an empty string.
-///
-/// # Safety
-///
-/// 1. `dst` must point to a valid **owned** [`RsValue`] obtained from an
-///    `RSValue_*` function returning an owned [`RsValue`] object.
-/// 2. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-///
-/// # Panic
-///
-/// Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ToString(dst: *mut RsValue, value: *const RsValue) {
-    // Safety: ensured by caller (1.)
-    let mut dst = unsafe { expect_shared_value(dst) };
-
-    // Safety: ensured by caller (2.)
-    let value = unsafe { expect_value(value) };
-    let value = value.fully_dereferenced_ref_and_trio();
-
-    let new_value = match value {
-        RsValue::String(_) => {
-            // Safety: ensured by caller (1.)
-            let shared_value = unsafe { expect_shared_value(value) };
-            RsValue::Ref(SharedRsValue::clone(&shared_value))
-        }
-        RsValue::RedisString(string) => {
-            let (ptr, len) = string.as_ptr_len();
-            let len = len.try_into().expect("len > u32::MAX");
-            // Safety: A redis strings content is also valid content for an `RsString`.
-            let string = unsafe { RsString::borrowed_string(ptr, len) };
-            RsValue::String(string)
-        }
-        RsValue::Number(number) => {
-            let mut buf = [0u8; 32];
-            // `num_to_str` formatting should fit well within the 32 byte sized buffer.
-            let len = num_to_str(*number, &mut buf);
-            let vec = buf[..(len as usize)].to_vec();
-            RsValue::String(RsString::from_vec(vec))
-        }
-        _ => {
-            // Safety: It is safe to use an const here.
-            let string = unsafe { RsString::borrowed_string(b"\0".as_ptr().cast(), 0) };
-            RsValue::String(string)
-        }
-    };
-
-    // Panic if more than 1 reference exists
-    dst.set_value(new_value);
 }
 
 /// Formats the numeric value of an [`RsValue::Number`] as a string into the
