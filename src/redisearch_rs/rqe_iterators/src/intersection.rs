@@ -119,6 +119,39 @@ where
         }
     }
 
+    /// Creates a new intersection iterator from **pre-sorted** children.
+    ///
+    /// Identical to [`Intersection::new`] but skips the internal sort-by-estimated-count step.
+    /// Use this when the caller has already sorted children by a custom key
+    /// (e.g. the FFI layer applying the C `iteratorFactor` heuristic).
+    ///
+    /// When `in_order` is `true`, [`Intersection::new`] also skips sorting, so this
+    /// variant is only meaningfully different for `in_order = false`.
+    #[must_use]
+    pub fn new_presorted(children: Vec<I>, max_slop: i32, in_order: bool) -> Self {
+        let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
+            return Self {
+                children,
+                last_doc_id: 0,
+                num_expected: 0,
+                is_eof: true,
+                max_slop,
+                in_order,
+                result: RSIndexResult::intersect(0),
+            };
+        };
+        let num_children = children.len();
+        Self {
+            children,
+            last_doc_id: 0,
+            num_expected,
+            is_eof: false,
+            max_slop,
+            in_order,
+            result: RSIndexResult::intersect(num_children),
+        }
+    }
+
     /// Builder: set the weight on the aggregate result.
     ///
     /// Mirrors the `weight` parameter of the C `NewIntersectionIterator`.

@@ -11,7 +11,8 @@ use std::ptr::NonNull;
 
 use ffi::{
     IteratorType_EMPTY_ITERATOR, IteratorType_INTERSECT_ITERATOR,
-    IteratorType_INV_IDX_WILDCARD_ITERATOR, IteratorType_WILDCARD_ITERATOR, QueryIterator,
+    IteratorType_INV_IDX_WILDCARD_ITERATOR, IteratorType_UNION_ITERATOR,
+    IteratorType_WILDCARD_ITERATOR, QueryIterator, UnionIterator,
 };
 use rqe_iterators::intersection::Intersection;
 use rqe_iterators_interop::RQEIteratorWrapper;
@@ -114,6 +115,58 @@ unsafe fn classify_children(
     }
 }
 
+/// Compute the sort weight for one child iterator, mirroring the C `iteratorFactor()` helper.
+///
+/// The sort key applied in [`NewIntersectionIterator`] is `NumEstimated(it) * iterator_factor(it)`.
+/// A *lower* key means the child acts as the pivot (is iterated first), which minimises
+/// the total number of `SkipTo` calls made during query execution.
+///
+/// - `INTERSECT_ITERATOR` → factor `1/n` (de-prioritise deep nested intersections)
+/// - `UNION_ITERATOR` when `prioritizeIntersectUnionChildren` is set → factor `n`
+///   (de-prioritise wide unions so that cheaper iterators lead)
+/// - everything else → factor `1.0`
+///
+/// # Safety
+///
+/// `it` must be a valid, non-null pointer to a fully-initialised `QueryIterator`.
+unsafe fn iterator_factor(it: NonNull<QueryIterator>) -> f64 {
+    // SAFETY: guaranteed by the caller.
+    let qi = unsafe { it.as_ref() };
+    if qi.type_ == IteratorType_INTERSECT_ITERATOR {
+        // SAFETY: `GetIntersectionIteratorNumChildren` is safe for any INTERSECT_ITERATOR.
+        let n = unsafe { GetIntersectionIteratorNumChildren(it.as_ptr()) };
+        if n == 0 { 1.0 } else { 1.0 / n as f64 }
+    } else if qi.type_ == IteratorType_UNION_ITERATOR {
+        // SAFETY: A UNION_ITERATOR typed pointer always points to a `UnionIterator` whose
+        // `base` field is a `QueryIterator`.  The cast is therefore valid.
+        let ui = unsafe { &*it.as_ptr().cast::<UnionIterator>() };
+        // SAFETY: `RSGlobalConfig` is a valid extern C global, initialized before any query runs.
+        if unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren } {
+            ui.num as f64
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    }
+}
+
+/// Compute the sort key used to order children inside the intersection.
+///
+/// Mirrors `NumEstimated(it) * iteratorFactor(it)` from the original C implementation.
+///
+/// # Safety
+///
+/// `it` must be a valid, non-null pointer to a fully-initialised `QueryIterator`.
+unsafe fn sort_key(it: NonNull<QueryIterator>) -> f64 {
+    // SAFETY: guaranteed by the caller.
+    let qi = unsafe { it.as_ref() };
+    // SAFETY: NumEstimated is guaranteed non-null for any well-formed QueryIterator.
+    let num_est = unsafe { qi.NumEstimated.unwrap_unchecked()(it.as_ptr()) } as f64;
+    // SAFETY: guaranteed by the caller.
+    num_est * unsafe { iterator_factor(it) }
+}
+
 /// Create a new intersection iterator.
 ///
 /// Takes ownership of both the `its` array and all child iterators it contains.
@@ -206,7 +259,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     }
 
     // All entries are Some (no NULLs, no empty iterators) at this point.
-    let kept_valid: Vec<NonNull<QueryIterator>> =
+    let mut kept_valid: Vec<NonNull<QueryIterator>> =
         kept.into_iter().map(|opt| opt.unwrap()).collect();
 
     // Single-child optimisation: no point in wrapping one iterator.
@@ -215,12 +268,20 @@ pub unsafe extern "C" fn NewIntersectionIterator(
         return kept_valid[0].as_ptr();
     }
 
-    // Build the Rust intersection from the remaining non-wildcard children.
-    //
-    // NOTE: The C `NewIntersectionIterator` applied an `iteratorFactor` heuristic when sorting
-    // children (dividing the estimate of nested intersections, multiplying union estimates).
-    // That heuristic is not replicated here; `Intersection::new` sorts purely by `num_estimated`.
-    // TODO: Implement the `iteratorFactor` heuristic to exactly match C sorting behaviour.
+    // Sort children by the `iteratorFactor` heuristic before wrapping them, mirroring the
+    // original C `NewIntersectionIterator` behaviour.  Sorting is skipped when `in_order` is
+    // set because the child order is then semantically significant for proximity checks.
+    if !in_order {
+        kept_valid.sort_by(|&a, &b| {
+            // SAFETY: all pointers in kept_valid are valid and non-null.
+            let ka = unsafe { sort_key(a) };
+            let kb = unsafe { sort_key(b) };
+            ka.total_cmp(&kb)
+        });
+    }
+
+    // Build the Rust intersection from the sorted non-wildcard children.
+    // Use `new_presorted` so that a second sort is not applied inside the constructor.
     let children: Vec<CRQEIterator> = kept_valid
         .into_iter()
         .map(|ptr| {
@@ -229,7 +290,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
         })
         .collect();
 
-    let intersection = Intersection::new(children, max_slop, in_order).weight(weight);
+    let intersection = Intersection::new_presorted(children, max_slop, in_order).weight(weight);
     let wrapper = RQEIteratorWrapper::boxed_new(IteratorType_INTERSECT_ITERATOR, intersection);
 
     unsafe { free_its_array(its) };
