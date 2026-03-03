@@ -3932,7 +3932,6 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
     // key was changed to, since the old key is already deleted.
     key_p = RedisModule_StringPtrLen(keyToReadData, NULL);
 
-    EvalCtx *r = NULL;
     for (size_t i = 0; i < array_len(res->specsOps); ++i) {
       SpecOpCtx *specOp = res->specsOps + i;
       IndexSpec *spec = specOp->spec;
@@ -3940,8 +3939,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         continue;
       }
 
-      // load document only if required
-      if (!r) r = EvalCtx_Create();
+      EvalCtx *r = EvalCtx_Create();
 
       RedisSearchCtx sctx = { .redisCtx = ctx };
       QueryError status = QueryError_Default();
@@ -3954,12 +3952,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
         }
       }
       QueryError_ClearError(r->ee.err);
-      // Clean up the row and lookup between iterations (indexes)
-      RLookup_Cleanup(&r->lk);
-      RLookupRow_Reset(&r->row);
-    }
-
-    if (r) {
+      
       EvalCtx_Destroy(r);
     }
   }
