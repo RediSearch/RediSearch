@@ -22,6 +22,7 @@ bench = false
 [dependencies]
 ffi.workspace = true
 libc.workspace = true
+tracing.workspace = true
 field.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }

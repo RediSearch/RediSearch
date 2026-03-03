@@ -129,6 +129,8 @@ where
     /// variant is only meaningfully different for `in_order = false`.
     #[must_use]
     pub fn new_presorted(children: Vec<I>, max_slop: i32, in_order: bool) -> Self {
+        // Normalize negative slop; see [`Intersection::new`] for rationale.
+        let max_slop = if max_slop < 0 { i32::MAX } else { max_slop };
         let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
             return Self {
                 children,
@@ -185,7 +187,7 @@ where
     }
 
     /// Returns the number of child iterators.
-    pub fn num_children(&self) -> usize {
+    pub const fn num_children(&self) -> usize {
         self.children.len()
     }
 
@@ -208,6 +210,10 @@ where
     }
 
     /// Check if the current aggregate result satisfies the proximity constraints.
+    ///
+    /// Delegates to the C `IndexResult_IsWithinRange` implementation, which correctly
+    /// handles union children (e.g. stemmed/synonym expansions) by recursively merging
+    /// offset positions via `RSIndexResult_IterateOffsets`.
     fn current_is_relevant(&self) -> bool {
         // SAFETY:
         // - `self.result` is a valid, fully initialised `RSIndexResult`.

@@ -17,13 +17,13 @@ use ffi::{
 use rqe_iterators::intersection::Intersection;
 use rqe_iterators_interop::RQEIteratorWrapper;
 
-use crate::c2rust::CRQEIterator;
 use crate::empty::NewEmptyIterator;
+use rqe_iterators::c2rust::CRQEIterator;
 
 /// Returns `true` if the iterator is a wildcard iterator of any kind.
 ///
 /// Mirrors the C `IsWildcardIterator()` function from `wildcard_iterator.c`.
-fn is_wildcard_iterator(it: &QueryIterator) -> bool {
+const fn is_wildcard_iterator(it: &QueryIterator) -> bool {
     it.type_ == IteratorType_WILDCARD_ITERATOR || it.type_ == IteratorType_INV_IDX_WILDCARD_ITERATOR
 }
 
@@ -67,7 +67,10 @@ unsafe fn free_iterator(it: NonNull<QueryIterator>) {
 /// Every non-null pointer in `slice` must be a valid `QueryIterator`.
 unsafe fn classify_children(
     slice: &[*mut QueryIterator],
-) -> (Vec<Option<NonNull<QueryIterator>>>, Option<NonNull<QueryIterator>>) {
+) -> (
+    Vec<Option<NonNull<QueryIterator>>>,
+    Option<NonNull<QueryIterator>>,
+) {
     let mut kept: Vec<Option<NonNull<QueryIterator>>> = Vec::with_capacity(slice.len());
     // The last wildcard seen: kept alive only when all children are wildcards.
     let mut last_wildcard: Option<NonNull<QueryIterator>> = None;
@@ -135,7 +138,11 @@ unsafe fn iterator_factor(it: NonNull<QueryIterator>) -> f64 {
     if qi.type_ == IteratorType_INTERSECT_ITERATOR {
         // SAFETY: `GetIntersectionIteratorNumChildren` is safe for any INTERSECT_ITERATOR.
         let n = unsafe { GetIntersectionIteratorNumChildren(it.as_ptr()) };
-        if n == 0 { 1.0 } else { 1.0 / n as f64 }
+        if n == 0 {
+            1.0
+        } else {
+            1.0 / n as f64
+        }
     } else if qi.type_ == IteratorType_UNION_ITERATOR {
         // SAFETY: A UNION_ITERATOR typed pointer always points to a `UnionIterator` whose
         // `base` field is a `QueryIterator`.  The cast is therefore valid.
@@ -161,8 +168,10 @@ unsafe fn iterator_factor(it: NonNull<QueryIterator>) -> f64 {
 unsafe fn sort_key(it: NonNull<QueryIterator>) -> f64 {
     // SAFETY: guaranteed by the caller.
     let qi = unsafe { it.as_ref() };
-    // SAFETY: NumEstimated is guaranteed non-null for any well-formed QueryIterator.
-    let num_est = unsafe { qi.NumEstimated.unwrap_unchecked()(it.as_ptr()) } as f64;
+    // SAFETY: NumEstimated is non-null for any well-formed QueryIterator.
+    let num_estimated_fn = unsafe { qi.NumEstimated.unwrap_unchecked() };
+    // SAFETY: `it` is a valid, non-null `QueryIterator` per the caller's contract.
+    let num_est = unsafe { num_estimated_fn(it.as_ptr()) } as f64;
     // SAFETY: guaranteed by the caller.
     num_est * unsafe { iterator_factor(it) }
 }
@@ -211,6 +220,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
 
     // If all children were wildcards: return the preserved last wildcard.
     if let Some(wc) = last_wildcard {
+        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
         unsafe { free_its_array(its) };
         return wc.as_ptr();
     }
@@ -219,6 +229,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     // all_wildcards=true requires all entries to be wildcards, but kept is only filled
     // by non-wildcards). If kept is somehow empty with no last_wildcard, return empty.
     if kept.is_empty() {
+        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
         unsafe { free_its_array(its) };
         return NewEmptyIterator();
     }
@@ -248,9 +259,12 @@ pub unsafe extern "C" fn NewIntersectionIterator(
             if i == idx {
                 empty_it = opt_it; // May be None (NULL case) or Some(EMPTY_ITERATOR).
             } else if let Some(it) = opt_it {
+                // SAFETY: pointers in `kept` come from `classify_children`, which only stores
+                // valid, non-null `QueryIterator` pointers per the function's safety contract.
                 unsafe { free_iterator(it) };
             }
         }
+        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
         unsafe { free_its_array(its) };
         return match empty_it {
             Some(it) => it.as_ptr(),
@@ -264,6 +278,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
 
     // Single-child optimisation: no point in wrapping one iterator.
     if kept_valid.len() == 1 {
+        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
         unsafe { free_its_array(its) };
         return kept_valid[0].as_ptr();
     }
@@ -280,6 +295,27 @@ pub unsafe extern "C" fn NewIntersectionIterator(
         });
     }
 
+    // Debug: log the final (sorted) children that will enter the intersection.
+    for (i, &it) in kept_valid.iter().enumerate() {
+        // SAFETY: all pointers in kept_valid are valid and non-null.
+        let qi = unsafe { it.as_ref() };
+        // SAFETY: NumEstimated is non-null for any well-formed QueryIterator.
+        let num_estimated_fn = unsafe { qi.NumEstimated.unwrap_unchecked() };
+        // SAFETY: `it` is a valid, non-null `QueryIterator`; all pointers in `kept_valid` satisfy this.
+        let num_est = unsafe { num_estimated_fn(it.as_ptr()) };
+        tracing::info!(
+            index = i,
+            type_ = qi.type_,
+            num_estimated = num_est,
+            "intersection child"
+        );
+    }
+    tracing::info!(
+        max_slop = max_slop,
+        in_order = in_order,
+        "NewIntersectionIterator"
+    );
+
     // Build the Rust intersection from the sorted non-wildcard children.
     // Use `new_presorted` so that a second sort is not applied inside the constructor.
     let children: Vec<CRQEIterator> = kept_valid
@@ -293,6 +329,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     let intersection = Intersection::new_presorted(children, max_slop, in_order).weight(weight);
     let wrapper = RQEIteratorWrapper::boxed_new(IteratorType_INTERSECT_ITERATOR, intersection);
 
+    // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
     unsafe { free_its_array(its) };
     wrapper
 }
@@ -303,9 +340,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
 ///
 /// 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(
-    header: *const QueryIterator,
-) -> usize {
+pub unsafe extern "C" fn GetIntersectionIteratorNumChildren(header: *const QueryIterator) -> usize {
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: safe thanks to 1
@@ -376,7 +411,9 @@ pub unsafe extern "C" fn AddIntersectionIteratorChild(
     let wrapper = unsafe {
         RQEIteratorWrapper::<Intersection<CRQEIterator>>::mut_ref_from_header_ptr(header)
     };
-    // SAFETY: safe thanks to 2
+    // SAFETY: safe thanks to 2; both `new_unchecked` and `CRQEIterator::new` are
+    // justified by the same contract point.
+    #[expect(clippy::multiple_unsafe_ops_per_block)]
     let child = unsafe { CRQEIterator::new(NonNull::new_unchecked(child)) };
     wrapper.inner.push_child(child);
 }
