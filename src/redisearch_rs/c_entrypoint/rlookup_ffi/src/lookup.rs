@@ -564,6 +564,7 @@ pub unsafe extern "C-unwind" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueR
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>) {
+    // Safety: ensured by caller (1.,2.)
     unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) }.assert_valid("RLookup_Cleanup");
 
     // Safety: ensured by caller (1.,2.)
@@ -681,8 +682,16 @@ pub unsafe extern "C-unwind" fn RLookup_IterMut(
     ffi::RLookupIteratorMut { current }
 }
 
+/// Run internal assertions on an [`RLookup`].
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn RLookup_AssertValid(lookup: *const OpaqueRLookup) {
+    // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 
     lookup.assert_valid("RLookup_AssertValid");
