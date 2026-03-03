@@ -52,54 +52,6 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
     }
 }
 
-/// Converts an [`RsValue`] to a string pointer with length, writing into `buf`
-/// when a numeric conversion is needed.
-///
-/// # Safety
-///
-/// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-/// 2. `len_ptr` must be a [valid], non-null pointer to a `size_t`.
-/// 3. `buf` must be a [valid] pointer to a writable buffer of at least `buflen` bytes.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_ConvertStringPtrLen(
-    value: *const RsValue,
-    len_ptr: *mut size_t,
-    buf: *mut c_char,
-    buflen: size_t,
-) -> *const c_char {
-    // Safety: ensured by caller (1.)
-    let value = unsafe { expect_value(value) };
-    // Safety: ensured by caller (2.)
-    let len_ptr = unsafe { len_ptr.as_mut().expect("len_ptr is null") };
-
-    let value = value.fully_dereferenced_ref();
-
-    let (ptr, len): (*const c_char, size_t) = match value {
-        RsValue::Number(num) => {
-            // Safety: ensured by caller (3.)
-            let buffer = unsafe { std::slice::from_raw_parts_mut(buf as *mut u8, buflen as usize) };
-            let n = num_to_str(*num, buffer);
-
-            if n < buflen {
-                (buf as *const _, n)
-            } else {
-                (b"\0".as_ptr() as *const _, 0)
-            }
-        }
-        RsValue::String(string) => {
-            let (ptr, len) = string.as_ptr_len_for_slice();
-            (ptr, len as usize)
-        }
-        RsValue::RedisString(string) => string.as_ptr_len(),
-        _ => (b"\0".as_ptr() as *const _, 0),
-    };
-
-    *len_ptr = len;
-    ptr
-}
-
 /// Converts an [`RsValue`] to a string and stores the result in `dst`.
 ///
 /// Automatically dereferences [`RsValue::Ref`] and [`RsValue::Trio`] types.

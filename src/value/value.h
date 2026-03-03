@@ -418,11 +418,6 @@ int RSValue_ToNumber(const RSValue *v, double *d);
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval);
 
-// Combines PtrLen with ToString to convert any RSValue into a string buffer.
-// Returns NULL if buf is required, but is too small
-const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
-                                        size_t buflen);
-
 /**
  * Helper function to allocate memory before passing it to RSValue_NewArrayFromBuilder
  */

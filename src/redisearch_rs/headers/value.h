@@ -261,23 +261,6 @@ struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 int RSValue_ToNumber(const struct RsValue *value, double *d);
 
 /**
- * Converts an [`RsValue`] to a string pointer with length, writing into `buf`
- * when a numeric conversion is needed.
- *
- * # Safety
- *
- * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- * 2. `len_ptr` must be a [valid], non-null pointer to a `size_t`.
- * 3. `buf` must be a [valid] pointer to a writable buffer of at least `buflen` bytes.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-const char *RSValue_ConvertStringPtrLen(const struct RsValue *value,
-                                        size_t *len_ptr,
-                                        char *buf,
-                                        size_t buflen);
-
-/**
  * Converts an [`RsValue`] to a string and stores the result in `dst`.
  *
  * Automatically dereferences [`RsValue::Ref`] and [`RsValue::Trio`] types.

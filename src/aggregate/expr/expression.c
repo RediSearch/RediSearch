@@ -526,17 +526,26 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
   ResultProcessorType type = rp->type;
   const char *typeStr = RPTypeToString(rp->type);
   RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
-
-  char buf[32];
-  size_t len;
-  const char *literal;
   RPEvaluator *rpEval = (RPEvaluator *)rp;
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
-    case RSExpr_Literal:
-      literal = RSValue_ConvertStringPtrLen(expr->literal, &len, buf, sizeof(buf));
+    case RSExpr_Literal: {
+      char buf[32];
+      size_t len;
+      const char *literal;
+      const RSValue *v = RSValue_Dereference(expr->literal);
+      if (RSValue_IsString(v)) {
+        literal = RSValue_StringPtrLen(v, &len);
+      } else if (RSValue_IsNumber(v)) {
+        len = RSValue_NumToString(v, buf, sizeof(buf));
+        literal = buf;
+      } else {
+        len = 0;
+        literal = "";
+      }
       RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
+    }
     case RSExpr_Property:
       RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, expr->property.key);
       break;
