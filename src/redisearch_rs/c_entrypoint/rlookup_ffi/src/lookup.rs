@@ -681,6 +681,13 @@ pub unsafe extern "C-unwind" fn RLookup_IterMut(
     ffi::RLookupIteratorMut { current }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn RLookup_AssertValid(lookup: *const OpaqueRLookup) {
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+
+    lookup.assert_valid("RLookup_AssertValid");
+}
+
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
 fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
     if flags.contains(RLookupKeyFlag::NameAlloc) {
