@@ -978,6 +978,7 @@ TEST_F(ExprTest, testOrExpressionWithMissingFields) {
     RLookup_Cleanup(&lk_empty);
   }
 
+  RLookupRow_Reset(&row);
   RLookup_Cleanup(&lk);
 }
 
