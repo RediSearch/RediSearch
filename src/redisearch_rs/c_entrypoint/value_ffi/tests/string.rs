@@ -17,7 +17,7 @@ use value_ffi::constructors::{
     RSValue_NewBorrowedString, RSValue_NewCopiedString, RSValue_NewNull, RSValue_NewNumber,
     RSValue_NewString, RSValue_NewTrio,
 };
-use value_ffi::getters::{RSValue_String_GetNullTerminated, RSValue_StringPtrLen};
+use value_ffi::getters::{RSValue_String_Get, RSValue_StringPtrLen};
 use value_ffi::setters::{RSValue_SetConstString, RSValue_SetString};
 
 mock_or_stub_missing_redis_c_symbols!();
@@ -57,7 +57,7 @@ fn new_string_creates_rm_alloc_string() {
     let value = unsafe { RSValue_NewString(ptr, len) };
 
     let mut out_len: u32 = 0;
-    let str_ptr = unsafe { RSValue_String_GetNullTerminated(value, &mut out_len) };
+    let str_ptr = unsafe { RSValue_String_Get(value, &mut out_len) };
     let bytes = unsafe { std::slice::from_raw_parts(str_ptr as *const u8, out_len as usize) };
     assert_eq!(bytes, b"hello");
     assert_eq!(out_len, 5);
@@ -70,7 +70,7 @@ fn new_borrowed_string_creates_borrowed_string() {
     let value = unsafe { RSValue_NewBorrowedString(c"world".as_ptr(), 5) };
 
     let mut out_len: u32 = 0;
-    let str_ptr = unsafe { RSValue_String_GetNullTerminated(value, &mut out_len) };
+    let str_ptr = unsafe { RSValue_String_Get(value, &mut out_len) };
     let bytes = unsafe { std::slice::from_raw_parts(str_ptr as *const u8, out_len as usize) };
     assert_eq!(bytes, b"world");
     assert_eq!(out_len, 5);
@@ -87,7 +87,7 @@ fn new_copied_string_creates_independent_copy() {
     drop(source);
 
     let mut out_len: u32 = 0;
-    let str_ptr = unsafe { RSValue_String_GetNullTerminated(value, &mut out_len) };
+    let str_ptr = unsafe { RSValue_String_Get(value, &mut out_len) };
     let bytes = unsafe { std::slice::from_raw_parts(str_ptr as *const u8, out_len as usize) };
     assert_eq!(bytes, b"copied");
     assert_eq!(out_len, 6);
@@ -99,13 +99,13 @@ fn new_copied_string_creates_independent_copy() {
 fn string_get_accepts_null_lenp() {
     let value = unsafe { RSValue_NewBorrowedString(c"test".as_ptr(), 4) };
 
-    let str_ptr = unsafe { RSValue_String_GetNullTerminated(value, std::ptr::null_mut()) };
+    let str_ptr = unsafe { RSValue_String_Get(value, std::ptr::null_mut()) };
     assert!(!str_ptr.is_null());
 
     unsafe { drop_value(value) };
 }
 
-/// `RSValue_String_GetNullTerminated` panics (aborts) when called on a non-`String` value.
+/// `RSValue_String_Get` panics (aborts) when called on a non-`String` value.
 /// Because the function is `extern "C"`, the panic cannot unwind and instead
 /// triggers a process abort, which makes `#[should_panic]` unusable here.
 /// The graceful alternative `RSValue_StringPtrLen` returns null instead and
@@ -180,7 +180,7 @@ fn set_string_replaces_value_with_rm_alloc_string() {
     unsafe { RSValue_SetString(value, str_ptr, 7) };
 
     let mut out_len: u32 = 0;
-    let result_ptr = unsafe { RSValue_String_GetNullTerminated(value, &mut out_len) };
+    let result_ptr = unsafe { RSValue_String_Get(value, &mut out_len) };
     let bytes = unsafe { std::slice::from_raw_parts(result_ptr as *const u8, out_len as usize) };
     assert_eq!(bytes, b"updated");
     assert_eq!(out_len, 7);
@@ -195,7 +195,7 @@ fn set_const_string_replaces_value_with_borrowed_string() {
     unsafe { RSValue_SetConstString(value, c"constant".as_ptr(), 8) };
 
     let mut out_len: u32 = 0;
-    let result_ptr = unsafe { RSValue_String_GetNullTerminated(value, &mut out_len) };
+    let result_ptr = unsafe { RSValue_String_Get(value, &mut out_len) };
     let bytes = unsafe { std::slice::from_raw_parts(result_ptr as *const u8, out_len as usize) };
     assert_eq!(bytes, b"constant");
     assert_eq!(out_len, 8);

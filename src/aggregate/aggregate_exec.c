@@ -90,7 +90,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
         break;
       case RSValueType_String:
         // Serialize string - by prepending "$" to it
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_GetNullTerminated(key, NULL));
+        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_Get(key, NULL));
         break;
       case RSValueType_RedisString:
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
