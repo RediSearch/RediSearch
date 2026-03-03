@@ -19,9 +19,8 @@ pub fn str_to_float(input: &[u8]) -> Option<f64> {
 /// expected output. A float is rendered as an integer if possible, else it's rendered
 /// with up to 12 decimal points, else it's rendered in scientific notation.
 ///
-/// Returns the amount of bytes written as per `snprint`: if that is >= `buf.len()` then
-/// it didn't fit (`snprintf` always places a nul-terminator at the end).
-pub fn num_to_str(num: f64, buf: &mut [u8]) -> usize {
+/// Returns the amount of bytes written.
+pub fn num_to_str(num: f64, buf: &mut [u8; 32]) -> usize {
     let representable_as_integer =
         num.fract() == 0.0 && num >= i64::MIN as f64 && num < i64::MAX as f64;
 

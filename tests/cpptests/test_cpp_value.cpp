@@ -59,7 +59,7 @@ TEST_F(ValueTest, testArray) {
 
 static std::string toString(RSValue *v) {
   char buf[32];
-  size_t n = RSValue_NumToString(v, buf, sizeof(buf));
+  size_t n = RSValue_NumToString(v, buf);
   return std::string(buf, n);
 }
 

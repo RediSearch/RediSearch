@@ -436,7 +436,7 @@ int RSValue_BoolTest(const RSValue *v);
  * Formats the passed numeric RSValue as a string.
  * The passed RSValue must be of type RSValueType_Number.
  */
-size_t RSValue_NumToString(const RSValue *v, char *buf, size_t buflen);
+size_t RSValue_NumToString(const RSValue *v, char buf[32]);
 
 // Formats the parsed expression object into a string, obfuscating the values if needed based on the
 // obfuscate boolean The returned string must be freed by the caller using sdsfree

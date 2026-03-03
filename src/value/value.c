@@ -782,14 +782,14 @@ int RSValue_BoolTest(const RSValue *v) {
   }
 }
 
-size_t RSValue_NumToString(const RSValue *v, char *buf, size_t buflen) {
+size_t RSValue_NumToString(const RSValue *v, char buf[32]) {
   RS_ASSERT(v->_t == RSValueType_Number);
   double dd = v->_numval;
   long long ll = dd;
   if (ll == dd) {
-    return snprintf(buf, buflen, "%lld", ll);
+    return snprintf(buf, 32, "%lld", ll);
   } else {
-    return snprintf(buf, buflen, "%.12g", dd);
+    return snprintf(buf, 32, "%.12g", dd);
   }
 }
 
@@ -827,8 +827,8 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       if (obfuscate) {
         return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
-        char buf[128];
-        size_t len = RSValue_NumToString(v, buf, sizeof(buf));
+        char buf[32];
+        size_t len = RSValue_NumToString(v, buf);
         return sdscatlen(s, buf, len);
       }
       break;

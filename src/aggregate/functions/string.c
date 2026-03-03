@@ -145,8 +145,8 @@ int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
       break;
     }
     case RSValueType_Number: {
-      char tmpbuf[128];
-      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
+      char tmpbuf[32];
+      size_t len = RSValue_NumToString(v, tmpbuf);
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(result, buf, len);
       break;
@@ -233,7 +233,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
         append_to_string(&out, &out_tail, &out_cap, str, sz);
       } else if (RSValue_IsNumber(arg)) {
         char tmpbuf[32];
-        size_t len = RSValue_NumToString(arg, tmpbuf, sizeof(tmpbuf));
+        size_t len = RSValue_NumToString(arg, tmpbuf);
         append_to_string(&out, &out_tail, &out_cap, tmpbuf, len);
       } else {
         append_to_string(&out, &out_tail, &out_cap, "(null)", 6);

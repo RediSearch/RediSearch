@@ -267,7 +267,7 @@ bool RSValue_ToNumber(const struct RsValue *value, double *d);
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- * 2. `buf` must be a [valid] pointer to a writable buffer of at least `buflen` bytes.
+ * 2. `buf` must be a [valid] pointer to a writable buffer of at least 32 bytes.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  *
@@ -275,7 +275,7 @@ bool RSValue_ToNumber(const struct RsValue *value, double *d);
  *
  * Panics if `value` is not an [`RsValue::Number`].
  */
-size_t RSValue_NumToString(const struct RsValue *value, char *buf, size_t buflen);
+size_t RSValue_NumToString(const struct RsValue *value, char *buf);
 
 /**
  * Gets the numeric value from an [`RsValue`].

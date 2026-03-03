@@ -537,7 +537,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
         RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, ptr);
       } else if (RSValue_IsNumber(v)) {
         char buf[32];
-        RSValue_NumToString(v, buf, sizeof(buf));
+        RSValue_NumToString(v, buf);
         RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, buf);
       } else {
         RedisModule_Reply_SimpleStringf(reply, "%s - Literal", typeStr);

@@ -55,7 +55,7 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-/// 2. `buf` must be a [valid] pointer to a writable buffer of at least `buflen` bytes.
+/// 2. `buf` must be a [valid] pointer to a writable buffer of at least 32 bytes.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 ///
@@ -63,16 +63,12 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RsValue, d: *mut c_doubl
 ///
 /// Panics if `value` is not an [`RsValue::Number`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NumToString(
-    value: *const RsValue,
-    buf: *mut c_char,
-    buflen: size_t,
-) -> size_t {
+pub unsafe extern "C" fn RSValue_NumToString(value: *const RsValue, buf: *mut c_char) -> size_t {
     // Safety: ensured by caller (1.)
     let value = unsafe { expect_value(value) };
 
     // Safety: ensured by caller (2.)
-    let buf = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), buflen) };
+    let buf = unsafe { &mut *buf.cast::<[u8; 32]>() };
 
     let RsValue::Number(num) = value else {
         panic!("Expected number")
