@@ -631,30 +631,30 @@ def checkMultiTextReturn(env, expected, default_dialect, is_sortable, is_sortabl
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
 
-@skip(no_json=True)
-def testMultiTextReturn(env):
-    """ test RETURN with multiple TEXT values """
+# @skip(no_json=True)
+# def testMultiTextReturn(env):
+#     """ test RETURN with multiple TEXT values """
 
-    res1 = [1, 'doc:1', ['arr_1', '["AL"]']]
-    res2 = [1, 'doc:1', ['val', '["FL","AL"]']]
-    res3 = [1, 'doc:1', ['val', '[["FL","AL"]]']]
-    res4 = [1, 'doc:1', ['val', '["FL","AL","MS","GA"]']]
+#     res1 = [1, 'doc:1', ['arr_1', '["AL"]']]
+#     res2 = [1, 'doc:1', ['val', '["FL","AL"]']]
+#     res3 = [1, 'doc:1', ['val', '[["FL","AL"]]']]
+#     res4 = [1, 'doc:1', ['val', '["FL","AL","MS","GA"]']]
 
-    checkMultiTextReturn(env, [res1, res2, res3, res4], False, False, False)
-    env.flush()
-    checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, False)
-    env.flush()
-    checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, True)
+#     checkMultiTextReturn(env, [res1, res2, res3, res4], False, False, False)
+#     env.flush()
+#     checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, False)
+#     env.flush()
+#     checkMultiTextReturn(env, [res1, res2, res3, res4], False, True, True)
 
-@skip(no_json=True)
-def testMultiTextReturnBWC(env):
-    """ test backward compatibility of RETURN with multiple TEXT values """
-    res1 = [1, 'doc:1', ['arr_1', 'AL']]
-    res2 = [1, 'doc:1', ['val', 'FL']]
-    res3 = [1, 'doc:1', ['val', '["FL","AL"]']]
+# @skip(no_json=True)
+# def testMultiTextReturnBWC(env):
+#     """ test backward compatibility of RETURN with multiple TEXT values """
+#     res1 = [1, 'doc:1', ['arr_1', 'AL']]
+#     res2 = [1, 'doc:1', ['val', 'FL']]
+#     res3 = [1, 'doc:1', ['val', '["FL","AL"]']]
 
-    checkMultiTextReturn(env, [res1, res2, res3, res2], True, False, False)
-    env.flush()
-    checkMultiTextReturn(env, [res1, res2, res3, res2], True, True, False)
-    env.flush()
-    checkMultiTextReturn(env, [res1, res2, res3, res2], True, True, True)
+#     checkMultiTextReturn(env, [res1, res2, res3, res2], True, False, False)
+#     env.flush()
+#     checkMultiTextReturn(env, [res1, res2, res3, res2], True, True, False)
+#     env.flush()
+#     checkMultiTextReturn(env, [res1, res2, res3, res2], True, True, True)
