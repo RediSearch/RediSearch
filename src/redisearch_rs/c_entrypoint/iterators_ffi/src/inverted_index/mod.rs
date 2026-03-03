@@ -41,14 +41,14 @@ use term::TermIterator;
 /// The flags of the `IndexReader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
-    it: *const ffi::InvIndIterator,
+    it: *const ffi::QueryIterator,
 ) -> ffi::IndexFlags {
     debug_assert!(!it.is_null());
 
     // SAFETY: 1.
     let it_ref = unsafe { &*it };
 
-    match it_ref.base.type_ {
+    match it_ref.type_ {
         ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
             // SAFETY: 2. the numeric iterator is in Rust.
             let wrapper = unsafe {

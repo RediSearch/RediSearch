@@ -309,16 +309,18 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery`.
+/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
 ///
 /// # Returns
 ///
 /// A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
-    it: *const ffi::NumericInvIndIterator,
+    it: *const ffi::QueryIterator,
 ) -> *const ffi::NumericFilter {
     debug_assert!(!it.is_null());
+    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
+    debug_assert!(unsafe { *it }.type_ == ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR);
 
     // SAFETY: 1
     let wrapper =
@@ -345,9 +347,11 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
 /// The minimum range value from the filter, or negative infinity if no filter was provided.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
-    it: *const ffi::NumericInvIndIterator,
+    it: *const ffi::QueryIterator,
 ) -> f64 {
     debug_assert!(!it.is_null());
+    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
+    debug_assert!(unsafe { *it }.type_ == ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR);
 
     // SAFETY: 1
     let wrapper =
@@ -366,9 +370,11 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
 /// The maximum range value from the filter, or positive infinity if no filter was provided.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
-    it: *const ffi::NumericInvIndIterator,
+    it: *const ffi::QueryIterator,
 ) -> f64 {
     debug_assert!(!it.is_null());
+    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
+    debug_assert!(unsafe { *it }.type_ == ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR);
 
     // SAFETY: 1
     let wrapper =
