@@ -59,7 +59,7 @@ impl RedisString {
         let (ptr, len) = self.as_ptr_len();
         // SAFETY: `ptr` points to valid memory of `len` bytes, as guaranteed by
         // `RedisModule_StringPtrLen`.
-        unsafe { std::slice::from_raw_parts(ptr as _, len) }
+        unsafe { std::slice::from_raw_parts(ptr.cast(), len) }
     }
 }
 
@@ -71,7 +71,7 @@ impl Drop for RedisString {
         let free_string = unsafe { RedisModule_FreeString }.expect("Redis module not initialized");
         // SAFETY: `ctx` is a valid module context and `self.ptr` is a valid `RedisModuleString`
         // that we own and have not yet freed.
-        unsafe { free_string(ctx, self.ptr as _) };
+        unsafe { free_string(ctx, self.ptr.cast_mut().cast()) };
     }
 }
 
