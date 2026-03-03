@@ -368,6 +368,40 @@ static ValidateStatus II_Revalidate(QueryIterator *base) {
   return VALIDATE_MOVED;
 }
 
+/*********************** Intersection Iterator Accessor Functions ***********************/
+
+size_t GetIntersectionIteratorNumChildren(const QueryIterator *header) {
+  RS_ASSERT(header && header->type == INTERSECT_ITERATOR);
+  return ((const IntersectionIterator *)header)->num_its;
+}
+
+const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx) {
+  RS_ASSERT(header && header->type == INTERSECT_ITERATOR);
+  const IntersectionIterator *it = (const IntersectionIterator *)header;
+  RS_ASSERT(idx < it->num_its);
+  return it->its[idx];
+}
+
+void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child) {
+  RS_ASSERT(header && header->type == INTERSECT_ITERATOR);
+  RS_ASSERT(child);
+  IntersectionIterator *it = (IntersectionIterator *)header;
+  it->its = rm_realloc(it->its, (it->num_its + 1) * sizeof(*it->its));
+  it->its[it->num_its++] = child;
+  size_t est = child->NumEstimated(child);
+  if (est < it->num_expected) {
+    it->num_expected = est;
+  }
+}
+
+void ForEachIntersectionChildMut(QueryIterator *header, void (*callback)(QueryIterator **)) {
+  RS_ASSERT(header && header->type == INTERSECT_ITERATOR);
+  IntersectionIterator *it = (IntersectionIterator *)header;
+  for (uint32_t i = 0; i < it->num_its; i++) {
+    callback(&it->its[i]);
+  }
+}
+
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
   QueryIterator *ret = IntersectionIteratorReducer(its, &num);
   if (ret != NULL) {
