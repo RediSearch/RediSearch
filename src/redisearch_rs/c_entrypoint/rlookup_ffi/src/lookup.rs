@@ -499,7 +499,7 @@ pub unsafe extern "C-unwind" fn RLookup_GetRowLen(lookup: *const OpaqueRLookup) 
 
 /// Returns a newly created [`RLookup`].
 #[unsafe(no_mangle)]
-pub extern "C" fn RLookup_New() -> OpaqueRLookup {
+pub extern "C-unwind" fn RLookup_New() -> OpaqueRLookup {
     let r = RLookup::new();
 
     r.assert_valid("RLookup_New");
