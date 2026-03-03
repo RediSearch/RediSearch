@@ -17,19 +17,15 @@ enum RsStringKind {
     Borrowed,
 }
 
-/// A `CString` like string for [`RsValue`](crate::RsValue) with support for rust allocated string,
-/// C allocated strings, and constant strings, and support for a max length of `u32::MAX`,
-/// all in one package.
+/// An [`RsString`] is meant to store string data with support for rust allocated data, C
+/// allocated data or borrowed data, and support for a max length of `u32::MAX`.
+/// It can contain binary data and is always nul-terminated.
 ///
-/// # Safety
+/// # Invariants
 ///
-/// - `ptr` must not be NULL and must point to a valid c-string of `len+1` size.
+/// - `ptr` points to valid data of `len+1` size.
+/// - a nul-terminator is always present in memory at `ptr+len`
 /// - The size determined by `len` excludes the nul-terminator.
-/// - A nul-terminator is expected in memory at `ptr+len`.
-///
-/// There is one exception for the nul-terminator requirement: [`RsString`] constructed through
-/// `rm_alloc_string_without_nul_terminator`. Code expecting a nul-terminator should use the `_checked`
-/// variants of `as_ptr_len` and `as_bytes` which have debug asserts ensuring a nul-terminator exists.
 pub struct RsString {
     ptr: *const c_char,
     len: u32,
@@ -37,8 +33,9 @@ pub struct RsString {
 }
 
 impl RsString {
-    /// Create an [`RsString`] from a `CString`. This string's length must not be more than
+    /// Create an [`RsString`] from a `Vec<u8>`. The length must not be more than
     /// `u32::MAX` for compatibility with existing C code using `RSValue` functionality.
+    /// A nul-terminator is automatically added by this constructor for compatibility.
     ///
     /// # Panic
     ///
@@ -62,15 +59,15 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a [valid], non-null pointer to a valid c-string of `len+1` size.
-    /// 2. The size determined by `len` excludes the nul-terminator.
-    /// 3. A nul-terminator is expected in memory at `ptr+len`.
+    /// 1. `ptr` must be a [valid], non-null pointer to valid data of `len+1` size.
+    /// 2. A nul-terminator is expected in memory at `ptr+len`.
+    /// 3. The size determined by `len` excludes the nul-terminator.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
         debug_assert!(!ptr.is_null());
-        // Safety: ensured by caller (1., 2.)
+        // Safety: ensured by caller (1., 2., 3.)
         debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
@@ -85,8 +82,8 @@ impl RsString {
     /// # Safety
     ///
     /// 1. `ptr` must be a [valid], non-null pointer to a valid c-string of `len+1` size.
-    /// 2. The size determined by `len` excludes the nul-terminator.
-    /// 3. A nul-terminator is expected in memory at `ptr+len`.
+    /// 2. A nul-terminator is expected in memory at `ptr+len`.
+    /// 3. The size determined by `len` excludes the nul-terminator.
     /// 4. The string pointed to by `ptr`/`len+1` must stay valid for as long as
     ///    this [`RsString`] is exists.
     ///
@@ -94,7 +91,7 @@ impl RsString {
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn borrowed_string(ptr: *const c_char, len: u32) -> Self {
         debug_assert!(!ptr.is_null());
-        // Safety: ensured by caller (1., 2.)
+        // Safety: ensured by caller (1., 2., 3.)
         debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
@@ -104,21 +101,14 @@ impl RsString {
         }
     }
 
-    /// Returns the string data pointer and length, with a debug check on
-    /// whether the string might not be nul-terminated.
-    ///
-    /// # Panic
-    ///
-    /// In debug builds, panics if the string is possibly not nul-terminated.
+    /// Returns the string data pointer and length.
     pub const fn as_ptr_len(&self) -> (*const c_char, u32) {
         (self.ptr, self.len)
     }
 
-    /// Gets the string pointed to by `ptr`/`len` as a byte slice without ensuring nul-termination.
-    ///
-    /// Use this method when working with strings that may not be nul-terminated.
+    /// Gets the string pointed to by `ptr`/`len` as a byte slice.
     pub const fn as_bytes(&self) -> &[u8] {
-        // SAFETY: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
+        // Safety: `self.ptr` points to valid memory of `self.len` bytes per our invariant.
         unsafe { std::slice::from_raw_parts(self.ptr as _, self.len as usize) }
     }
 }
@@ -131,13 +121,13 @@ impl Drop for RsString {
                     self.ptr.cast_mut().cast::<u8>(),
                     (self.len as usize) + 1,
                 );
-                // SAFETY: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
+                // Safety: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
                 drop(unsafe { Box::from_raw(slice) });
             }
             RsStringKind::RmAlloc => {
-                // SAFETY: Accessing a global function pointer initialized during module load.
+                // Safety: Accessing a global function pointer initialized during module load.
                 let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
-                // SAFETY: `self.ptr` was allocated by rm_alloc and has not been freed.
+                // Safety: `self.ptr` was allocated by rm_alloc and has not been freed.
                 unsafe { rm_free(self.ptr.cast_mut().cast()) };
             }
             RsStringKind::Borrowed => (), // No need to free borrowed strings.
@@ -152,7 +142,7 @@ impl fmt::Debug for RsString {
     }
 }
 
-// SAFETY: [`RsString`] does not hold data that cannot be sent to another thread.
+// Safety: [`RsString`] does not hold data that cannot be sent to another thread.
 unsafe impl Send for RsString {}
-// SAFETY: [`RsString`] provides no interior mutability; shared references are read-only.
+// Safety: [`RsString`] provides no interior mutability; shared references are read-only.
 unsafe impl Sync for RsString {}

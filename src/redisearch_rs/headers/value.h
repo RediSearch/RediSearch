@@ -218,52 +218,52 @@ struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
 /**
  * Gets the numeric value from an [`RsValue`].
  *
- * # Safety
- *
- * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
  * # Panic
  *
  * Panics if the value is not an [`RsValue::Number`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  */
 double RSValue_Number_Get(const struct RsValue *value);
 
 /**
  * Borrows an immutable reference to the left value of a trio.
  *
- * # Safety
- *
- * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
  * # Panic
  *
  * Panics if the value is not an [`RsValue::Trio`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  */
 const struct RsValue *RSValue_Trio_GetLeft(const struct RsValue *value);
 
 /**
  * Borrows an immutable reference to the middle value of a trio.
  *
- * # Safety
- *
- * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
  * # Panic
  *
  * Panics if the value is not an [`RsValue::Trio`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  */
 const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
 
 /**
  * Borrows an immutable reference to the right value of a trio.
  *
- * # Safety
- *
- * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
  * # Panic
  *
  * Panics if the value is not an [`RsValue::Trio`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  */
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
@@ -273,17 +273,16 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  *
  * The returned pointer borrows from the [`RsValue`] and must not outlive it.
  *
+ * # Panic
+ *
+ * Panics if the value is not an [`RsValue::String`].
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- *
- * # Panic
- *
- * - Panics if the value is not an [`RsValue::String`].
- * - Panics (in debug mode) if the string data might not be nul-terminated.
  */
 const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
 
@@ -292,13 +291,13 @@ const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
  *
  * The returned reference borrows from the [`RsValue`] and must not outlive it.
  *
- * # Safety
- *
- * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
  * # Panic
  *
  * Panics if the value is not an [`RsValue::RedisString`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  */
 const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
 
@@ -408,14 +407,14 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
  *
  * This clears the existing value and sets it to Number with the given value.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetNumber(struct RsValue *value, double n);
 
@@ -424,14 +423,14 @@ void RSValue_SetNumber(struct RsValue *value, double n);
  *
  * This clears the existing value and sets it to Null.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetNull(struct RsValue *value);
 
@@ -441,6 +440,10 @@ void RSValue_SetNull(struct RsValue *value);
  *
  * This clears the existing value and sets it to an [`RsString`] of kind `RmAlloc`
  * with the given buffer.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
  *
  * # Safety
  *
@@ -452,10 +455,6 @@ void RSValue_SetNull(struct RsValue *value);
  *    takes ownership of the allocation.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
 
@@ -465,6 +464,10 @@ void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
  *
  * This clears the existing value and sets it to an [`RsString`] of kind `Const`
  * with the given buffer.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
  *
  * # Safety
  *
@@ -476,10 +479,6 @@ void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
  *    lifetime of the [`RsValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetConstString(struct RsValue *value, const char *str, uint32_t len);
 
