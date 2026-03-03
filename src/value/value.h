@@ -291,9 +291,7 @@ void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len);
  * @param lenp Output parameter for the string length. Only used if not NULL
  * @return Pointer to the string data
  */
-const char *RSValue_String_GetNullTerminated(const RSValue *v, uint32_t *lenp);
-
-const char *RSValue_String_GetSlice(const RSValue *v, uint32_t *lenp);
+const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
 
 /**
  * Get the RedisModuleString from an RSValue.
