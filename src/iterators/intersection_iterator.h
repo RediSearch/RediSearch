@@ -18,6 +18,7 @@ extern "C" {
 
 /**
  * Create a new intersection iterator.
+ * The implementation is provided by Rust (see `iterators_ffi/src/intersection.rs`).
  *
  * @param its The iterators to intersect. Takes ownership of both the array and each iterator.
  * @param num The number of iterators.
@@ -27,45 +28,6 @@ extern "C" {
  * @return A new intersection iterator, or an empty/single-child iterator after reduction.
  */
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight);
-
-/**
- * Returns the number of child iterators held by the intersection iterator.
- *
- * @param header Must be a valid non-null pointer to an INTERSECT_ITERATOR.
- */
-size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
-
-/**
- * Returns a non-owning pointer to the child at `idx`.
- *
- * @param header Must be a valid non-null pointer to an INTERSECT_ITERATOR.
- * @param idx Must be less than GetIntersectionIteratorNumChildren(header).
- */
-const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx);
-
-/**
- * Append a new child iterator to the intersection.
- *
- * Transfers ownership of `child` to the intersection. Updates the estimated result count
- * if the new child has a lower estimate than the current minimum.
- *
- * @param header Must be a valid non-null pointer to an INTERSECT_ITERATOR.
- * @param child Must be a valid non-null pointer to a QueryIterator, not aliased.
- */
-void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
-
-/**
- * Apply `callback` to each child iterator slot, passing a mutable QueryIterator**.
- *
- * Designed for use with Profile_AddIters, which replaces each child with a
- * profile-wrapping iterator in place.
- *
- * @param header Must be a valid non-null pointer to an INTERSECT_ITERATOR.
- * @param callback Must be a valid function pointer. The callback receives a pointer
- *                 to each child slot and may replace it with a new iterator that
- *                 takes ownership of the original (e.g. NewProfileIterator semantics).
- */
-void ForEachIntersectionChildMut(QueryIterator *header, void (*callback)(QueryIterator **));
 
 #ifdef __cplusplus
 }
