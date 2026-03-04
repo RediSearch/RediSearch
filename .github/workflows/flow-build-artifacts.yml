@@ -54,7 +54,7 @@ jobs:
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
-      beta-version: ${{ steps.beta-version.outputs.BETA_VERSION }}
+      beta-version: ''  # beta-version not used for OSS builds
       version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
     steps:
       - uses: actions/checkout@v4
