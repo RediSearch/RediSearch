@@ -3578,7 +3578,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       }
 
       // load document only if required
-      if (!r) r = EvalCtx_Create();
+      if (!r) {
+        r = EvalCtx_Create(EVAL_MODE_INDEX);
+      }
       RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
       if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
@@ -3586,8 +3588,8 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
           specOp->op = SpecOp_Del;
         }
       }
-      QueryError_ClearError(r->ee.err);
-      // Clean up the row and lookup between iterations (indexes)
+      // Clean up state between iterations (indexes)
+      QueryError_ClearError(&r->status);
       RLookup_Cleanup(&r->lk);
       RLookupRow_Cleanup(&r->row);
     }

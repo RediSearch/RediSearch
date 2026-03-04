@@ -93,7 +93,6 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
 
   double n1, n2;
   if (!RSValue_ToNumber(&l, &n1) || !RSValue_ToNumber(&r, &n2)) {
-
     QueryError_SetError(eval->err, QUERY_ENOTNUMERIC, NULL);
     rc = EXPR_EVAL_ERR;
     goto cleanup;
@@ -188,28 +187,79 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
+/**
+ * Handle missing property in a comparison operator.
+ * In QUERY mode, missing property is an error (returns EXPR_EVAL_ERR).
+ * In INDEX mode, missing property means comparison returns false (returns EXPR_EVAL_OK).
+ */
+static int handleMissingInComparison(ExprEval *eval, RSValue *result) {
+  if (eval->mode == EVAL_MODE_QUERY) {
+    return EXPR_EVAL_ERR;
+  }
+  RSValue_SetNumber(result, 0);
+  return EXPR_EVAL_OK;
+}
+
+// Evaluates an operand of a predicate and handles error/missing/short-circuit cases.
+// Sets *should_stop to true if caller should goto cleanup (error, missing handled, or short-circuit).
+// Returns the rc value to use when stopping.
+static int evalPredicateOperand(ExprEval *eval, RSExpr *operand, RSValue *val, RSValue *result,
+                                bool isLogical, RSCondition cond, bool *should_stop) {
+  *should_stop = false;
+  int eval_rc = evalInternal(eval, operand, val);
+
+  if (eval_rc == EXPR_EVAL_ERR) {
+    *should_stop = true;
+    return EXPR_EVAL_ERR;
+  }
+
+  if (eval_rc == EXPR_EVAL_NULL && !isLogical) {
+    // Handle missing here since the comparison flow (`RSValue_Cmp`) would break
+    // behavior if reached with missing values.
+    *should_stop = true;
+    return handleMissingInComparison(eval, result);
+  }
+
+  if (isLogical) {
+    int bool_val = RSValue_BoolTest(val);
+    // Short circuits:
+    // 1. AND with false (-> false)
+    // 2. OR with true (-> true)
+    if ((cond == RSCondition_And && !bool_val) ||
+        (cond == RSCondition_Or && bool_val)) {
+      RSValue_SetNumber(result, bool_val);
+      *should_stop = true;
+      return EXPR_EVAL_OK;
+    }
+  }
+
+  return EXPR_EVAL_OK;
+}
+
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
   int res;
   RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
   int rc = EXPR_EVAL_ERR;
-  if (evalInternal(eval, pred->left, &l) != EXPR_EVAL_OK) {
-    goto cleanup;
-  } else if (pred->cond == RSCondition_Or && RSValue_BoolTest(&l)) {
-    res = 1;
-    goto success;
-  } else if (pred->cond == RSCondition_And && !RSValue_BoolTest(&l)) {
-    res = 0;
-    goto success;
-  } else if (evalInternal(eval, pred->right, &r) != EXPR_EVAL_OK) {
+  const bool isLogical = (pred->cond == RSCondition_And || pred->cond == RSCondition_Or);
+  bool should_stop;
+
+  // Evaluate left side
+  rc = evalPredicateOperand(eval, pred->left, &l, result, isLogical, pred->cond, &should_stop);
+  if (should_stop) {
     goto cleanup;
   }
 
+  // Evaluate right side
+  rc = evalPredicateOperand(eval, pred->right, &r, result, isLogical, pred->cond, &should_stop);
+  if (should_stop) {
+    goto cleanup;
+  }
+
+  // Evaluate the predicate (handles AND, OR, and comparison operators)
   res = getPredicateBoolean(eval, &l, &r, pred->cond);
 
-success:
   if (!eval->err || eval->err->code == QUERY_OK) {
-    result->numval = res;
-    result->t = RSValue_Number;
+    RSValue_SetNumber(result, res);
     rc = EXPR_EVAL_OK;
   } else {
     result->t = RSValue_Undef;
@@ -227,7 +277,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     // No lookup object. This means that the key does not exist
     // Note: Because this is evaluated for each row potentially, do not assume
     // that query error is present:
-    if (eval->err) {
+    if (eval->mode == EVAL_MODE_QUERY && eval->err) {
       QueryError_SetError(eval->err, QUERY_ENOPROPKEY, NULL);
     }
     return EXPR_EVAL_ERR;
@@ -236,7 +286,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   /** Find the actual value */
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
-    if (eval->err) {
+    if (eval->mode == EVAL_MODE_QUERY && eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
     res->t = RSValue_Null;
@@ -326,17 +376,20 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-EvalCtx *EvalCtx_Create() {
+EvalCtx *EvalCtx_Create(EvalMode mode) {
   EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
 
   RLookup _lk = {0};
   r->lk = _lk;
 
-  QueryError _status = {0};
-  r->status = _status;
-
   r->ee.lookup = &r->lk;
   r->ee.srcrow = &r->row;
+  r->ee.mode = mode;
+
+  // Always allocate error - needed for RSValue_Cmp to behave correctly
+  // (return 0 on type mismatch rather than falling back to string comparison)
+  QueryError _status = {0};
+  r->status = _status;
   r->ee.err = &r->status;
 
   r->res = *RS_NullVal();
@@ -344,31 +397,6 @@ EvalCtx *EvalCtx_Create() {
   r->_expr = NULL;
 
   return r;
-}
-
-EvalCtx *EvalCtx_FromExpr(RSExpr *expr) {
-  EvalCtx *r = EvalCtx_Create();
-  r->_expr = expr;
-  r->_own_expr = false;
-  return r;
-}
-
-EvalCtx *EvalCtx_FromString(const HiddenString *expr) {
-  EvalCtx *r = EvalCtx_Create();
-  if (!expr) {
-  	r->ee.root = NULL;
-  } else {
-    r->_expr = ExprAST_Parse(expr, r->ee.err);
-    if (r->ee.root == NULL) {
-  	  goto error;
-    }
-    r->_own_expr = true;
-  }
-  return r;
-
-error:
-  EvalCtx_Destroy(r);
-  return NULL;
 }
 
 void EvalCtx_Destroy(EvalCtx *r) {
@@ -384,11 +412,11 @@ void EvalCtx_Destroy(EvalCtx *r) {
 
 int EvalCtx_Eval(EvalCtx *r) {
   if (!r->_expr) {
-    return REDISMODULE_ERR;
+    return EXPR_EVAL_ERR;
   }
   r->ee.root = r->_expr;
   if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
-    return REDISMODULE_ERR;
+    return EXPR_EVAL_ERR;
   }
   return ExprEval_Eval(&r->ee, &r->res);
 }
@@ -418,14 +446,13 @@ int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *expr) {
 /**
  * ResultProcessor type which evaluates expressions
  */
-typedef struct RPEvaluator RPEvaluator;
-struct RPEvaluator {
+typedef struct RPEvaluator {
   ResultProcessor base;
   ExprEval eval;
   RSValue *val;
   const RLookupKey *outkey;
   int isFilter;
-};
+} RPEvaluator;
 
 #define RESULT_EVAL_ERR RS_RESULT_MAX + 1
 
@@ -497,6 +524,7 @@ static ResultProcessor *RPEvaluator_NewCommon(const RSExpr *ast, const RLookup *
   rp->base.Next = isFilter ? rpevalNext_filter : rpevalNext_project;
   rp->base.Free = rpevalFree;
   rp->base.type = isFilter ? RP_FILTER : RP_PROJECTOR;
+  rp->eval.mode = EVAL_MODE_QUERY;
   rp->eval.lookup = lookup;
   rp->eval.root = ast;
   rp->outkey = dstkey;
