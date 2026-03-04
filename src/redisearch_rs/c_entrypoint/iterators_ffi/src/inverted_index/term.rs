@@ -225,15 +225,18 @@ pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     // SAFETY: 5. guarantees term is a heap-allocated RSQueryTerm
     let term = unsafe { Box::from_raw(term) };
 
-    // Create the expiration checker
-    let expiration_checker = FieldExpirationChecker::new(
-        sctx,
-        FieldFilterContext {
-            field: field_mask_or_index,
-            predicate: FieldExpirationPredicate::Default,
-        },
-        reader.flags(),
-    );
+    // SAFETY: The caller guarantees `sctx` points to a valid `RedisSearchCtx`
+    // with a valid `spec`, both remaining valid for the iterator's lifetime.
+    let expiration_checker = unsafe {
+        FieldExpirationChecker::new(
+            sctx,
+            FieldFilterContext {
+                field: field_mask_or_index,
+                predicate: FieldExpirationPredicate::Default,
+            },
+            reader.flags(),
+        )
+    };
 
     // SAFETY: All preconditions for `Term::new` are upheld by this function's
     // own safety contract (valid reader, valid sctx, valid term).

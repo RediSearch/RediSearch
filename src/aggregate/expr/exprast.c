@@ -84,11 +84,6 @@ RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
   e->pred.cond = cond;
   e->pred.left = left;
   e->pred.right = right;
-  // e->pred = (RSPredicate){
-  //     .cond = cond,
-  //     .left = left,
-  //     .right = right,
-  // };
   return e;
 }
 

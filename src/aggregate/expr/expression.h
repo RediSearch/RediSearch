@@ -115,11 +115,23 @@ typedef struct RSExpr {
 } RSExpr;
 
 /**
+ * Evaluation mode for expression evaluation.
+ * Controls how errors are handled during expression evaluation.
+ */
+typedef enum {
+  /** Query mode: strict evaluation, set errors on missing properties or type mismatches */
+  EVAL_MODE_QUERY,
+  /** Index mode: lenient evaluation, missing properties return NULL without errors */
+  EVAL_MODE_INDEX
+} EvalMode;
+
+/**
  * Expression execution context/evaluator. I need to refactor this into something
  * nicer, but I think this will do.
  */
 typedef struct ExprEval {
   QueryError *err;
+  EvalMode mode;  // EVAL_MODE_QUERY or EVAL_MODE_INDEX
   const RLookup *lookup;
   const SearchResult *res;
   const RLookupRow *srcrow;
@@ -129,7 +141,7 @@ typedef struct ExprEval {
 
 #define EXPR_EVAL_ERR 0
 #define EXPR_EVAL_OK 1
-#define EXPR_EVAL_NULL 2
+#define EXPR_EVAL_MISSING 2
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -147,9 +159,7 @@ typedef struct EvalCtx {
   bool _own_expr;
 } EvalCtx;
 
-EvalCtx *EvalCtx_Create();
-EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
-EvalCtx *EvalCtx_FromString(const HiddenString *exprstr);
+EvalCtx *EvalCtx_Create(EvalMode mode);
 void EvalCtx_Destroy(EvalCtx *r);
 int EvalCtx_Eval(EvalCtx *r);
 int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);

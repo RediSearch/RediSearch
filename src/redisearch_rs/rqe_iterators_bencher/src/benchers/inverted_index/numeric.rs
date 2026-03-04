@@ -181,14 +181,18 @@ impl NumericBencher {
             b.iter(|| {
                 let reader = ii.reader();
                 let reader_flags = reader.flags();
-                let checker = FieldExpirationChecker::new(
-                    context.sctx,
-                    FieldFilterContext {
-                        field: FieldMaskOrIndex::Index(fs.index),
-                        predicate: FieldExpirationPredicate::Default,
-                    },
-                    reader_flags,
-                );
+                // SAFETY: `context.sctx` is a valid `RedisSearchCtx` with a valid `spec`,
+                // both remaining valid for the benchmark's lifetime.
+                let checker = unsafe {
+                    FieldExpirationChecker::new(
+                        context.sctx,
+                        FieldFilterContext {
+                            field: FieldMaskOrIndex::Index(fs.index),
+                            predicate: FieldExpirationPredicate::Default,
+                        },
+                        reader_flags,
+                    )
+                };
 
                 // SAFETY: `range_tree` is None so no pointer invariants apply.
                 let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
@@ -212,14 +216,18 @@ impl NumericBencher {
             b.iter(|| {
                 let reader = ii.reader();
                 let reader_flags = reader.flags();
-                let checker = FieldExpirationChecker::new(
-                    context.sctx,
-                    FieldFilterContext {
-                        field: FieldMaskOrIndex::Index(fs.index),
-                        predicate: FieldExpirationPredicate::Default,
-                    },
-                    reader_flags,
-                );
+                // SAFETY: `context.sctx` is a valid `RedisSearchCtx` with a valid `spec`,
+                // both remaining valid for the benchmark's lifetime.
+                let checker = unsafe {
+                    FieldExpirationChecker::new(
+                        context.sctx,
+                        FieldFilterContext {
+                            field: FieldMaskOrIndex::Index(fs.index),
+                            predicate: FieldExpirationPredicate::Default,
+                        },
+                        reader_flags,
+                    )
+                };
 
                 // SAFETY: `range_tree` is None so no pointer invariants apply.
                 let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
