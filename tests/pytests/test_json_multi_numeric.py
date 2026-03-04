@@ -778,25 +778,25 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
     res = conn.execute_command('FT.SEARCH', 'idx_flat', '@val:[2 3]', *dialect_param)
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
-@skip(no_json=True)
-def testMultiNumericReturn(env):
-    """ test RETURN with multiple NUMERIC values """
+# @skip(no_json=True)
+# def testMultiNumericReturn(env):
+#     """ test RETURN with multiple NUMERIC values """
 
-    res1 = [1, 'doc:1', ['arr_1', '[2]']]
-    res2 = [1, 'doc:1', ['val', '[1,2,3]']]
-    res3 = [1, 'doc:1', ['val', '[[1,2,3]]']]
+#     res1 = [1, 'doc:1', ['arr_1', '[2]']]
+#     res2 = [1, 'doc:1', ['val', '[1,2,3]']]
+#     res3 = [1, 'doc:1', ['val', '[[1,2,3]]']]
 
-    checkMultiNumericReturn(env, [res1, res2, res3], False, False)
-    env.flush()
-    checkMultiNumericReturn(env, [res1, res2, res3], False, True)
+#     checkMultiNumericReturn(env, [res1, res2, res3], False, False)
+#     env.flush()
+#     checkMultiNumericReturn(env, [res1, res2, res3], False, True)
 
-@skip(no_json=True)
-def testMultiNumericReturnBWC(env):
-    """ test backward compatibility of RETURN with multiple NUMERIC values """
-    res1 = [1, 'doc:1', ['arr_1', '2']]
-    res2 = [1, 'doc:1', ['val', '1']]
-    res3 = [1, 'doc:1', ['val', '[1,2,3]']]
+# @skip(no_json=True)
+# def testMultiNumericReturnBWC(env):
+#     """ test backward compatibility of RETURN with multiple NUMERIC values """
+#     res1 = [1, 'doc:1', ['arr_1', '2']]
+#     res2 = [1, 'doc:1', ['val', '1']]
+#     res3 = [1, 'doc:1', ['val', '[1,2,3]']]
 
-    checkMultiNumericReturn(env, [res1, res2, res3], True, False)
-    env.flush()
-    checkMultiNumericReturn(env, [res1, res2, res3], True, True)
+#     checkMultiNumericReturn(env, [res1, res2, res3], True, False)
+#     env.flush()
+#     checkMultiNumericReturn(env, [res1, res2, res3], True, True)

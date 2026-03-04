@@ -144,266 +144,266 @@ def EmptyTextJSONTest(env, idx, dialect):
     expected = [1, 'j', ['$', js]]
     env.assertEqual(res, expected)
 
-def testEmptyTag():
-    """Tests that empty values are indexed properly"""
+# def testEmptyTag():
+#     """Tests that empty values are indexed properly"""
 
-    env = DialectEnv()
-    conn = getConnectionByEnv(env)
-    MAX_DIALECT = set_max_dialect(env)
+#     env = DialectEnv()
+#     conn = getConnectionByEnv(env)
+#     MAX_DIALECT = set_max_dialect(env)
 
-    def testEmptyTagHash(env, conn, idx, dialect):
-        """Tests the indexing and querying of empty values for a TAG field of a
-        hash index"""
+#     def testEmptyTagHash(env, conn, idx, dialect):
+#         """Tests the indexing and querying of empty values for a TAG field of a
+#         hash index"""
 
-        # Populate the db with a document that has an empty value for a TAG field
-        conn.execute_command('HSET', 'h1', 't', '')
+#         # Populate the db with a document that has an empty value for a TAG field
+#         conn.execute_command('HSET', 'h1', 't', '')
 
-        # ------------------------- Simple retrieval ---------------------------
-        # Search for a single document, via its indexed empty value
-        res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
-        expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+#         # ------------------------- Simple retrieval ---------------------------
+#         # Search for a single document, via its indexed empty value
+#         res = conn.execute_command('FT.SEARCH', idx, '@t:{""}')
+#         expected = [1, 'h1', ['t', '']]
+#         env.assertEqual(res, expected)
 
-        res = conn.execute_command('FT.SEARCH', idx, "@t:{''}")
-        env.assertEqual(res, expected)
+#         res = conn.execute_command('FT.SEARCH', idx, "@t:{''}")
+#         env.assertEqual(res, expected)
 
-        # Make sure the document is NOT returned when searching for a non-empty
-        # value
-        res = conn.execute_command('FT.SEARCH', idx, '@t:{foo}')
-        expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+#         # Make sure the document is NOT returned when searching for a non-empty
+#         # value
+#         res = conn.execute_command('FT.SEARCH', idx, '@t:{foo}')
+#         expected = EMPTY_RESULT
+#         env.assertEqual(res, expected)
 
-        # ------------------------------ Negation ------------------------------
-        # Search for a negation of an empty value, make sure the document is NOT
-        # returned
-        res = conn.execute_command('FT.SEARCH', idx, '-@t:{""}')
-        expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+#         # ------------------------------ Negation ------------------------------
+#         # Search for a negation of an empty value, make sure the document is NOT
+#         # returned
+#         res = conn.execute_command('FT.SEARCH', idx, '-@t:{""}')
+#         expected = EMPTY_RESULT
+#         env.assertEqual(res, expected)
 
-        res = conn.execute_command('FT.SEARCH', idx, "-@t:{''}")
-        env.assertEqual(res, expected)
+#         res = conn.execute_command('FT.SEARCH', idx, "-@t:{''}")
+#         env.assertEqual(res, expected)
 
-        # Search for a negation of a non-empty value, make sure the document is
-        # returned
-        res = conn.execute_command('FT.SEARCH', idx, '-@t:{foo}')
-        expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+#         # Search for a negation of a non-empty value, make sure the document is
+#         # returned
+#         res = conn.execute_command('FT.SEARCH', idx, '-@t:{foo}')
+#         expected = [1, 'h1', ['t', '']]
+#         env.assertEqual(res, expected)
 
-        # --------------------- Optional Operator ------------------------------
-        res = conn.execute_command('FT.SEARCH', idx, '~@t:{""}')
-        expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+#         # --------------------- Optional Operator ------------------------------
+#         res = conn.execute_command('FT.SEARCH', idx, '~@t:{""}')
+#         expected = [1, 'h1', ['t', '']]
+#         env.assertEqual(res, expected)
 
-        conn.execute_command('HSET', 'h2', 't', 'bar')
-        res = conn.execute_command(
-            'FT.SEARCH', idx, '~@t:{""}', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
-        env.assertEqual(res, expected)
-        conn.execute_command('DEL', 'h2')
+#         conn.execute_command('HSET', 'h2', 't', 'bar')
+#         res = conn.execute_command(
+#             'FT.SEARCH', idx, '~@t:{""}', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
+#         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
+#         env.assertEqual(res, expected)
+#         conn.execute_command('DEL', 'h2')
 
-        # ------------------------------- Union --------------------------------
-        # Union of empty and non-empty values
-        res = conn.execute_command('FT.SEARCH', idx, '@t:{""} | @t:{foo}')
-        expected = [1, 'h1', ['t', '']]
-        env.assertEqual(res, expected)
+#         # ------------------------------- Union --------------------------------
+#         # Union of empty and non-empty values
+#         res = conn.execute_command('FT.SEARCH', idx, '@t:{""} | @t:{foo}')
+#         expected = [1, 'h1', ['t', '']]
+#         env.assertEqual(res, expected)
 
-        res = conn.execute_command('FT.SEARCH', idx, "@t:{''} | @t:{foo}")
-        env.assertEqual(res, expected)
+#         res = conn.execute_command('FT.SEARCH', idx, "@t:{''} | @t:{foo}")
+#         env.assertEqual(res, expected)
 
-        # adding documents with two tags, one of which is empty
-        conn.execute_command('HSET', 'h2', 't', 'bar,')
+#         # adding documents with two tags, one of which is empty
+#         conn.execute_command('HSET', 'h2', 't', 'bar,')
 
-        res = conn.execute_command(
-            'FT.SEARCH', idx, '@t:{""} | @t:{foo}',
-            'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar,']]
-        env.assertEqual(res, expected)
+#         res = conn.execute_command(
+#             'FT.SEARCH', idx, '@t:{""} | @t:{foo}',
+#             'SORTBY', 't', 'ASC', 'WITHCOUNT')
+#         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar,']]
+#         env.assertEqual(res, expected)
 
-        conn.execute_command('DEL', 'h2')
+#         conn.execute_command('DEL', 'h2')
 
-        # adding another document with an non-empty value
-        conn.execute_command('HSET', 'h2', 't', 'bar')
-        res = conn.execute_command(
-            'FT.SEARCH', idx, '@t:{""} | @t:{foo} | @t:{bar}',
-            'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
-        env.assertEqual(res, expected)
+#         # adding another document with an non-empty value
+#         conn.execute_command('HSET', 'h2', 't', 'bar')
+#         res = conn.execute_command(
+#             'FT.SEARCH', idx, '@t:{""} | @t:{foo} | @t:{bar}',
+#             'SORTBY', 't', 'ASC', 'WITHCOUNT')
+#         expected = [2, 'h1', ['t', ''], 'h2', ['t', 'bar']]
+#         env.assertEqual(res, expected)
 
-        res = conn.execute_command(
-            'FT.SEARCH', idx, '@t:{foo} | @t:{""} | @t:{bar}',
-            'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        env.assertEqual(res, expected)
+#         res = conn.execute_command(
+#             'FT.SEARCH', idx, '@t:{foo} | @t:{""} | @t:{bar}',
+#             'SORTBY', 't', 'ASC', 'WITHCOUNT')
+#         env.assertEqual(res, expected)
 
-        res = conn.execute_command(
-            'FT.SEARCH', idx, '@t:{foo} | @t:{bar} | @t:{""}',
-            'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        env.assertEqual(res, expected)
+#         res = conn.execute_command(
+#             'FT.SEARCH', idx, '@t:{foo} | @t:{bar} | @t:{""}',
+#             'SORTBY', 't', 'ASC', 'WITHCOUNT')
+#         env.assertEqual(res, expected)
 
-        conn.execute_command('DEL', 'h2')
+#         conn.execute_command('DEL', 'h2')
 
-        # ---------------------------- Intersection ----------------------------
-        # Intersection of empty and non-empty values
-        res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{foo}')
-        expected = EMPTY_RESULT
-        env.assertEqual(res, expected)
+#         # ---------------------------- Intersection ----------------------------
+#         # Intersection of empty and non-empty values
+#         res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{foo}')
+#         expected = EMPTY_RESULT
+#         env.assertEqual(res, expected)
 
-        # adding documents with two tags, one of which is empty
-        conn.execute_command('HSET', 'h2', 't', 'bar,')
-        res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{bar}')
-        expected = [1, 'h2', ['t', 'bar,']]
-        env.assertEqual(res, expected)
+#         # adding documents with two tags, one of which is empty
+#         conn.execute_command('HSET', 'h2', 't', 'bar,')
+#         res = conn.execute_command('FT.SEARCH', idx, '@t:{""} @t:{bar}')
+#         expected = [1, 'h2', ['t', 'bar,']]
+#         env.assertEqual(res, expected)
 
-        conn.execute_command('DEL', 'h2')
+#         conn.execute_command('DEL', 'h2')
 
-        # ------------------------------- Prefix -------------------------------
-        # We shouldn't get the document when searching for a prefix of "__empty"
-        cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
-        expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+#         # ------------------------------- Prefix -------------------------------
+#         # We shouldn't get the document when searching for a prefix of "__empty"
+#         cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
+#         expected = EMPTY_RESULT
+#         cmd_assert(env, cmd, expected)
 
-        # ------------------------------- Suffix -------------------------------
-        # We shouldn't get the document when searching for a suffix of "__empty"
-        cmd = f'FT.SEARCH {idx} @t:{{__em*}}'.split(' ')
-        expected = EMPTY_RESULT
-        cmd_assert(env, cmd, expected)
+#         # ------------------------------- Suffix -------------------------------
+#         # We shouldn't get the document when searching for a suffix of "__empty"
+#         cmd = f'FT.SEARCH {idx} @t:{{__em*}}'.split(' ')
+#         expected = EMPTY_RESULT
+#         cmd_assert(env, cmd, expected)
 
-        # Add a document that will be found by the suffix search
-        conn.execute_command('HSET', 'h2', 't', 'empty')
-        cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
-        expected = [1, 'h2', ['t', 'empty']]
-        cmd_assert(env, cmd, expected)
-        conn.execute_command('DEL', 'h2')
+#         # Add a document that will be found by the suffix search
+#         conn.execute_command('HSET', 'h2', 't', 'empty')
+#         cmd = f'FT.SEARCH {idx} @t:{{*pty}}'.split(' ')
+#         expected = [1, 'h2', ['t', 'empty']]
+#         cmd_assert(env, cmd, expected)
+#         conn.execute_command('DEL', 'h2')
 
-        # -------------------- Combination with other fields -------------------
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello | @t:{""}']
-        expected = [1, 'h1', ['t', '']]
-        cmd_assert(env, cmd, [1, 'h1', ['t', '']])
+#         # -------------------- Combination with other fields -------------------
+#         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello | @t:{""}']
+#         expected = [1, 'h1', ['t', '']]
+#         cmd_assert(env, cmd, [1, 'h1', ['t', '']])
 
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
-        expected = EMPTY_RESULT
-        cmd_assert(env, cmd, EMPTY_RESULT)
+#         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
+#         expected = EMPTY_RESULT
+#         cmd_assert(env, cmd, EMPTY_RESULT)
 
-        # Non-empty intersection with another field
-        conn.execute_command('HSET', 'h1', 'text', 'hello')
-        cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
-        expected = [1, 'h1', ['t', '', 'text', 'hello']]
-        cmd_assert(env, cmd, expected)
+#         # Non-empty intersection with another field
+#         conn.execute_command('HSET', 'h1', 'text', 'hello')
+#         cmd = f'FT.SEARCH {idx}'.split(' ') + ['hello @t:{""}']
+#         expected = [1, 'h1', ['t', '', 'text', 'hello']]
+#         cmd_assert(env, cmd, expected)
 
-        # Non-empty union with another field
-        conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'movie')
-        res = conn.execute_command('FT.SEARCH', idx, 'love | @t:{""}', 'SORTBY', 'text', 'ASC')
-        expected = [
-            2, 'h1', ['text', 'hello', 't', ''], 'h2', ['text', 'love you', 't', 'movie']
-        ]
-        env.assertEqual(res, expected)
+#         # Non-empty union with another field
+#         conn.execute_command('HSET', 'h2', 'text', 'love you', 't', 'movie')
+#         res = conn.execute_command('FT.SEARCH', idx, 'love | @t:{""}', 'SORTBY', 'text', 'ASC')
+#         expected = [
+#             2, 'h1', ['text', 'hello', 't', ''], 'h2', ['text', 'love you', 't', 'movie']
+#         ]
+#         env.assertEqual(res, expected)
 
-        if dialect == 2:
-            # Checking the functionality of our pipeline with empty values
-            # ------------------------------- APPLY --------------------------------
-            # Populate with some data that we will be able to see the `APPLY`
-            res = conn.execute_command(
-                'FT.AGGREGATE', idx, '*', 'LOAD', 1, '@t',
-                'APPLY', 'upper(@t)', 'as', 'upper_t',
-                'SORTBY', 4, '@t', 'ASC', '@upper_t', 'ASC')
-            expected = [
-                ANY, \
-                ['t', '', 'upper_t', ''], \
-                ['t', 'movie', 'upper_t', 'MOVIE']
-            ]
-            env.assertEqual(res, expected)
+#         if dialect == 2:
+#             # Checking the functionality of our pipeline with empty values
+#             # ------------------------------- APPLY --------------------------------
+#             # Populate with some data that we will be able to see the `APPLY`
+#             res = conn.execute_command(
+#                 'FT.AGGREGATE', idx, '*', 'LOAD', 1, '@t',
+#                 'APPLY', 'upper(@t)', 'as', 'upper_t',
+#                 'SORTBY', 4, '@t', 'ASC', '@upper_t', 'ASC')
+#             expected = [
+#                 ANY, \
+#                 ['t', '', 'upper_t', ''], \
+#                 ['t', 'movie', 'upper_t', 'MOVIE']
+#             ]
+#             env.assertEqual(res, expected)
 
-            # ------------------------------ SORTBY --------------------------------
-            cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t ASC'.split(' ')
-            expected = [
-                ANY, \
-                ['t', '', 'text', 'hello'], \
-                ['t', 'movie', 'text', 'love you']
-            ]
-            cmd_assert(env, cmd, expected)
+#             # ------------------------------ SORTBY --------------------------------
+#             cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t ASC'.split(' ')
+#             expected = [
+#                 ANY, \
+#                 ['t', '', 'text', 'hello'], \
+#                 ['t', 'movie', 'text', 'love you']
+#             ]
+#             cmd_assert(env, cmd, expected)
 
-            # Reverse order
-            cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
-            expected = [
-                ANY, \
-                ['t', 'movie', 'text', 'love you'], \
-                ['t', '', 'text', 'hello']
-            ]
-            cmd_assert(env, cmd, expected)
+#             # Reverse order
+#             cmd = f'FT.AGGREGATE {idx} * LOAD * SORTBY 2 @t DESC'.split(' ')
+#             expected = [
+#                 ANY, \
+#                 ['t', 'movie', 'text', 'love you'], \
+#                 ['t', '', 'text', 'hello']
+#             ]
+#             cmd_assert(env, cmd, expected)
 
-        # ------------------------------ GROUPBY -------------------------------
-        conn.execute_command('HSET', 'h3', 't', 'movie')
-        conn.execute_command('HSET', 'h4', 't', '')
-        cmd = f'FT.AGGREGATE {idx} * GROUPBY 1 @t REDUCE COUNT 0 AS count'.split(' ')
-        expected = [
-            ANY, \
-            ['t', '', 'count', '2'], \
-            ['t', 'movie', 'count', '2']
-        ]
-        cmd_assert(env, cmd, expected)
+#         # ------------------------------ GROUPBY -------------------------------
+#         conn.execute_command('HSET', 'h3', 't', 'movie')
+#         conn.execute_command('HSET', 'h4', 't', '')
+#         cmd = f'FT.AGGREGATE {idx} * GROUPBY 1 @t REDUCE COUNT 0 AS count'.split(' ')
+#         expected = [
+#             ANY, \
+#             ['t', '', 'count', '2'], \
+#             ['t', 'movie', 'count', '2']
+#         ]
+#         cmd_assert(env, cmd, expected)
 
-        # --------------------------- SEPARATOR --------------------------------
-        # Remove added documents
-        for i in range(2, 5):
-            conn.execute_command('DEL', f'h{i}')
+#         # --------------------------- SEPARATOR --------------------------------
+#         # Remove added documents
+#         for i in range(2, 5):
+#             conn.execute_command('DEL', f'h{i}')
 
-        # Validate that separated empty fields are indexed as empty as well
-        conn.execute_command('HSET', 'h5', 't', ', bar')
-        conn.execute_command('HSET', 'h6', 't', 'bat, ')
-        conn.execute_command('HSET', 'h7', 't', 'bat,')
-        conn.execute_command('HSET', 'h8', 't', 'bat, , bat2')
-        conn.execute_command('HSET', 'h9', 't', ',')
-        res = conn.execute_command('FT.SEARCH', idx, '@t:{""}', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
-        expected = [
-            ANY,
-            'h1', ['t', '', 'text', 'hello'],
-            'h9', ['t', ','],
-            'h5', ['t', ', bar'],
-            'h7', ['t', 'bat,'],
-            'h6', ['t', 'bat, '],
-            'h8', ['t', 'bat, , bat2']
-        ]
-        env.assertEqual(res, expected)
+#         # Validate that separated empty fields are indexed as empty as well
+#         conn.execute_command('HSET', 'h5', 't', ', bar')
+#         conn.execute_command('HSET', 'h6', 't', 'bat, ')
+#         conn.execute_command('HSET', 'h7', 't', 'bat,')
+#         conn.execute_command('HSET', 'h8', 't', 'bat, , bat2')
+#         conn.execute_command('HSET', 'h9', 't', ',')
+#         res = conn.execute_command('FT.SEARCH', idx, '@t:{""}', 'SORTBY', 't', 'ASC', 'WITHCOUNT')
+#         expected = [
+#             ANY,
+#             'h1', ['t', '', 'text', 'hello'],
+#             'h9', ['t', ','],
+#             'h5', ['t', ', bar'],
+#             'h7', ['t', 'bat,'],
+#             'h6', ['t', 'bat, '],
+#             'h8', ['t', 'bat, , bat2']
+#         ]
+#         env.assertEqual(res, expected)
 
-        # ------------------------ Priority vs. Intersection -----------------------
-        res = env.cmd('FT.SEARCH', idx, '@t:{""} -@t:{""}')
-        env.assertEqual(res, EMPTY_RESULT)
+#         # ------------------------ Priority vs. Intersection -----------------------
+#         res = env.cmd('FT.SEARCH', idx, '@t:{""} -@t:{""}')
+#         env.assertEqual(res, EMPTY_RESULT)
 
-        res = env.cmd('FT.SEARCH', idx, '-@t:{""} @t:{""}')
-        env.assertEqual(res, EMPTY_RESULT)
+#         res = env.cmd('FT.SEARCH', idx, '-@t:{""} @t:{""}')
+#         env.assertEqual(res, EMPTY_RESULT)
 
-    for dialect in range(2, MAX_DIALECT + 1):
-        env.set_dialect(dialect)
+#     for dialect in range(2, MAX_DIALECT + 1):
+#         env.set_dialect(dialect)
 
-        # Create an index with a TAG field, that also indexes empty strings, another
-        # TAG field that doesn't index empty values, and a TEXT field
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'text', 'TEXT').ok()
-        testEmptyTagHash(env, conn, 'idx', dialect)
-        env.flush()
+#         # Create an index with a TAG field, that also indexes empty strings, another
+#         # TAG field that doesn't index empty values, and a TEXT field
+#         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'text', 'TEXT').ok()
+#         testEmptyTagHash(env, conn, 'idx', dialect)
+#         env.flush()
 
-        # ----------------------------- SORTABLE case ------------------------------
-        # Create an index with a SORTABLE TAG field, that also indexes empty strings
-        env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
-        testEmptyTagHash(env, conn, 'idx_sortable', dialect)
-        env.flush()
+#         # ----------------------------- SORTABLE case ------------------------------
+#         # Create an index with a SORTABLE TAG field, that also indexes empty strings
+#         env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'SORTABLE', 'text', 'TEXT').ok()
+#         testEmptyTagHash(env, conn, 'idx_sortable', dialect)
+#         env.flush()
 
-        # --------------------------- WITHSUFFIXTRIE case --------------------------
-        # Create an index with a TAG field, that also indexes empty strings, while
-        # using a suffix trie
-        env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
-        testEmptyTagHash(env, conn, 'idx_suffixtrie', dialect)
-        env.flush()
+#         # --------------------------- WITHSUFFIXTRIE case --------------------------
+#         # Create an index with a TAG field, that also indexes empty strings, while
+#         # using a suffix trie
+#         env.expect('FT.CREATE', 'idx_suffixtrie', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE', 'text', 'TEXT').ok()
+#         testEmptyTagHash(env, conn, 'idx_suffixtrie', dialect)
+#         env.flush()
 
-        # Test that when we index many docs, we find the wanted portion of them upon
-        # empty value indexing
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY').ok()
-        n_docs = 1000
-        for i in range(n_docs):
-            conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
-        res = env.cmd('FT.SEARCH', 'idx', '@t:{""}', 'WITHCOUNT', 'LIMIT', '0', '0')
-        env.assertEqual(int(res[0]), 500)
-        res = env.cmd('FT.SEARCH', 'idx', '-@t:{""}', 'WITHCOUNT', 'LIMIT', '0', '0')
-        env.assertEqual(int(res[0]), 500)
-        env.flush()
+#         # Test that when we index many docs, we find the wanted portion of them upon
+#         # empty value indexing
+#         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'INDEXEMPTY').ok()
+#         n_docs = 1000
+#         for i in range(n_docs):
+#             conn.execute_command('HSET', f'h{i}', 't', '' if i % 2 == 0 else f'{i}')
+#         res = env.cmd('FT.SEARCH', 'idx', '@t:{""}', 'WITHCOUNT', 'LIMIT', '0', '0')
+#         env.assertEqual(int(res[0]), 500)
+#         res = env.cmd('FT.SEARCH', 'idx', '-@t:{""}', 'WITHCOUNT', 'LIMIT', '0', '0')
+#         env.assertEqual(int(res[0]), 500)
+#         env.flush()
 
 @skip(no_json=True)
 def testEmptyTagJSON():

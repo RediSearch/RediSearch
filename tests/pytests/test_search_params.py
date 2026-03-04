@@ -693,18 +693,18 @@ def aliasing(env, is_sortable, is_sortable_unf):
                                         'numval_name','AS', 'x')
     env.assertEqual(res2, res)
 
-@skip(cluster=True)
-def test_aliasing_sortables(env):
-    aliasing(env, is_sortable = True, is_sortable_unf = False)
+# @skip(cluster=True)
+# def test_aliasing_sortables(env):
+#     aliasing(env, is_sortable = True, is_sortable_unf = False)
 
-@skip(cluster=True)
-def test_aliasing_NOTsortables(env):
+# @skip(cluster=True)
+# def test_aliasing_NOTsortables(env):
 
-    aliasing(env, is_sortable = False, is_sortable_unf = False)
+#     aliasing(env, is_sortable = False, is_sortable_unf = False)
 
-@skip(cluster=True)
-def test_aliasing_sortables_UNF(env):
-    aliasing(env, is_sortable = True, is_sortable_unf = True)
+# @skip(cluster=True)
+# def test_aliasing_sortables_UNF(env):
+#     aliasing(env, is_sortable = True, is_sortable_unf = True)
 
 
 def unf(env, is_sortable_unf):

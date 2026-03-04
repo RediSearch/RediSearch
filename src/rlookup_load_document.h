@@ -18,9 +18,6 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
 
 int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
-int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst,
-                           IndexSpec *sp, const char *keyptr, QueryError *status);
-
 #ifdef __cplusplus
 }
 #endif

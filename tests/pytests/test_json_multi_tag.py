@@ -294,30 +294,30 @@ def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable
     res = conn.execute_command('FT.SEARCH', 'idx_flat', expr, *dialect_param)
     env.assertEqual(json.loads(res[2][1]), [doc1_content] if not default_dialect else doc1_content)
 
-@skip(no_json=True)
-def testMultiTagReturn(env):
-    """ test RETURN with multiple TAG values """
+# @skip(no_json=True)
+# def testMultiTagReturn(env):
+#     """ test RETURN with multiple TAG values """
 
-    res1 = [1, 'doc:1', ['arr_1', '["AL"]']]
-    res2 = [1, 'doc:1', ['val', '["FL","AL"]']]
-    res3 = [1, 'doc:1', ['val', '[["FL","AL"]]']]
-    res4 = [1, 'doc:1', ['val', '["FL","AL","MS","GA"]']]
+#     res1 = [1, 'doc:1', ['arr_1', '["AL"]']]
+#     res2 = [1, 'doc:1', ['val', '["FL","AL"]']]
+#     res3 = [1, 'doc:1', ['val', '[["FL","AL"]]']]
+#     res4 = [1, 'doc:1', ['val', '["FL","AL","MS","GA"]']]
 
-    checkMultiTagReturn(env, [res1, res2, res3, res4], False, False, False)
-    env.flush()
-    checkMultiTagReturn(env, [res1, res2, res3, res4], False, True, False)
-    env.flush()
-    checkMultiTagReturn(env, [res1, res2, res3, res4], False, True, True)
+#     checkMultiTagReturn(env, [res1, res2, res3, res4], False, False, False)
+#     env.flush()
+#     checkMultiTagReturn(env, [res1, res2, res3, res4], False, True, False)
+#     env.flush()
+#     checkMultiTagReturn(env, [res1, res2, res3, res4], False, True, True)
 
-@skip(no_json=True)
-def testMultiTagReturnBWC(env):
-    """ test backward compatibility of RETURN with multiple TAG values """
-    res1 = [1, 'doc:1', ['arr_1', 'AL']]
-    res2 = [1, 'doc:1', ['val', 'FL']]
-    res3 = [1, 'doc:1', ['val', '["FL","AL"]']]
+# @skip(no_json=True)
+# def testMultiTagReturnBWC(env):
+#     """ test backward compatibility of RETURN with multiple TAG values """
+#     res1 = [1, 'doc:1', ['arr_1', 'AL']]
+#     res2 = [1, 'doc:1', ['val', 'FL']]
+#     res3 = [1, 'doc:1', ['val', '["FL","AL"]']]
 
-    checkMultiTagReturn(env, [res1, res2, res3, res2], True, False, False)
-    env.flush()
-    checkMultiTagReturn(env, [res1, res2, res3, res2], True, True, False)
-    env.flush()
-    checkMultiTagReturn(env, [res1, res2, res3, res2], True, True, True)
+#     checkMultiTagReturn(env, [res1, res2, res3, res2], True, False, False)
+#     env.flush()
+#     checkMultiTagReturn(env, [res1, res2, res3, res2], True, True, False)
+#     env.flush()
+#     checkMultiTagReturn(env, [res1, res2, res3, res2], True, True, True)

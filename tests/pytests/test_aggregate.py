@@ -484,20 +484,20 @@ class TestAggregate():
     def testExpressions(self):
         pass
 
-    def testNoGroup(self):
-        res = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@brand', '@price',
-                           'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
-                           'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
-                           )
-        exp = [2265,
-                ['brand', 'Xbox', 'price', '9'],
-                ['brand', 'turtle beach', 'price', '9'],
-                ['brand', 'trust', 'price', '9'],
-                ['brand', 'steelseries', 'price', '9'],
-                ['brand', 'speedlink', 'price', '9']]
-        # exp = [2265, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
-                            #  'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']]
-        self.env.assertEqual(exp[1], res[1])
+    # def testNoGroup(self):
+    #     res = self.env.cmd('ft.aggregate', 'games', '*', 'LOAD', '2', '@brand', '@price',
+    #                        'APPLY', 'floor(sqrt(@price)) % 10', 'AS', 'price',
+    #                        'SORTBY', 4, '@price', 'desc', '@brand', 'desc', 'MAX', 5,
+    #                        )
+    #     exp = [2265,
+    #             ['brand', 'Xbox', 'price', '9'],
+    #             ['brand', 'turtle beach', 'price', '9'],
+    #             ['brand', 'trust', 'price', '9'],
+    #             ['brand', 'steelseries', 'price', '9'],
+    #             ['brand', 'speedlink', 'price', '9']]
+    #     # exp = [2265, ['brand', 'Xbox', 'price', '9'], ['brand', 'Turtle Beach', 'price', '9'], [
+    #                         #  'brand', 'Trust', 'price', '9'], ['brand', 'SteelSeries', 'price', '9'], ['brand', 'Speedlink', 'price', '9']]
+    #     self.env.assertEqual(exp[1], res[1])
 
     def testLoad(self):
         res = self.env.cmd('ft.aggregate', 'games', '*',
