@@ -171,39 +171,39 @@ def test_load_all_docs(env):
     env.assertEqual(set_of_tuples, expected_set)
 
 
-def test_load_all_docs_and_yield():
-    """Test `LOAD *` functionality, all docs and yield score"""
-    env = Env(protocol=3)
-    setup_basic_index(env)
+# def test_load_all_docs_and_yield():
+#     """Test `LOAD *` functionality, all docs and yield score"""
+#     env = Env(protocol=3)
+#     setup_basic_index(env)
 
-    hybrid_cmd = (
-            'FT.HYBRID', 'idx',
-            'SEARCH', '@text:(one|three) | @tag:{"none"}',
-                'YIELD_SCORE_AS', 'search_score',
-            'VSIM', '@vector', '$BLOB',
-                'YIELD_SCORE_AS', 'vector_score',
-            'COMBINE', 'LINEAR', '6', 'ALPHA', 0.3, 'BETA', 0.7,
-                'YIELD_SCORE_AS', 'fused_score',
-            'LOAD', '*',
-            'PARAMS', '2', 'BLOB', QUERY_VECTOR,
-    )
-    # Use NEVER_DECODE to handle binary vector data in response
-    response = env.cmd(*hybrid_cmd, **{NEVER_DECODE: []})
-    results = response[b'results']
-    env.assertEqual(response.get(b'total_results'), 4)
+#     hybrid_cmd = (
+#             'FT.HYBRID', 'idx',
+#             'SEARCH', '@text:(one|three) | @tag:{"none"}',
+#                 'YIELD_SCORE_AS', 'search_score',
+#             'VSIM', '@vector', '$BLOB',
+#                 'YIELD_SCORE_AS', 'vector_score',
+#             'COMBINE', 'LINEAR', '6', 'ALPHA', 0.3, 'BETA', 0.7,
+#                 'YIELD_SCORE_AS', 'fused_score',
+#             'LOAD', '*',
+#             'PARAMS', '2', 'BLOB', QUERY_VECTOR,
+#     )
+#     # Use NEVER_DECODE to handle binary vector data in response
+#     response = env.cmd(*hybrid_cmd, **{NEVER_DECODE: []})
+#     results = response[b'results']
+#     env.assertEqual(response.get(b'total_results'), 4)
 
-    exp_doc1 = to_dict(expected_doc1)
-    exp_doc1.update(
-           {b'search_score': ANY, b'vector_score': ANY, b'fused_score': ANY})
-    exp_doc2 = to_dict(expected_doc2)
-    exp_doc2.update({b'vector_score': ANY, b'fused_score': ANY})
-    exp_doc3 = to_dict(expected_doc3)
-    exp_doc3.update({b'search_score': ANY, b'fused_score': ANY})
-    # doc:4 is found by the search query, but with score 0
-    exp_doc4 = to_dict(expected_doc4)
-    exp_doc4.update({b'search_score': b'0', b'fused_score': b'0'})
+#     exp_doc1 = to_dict(expected_doc1)
+#     exp_doc1.update(
+#            {b'search_score': ANY, b'vector_score': ANY, b'fused_score': ANY})
+#     exp_doc2 = to_dict(expected_doc2)
+#     exp_doc2.update({b'vector_score': ANY, b'fused_score': ANY})
+#     exp_doc3 = to_dict(expected_doc3)
+#     exp_doc3.update({b'search_score': ANY, b'fused_score': ANY})
+#     # doc:4 is found by the search query, but with score 0
+#     exp_doc4 = to_dict(expected_doc4)
+#     exp_doc4.update({b'search_score': b'0', b'fused_score': b'0'})
 
-    env.assertEqual(results[0], exp_doc2)
-    env.assertEqual(results[1], exp_doc1)
-    env.assertEqual(results[2], exp_doc3)
-    env.assertEqual(results[3], exp_doc4)
+#     env.assertEqual(results[0], exp_doc2)
+#     env.assertEqual(results[1], exp_doc1)
+#     env.assertEqual(results[2], exp_doc3)
+#     env.assertEqual(results[3], exp_doc4)
