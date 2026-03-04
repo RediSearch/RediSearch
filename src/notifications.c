@@ -279,6 +279,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
 
   const RedisModuleString *keyStr = RedisModule_CommandFilterArgGet(filter, 1);
   RedisModuleString *copyKeyStr = RedisModule_CreateStringFromString(RSDummyContext, keyStr);
+  int fieldsNum = 0;
 
   RedisModuleKey *k = RedisModule_OpenKey(RSDummyContext, copyKeyStr, REDISMODULE_READ);
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -286,7 +287,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
     goto done;
   }
 
-  int fieldsNum = (numArgs - 2) / cmdFactor;
+  fieldsNum = (numArgs - 2) / cmdFactor;
   hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
 
   for (size_t i = 0; i < fieldsNum; ++i) {

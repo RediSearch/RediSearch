@@ -72,6 +72,10 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
   }
 
+  RedisModuleString *val = NULL;
+  double score;
+  Trie *tree = NULL;
+
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
@@ -79,15 +83,13 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     goto end;
   }
 
-  RedisModuleString *val = argv[2];
-  double score;
+  val = argv[2];
   if ((RedisModule_StringToDouble(argv[3], &score) != REDISMODULE_OK)) {
     RedisModule_ReplyWithError(ctx, "ERR invalid score");
     goto end;
   }
 
   /* Create an empty value object if the key is currently empty. */
-  Trie *tree;
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     tree = NewTrie(NULL, Trie_Sort_Score);
     RedisModule_ModuleTypeSetValue(key, TrieType, tree);
@@ -125,6 +127,8 @@ int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   if (argc != 2) return RedisModule_WrongArity(ctx);
   RETURN_ERROR_ON_CRDT(ctx);
 
+  Trie *tree = NULL;
+
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
@@ -132,7 +136,7 @@ int RSSuggestLenCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     goto end;
   }
 
-  Trie *tree = RedisModule_ModuleTypeGetValue(key);
+  tree = RedisModule_ModuleTypeGetValue(key);
   RedisModule_ReplyWithLongLong(ctx, tree ? tree->size : 0);
 
 end:
@@ -163,6 +167,10 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   RETURN_ERROR_ON_CRDT(ctx);
   RedisModule_ReplicateVerbatim(ctx);
 
+  Trie *tree = NULL;
+  size_t len = 0;
+  const char *str = NULL;
+
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
   int type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
@@ -170,13 +178,12 @@ int RSSuggestDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     goto end;
   }
 
-  Trie *tree = RedisModule_ModuleTypeGetValue(key);
+  tree = RedisModule_ModuleTypeGetValue(key);
   if (!tree) {
     RedisModule_ReplyWithLongLong(ctx, 0);
     goto end;
   }
-  size_t len;
-  const char *str = RedisModule_StringPtrLen(argv[2], &len);
+  str = RedisModule_StringPtrLen(argv[2], &len);
   RedisModule_ReplyWithLongLong(ctx, Trie_Delete(tree, str, len));
 
   if (tree->size == 0) {
@@ -272,6 +279,12 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   if (argc < 3 || argc > 10) return RedisModule_WrongArity(ctx);
   RETURN_ERROR_ON_CRDT(ctx);
 
+  Trie *tree = NULL;
+  Vector *res = NULL;
+  size_t mul = 1;
+  RedisModuleKey *key = NULL;
+  int type = 0;
+
   // get the string to search for
   size_t len;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
@@ -296,28 +309,27 @@ parse_error:
     return REDISMODULE_OK;
   }
 
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+  key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
   // make sure the key is a trie
-  int type = RedisModule_KeyType(key);
+  type = RedisModule_KeyType(key);
   if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != TrieType) {
     RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
     goto end;
   }
 
-  Trie *tree = RedisModule_ModuleTypeGetValue(key);
+  tree = RedisModule_ModuleTypeGetValue(key);
   if (tree == NULL) {
     RedisModule_ReplyWithArray(ctx, 0);
     goto end;
   }
 
-  Vector *res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
-                            options.optimize);
+  res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
+                    options.optimize);
   if (!res) {
     RedisModule_ReplyWithError(ctx, "Invalid query");
     goto end;
   }
   // if we also need to return scores, we need double the records
-  size_t mul = 1;
   mul = options.withScores ? mul + 1 : mul;
   mul = options.withPayloads ? mul + 1 : mul;
   RedisModule_ReplyWithArray(ctx, Vector_Size(res) * mul);

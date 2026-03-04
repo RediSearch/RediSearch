@@ -326,6 +326,9 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
   getJSONElementFunc getElement;
   RedisJSON element;
 
+  unsigned char step = 0;
+  size_t count = 0;
+
   VecSimParams *params = &fs->vectorOpts.vecSimParams;
   if (params->algo == VecSimAlgo_TIERED) {
     params = params->algoParams.tieredParams.primaryIndexParams;
@@ -351,17 +354,17 @@ switch (params->algo) {
     default: goto fail;
   }
 
+  step = VecSimType_sizeof(type);
+
   if (!multi)
     goto fail;
 
   getElement = VecSimGetJSONCallback(type);
-  unsigned char step = VecSimType_sizeof(type);
 
   if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
     goto fail;
   }
   df->blobSize = fs->vectorOpts.expBlobSize;
-  size_t count = 0;
 
   while ((element = JSONIterable_Next(itr))) {
     JSONType jsonType = japi->getType(element);
@@ -743,6 +746,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 
   int res = REDISMODULE_ERR;
   RedisModuleString *serialized = NULL;
+  size_t len = 0;
 
   if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
     // Preserve single value behavior for backward compatibility
@@ -755,7 +759,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
     goto done;
   }
 
-  size_t len = japi->len(iter);
+  len = japi->len(iter);
   if (len > 0) {
     // First get the JSON serialized value (since it does not consume the iterator)
     if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {

@@ -177,6 +177,9 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
 
   InvertedIndex *idx = NULL;
   CharBuf termKey = {.buf = tok->str, .len = tok->len};
+  FieldMaskOrIndex fieldMaskOrIndex = {0};
+  RSQueryTerm *term = NULL;
+  QueryIterator *it = NULL;
 
   idx = openIndexKeysDict(ctx, &termKey, false, NULL);
   if (!idx) {
@@ -190,9 +193,9 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
     goto err;
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
-  QueryIterator *it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
+  fieldMaskOrIndex = (FieldMaskOrIndex){.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
+  term = NewQueryTerm(tok, tok_id);
+  it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
   return it;
 
 err:

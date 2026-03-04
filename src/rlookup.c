@@ -267,6 +267,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
   flags &= RLOOKUP_GET_KEY_FLAGS;
   // First, look for the key in the lookup table for an existing key with the same name
   RLookupKey *key = RLookup_FindKey(lookup, name, name_len);
+  const FieldSpec *fs = NULL;
 
   switch (mode) {
   // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
@@ -298,7 +299,7 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
     }
 
     // At this point we know for sure that it is not marked as loaded.
-    const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, field_name);
+    fs = RLookup_FindFieldInSpecCache(lookup, field_name);
     if (fs) {
       setKeyByFieldSpec(key, fs);
       if (RLookupKey_GetFlags(key) & RLOOKUP_F_VALAVAILABLE && !(flags & RLOOKUP_F_FORCELOAD)) {

@@ -400,6 +400,16 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t len;
   char *term = NULL;
+  II_GCScanStats info = {0};
+  II_GCReader rd;
+  InvertedIndexGcDelta *delta;
+  bool shouldFreeDeltas = true;
+  StrongRef spec_ref;
+  IndexSpec *sp;
+  RedisSearchCtx sctx_;
+  RedisSearchCtx *sctx;
+  InvertedIndex *idx;
+
   if (FGC_recvBuffer(gc, (void **)&term, &len) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
@@ -408,30 +418,28 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     return FGC_DONE;
   }
 
-  II_GCScanStats info = {0};
-  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+  rd = (II_GCReader){ .ctx = gc, .read = pipe_read_cb };
 
-  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
-  bool shouldFreeDeltas = true;
+  delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
     rm_free(term);
     return FGC_CHILD_ERROR;
   }
 
-  StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
-  IndexSpec *sp = StrongRef_Get(spec_ref);
+  spec_ref = IndexSpecRef_Promote(gc->index);
+  sp = StrongRef_Get(spec_ref);
   if (!sp) {
     status = FGC_SPEC_DELETED;
     goto cleanup;
   }
 
-  RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
-  RedisSearchCtx *sctx = &sctx_;
+  sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
+  sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
-  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, DONT_CREATE_INDEX, NULL);
+  idx = Redis_OpenInvertedIndex(sctx, term, len, DONT_CREATE_INDEX, NULL);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -501,8 +509,13 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   while (status == FGC_COLLECTED) {
     IndexSpec *sp = NULL;
     StrongRef spec_ref = {0};
-
     size_t nodeLen;
+    uint32_t nodePosition;
+    uint32_t nodeGeneration;
+    size_t entryLen;
+    RedisSearchCtx _sctx;
+    ApplyGcEntryResult r;
+
     if (FGC_recvFixed(gc, &nodeLen, sizeof nodeLen) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
@@ -513,8 +526,6 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
 
     // Read node_position + node_generation + entry_data.
-    uint32_t nodePosition;
-    uint32_t nodeGeneration;
     if (FGC_recvFixed(gc, &nodePosition, sizeof nodePosition) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
@@ -523,7 +534,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
-    size_t entryLen = nodeLen - sizeof(nodePosition) - sizeof(nodeGeneration);
+    entryLen = nodeLen - sizeof(nodePosition) - sizeof(nodeGeneration);
     if (entryLen > entryDataCap) {
       entryData = rm_realloc(entryData, entryLen);
       entryDataCap = entryLen;
@@ -540,7 +551,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       status = FGC_SPEC_DELETED;
       goto loop_cleanup;
     }
-    RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
+    _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx_LockSpecWrite(&_sctx);
 
     // First iteration: look up the tree and validate uniqueId once.
@@ -558,8 +569,8 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
       }
     }
 
-    ApplyGcEntryResult r = NumericRangeTree_ApplyGcEntry(rt, nodePosition, nodeGeneration,
-                                                          (const uint8_t *)entryData, entryLen);
+    r = NumericRangeTree_ApplyGcEntry(rt, nodePosition, nodeGeneration,
+                                      (const uint8_t *)entryData, entryLen);
     switch (r.status) {
       case Ok:
         FGC_updateStats(gc, &_sctx, r.gc_result.index_gc_info.entries_removed,
@@ -618,6 +629,15 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     TagIndex *tagIdx = NULL;
     char *tagVal = NULL;
     size_t tagValLen;
+    StrongRef spec_ref;
+    IndexSpec *sp;
+    RedisSearchCtx _sctx;
+    RedisSearchCtx *sctx;
+    II_GCReader rd;
+    bool shouldFreeDeltas;
+    const FieldSpec *fs;
+    size_t dummy_size;
+    InvertedIndex *idx;
 
     if (FGC_recvFixed(gc, &value, sizeof value) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
@@ -630,23 +650,23 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       break;
     }
 
-    StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
+    spec_ref = IndexSpecRef_Promote(gc->index);
+    sp = StrongRef_Get(spec_ref);
     if (!sp) {
       status = FGC_SPEC_DELETED;
       break;
     }
-    RedisSearchCtx _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
-    RedisSearchCtx *sctx = &_sctx;
+    _sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
+    sctx = &_sctx;
 
     if (FGC_recvBuffer(gc, (void **)&tagVal, &tagValLen) != REDISMODULE_OK) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
 
-    II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
+    rd = (II_GCReader){ .ctx = gc, .read = pipe_read_cb };
     delta = InvertedIndex_GcDelta_Read(&rd);
-    bool shouldFreeDeltas = true;
+    shouldFreeDeltas = true;
 
     if (delta == NULL) {
       status = FGC_CHILD_ERROR;
@@ -655,7 +675,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     RedisSearchCtx_LockSpecWrite(sctx);
 
-    const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
+    fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
     RS_LOG_ASSERT_FMT(fs, "tag field '%.*s' not found in index during GC", (int)fieldNameLen, fieldName);
     tagIdx = TagIndex_Open(fs);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
@@ -665,8 +685,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       goto loop_cleanup;
     }
 
-    size_t dummy_size;
-    InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, DONT_CREATE_INDEX, &dummy_size);
+    idx = TagIndex_OpenIndex(tagIdx, tagVal, tagValLen, DONT_CREATE_INDEX, &dummy_size);
     if (idx == TRIEMAP_NOTFOUND || idx != value) {
       status = FGC_PARENT_ERROR;
       goto loop_cleanup;
@@ -706,6 +725,16 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t fieldNameLen;
   char *rawFieldName = NULL;
+  II_GCScanStats info = {0};
+  II_GCReader rd;
+  InvertedIndexGcDelta *delta;
+  bool shouldFreeDeltas = true;
+  HiddenString *fieldName;
+  StrongRef spec_ref;
+  IndexSpec *sp;
+  RedisSearchCtx sctx_;
+  RedisSearchCtx *sctx;
+  InvertedIndex *idx;
 
   if (FGC_recvBuffer(gc, (void **)&rawFieldName, &fieldNameLen) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
@@ -715,29 +744,27 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     return FGC_DONE;
   }
 
-  II_GCScanStats info = {0};
-  II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
-  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
-  bool shouldFreeDeltas = true;
+  rd = (II_GCReader){ .ctx = gc, .read = pipe_read_cb };
+  delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
     rm_free(rawFieldName);
     return FGC_CHILD_ERROR;
   }
 
-  HiddenString *fieldName = NewHiddenString(rawFieldName, fieldNameLen, false);
-  StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
-  IndexSpec *sp = StrongRef_Get(spec_ref);
+  fieldName = NewHiddenString(rawFieldName, fieldNameLen, false);
+  spec_ref = IndexSpecRef_Promote(gc->index);
+  sp = StrongRef_Get(spec_ref);
   if (!sp) {
     status = FGC_SPEC_DELETED;
     goto cleanup;
   }
 
-  RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
-  RedisSearchCtx *sctx = &sctx_;
+  sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
+  sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
-  InvertedIndex *idx = dictFetchValue(sctx->spec->missingFieldDict, fieldName);
+  idx = dictFetchValue(sctx->spec->missingFieldDict, fieldName);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -791,6 +818,10 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
+  RedisSearchCtx sctx_;
+  RedisSearchCtx *sctx = NULL;
+  InvertedIndex *idx = NULL;
+
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
@@ -798,12 +829,12 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
-  RedisSearchCtx sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
-  RedisSearchCtx *sctx = &sctx_;
+  sctx_ = SEARCH_CTX_STATIC(gc->ctx, sp);
+  sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
 
-  InvertedIndex *idx = sp->existingDocs;
+  idx = sp->existingDocs;
 
   InvertedIndex_ApplyGcDelta(idx, delta, &info);
   delta = NULL;

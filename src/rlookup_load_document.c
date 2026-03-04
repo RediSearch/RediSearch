@@ -236,13 +236,15 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
+  RedisModuleScanCursor *cursor = NULL;
+  RLookup_HGETALL_privdata pd = {0};
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
   if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
     goto done;
   }
-  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
-  RLookup_HGETALL_privdata pd = {
+  cursor = RedisModule_ScanCursorCreate();
+  pd = (RLookup_HGETALL_privdata){
     .it = it,
     .dst = dst,
     .options = options,
@@ -270,6 +272,9 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
 
   JSONResultsIterator jsonIter = NULL;
   RedisModuleCtx *ctx = options->sctx->redisCtx;
+  RSValue *vptr = NULL;
+  int res = REDISMODULE_ERR;
+  RLookupKey *rlk = NULL;
 
   RedisModuleString* keyName = RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
   RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
@@ -283,13 +288,12 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
     goto done;
   }
 
-  RSValue *vptr;
-  int res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
+  res = jsonIterToValue(ctx, jsonIter, options->sctx->apiVersion, &vptr);
   japi->freeIter(jsonIter);
   if (res == REDISMODULE_ERR) {
     goto done;
   }
-  RLookupKey *rlk = RLookup_FindKey(it, JSON_ROOT, strlen(JSON_ROOT));
+  rlk = RLookup_FindKey(it, JSON_ROOT, strlen(JSON_ROOT));
   if (!rlk) {
     // First returned document, create the key.
     rlk = RLookup_GetKey_LoadEx(it, JSON_ROOT, strlen(JSON_ROOT), JSON_ROOT, RLOOKUP_F_NOFLAGS);

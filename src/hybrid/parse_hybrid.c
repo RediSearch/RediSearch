@@ -792,6 +792,16 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
+  // Declare variables used after goto statements to avoid "jump skips variable initialization" errors
+  const char *vectorScoreFieldAlias = NULL;
+  PLN_VectorNormalizerStep *vnStep = NULL;
+  bool hadArgumentBesidesCombine = false;
+  PLN_ArrangeStep *arrangeStep = NULL;
+  IndexSpec *spec = NULL;
+  size_t prefixCount = 0;
+  AggregationPipelineParams params = {0};
+  HybridParseContext hybridParseCtx = {0};
+
   if (!parseSubqueriesCount(ac, status)) {
     goto error;
   }
@@ -804,7 +814,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
-  HybridParseContext hybridParseCtx = {
+  hybridParseCtx = (HybridParseContext){
       .status = status,
       .specifiedArgs = 0,
       .hybridScoringCtx = hybridParams->scoringCtx,
@@ -843,7 +853,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
-  const char *vectorScoreFieldAlias = NULL;
   if (vectorRequest->parsedVectorData->vectorScoreFieldAlias != NULL) {
     vectorScoreFieldAlias = vectorRequest->parsedVectorData->vectorScoreFieldAlias;
     vectorRequest->parsedVectorData->vectorScoreFieldAlias = NULL;
@@ -855,7 +864,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
   }
   // Store the key string so it could fetch the distance from the RlookupRow
-  PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
+  vnStep = PLNVectorNormalizerStep_New(
     vectorRequest->parsedVectorData->fieldName,
     vectorScoreFieldAlias
   );
@@ -873,7 +882,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     mergeSearchopts.params = NULL;
   }
 
-  const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
+  hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
   if (hadArgumentBesidesCombine) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
 
@@ -885,7 +894,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
   // So it is important this is done before we add the load step to the subqueries plan
-  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
   if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
     arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
   } else {
@@ -904,8 +913,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
-  const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
+  spec = parsedCmdCtx->search->sctx->spec;
+  prefixCount = array_len(*hybridParseCtx.prefixes);
   if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
@@ -924,7 +933,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
 
   // thread safe context
-  const AggregationPipelineParams params = {
+  params = (AggregationPipelineParams){
       .common =
           {
               .sctx = sctx,  // should be a separate context?
