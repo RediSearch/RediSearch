@@ -9,13 +9,9 @@
 
 //! Supporting types for [`Intersection`].
 //!
-//! # TODO (MOD-12717)
-//!
-//! The following features from the C++ implementation are not yet ported:
-//! - `max_slop`: Maximum allowed slop between term positions
+//! The intersection iterator supports proximity constraints via two parameters:
+//! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
-//!
-//! Currently, the iterator operates with `max_slop = -1` semantics (no slop validation).
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
@@ -24,15 +20,28 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
-/// Children are sorted by estimated result count (smallest first) to minimize iterations.
-/// A document is only yielded when ALL children have a matching entry for it.
+/// Children are sorted by estimated result count (smallest first) to minimize iterations,
+/// unless `in_order` is set (which preserves the original child order for positional checks).
+/// A document is only yielded when ALL children have a matching entry for it and the
+/// term positions satisfy the `max_slop` / `in_order` proximity constraints:
+///
+/// - `max_slop`: Maximum allowed slop (distance) between term positions. `None` disables proximity
+///   validation entirely.
+/// - `in_order`: When `true`, terms must appear in the same order as the child iterators.
 pub struct Intersection<'index, I> {
-    /// Child iterators, sorted by estimated count (smallest first).
+    /// Child iterators, sorted by estimated count (smallest first) unless `in_order` is set.
     children: Vec<I>,
     /// Last doc_id successfully found in ALL children (returned by [`last_doc_id()`](Self::last_doc_id)).
     last_doc_id: t_docId,
     num_expected: usize,
     is_eof: bool,
+    /// Maximum allowed slop (distance) between term positions. `None` disables proximity
+    /// validation entirely.
+    ///
+    /// Capped to [`i32::MAX`] because of [`ffi::IndexResult_IsWithinRange`]
+    max_slop: Option<u32>,
+    /// When `true`, terms must appear in the same order as the child iterators.
+    in_order: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
     result: RSIndexResult<'index>,
 }
@@ -51,18 +60,45 @@ impl<'index, I> Intersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
-    /// Creates a new intersection iterator. Children are sorted by estimated count. If `children`
-    /// is empty, returns an iterator immediately at EOF.
+    /// Creates a new intersection iterator without proximity constraints.
+    ///
+    /// Every document matching all children is yielded. Children are sorted by estimated result
+    /// count (smallest first) to minimize iterations.
+    ///
+    /// If `children` is empty, returns an iterator immediately at EOF.
     #[must_use]
-    pub fn new(mut children: Vec<I>) -> Self {
-        children.sort_by_cached_key(|c| c.num_estimated());
+    pub fn new(children: Vec<I>) -> Self {
+        Self::new_with_slop_order(children, None, false)
+    }
 
-        let Some(num_expected) = children.first().map(|c| c.num_estimated()) else {
+    /// Creates a new intersection iterator with proximity constraints.
+    ///
+    /// - `max_slop`: Maximum allowed distance between term positions. `None` disables proximity
+    ///   validation (every document matching all children is yielded).
+    /// - `in_order`: When `true`, terms must appear in the order of the child iterators and
+    ///   children are **not** re-sorted by estimated count (their order is meaningful).
+    ///
+    /// If `children` is empty, returns an iterator immediately at EOF.
+    #[must_use]
+    pub fn new_with_slop_order(
+        mut children: Vec<I>,
+        max_slop: Option<u32>,
+        in_order: bool,
+    ) -> Self {
+        // Only sort by estimated count when order doesn't matter for proximity checks.
+        if !in_order {
+            children.sort_by_cached_key(|c| c.num_estimated());
+        }
+        // FIXME: Capped because of `ffi::IndexResult_IsWithinRange`
+        let max_slop = max_slop.map(|v| v.min(i32::MAX as u32));
+        let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
             return Self {
                 children,
                 last_doc_id: 0,
                 num_expected: 0,
                 is_eof: true,
+                max_slop,
+                in_order,
                 result: RSIndexResult::build_intersect(0).build(),
             };
         };
@@ -72,7 +108,62 @@ where
             last_doc_id: 0,
             num_expected,
             is_eof: false,
+            max_slop,
+            in_order,
             result: RSIndexResult::build_intersect(num_children).build(),
+        }
+    }
+
+    /// Returns `true` if the current result needs a proximity check after consensus.
+    ///
+    /// The check is skipped only when `max_slop` is `None` and `in_order` is `false` — the
+    /// only case where every document matching all children is trivially within range.
+    const fn needs_relevancy_check(&self) -> bool {
+        self.max_slop.is_some() || self.in_order
+    }
+
+    /// Check if the current aggregate result satisfies the proximity constraints.
+    fn current_is_relevant(&self) -> bool {
+        // SAFETY:
+        // - `self.result` is a valid, fully initialised `RSIndexResult`.
+        // - The C function reads from `r` without taking ownership or storing the pointer.
+        // - `from_ref` gives a `*const` pointer; `cast_mut` is required by the C API, which
+        //   uses a non-const pointer even though it only reads; no mutation occurs.
+        unsafe {
+            ffi::IndexResult_IsWithinRange(
+                std::ptr::from_ref(&self.result).cast_mut().cast(),
+                // `v as i32` is lossless: the constructor caps `max_slop` to
+                // `i32::MAX as u32`, so `v` always fits in `i32`.
+                self.max_slop.map_or(i32::MAX, |v| v as i32),
+                self.in_order as std::ffi::c_int,
+            ) != 0
+        }
+    }
+
+    /// Find consensus on a doc_id and verify that the result satisfies the proximity constraints.
+    ///
+    /// If the agreed-upon document doesn't satisfy the slop/order constraints, advances the first
+    /// child and retries until a relevant result is found or EOF is reached.
+    fn find_consensus_with_relevancy_check(
+        &mut self,
+        mut target: t_docId,
+    ) -> Result<Option<t_docId>, RQEIteratorError> {
+        loop {
+            match self.find_consensus(target)? {
+                Some(doc_id) => {
+                    self.build_aggregate_result(doc_id);
+                    if self.current_is_relevant() {
+                        self.last_doc_id = doc_id;
+                        return Ok(Some(doc_id));
+                    }
+                    // Not relevant — advance past this document and retry.
+                    let Some(next) = self.read_from_first_child()? else {
+                        return Ok(None);
+                    };
+                    target = next;
+                }
+                None => return Ok(None),
+            }
         }
     }
 
@@ -146,8 +237,6 @@ where
     /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
-        self.last_doc_id = doc_id;
-
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }
@@ -188,13 +277,21 @@ where
         let Some(target) = self.read_from_first_child()? else {
             return Ok(None);
         };
-
-        match self.find_consensus(target)? {
-            Some(doc_id) => {
-                self.build_aggregate_result(doc_id);
-                Ok(Some(&mut self.result))
+        // FIXME: consider using function pointers to remove runtime checks for each reads.
+        if self.needs_relevancy_check() {
+            match self.find_consensus_with_relevancy_check(target)? {
+                Some(_) => Ok(Some(&mut self.result)),
+                None => Ok(None),
             }
-            None => Ok(None),
+        } else {
+            match self.find_consensus(target)? {
+                Some(doc_id) => {
+                    self.build_aggregate_result(doc_id);
+                    self.last_doc_id = doc_id;
+                    Ok(Some(&mut self.result))
+                }
+                None => Ok(None),
+            }
         }
     }
 
@@ -205,17 +302,50 @@ where
         if self.is_eof {
             return Ok(None);
         }
-
-        match self.find_consensus(doc_id)? {
-            Some(found_id) => {
-                self.build_aggregate_result(found_id);
-                if found_id == doc_id {
-                    Ok(Some(SkipToOutcome::Found(&mut self.result)))
-                } else {
-                    Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+        // FIXME: consider using function pointers to remove runtime checks for each reads.
+        if self.needs_relevancy_check() {
+            // Try to agree on the requested doc_id first.
+            match self.find_consensus(doc_id)? {
+                Some(found_id) => {
+                    self.build_aggregate_result(found_id);
+                    let self_current_is_relevant = self.current_is_relevant();
+                    if found_id == doc_id && self_current_is_relevant {
+                        self.last_doc_id = found_id;
+                        return Ok(Some(SkipToOutcome::Found(&mut self.result)));
+                    }
+                    // Either we landed on a different doc, or the exact match wasn't relevant.
+                    // In both cases, find the next relevant result.
+                    let next_target = if self_current_is_relevant {
+                        // Consensus on a different doc_id that IS relevant — return it.
+                        self.last_doc_id = found_id;
+                        return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
+                    } else {
+                        // Not relevant — advance past this document.
+                        match self.read_from_first_child()? {
+                            Some(t) => t,
+                            None => return Ok(None),
+                        }
+                    };
+                    match self.find_consensus_with_relevancy_check(next_target)? {
+                        Some(_) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
+                        None => Ok(None),
+                    }
                 }
+                None => Ok(None),
             }
-            None => Ok(None),
+        } else {
+            match self.find_consensus(doc_id)? {
+                Some(found_id) => {
+                    self.build_aggregate_result(found_id);
+                    self.last_doc_id = found_id;
+                    if found_id == doc_id {
+                        Ok(Some(SkipToOutcome::Found(&mut self.result)))
+                    } else {
+                        Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+                    }
+                }
+                None => Ok(None),
+            }
         }
     }
 
