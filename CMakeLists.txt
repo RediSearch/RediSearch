@@ -29,7 +29,7 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char -Werror=jump-misses-init -Werror=sometimes-uninitialized" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
@@ -163,6 +163,19 @@ endif()
 check_c_compiler_flag("-Werror=incompatible-pointer-types-discards-qualifiers" HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
 if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=incompatible-pointer-types-discards-qualifiers>)
+endif()
+
+# Warn when goto jumps over variable initialization
+# gcc: -Werror=jump-misses-init
+check_c_compiler_flag("-Werror=jump-misses-init" HAS_JUMP_MISSES_INIT)
+if(HAS_JUMP_MISSES_INIT)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=jump-misses-init>)
+endif()
+
+# clang: -Werror=sometimes-uninitialized (equivalent protection)
+check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_SOMETIMES_UNINITIALIZED)
+if(HAS_SOMETIMES_UNINITIALIZED)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
 endif()
 
 add_compile_definitions(
