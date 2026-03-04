@@ -666,6 +666,31 @@ DEBUG_COMMAND(GCForceInvoke) {
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
 
+// FT.DEBUG DISK_FLUSH <index>
+// Flush the index
+DEBUG_COMMAND(DiskFlush) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!sp->diskSpec) {
+    return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
+  }
+
+  SearchDisk_Flush(sp->diskSpec);
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
+}
+
 DEBUG_COMMAND(GCForceBGInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -2286,6 +2311,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"SPEC_INVIDXES_INFO", SpecInvertedIndexesInfo}, // Print general information about the inverted indexes in the spec
                                {"GC_FORCEINVOKE", GCForceInvoke},
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
+                               {"DISK_FLUSH", DiskFlush},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
                                {"GC_STOP_SCHEDULE", GCStopFutureRuns},
                                {"GC_CONTINUE_SCHEDULE", GCContinueFutureRuns},

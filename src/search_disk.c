@@ -311,3 +311,8 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   return disk->index.getDiskUsage(index);
 }
+
+void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.flush(index);
+}

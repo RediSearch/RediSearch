@@ -408,3 +408,13 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
  * @return Total disk usage in bytes
  */
 uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Flush all memtables to disk (SST files)
+ *
+ * Forces all in-memory data to be written to SST files on disk.
+ * Useful for testing to ensure disk usage metrics are accurate.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);

@@ -180,6 +180,15 @@ typedef struct IndexDiskAPI {
    * @return Total disk usage in bytes
    */
   uint64_t (*getDiskUsage)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Flush all to disk
+   *
+   * Forces all memory to be flushed to disk
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*flush)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
