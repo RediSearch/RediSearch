@@ -103,13 +103,13 @@ impl Drop for RsString {
         match self.kind {
             RsStringKind::RustAlloc => {
                 // SAFETY: `self.ptr` was created by `CString::into_raw` and has not been freed.
-                drop(unsafe { CString::from_raw(self.ptr as *mut _) });
+                drop(unsafe { CString::from_raw(self.ptr.cast_mut().cast()) });
             }
             RsStringKind::RmAlloc => {
                 // SAFETY: Accessing a global function pointer initialized during module load.
                 let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
                 // SAFETY: `self.ptr` was allocated by rm_alloc and has not been freed.
-                unsafe { rm_free(self.ptr as _) };
+                unsafe { rm_free(self.ptr.cast_mut().cast()) };
             }
             RsStringKind::Borrowed => (), // No need to free borrowed strings.
         }
