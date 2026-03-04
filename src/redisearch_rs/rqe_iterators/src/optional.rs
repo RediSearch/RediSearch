@@ -89,7 +89,7 @@ where
 
     /// Take the child of this [`Optional`] iterator if it had one.
     /// After this the child iterator of this [`Optional`] will behave
-    /// as if it was the `Empty` iterator.
+    /// as if it was the [`Empty`](crate::Empty) iterator.
     pub const fn take_child(&mut self) -> Option<I> {
         self.child.take()
     }

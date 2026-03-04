@@ -32,7 +32,7 @@ pub struct Not<'index, I> {
     /// detected using the [`TimeoutContext`] a timeout,
     /// and reset to `false` at [`RQEIterator::rewind`].
     forced_eof: bool,
-    /// A reusable result object to avoid allocations on each `read` call.
+    /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RSIndexResult<'index>,
     /// Tracks the execution deadline for this iterator.
     ///

@@ -25,7 +25,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
 ///
-/// If you squint a bit, this is a C-flavored version of a `Box<dyn RQEIterator>`,
+/// If you squint a bit, this is a C-flavored version of a `Box<dyn [`RQEIterator`]>`,
 /// using the C iterator interface rather than the Rust trait.
 /// It can be used to pass around different iterator kinds, it is heap-allocated
 /// and it has ownership (and must free) the underlying iterator
