@@ -50,6 +50,7 @@ typedef struct BasicDiskAPI {
   void (*close)(RedisSearchDisk *disk);
   /**
    * @brief Open an index spec
+   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
    * @param disk Pointer to the disk
    * @param indexName Name of the index
    * @param indexNameLen Length of the index name
@@ -57,8 +58,13 @@ typedef struct BasicDiskAPI {
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @return Pointer to the index spec, or NULL on error
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
-  void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
+  /**
+   * @brief Close an index spec
+   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
+   * @param index Pointer to the index spec
+   */
+  void (*closeIndexSpec)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 

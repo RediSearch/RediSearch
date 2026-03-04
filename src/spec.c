@@ -1798,7 +1798,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type, false);
+    spec->diskSpec = SearchDisk_OpenIndex(NULL, name, len, spec->rule->type, false);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -2019,7 +2019,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
 
-  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
+  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
 
   // Free spec struct
   rm_free(spec);
@@ -3236,7 +3236,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     // In a forked child process, the memory is a snapshot so no lock is needed.
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-    const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD); 
+    const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
     if (inMainProcess) {
       RedisSearchCtx_LockSpecRead(&sctx);
     }
@@ -3337,7 +3337,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, !useSst);
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, !useSst);
     IndexSpec_PopulateVectorDiskParams(sp);
     if (!sp->diskSpec) {
       goto cleanup;
@@ -3518,8 +3519,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     // Legacy RDB does not have SST persistence, so always delete before opening.
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, false);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
     // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
     // data in this version of RDB (encver).
     if (!sp->diskSpec) {

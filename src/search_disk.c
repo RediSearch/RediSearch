@@ -65,9 +65,9 @@ void SearchDisk_Close() {
 }
 
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen) {
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen) {
     RS_ASSERT(disk_db);
-    return disk->basic.openIndexSpec(disk_db, indexName, indexNameLen, type, deleteBeforeOpen);
+    return disk->basic.openIndexSpec(ctx, disk_db, indexName, indexNameLen, type, deleteBeforeOpen);
 }
 
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
@@ -75,9 +75,9 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk_db && index);
-    disk->basic.closeIndexSpec(disk_db, index);
+void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(index);
+    disk->basic.closeIndexSpec(ctx, index);
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
