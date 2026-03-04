@@ -341,7 +341,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   long long distance = DEFAULT_LEV_DISTANCE;
   int nextPos = 0;
   bool fullScoreInfo = false;
-  SpellCheckCtx scCtx = {0};
+  SpellCheckCtx scCtx;
 
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 

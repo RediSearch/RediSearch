@@ -20,7 +20,7 @@
 // TIME(property, [fmt_string])
 static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
-  char timebuf[1024] = {0};  // Should be enough for any human time string
+  char timebuf[1024];  // Should be enough for any human time string
   double n = 0.0;
   time_t tt = 0;
   struct tm tm = {0};

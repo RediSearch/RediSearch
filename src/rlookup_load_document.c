@@ -237,7 +237,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
   RedisModuleString *krstr =
       RedisModule_CreateString(ctx, options->dmd->keyPtr, sdslen(options->dmd->keyPtr));
   RedisModuleScanCursor *cursor = NULL;
-  RLookup_HGETALL_privdata pd = {0};
+  RLookup_HGETALL_privdata pd;
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
   if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {

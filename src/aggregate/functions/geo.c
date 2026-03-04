@@ -45,7 +45,7 @@ static int parseLonLat(RSValue *arg1, RSValue *arg2, double *geo) {
 static int geofunc_distance(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   int rv = 0;
   double dummy = 0.0;
-  double geo[2][2] = {0};
+  double geo[2][2];
   double distance = 0.0;
 
   switch (argc) {

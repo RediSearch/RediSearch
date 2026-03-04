@@ -89,7 +89,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
                                   t_fieldMask fieldMask) {
   InvertedIndex *invidx = Redis_OpenInvertedIndex(scCtx->sctx, suggestion, len, 0, NULL);
   double retVal = 0;
-  IndexDecoderCtx ctx = {0};
+  IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = fieldMask};
   IndexReader *reader = NULL;
   RSIndexResult *res = NULL;
 
@@ -97,7 +97,6 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     // can not find inverted index key, score is 0.
     goto end;
   }
-  ctx = (IndexDecoderCtx){.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = fieldMask};
   reader = NewIndexReader(invidx, ctx);
   res = NewTokenRecord(NULL, 1);
   if (IndexReader_Next(reader, res)) {

@@ -175,31 +175,22 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
 QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
                                 t_fieldMask fieldMask, double weight) {
 
-  InvertedIndex *idx = NULL;
   CharBuf termKey = {.buf = tok->str, .len = tok->len};
-  FieldMaskOrIndex fieldMaskOrIndex = {0};
-  RSQueryTerm *term = NULL;
-  QueryIterator *it = NULL;
 
-  idx = openIndexKeysDict(ctx, &termKey, false, NULL);
+  InvertedIndex *idx = openIndexKeysDict(ctx, &termKey, false, NULL);
   if (!idx) {
-    goto err;
+    return NULL;
   }
 
   if (!InvertedIndex_NumDocs(idx) ||
      (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
-    // pass
-    goto err;
+    return NULL;
   }
 
-  fieldMaskOrIndex = (FieldMaskOrIndex){.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  term = NewQueryTerm(tok, tok_id);
-  it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
-  return it;
-
-err:
-  return NULL;
+  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
+  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
+  return NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
 }
 
 int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {

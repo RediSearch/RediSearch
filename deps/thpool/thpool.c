@@ -800,24 +800,18 @@ static void jobqueue_destroy(jobqueue *jobqueue_p) {
 static jobsChain create_jobs_chain(redisearch_thpool_work_t *jobs,
                                    size_t n_jobs) {
   jobsChain jobs_chain = {.first_job = NULL, .last_job = NULL};
-  job *first_newjob = NULL;
-  job *last_newjob = NULL;
 
-  first_newjob = (job *)rm_malloc(sizeof(job));
-  if (first_newjob == NULL)
-    goto fail;
+  job *first_newjob = (job *)rm_malloc(sizeof(job));
 
   jobs_chain.first_job = first_newjob;
 
   first_newjob->function = jobs[0].function_p;
   first_newjob->arg = jobs[0].arg_p;
   first_newjob->prev = NULL;
-  last_newjob = first_newjob;
+  job *last_newjob = first_newjob;
 
   for (size_t i = 1; i < n_jobs; i++) {
     job *cur_newjob = (job *)rm_malloc(sizeof(job));
-    if (cur_newjob == NULL)
-      goto fail;
 
     /* Add function and argument */
     cur_newjob->function = jobs[i].function_p;
@@ -830,15 +824,6 @@ static jobsChain create_jobs_chain(redisearch_thpool_work_t *jobs,
   }
 
   jobs_chain.last_job = last_newjob;
-
-  return jobs_chain;
-
-fail:
-  while (first_newjob) {
-    job *tmp = first_newjob->prev;
-    rm_free(first_newjob);
-    first_newjob = tmp;
-  }
 
   return jobs_chain;
 }

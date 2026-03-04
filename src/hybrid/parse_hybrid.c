@@ -795,12 +795,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Declare variables used after goto statements to avoid "jump skips variable initialization" errors
   const char *vectorScoreFieldAlias = NULL;
   PLN_VectorNormalizerStep *vnStep = NULL;
-  bool hadArgumentBesidesCombine = false;
   PLN_ArrangeStep *arrangeStep = NULL;
-  IndexSpec *spec = NULL;
   size_t prefixCount = 0;
-  AggregationPipelineParams params = {0};
-  HybridParseContext hybridParseCtx = {0};
+  AggregationPipelineParams params;
+  HybridParseContext hybridParseCtx;
 
   if (!parseSubqueriesCount(ac, status)) {
     goto error;
@@ -882,8 +880,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     mergeSearchopts.params = NULL;
   }
 
-  hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
-  if (hadArgumentBesidesCombine) {
+  if ((hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
@@ -913,7 +910,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  spec = parsedCmdCtx->search->sctx->spec;
   prefixCount = array_len(*hybridParseCtx.prefixes);
   if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);

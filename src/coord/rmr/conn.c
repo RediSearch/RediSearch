@@ -488,7 +488,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRConn *conn = c->data;
 
   redisReply *rep = r;
-  uv_loop_t *loop = conn ? conn->loop : NULL;
   if (!conn || conn->state == MRConn_Freeing) {
     // Will be picked up by disconnect callback
     goto cleanup;
