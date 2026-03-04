@@ -73,7 +73,7 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   RedisModuleString *val = NULL;
-  double score;
+  double score = 0.0;
   Trie *tree = NULL;
 
   RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
@@ -286,7 +286,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   int type = 0;
 
   // get the string to search for
-  size_t len;
+  size_t len = 0;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
   if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
     return RedisModule_ReplyWithError(ctx, "Invalid query length");

@@ -237,8 +237,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     SearchResult **results = NULL;
     QueryError err = QueryError_Default();
     RedisSearchCtx *sctx = NULL;
-    rs_wall_clock_ns_t duration;
-    double executionTime;
+    rs_wall_clock_ns_t duration = 0;
+    double executionTime = 0.0;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;

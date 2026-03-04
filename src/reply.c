@@ -503,8 +503,8 @@ char *escapeSimpleString(const char *str) {
 /* Based on the value type, serialize the RSValue into redis client response */
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
   v = RSValue_Dereference(v);
-  uint32_t len;
-  char *str;
+  uint32_t len = 0;
+  char *str = NULL;
 
   switch (RSValue_Type(v)) {
     case RSValueType_String:

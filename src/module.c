@@ -332,7 +332,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
   QueryError status = QueryError_Default();
-  size_t len;
+  size_t len = 0;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
@@ -532,7 +532,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  size_t len;
+  size_t len = 0;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
   TagIndex *idx = NULL;
@@ -1868,9 +1868,9 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
-  char *s;
-  tm_len_t sl;
-  void *p;
+  char *s = NULL;
+  tm_len_t sl = 0;
+  void *p = NULL;
   TrieMapIterator *it = NULL;
 
   // if there are no values - either reply with an empty set or an error

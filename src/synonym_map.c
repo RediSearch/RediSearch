@@ -242,7 +242,7 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value) {
 }
 
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
-  int ret;
+  int ret = 0;
   size_t unused = 0;
   uint64_t smap_kh_size = 0;
 

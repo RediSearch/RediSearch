@@ -844,6 +844,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
   int endEqIdx = -1;
   int beginIdx = 0;
   int endIdx = -1;
+  rsbHelper h = {0};
 
   TrieNode **arr = __trieNode_children(n);
   size_t arrlen = n->numChildren;
@@ -854,7 +855,6 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
 
   // Find the minimum range here..
   // Use binary search to find the beginning and end ranges:
-  rsbHelper h;
   if (nmin > 0) {
     // searching for node that matches the prefix of our min value
     h.r = min;
