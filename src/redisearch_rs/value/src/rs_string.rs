@@ -11,12 +11,6 @@ use ffi::RedisModule_Free;
 use std::ffi::c_char;
 use std::fmt;
 
-enum RsStringKind {
-    RustAlloc,
-    RmAlloc,
-    Borrowed,
-}
-
 /// An [`RsString`] is meant to store string data with support for rust allocated data, C
 /// allocated data or borrowed data, and support for a max length of `u32::MAX`.
 /// It can contain binary data and is always nul-terminated.
@@ -30,6 +24,19 @@ pub struct RsString {
     ptr: *const c_char,
     len: u32,
     kind: RsStringKind,
+}
+
+/// This defines the type of allocation used by the [`RsString`]
+enum RsStringKind {
+    /// Used when the [`RsString`] is allocated directly through the Rust
+    /// Global allocator. Most often when originating from Rust code.
+    RustGlobalAlloc,
+    /// Used when the [`RsString`] is allocated directly through
+    /// `RedisModule_Alloc`. Most often when originating from C code.
+    RedisModuleAlloc,
+    /// Used when the [`RsString`] is referencing borrowed data which
+    /// should not be freed when dropping the [`RsString`].
+    Borrowed,
 }
 
 impl RsString {
@@ -50,11 +57,11 @@ impl RsString {
         Self {
             ptr: ptr as *const c_char,
             len: len as u32,
-            kind: RsStringKind::RustAlloc,
+            kind: RsStringKind::RustGlobalAlloc,
         }
     }
 
-    /// Create an [`RsString`] from a rm_alloc allocated string.
+    /// Create an [`RsString`] from a redis module allocated string.
     /// Takes ownership of the string pointed to by `ptr`/`len`.
     ///
     /// # Safety
@@ -73,11 +80,11 @@ impl RsString {
         Self {
             ptr,
             len,
-            kind: RsStringKind::RmAlloc,
+            kind: RsStringKind::RedisModuleAlloc,
         }
     }
 
-    /// Create an [`RsString`] from a constant string.
+    /// Create an [`RsString`] from a borrowed string.
     ///
     /// # Safety
     ///
@@ -116,7 +123,7 @@ impl RsString {
 impl Drop for RsString {
     fn drop(&mut self) {
         match self.kind {
-            RsStringKind::RustAlloc => {
+            RsStringKind::RustGlobalAlloc => {
                 let slice = std::ptr::slice_from_raw_parts_mut(
                     self.ptr.cast_mut().cast::<u8>(),
                     (self.len as usize) + 1,
@@ -124,7 +131,7 @@ impl Drop for RsString {
                 // Safety: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
                 drop(unsafe { Box::from_raw(slice) });
             }
-            RsStringKind::RmAlloc => {
+            RsStringKind::RedisModuleAlloc => {
                 // Safety: Accessing a global function pointer initialized during module load.
                 let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
                 // Safety: `self.ptr` was allocated by rm_alloc and has not been freed.
