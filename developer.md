@@ -76,15 +76,9 @@ nix develop github:chesedo/redisearch-nix-env#nightly
 
 ### Installing Redis
 
-RediSearch requires `redis-server` in your PATH. We recommend building Redis from source since RediSearch `master` often requires unreleased features:
+RediSearch requires `redis-server` in your PATH. We recommend building Redis from source since RediSearch `master` often requires unreleased features.
 
-```sh
-git clone https://github.com/redis/redis.git
-cd redis
-make
-sudo make install
-cd ..
-```
+Follow the steps in the [Redis Readme on building Redis from source](https://github.com/redis/redis#build-redis-from-source) to get it installed.
 
 ## Building the Project
 
