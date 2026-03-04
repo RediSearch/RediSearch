@@ -73,25 +73,18 @@ void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
 }
 
 bool CoordRequestCtx_TryClaimReply(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    return ctx->hreq ? HybridRequest_TryClaimReply(ctx->hreq) : false;
-  } else {
-    return ctx->areq ? AREQ_TryClaimReply(ctx->areq) : false;
-  }
+  UNUSED(ctx);
+  // Both AREQ and HybridRequest use reply_callback pattern, no sync needed - always succeed
+  return true;
 }
 
 void CoordRequestCtx_MarkReplied(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    if (ctx->hreq) HybridRequest_MarkReplied(ctx->hreq);
-  } else {
-    if (ctx->areq) AREQ_MarkReplied(ctx->areq);
-  }
+  UNUSED(ctx);
+  // Both AREQ and HybridRequest use reply_callback pattern, no sync needed - no-op
 }
 
 uint8_t CoordRequestCtx_GetReplyState(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    return ctx->hreq ? HybridRequest_GetReplyState(ctx->hreq) : ReplyState_NotReplied;
-  } else {
-    return ctx->areq ? AREQ_GetReplyState(ctx->areq) : ReplyState_NotReplied;
-  }
+  UNUSED(ctx);
+  // Both AREQ and HybridRequest use reply_callback pattern, no sync needed
+  return ReplyState_NotReplied;
 }

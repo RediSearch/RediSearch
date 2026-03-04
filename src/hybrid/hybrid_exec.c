@@ -240,16 +240,17 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
 
-    // Check timeout before starting pipeline
+    // Check if timed out before executing pipeline
     if (HybridRequest_TimedOut(hreq)) {
-      // Timeout callback owns reply - skip to cleanup without replying
+      // Timeout callback already replied - skip to cleanup without replying
       goto done_err;
     }
 
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
-    if (!HybridRequest_TryClaimReply(hreq)) {
-      // Timeout callback owns reply - skip to cleanup without replying
+    // Check if timed out during pipeline execution
+    if (HybridRequest_TimedOut(hreq)) {
+      // Timeout callback already replied - skip to cleanup without replying
       goto done_err;
     }
 
@@ -260,13 +261,11 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       // Track errors in global statistics
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&err), 1, COORD_ERR_WARN);
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
-      HybridRequest_MarkReplied(hreq);
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
       // Track timeout error in global statistics
       QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
       ReplyWithTimeoutError(reply);
-      HybridRequest_MarkReplied(hreq);
       goto done_err;
     }
 
@@ -327,7 +326,6 @@ done:
     }
 
     RedisModule_Reply_MapEnd(reply);
-    HybridRequest_MarkReplied(hreq);
 
 done_err:
     finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
@@ -582,8 +580,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // TODO: Dump the entire hreq when explain is implemented
     // Create a dummy AREQ for BlockQueryClientWithTimeout (it expects an AREQ but we'll use the first one)
     AREQ *dummy_req = hreq->requests[0];
-    // Pass 0 and NULL - no Redis-level timeout for hybrid (for now)
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, dummy_req, 0, NULL);
+    // Pass 0 and NULL - no Redis-level timeout or reply_callback for hybrid (HybridRequest uses its own pattern)
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, dummy_req, 0, NULL, NULL);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 

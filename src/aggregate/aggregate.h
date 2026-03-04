@@ -37,11 +37,29 @@ extern "C" {
 
 #define DEFAULT_LIMIT 10
 
+// Forward declaration for cursor
+struct Cursor;
+
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
   RLookup *lastLookup;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
+
+/**
+ * State needed for reply serialization in reply_callback path.
+ * When using FAIL policy with workers, the background thread stores results here,
+ * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ */
+typedef struct {
+  SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
+  int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  bool cursor_done;        // Whether cursor is exhausted (for cursor queries)
+  bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
+  QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
+  struct Cursor *cursor;   // Cursor pointer (for cursor queries, NULL otherwise)
+  cachedVars cv;           // Cached lookup variables for result serialization
+} ChunkReplyState;
 
 typedef struct Grouper Grouper;
 struct QOptimizer;
@@ -205,8 +223,12 @@ typedef enum {
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
-// Reply state for coordinating replies between main thread (timeout callback) and background thread
-// Transitions: NOT_REPLIED -> REPLYING -> REPLIED
+/**
+ * Reply state for coordinating replies between main thread (timeout callback)
+ * and background thread. Used by HybridRequest only.
+ * AREQ uses reply_callback pattern instead (no replyState synchronization needed).
+ * Transitions: NOT_REPLIED -> REPLYING -> REPLIED
+ */
 typedef enum {
   ReplyState_NotReplied = 0,  // No reply has been started yet
   ReplyState_Replying = 1,    // A reply is currently in progress
@@ -215,13 +237,14 @@ typedef enum {
 
 /**
  * Common synchronization context for request types (AREQ, HybridRequest).
- * Provides thread-safe coordination between main thread (timeout callback)
- * and background thread (query execution).
+ * - For AREQ: Only timedOut and refcount are used. AREQ uses reply_callback pattern.
+ * - For HybridRequest: All fields are used (timedOut, replyState, refcount).
  */
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
   // Reply ownership state, coordinates reply between main and background thread
+  // Used by HybridRequest only. AREQ uses reply_callback pattern instead.
   RS_Atomic(uint8_t) replyState;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
@@ -322,6 +345,11 @@ typedef struct AREQ {
 
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
+
+  // State for reply_callback path (FAIL policy with workers)
+  // Background thread stores results here, then calls UnblockClient.
+  // The reply_callback reads from here to build the reply on the main thread.
+  ChunkReplyState storedReplyState;
 } AREQ;
 
 /**
@@ -543,11 +571,6 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
-
-// Reply state management for coordinating replies between main thread (timeout callback) and background thread
-bool AREQ_TryClaimReply(AREQ *req);
-void AREQ_MarkReplied(AREQ *req);
-uint8_t AREQ_GetReplyState(AREQ *req);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;

@@ -43,6 +43,11 @@ typedef struct HybridRequest {
 
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
+
+    // State for reply_callback path (FAIL policy with workers in coordinator mode)
+    // Background thread stores results here, then calls UnblockClient.
+    // The reply_callback reads from here to build the reply on the main thread.
+    ChunkReplyState storedReplyState;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
@@ -66,17 +71,6 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
     }
   }
 }
-
-// Reply state management functions for coordinating replies between main and background threads
-// Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
-// false if already claimed or replied (state was REPLYING or REPLIED).
-bool HybridRequest_TryClaimReply(HybridRequest *req);
-
-// Mark reply as complete. Must only be called after successfully claiming reply.
-void HybridRequest_MarkReplied(HybridRequest *req);
-
-// Get current reply state (for checking/waiting in timeout callback)
-uint8_t HybridRequest_GetReplyState(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {

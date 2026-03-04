@@ -250,20 +250,6 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
-bool HybridRequest_TryClaimReply(HybridRequest *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
-
-void HybridRequest_MarkReplied(HybridRequest *req) {
-  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
-}
-
-uint8_t HybridRequest_GetReplyState(HybridRequest *req) {
-  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
-}
-
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;

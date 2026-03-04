@@ -766,7 +766,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     HybridRequest *hreq, RedisModule_Reply *reply,
     QueryError *status) {
 
-    // Try to claim reply ownership. If we get it, we can safely write to the reply.
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
     if (!QueryError_HasError(status)) {
@@ -775,11 +774,8 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
       goto cleanup;
     }
 
-    // Check that we can claim the reply. If not, the timeout callback owns the reply and we should not write to it.
-    // If we can't claim the reply, we should just clear the error and return.
-    // If hreq is NULL, we don't have a request to claim. This can happen if the cleanup was called before the request was created.
-    if (hreq && !CoordRequestCtx_TryClaimReply(reqCtx)) {
-        // Timeout callback owns reply - just clear the error
+    // If timeout already occurred, the timeout callback already replied - don't reply again
+    if (CoordRequestCtx_TimedOut(reqCtx)) {
         QueryError_ClearError(status);
         goto cleanup;
     }
@@ -787,7 +783,6 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
     QueryError_ReplyAndClear(ctx, status);
-    CoordRequestCtx_MarkReplied(reqCtx);
 
     cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -874,8 +869,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     RedisModule_EndReply(reply);
 }
 
-// Timeout callback for Coordinator HybridRequest execution
-// Called on the main thread when the blocking client times out (FAIL policy only).
+// Timeout callback for Coordinator HybridRequest execution (FAIL policy only).
+// Called on the main thread when the blocking client times out.
+// Sets the timeout flag to signal the background thread to skip replying, then replies with error.
+// The background thread checks HybridRequest_TimedOut() before replying to avoid double-reply.
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -888,39 +885,12 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
 
-  // Lock to coordinate with request creation in the background thread.
-  // If the request was not yet created, it won't be - background thread will see the timeout flag.
-  // If the request was already created, we can safely try to claim reply ownership.
-  CoordRequestCtx_LockSetRequest(CoordReqCtx);
-
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
-
-  if(!CoordRequestCtx_HasRequest(CoordReqCtx)) {
-    // Request not created yet
-    // In this case no need to claim reply ownership - just reply with timeout error
-    // Background thread will notice the timeout and abort execution.
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    CoordRequestCtx_MarkReplied(CoordReqCtx);
-    CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
-    return REDISMODULE_OK;
-  }
-
-  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
-
-  if (CoordRequestCtx_TryClaimReply(CoordReqCtx)) {
-    // We claimed it - reply with timeout error
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    CoordRequestCtx_MarkReplied(CoordReqCtx);
-  } else {
-    // Background thread owns reply - wait for it to finish if still in progress
-    while (CoordRequestCtx_GetReplyState(CoordReqCtx) == ReplyState_Replying) {
-      // Busy wait until background thread transitions to REPLIED
-    }
-  }
+  // Reply with timeout error
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
 }

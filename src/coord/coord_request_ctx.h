@@ -20,14 +20,15 @@ extern "C" {
 
 /**
  * Coordinator request context - wrapper for AREQ/HybridRequest that enables
- * coordinator-level timeout handling.
+ * coordinator-level timeout handling using the reply_callback pattern.
  *
- * Holds a pointer to the actual request (AREQ or HybridRequest), which is
- * managed via reference counting. The background thread creates and initializes
- * the request, then sets the pointer here for timeout coordination.
+ * Both AREQ and HybridRequest use the reply_callback pattern:
+ * - Background thread executes query and stores results
+ * - Background thread calls UnblockClient to trigger reply_callback on main thread
+ * - reply_callback builds and sends the reply
+ * - Timeout callback simply replies with timeout error (no synchronization needed)
  *
- * The timeout fields (timedOut, replyState, refcount) in the pointed-to request
- * enable synchronization between main thread (timeout callback) and background thread.
+ * The setReqLock mutex coordinates request creation with timeout callback.
  */
 typedef struct CoordRequestCtx {
   CommandType type;
@@ -86,18 +87,23 @@ bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
 
 /**
- * Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
- * false if already claimed or replied (state was REPLYING or REPLIED).
+ * Try to claim reply ownership.
+ * Both AREQ and HybridRequest use reply_callback pattern, so this always returns true.
+ * Kept for API compatibility during transition.
  */
 bool CoordRequestCtx_TryClaimReply(CoordRequestCtx *ctx);
 
 /**
- * Mark reply as complete. Must only be called after successfully claiming reply.
+ * Mark reply as complete.
+ * Both AREQ and HybridRequest use reply_callback pattern, so this is a no-op.
+ * Kept for API compatibility during transition.
  */
 void CoordRequestCtx_MarkReplied(CoordRequestCtx *ctx);
 
 /**
- * Get current reply state (for checking/waiting in timeout callback).
+ * Get current reply state.
+ * Both AREQ and HybridRequest use reply_callback pattern, so this always returns NotReplied.
+ * Kept for API compatibility during transition.
  */
 uint8_t CoordRequestCtx_GetReplyState(CoordRequestCtx *ctx);
 
