@@ -364,7 +364,8 @@ QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max
 const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
 
 /**
- * Take ownership over the child of the optional (non-optimized) iterator or
+ * Take ownership over the child of the optional (non-optimized) iterator,
+ * or return NULL if there is no child.
  *
  * # Safety
  *

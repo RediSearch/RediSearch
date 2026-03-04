@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![expect(non_upper_case_globals)]
 
 use ffi::{
     IteratorType_METRIC_SORTED_BY_ID_ITERATOR, IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR,
@@ -74,7 +74,7 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
     _type: MetricType,
 ) -> *mut QueryIterator {
     let (ids_list, metrics_list) = if ids.is_null() {
-        // Safety: Safe thanks to 3
+        // SAFETY: Safe thanks to 3.
         debug_assert_eq!(
             num, 0,
             "The pointer to the array of IDs is null, but the number of IDs is non-zero."
@@ -87,9 +87,9 @@ unsafe fn new_metric_iterator<const SORTED_BY_ID: bool>(
             "The pointer to the array of metric data is null, but the pointer to the array of IDs is not null."
         );
 
-        // Safety: Safe thanks to 1
+        // SAFETY: Safe thanks to 1.
         let ids_list = unsafe { OwnedSlice::from_c(ids, num) };
-        // Safety: Safe thanks to 2
+        // SAFETY: Safe thanks to 2.
         let metrics_list = unsafe { OwnedSlice::from_c(metrics, num) };
 
         (ids_list, metrics_list)
