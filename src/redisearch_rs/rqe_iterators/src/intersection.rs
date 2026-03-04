@@ -18,6 +18,34 @@ use inverted_index::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
+unsafe extern "C" {
+    /// Checks whether the term positions recorded in `r` satisfy the given proximity constraints.
+    ///
+    /// Mirrors `IndexResult_IsWithinRange` from `src/index_result/index_result.c`.
+    /// Returns non-zero when the result is within range.
+    ///
+    /// Unlike the Rust `RSIndexResult::is_within_range`, this C implementation correctly
+    /// handles union children (e.g. stemmed/synonym expansions) by recursively merging
+    /// offset positions via `RSIndexResult_IterateOffsets`.
+    ///
+    /// Note: the C algorithms treat any negative `maxSlop` value as a strict constraint
+    /// (`span > negative` is always true). Always pass a non-negative value; use `i32::MAX`
+    /// to express "no slop constraint".
+    ///
+    /// # Safety
+    ///
+    /// `r` must be a valid, fully initialised `RSIndexResult`.
+    #[expect(
+        improper_ctypes,
+        reason = "RSIndexResult contains Rust-defined types; the C header uses the same layout"
+    )]
+    unsafe fn IndexResult_IsWithinRange(
+        r: *mut RSIndexResult,
+        max_slop: std::os::raw::c_int,
+        in_order: std::os::raw::c_int,
+    ) -> std::os::raw::c_int;
+}
+
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
 /// Children are sorted by estimated result count (smallest first) to minimize iterations,
@@ -65,6 +93,13 @@ where
     /// If `children` is empty, returns an iterator immediately at EOF.
     #[must_use]
     pub fn new(mut children: Vec<I>, max_slop: i32, in_order: bool) -> Self {
+        // Normalize negative slop to i32::MAX: the C proximity algorithms misinterpret
+        // negative values (any span > negative always breaks), so -1 ("no constraint") must
+        // be represented as a sufficiently large positive value.
+        // TODO: Use a different value to bypass max_slop constraint.
+        //       This implementation is a leftover to maximize compatibility with existing C implementation.
+        let max_slop = if max_slop < 0 { i32::MAX } else { max_slop };
+
         // Only sort by estimated count when order doesn't matter for proximity checks.
         if !in_order {
             children.sort_by_cached_key(|c| c.num_estimated());
@@ -93,13 +128,28 @@ where
     }
 
     /// Returns `true` if the current result needs a proximity check after consensus.
+    ///
+    /// The check is skipped only when both `max_slop == i32::MAX`
+    /// and `in_order` is false — the only case where every document that
+    /// matches all children is trivially within range.
     fn needs_relevancy_check(&self) -> bool {
-        !(self.max_slop < 0 && !self.in_order)
+        !(self.max_slop == i32::MAX && !self.in_order)
     }
 
     /// Check if the current aggregate result satisfies the proximity constraints.
     fn current_is_relevant(&self) -> bool {
-        self.result.is_within_range(self.max_slop, self.in_order)
+        // SAFETY:
+        // - `self.result` is a valid, fully initialised `RSIndexResult`.
+        // - The C function reads from `r` without taking ownership or storing the pointer.
+        // - Casting `*const` to `*mut` is required by the C API, which uses a non-const
+        //   pointer even though it only reads; no mutation occurs.
+        unsafe {
+            IndexResult_IsWithinRange(
+                &self.result as *const RSIndexResult<'_> as *mut RSIndexResult,
+                self.max_slop,
+                self.in_order as std::os::raw::c_int,
+            ) != 0
+        }
     }
 
     /// Find consensus on a doc_id and verify that the result satisfies the proximity constraints.
