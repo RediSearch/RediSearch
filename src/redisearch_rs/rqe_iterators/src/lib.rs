@@ -64,7 +64,7 @@ pub enum RQEValidateStatus<'iterator, 'index> {
     Ok,
     /// The iterator is still valid but its internal state has changed.
     Moved {
-        /// The new current current document the iterator is at, or `None` if the iterator is at EOF.
+        /// The new current document the iterator is at, or `None` if the iterator is at EOF.
         current: Option<&'iterator mut RSIndexResult<'index>>,
     },
     /// The iterator is no longer valid, and should not be used or rewound. Should be dropped.
