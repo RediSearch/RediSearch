@@ -44,6 +44,9 @@ typedef struct HybridRequest {
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
 
+    // Flag to indicate coordinator mode (uses reply_callback for FAIL policy)
+    bool isCoord;
+
     // State for reply_callback path (FAIL policy with workers in coordinator mode)
     // Background thread stores results here, then calls UnblockClient.
     // The reply_callback reads from here to build the reply on the main thread.

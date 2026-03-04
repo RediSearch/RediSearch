@@ -833,7 +833,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
-
     // Check if already timed out
     if (CoordRequestCtx_TimedOut(reqCtx)) {
         CoordRequestCtx_UnlockSetRequest(reqCtx);
@@ -844,6 +843,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+    hreq->isCoord = true;  // Mark as coordinator for reply_callback path
     CoordRequestCtx_SetRequest(reqCtx, hreq);
 
     // Store coordinator start time for dispatch time tracking
@@ -858,7 +858,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
-
 
     if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
@@ -892,5 +891,48 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
+  return REDISMODULE_OK;
+}
+
+// Reply callback for Coordinator HybridRequest execution (FAIL policy).
+// Called on the main thread when the background thread calls UnblockClient.
+// The background thread stored results in hreq->storedReplyState, which we use to build the reply.
+// Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
+int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no context");
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
+
+  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  if (!hreq) {
+    RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no hybrid request");
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no hybrid request");
+  }
+
+  // Check if results were stored (background thread completed successfully)
+  if (!hreq->storedReplyState.hasStoredResults) {
+    // Background thread didn't store results - some early error occurred.
+    if (QueryError_HasError(&hreq->storedReplyState.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->storedReplyState.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &hreq->storedReplyState.err);
+    } else {
+      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+    }
+    return REDISMODULE_OK;
+  }
+
+  // Call serializeStoredResults_hybrid to build reply from stored results
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  serializeStoredResults_hybrid(hreq, reply);
+  RedisModule_EndReply(reply);
+
+  // Note: No HybridRequest_DecrRef here - CoordRequestCtx_Free releases the context's reference.
   return REDISMODULE_OK;
 }

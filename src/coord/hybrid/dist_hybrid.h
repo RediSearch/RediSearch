@@ -23,6 +23,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // For testing purposes
 // numShards is passed from the main thread to ensure thread-safe access

@@ -3713,7 +3713,8 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   handlerCtx.bcCtx.free_privdata = DistHybridFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    handlerCtx.bcCtx.callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
+    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
   }
 

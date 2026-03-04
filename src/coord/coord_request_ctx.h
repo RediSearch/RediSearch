@@ -76,6 +76,12 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req);
 bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx);
 
 /**
+ * Get the request from the context.
+ * Returns NULL if no request is set.
+ */
+void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
+
+/**
  * Check if the coordinator request has timed out.
  */
 bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
@@ -85,27 +91,6 @@ bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
  * Also propagates to the underlying request if set.
  */
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
-
-/**
- * Try to claim reply ownership.
- * Both AREQ and HybridRequest use reply_callback pattern, so this always returns true.
- * Kept for API compatibility during transition.
- */
-bool CoordRequestCtx_TryClaimReply(CoordRequestCtx *ctx);
-
-/**
- * Mark reply as complete.
- * Both AREQ and HybridRequest use reply_callback pattern, so this is a no-op.
- * Kept for API compatibility during transition.
- */
-void CoordRequestCtx_MarkReplied(CoordRequestCtx *ctx);
-
-/**
- * Get current reply state.
- * Both AREQ and HybridRequest use reply_callback pattern, so this always returns NotReplied.
- * Kept for API compatibility during transition.
- */
-uint8_t CoordRequestCtx_GetReplyState(CoordRequestCtx *ctx);
 
 #ifdef __cplusplus
 }
