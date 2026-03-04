@@ -66,9 +66,12 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a [valid], non-null pointer to valid data of `len+1` size.
+    /// 1. `ptr` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+    ///    allocated by `RedisModule_Alloc`.
     /// 2. A nul-terminator is expected in memory at `ptr+len`.
     /// 3. The size determined by `len` excludes the nul-terminator.
+    /// 4. `ptr` **must not** be used or freed after this function is called, as this function
+    ///    takes ownership of the allocation.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     #[allow(clippy::multiple_unsafe_ops_per_block)]
@@ -88,7 +91,7 @@ impl RsString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a [valid], non-null pointer to a valid c-string of `len+1` size.
+    /// 1. `ptr` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
     /// 2. A nul-terminator is expected in memory at `ptr+len`.
     /// 3. The size determined by `len` excludes the nul-terminator.
     /// 4. The string pointed to by `ptr`/`len+1` must stay valid for as long as

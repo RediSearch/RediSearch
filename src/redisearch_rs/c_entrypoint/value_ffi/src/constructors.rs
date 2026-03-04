@@ -82,15 +82,17 @@ pub unsafe extern "C" fn RSValue_NewTrio(
 ///
 /// # Safety
 ///
-/// 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
-/// 2. `str` must be [valid] for reads of `len` bytes.
-/// 3. `str` **must not** be used or freed after this function is called, as this function
+/// 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+///    allocated by `RedisModule_Alloc`.
+/// 2. A nul-terminator is expected in memory at `str+len`.
+/// 3. The size determined by `len` excludes the nul-terminator.
+/// 4. `str` **must not** be used or freed after this function is called, as this function
 ///    takes ownership of the allocation.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut RsValue {
-    // Safety: ensured by caller (1., 2., 3.)
+    // Safety: ensured by caller (1., 2., 3., 4.)
     let string = unsafe { RsString::rm_alloc_string(str, len) };
 
     let value = RsValue::String(string);
@@ -106,15 +108,16 @@ pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut R
 ///
 /// # Safety
 ///
-/// 1. `str` must be a [valid], non-null pointer to a string buffer.
-/// 2. `str` must be [valid] for reads of `len` bytes.
-/// 3. The memory pointed to by `str` must remain valid and not be mutated for the entire
+/// 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
+/// 2. A nul-terminator is expected in memory at `str+len`.
+/// 3. The size determined by `len` excludes the nul-terminator.
+/// 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
 ///    lifetime of the returned [`RsValue`] and any clones of it.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32) -> *mut RsValue {
-    // Safety: ensured by caller (1., 2., 3.)
+    // Safety: ensured by caller (1., 2., 3., 4.)
     let string = unsafe { RsString::borrowed_string(str, len) };
 
     let value = RsValue::String(string);

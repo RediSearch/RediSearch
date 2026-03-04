@@ -153,9 +153,11 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
  *
  * # Safety
  *
- * 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
- * 2. `str` must be [valid] for reads of `len` bytes.
- * 3. `str` **must not** be used or freed after this function is called, as this function
+ * 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+ *    allocated by `RedisModule_Alloc`.
+ * 2. A nul-terminator is expected in memory at `str+len`.
+ * 3. The size determined by `len` excludes the nul-terminator.
+ * 4. `str` **must not** be used or freed after this function is called, as this function
  *    takes ownership of the allocation.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -171,9 +173,10 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
  *
  * # Safety
  *
- * 1. `str` must be a [valid], non-null pointer to a string buffer.
- * 2. `str` must be [valid] for reads of `len` bytes.
- * 3. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ * 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
+ * 2. A nul-terminator is expected in memory at `str+len`.
+ * 3. The size determined by `len` excludes the nul-terminator.
+ * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
  *    lifetime of the returned [`RsValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -449,9 +452,11 @@ void RSValue_SetNull(struct RsValue *value);
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- * 2. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
- * 3. `str` must be [valid] for reads of `len` bytes.
- * 4. `str` **must not** be used or freed after this function is called, as this function
+ * 2. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+ *    allocated by `RedisModule_Alloc`.
+ * 3. A nul-terminator is expected in memory at `str+len`.
+ * 4. The size determined by `len` excludes the nul-terminator.
+ * 5. `str` **must not** be used or freed after this function is called, as this function
  *    takes ownership of the allocation.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -473,10 +478,11 @@ void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- * 2. `str` must be a [valid], non-null pointer to a string buffer.
- * 3. `str` must be [valid] for reads of `len` bytes.
- * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
- *    lifetime of the [`RsValue`] and any clones of it.
+ * 2. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
+ * 3. A nul-terminator is expected in memory at `str+len`.
+ * 4. The size determined by `len` excludes the nul-terminator.
+ * 5. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ *    lifetime of the returned [`RsValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
