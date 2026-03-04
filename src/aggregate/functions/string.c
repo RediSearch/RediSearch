@@ -43,6 +43,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
       for (size_t i = 0; i < n; i++) {
         size_t len;
         const char *str = QueryTerm_GetStrAndLen(terms[i], &len);
+        RS_ASSERT(len <= UINT32_MAX);
         arr[i] = RSValue_NewBorrowedString(str, len);
       }
       RSValue *v = RSValue_NewArrayFromBuilder(arr, n);
