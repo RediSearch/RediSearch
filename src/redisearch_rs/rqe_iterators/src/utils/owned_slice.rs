@@ -100,9 +100,14 @@ impl<T> std::ops::Deref for RedisSlice<T> {
 
 impl<T> Drop for RedisSlice<T> {
     fn drop(&mut self) {
-        // Safety: Redis Free fn is defined at this point
+        // SAFETY: `RedisModule_Free` is guaranteed to be initialized by the
+        // time any module code runs; the Redis module loader sets up the API
+        // table before calling `RedisModule_OnLoad`.
         let free_fn = unsafe { ffi::RedisModule_Free.unwrap() };
-        // Safety: ptr is not null (see above check)
+        // SAFETY: The memory at `self.ptr` was allocated via
+        // `RedisModule_Alloc` (guaranteed by the constructor's safety
+        // contract) and has not been freed yet (guaranteed by Rust's
+        // ownership — `Drop` runs exactly once).
         unsafe {
             free_fn(self.ptr.as_ptr() as *mut std::ffi::c_void);
         }

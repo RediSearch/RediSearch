@@ -109,7 +109,8 @@ where
         };
 
         let current_revision_id = {
-            // SAFETY: 5. from [`Self::new`]
+            // SAFETY: Condition 2 of `Self::new` guarantees the tree
+            // remains valid for the iterator's lifetime.
             let tree = unsafe { info.tree.as_ref() };
             tree.revision_id()
         };
