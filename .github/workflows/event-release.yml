@@ -243,9 +243,7 @@ jobs:
 
           ############################### Main Script ###############################
 
-          files = []
-          for dir in [oss_dir, ent_dir]:
-              files.extend(list_snapshots_by_branch(dir))
+          files = list_snapshots_by_branch(oss_dir)
 
           group_print(f"{os.environ['SOURCE']} Build Candidates", files)
           if not files:
