@@ -1681,7 +1681,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     }
 
     // Register BigModule callbacks for disk usage reporting
-    SearchDisk_RegisterBigModuleCallbacks(ctx);
+    if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
+      RedisModule_Log(ctx, "error", "Failed to register BigModule callbacks for disk usage reporting");
+      return REDISMODULE_ERR;
+    }
 
     if (RSGlobalConfig.numWorkerThreads == 0) {
       RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
