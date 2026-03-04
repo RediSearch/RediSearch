@@ -90,30 +90,30 @@ jobs:
           SEARCH_MEMORY_ENABLED: 1
         run: |
           for i in {1..3}; do
-            redisbench-admin run-remote
-                --module_path ../../${{ inputs.module_path }}
-                --required-module search
-                --github_actor ${{ github.triggering_actor }}
-                --github_repo ${{ github.event.repository.name }}
-                --github_org ${{ github.repository_owner }}
-                --module_path ../../${{ inputs.rejson_module_path }}
-                --required-module ReJSON
-                --github_sha ${{ github.sha }}
-                --github_branch ${{ github.head_ref || github.ref_name }}
-                --upload_results_s3
-                --triggering_env ${{ inputs.triggering_env }}
-                --allowed-envs ${{ inputs.allowed_envs }}
-                --allowed-setups ${{ inputs.allowed_setups }}
-                --push_results_redistimeseries
-                --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
-                --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
-                --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+            redisbench-admin run-remote \
+                --module_path ../../${{ inputs.module_path }} \
+                --required-module search \
+                --github_actor ${{ github.triggering_actor }} \
+                --github_repo ${{ github.event.repository.name }} \
+                --github_org ${{ github.repository_owner }} \
+                --module_path ../../${{ inputs.rejson_module_path }} \
+                --required-module ReJSON \
+                --github_sha ${{ github.sha }} \
+                --github_branch ${{ github.head_ref || github.ref_name }} \
+                --upload_results_s3 \
+                --triggering_env ${{ inputs.triggering_env }} \
+                --allowed-envs ${{ inputs.allowed_envs }} \
+                --allowed-setups ${{ inputs.allowed_setups }} \
+                --push_results_redistimeseries \
+                --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
+                --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
+                --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}' \
                 --collect_search_memory True
             if [ $? -eq 0 ]; then
               break
             fi
             if [ $i -lt 3 ]; then
-              echo "redisbench-admin run-remote failed, attempt $i of 3, error code $?, retrying in 30 seconds..."
+              echo "redisbench-admin run-remote failed, attempt $i of 3, error code $?, retrying in 60 seconds..."
               sleep 60
             fi
           done
