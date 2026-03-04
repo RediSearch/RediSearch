@@ -8,6 +8,7 @@
 */
 
 use ffi::RedisModuleString;
+use libc::size_t;
 use std::ffi::{c_char, c_double};
 use value::util::str_to_float;
 use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
@@ -190,9 +191,12 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewParsedNumber(value: *const c_char, len: u32) -> *mut RsValue {
+pub unsafe extern "C" fn RSValue_NewParsedNumber(
+    value: *const c_char,
+    len: size_t,
+) -> *mut RsValue {
     // Safety: ensured by caller (1., 2.)
-    let slice = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len as usize) };
+    let slice = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len) };
 
     let Some(number) = str_to_float(slice) else {
         return std::ptr::null_mut();

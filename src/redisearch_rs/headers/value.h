@@ -235,7 +235,7 @@ struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RsValue *RSValue_NewParsedNumber(const char *value, uint32_t len);
+struct RsValue *RSValue_NewParsedNumber(const char *value, size_t len);
 
 /**
  * Creates and returns a new **owned** [`RsValue::Number`] from an `i64`.
