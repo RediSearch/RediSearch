@@ -608,8 +608,10 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    // Check if we are replying with reply_callback pattern
-    if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    // Check if we are replying with reply_callback pattern.
+    // Only use reply_callback for the initial FT.AGGREGATE command (IsAggregate), not for cursor reads.
+    // Cursor reads (FT.CURSOR READ) reply directly from the background thread.
+    if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && (IsAggregate(req) || IsSearch(req))) {
       // Compute cursor_done before storing results - same logic as serializeAndReplyResults.
       // For FAIL policy, timeoutPolicy != TimeoutPolicy_Return, so this simplifies.
       bool cursor_done = (rc != RS_RESULT_OK
@@ -813,8 +815,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &state.results, &r, &rc);
 
-    // Check if we are replying with reply_callback pattern
-    if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    // Check if we are replying with reply_callback pattern.
+    // Only use reply_callback for the initial FT.AGGREGATE command (IsAggregate), not for cursor reads.
+    // Cursor reads (FT.CURSOR READ) reply directly from the background thread.
+    if (AREQ_RequestFlags(req) & QEXEC_F_RUN_IN_BACKGROUND && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && (IsAggregate(req) || IsSearch(req))) {
       // Compute cursor_done before storing results - same logic as serializeAndReplyResults.
       // For FAIL policy, timeoutPolicy != TimeoutPolicy_Return, so this simplifies.
       bool cursor_done = (rc != RS_RESULT_OK
