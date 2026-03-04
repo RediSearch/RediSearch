@@ -393,6 +393,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "console"
 version = "0.15.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1010,7 +1018,7 @@ dependencies = [
  "inverted_index",
  "itertools 0.14.0",
  "query_term",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "redis_mock",
  "workspace_hack",
 ]
@@ -1350,7 +1358,7 @@ dependencies = [
  "inverted_index",
  "inverted_index_ffi",
  "numeric_range_tree",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "redis_mock",
  "rmp-serde",
  "serde",
@@ -1711,17 +1719,51 @@ dependencies = [
  "bitflags 2.11.0",
  "cc",
  "cfg-if",
- "common",
+ "common 0.1.0 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=06d55e5c03eeb2c96a60e0d519b9362429312d98)",
  "enum-primitive-derive",
  "libc",
  "linkme",
  "log",
  "nix",
  "num-traits 0.2.19",
- "redis-module-macros-internals",
+ "redis-module-macros-internals 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=06d55e5c03eeb2c96a60e0d519b9362429312d98)",
  "regex",
  "serde",
  "strum_macros 0.24.3",
+]
+
+[[package]]
+name = "redis-module"
+version = "99.99.99"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
+dependencies = [
+ "backtrace",
+ "bindgen",
+ "bitflags 2.11.0",
+ "cc",
+ "cfg-if",
+ "common 0.1.0 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
+ "enum-primitive-derive",
+ "libc",
+ "linkme",
+ "log",
+ "nix",
+ "num-traits 0.2.19",
+ "redis-module-macros-internals 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
+ "regex",
+ "serde",
+ "strum_macros 0.24.3",
+]
+
+[[package]]
+name = "redis-module-macros-internals"
+version = "99.99.99"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d#3a0257d2c34856bab38fe673f65ad8719695619d"
+dependencies = [
+ "lazy_static",
+ "proc-macro2",
+ "quote 1.0.44",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -1740,7 +1782,7 @@ name = "redis_json_api"
 version = "0.0.1"
 dependencies = [
  "ffi",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "thiserror",
  "workspace_hack",
 ]
@@ -1750,7 +1792,7 @@ name = "redis_mock"
 version = "0.0.1"
 dependencies = [
  "ffi",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "tracing",
  "value",
  "workspace_hack",
@@ -1782,7 +1824,7 @@ dependencies = [
  "query_error_ffi",
  "query_term_ffi",
  "quote 1.0.44",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "result_processor_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
@@ -1887,7 +1929,7 @@ dependencies = [
  "pin-project",
  "pretty_assertions",
  "proptest",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -2643,7 +2685,7 @@ dependencies = [
  "cbindgen",
  "lending-iterator",
  "libc",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "redis_mock",
  "thin_vec",
  "trie_rs",
@@ -2767,7 +2809,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=3a0257d2c34856bab38fe673f65ad8719695619d)",
  "redis_mock",
  "thiserror",
  "workspace_hack",
@@ -3220,7 +3262,7 @@ dependencies = [
  "rand 0.9.2",
  "rand_chacha 0.9.0",
  "rand_core 0.6.4",
- "redis-module",
+ "redis-module 99.99.99 (git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=06d55e5c03eeb2c96a60e0d519b9362429312d98)",
  "regex",
  "regex-automata",
  "regex-syntax",

@@ -51,10 +51,46 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-
   disk_db = disk->basic.open(ctx);
 
   return disk_db != NULL;
+}
+
+// Callback for BigModuleRegister - returns total disk usage across all indexes
+static size_t getDiskUsageCallback(void) {
+  size_t total = 0;
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      total += SearchDisk_GetDiskUsage(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+  return total;
+}
+
+bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
+  if (!RedisModule_BigModuleRegister) {
+    RedisModule_Log(ctx, "notice", "BigModuleRegister not available");
+    return false;
+  }
+
+  RedisModuleBigCallbacksV1 callbacks = {
+    .version = REDISMODULE_BIG_CALLBACKS_VERSION,
+    .getDiskUsage = getDiskUsageCallback,
+  };
+
+  if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
+    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
+    return false;
+  }
+
+  RedisModule_Log(ctx, "notice", "Registered BigModule disk usage callback");
+  return true;
 }
 
 void SearchDisk_Close() {
@@ -269,4 +305,9 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);
+}
+
+uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->index.getDiskUsage(index);
 }
