@@ -1584,8 +1584,8 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   AREQ *r = NULL;
-  AREQ_Debug_params debug_params;
-  int debug_argv_count;
+  AREQ_Debug_params debug_params = {0};
+  int debug_argv_count = 0;
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
   QueryError status = QueryError_Default();

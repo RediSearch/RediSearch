@@ -228,9 +228,9 @@ void CursorList_MarkASMInaccuracy() {
 Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned interval,
                         QueryError *status) {
   Cursor *cur = NULL;
-  IndexSpec *spec;
-  int dummy;
-  khiter_t iter;
+  IndexSpec *spec = NULL;
+  int dummy = 0;
+  khiter_t iter = 0;
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);

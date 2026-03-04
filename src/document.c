@@ -884,13 +884,13 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
-  const RSDocumentMetadata *dmd;
-  RLookup lookup_s;
-  RLookupRow row;
+  const RSDocumentMetadata *dmd = 0;
+  RLookup lookup_s = {0};
+  RLookupRow row = {0};
   RSValue *rv = NULL;
-  IndexSpecCache *spcache;
-  RLookupLoadOptions loadopts;
-  ExprEval evaluator;
+  IndexSpecCache *spcache = NULL;
+  RLookupLoadOptions loadopts = {0};
+  ExprEval evaluator = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
   dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);

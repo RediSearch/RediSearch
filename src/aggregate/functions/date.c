@@ -81,9 +81,9 @@ static time_t fast_timegm(const struct tm *ltm) {
 }
 
 static int func_hour(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
@@ -105,8 +105,7 @@ err:
 }
 
 static int func_minute(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-
-  double d;
+  double d = 0.0;
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
@@ -121,9 +120,9 @@ err:
 
 /* Round timestamp to its day start */
 static int func_day(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
@@ -145,9 +144,9 @@ err:
 }
 
 static int func_dayofmonth(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
@@ -165,9 +164,9 @@ err:
 }
 
 static int func_dayofweek(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
@@ -185,9 +184,9 @@ err:
 }
 
 static int func_dayofyear(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
@@ -205,9 +204,9 @@ err:
 }
 
 static int func_year(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
@@ -225,9 +224,9 @@ err:
 
 /* Round a timestamp to the beginning of the month */
 static int func_month(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
@@ -249,9 +248,9 @@ err:
 }
 
 static int func_monthofyear(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  double d;
-  time_t ts;
-  struct tm tmm;
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
   if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;

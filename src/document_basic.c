@@ -292,9 +292,10 @@ done:
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
-  size_t len;
+  size_t len = 0;
   size_t n = 0;
-  RedisModuleCallReply *k, *v;
+  RedisModuleCallReply *k = NULL;
+  RedisModuleCallReply *v = NULL;
 
   // Hash command is not related to other type such as JSON
   rep = RedisModule_Call(ctx, "HGETALL", "s", doc->docKey);
@@ -333,14 +334,14 @@ done:
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
-  size_t hashLen;
-  size_t strLen;
-  RedisModuleCallReply *e;
-  SchemaRule *rule;
+  size_t hashLen = 0;
+  size_t strLen = 0;
+  RedisModuleCallReply *e = NULL;
+  SchemaRule *rule = NULL;
   size_t numElems = 0;
-  size_t lang_len;
-  size_t score_len;
-  size_t payload_len;
+  size_t lang_len = 0;
+  size_t score_len = 0;
+  size_t payload_len = 0;
 
   // Hash command is not related to other type such as JSON. Used for FT.GET which is deprecated.
   rep = RedisModule_Call(ctx, "HGETALL", "s", id);
