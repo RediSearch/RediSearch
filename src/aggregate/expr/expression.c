@@ -199,49 +199,58 @@ static int handleMissingInComparison(ExprEval *eval, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
+// Evaluates an operand of a predicate and handles error/missing/short-circuit cases.
+// Sets *should_stop to true if caller should goto cleanup (error, missing handled, or short-circuit).
+// Returns the rc value to use when stopping.
+static int evalPredicateOperand(ExprEval *eval, RSExpr *operand, RSValue *val, RSValue *result,
+                                bool isLogical, RSCondition cond, bool *should_stop) {
+  *should_stop = false;
+  int eval_rc = evalInternal(eval, operand, val);
+
+  if (eval_rc == EXPR_EVAL_ERR) {
+    *should_stop = true;
+    return EXPR_EVAL_ERR;
+  }
+
+  if (eval_rc == EXPR_EVAL_MISSING && !isLogical) {
+    // Handle missing here since the comparison flow (`RSValue_Cmp`) would break
+    // behavior if reached with missing values.
+    *should_stop = true;
+    return handleMissingInComparison(eval, result);
+  }
+
+  if (isLogical) {
+    int bool_val = RSValue_BoolTest(val);
+    // Short circuits:
+    // 1. AND with false (-> false)
+    // 2. OR with true (-> true)
+    if ((cond == RSCondition_And && !bool_val) ||
+        (cond == RSCondition_Or && bool_val)) {
+      RSValue_SetNumber(result, bool_val);
+      *should_stop = true;
+      return EXPR_EVAL_OK;
+    }
+  }
+
+  return EXPR_EVAL_OK;
+}
+
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
   int res;
   RSValue *l = RSValue_NewUndefined(), *r = RSValue_NewUndefined();
   int rc = EXPR_EVAL_ERR;
   const bool isLogical = (pred->cond == RSCondition_And || pred->cond == RSCondition_Or);
+  bool should_stop;
 
-  // Evaluate left side first
-  int rc_left = evalInternal(eval, pred->left, l);
-
-  // If left side returned a real error, fail immediately.
-  if (rc_left == EXPR_EVAL_ERR) {
-    goto cleanup;
-  }
-
-  // Short circuits:
-  // 1. AND with false (-> false)
-  // 2. OR with true (-> true)
-  // 3. Missing property for comparison operators (-> false/error depending on mode)
-  if (isLogical) {
-    int left_bool = RSValue_BoolTest(l);
-
-    if ((pred->cond == RSCondition_And && !left_bool) ||
-        (pred->cond == RSCondition_Or && left_bool)) {
-      RSValue_SetNumber(result, left_bool);
-      rc = EXPR_EVAL_OK;
-      goto cleanup;
-    }
-  } else if (rc_left == EXPR_EVAL_MISSING) {
-    // Handle missing here since the comparison flow (`RSValue_Cmp`) would break
-    // behavior if reached with missing values.
-    rc = handleMissingInComparison(eval, result);
+  // Evaluate left side
+  rc = evalPredicateOperand(eval, pred->left, l, result, isLogical, pred->cond, &should_stop);
+  if (should_stop) {
     goto cleanup;
   }
 
   // Evaluate right side
-  int rc_right = evalInternal(eval, pred->right, r);
-
-  if (rc_right == EXPR_EVAL_ERR) {
-    goto cleanup;
-  } else if (rc_right == EXPR_EVAL_MISSING && !isLogical) {
-    // Handle missing here since the comparison flow (`RSValue_Cmp`) would break
-    // behavior if reached with missing values.
-    rc = handleMissingInComparison(eval, result);
+  rc = evalPredicateOperand(eval, pred->right, r, result, isLogical, pred->cond, &should_stop);
+  if (should_stop) {
     goto cleanup;
   }
 
