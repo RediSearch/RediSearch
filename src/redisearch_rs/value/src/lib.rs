@@ -10,7 +10,6 @@
 pub use crate::{
     collection::{Array, Map},
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
 };
 
@@ -23,7 +22,6 @@ pub use rs_value_ffi::*;
 
 mod collection;
 pub mod shared;
-pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object
@@ -35,14 +33,8 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value backed by a rm_alloc'd string
-    RmAllocString(RmAllocString),
-    /// String value backed by a constant C string
-    ConstString(ConstString),
-    /// String value backed by a Redis string
-    RedisString(RedisString),
-    /// String value
-    String(Box<RsValueString>),
+    /// String value (placeholder)
+    String(String),
     /// Array value
     Array(Array),
     /// Reference value
@@ -67,9 +59,6 @@ impl RsValue {
             RsValue::Undefined => "Undefined",
             RsValue::Null => "Null",
             RsValue::Number(_) => "Number",
-            RsValue::RmAllocString(_) => "RmAllocString",
-            RsValue::ConstString(_) => "ConstString",
-            RsValue::RedisString(_) => "RedisString",
             RsValue::String(_) => "String",
             RsValue::Array(_) => "Array",
             RsValue::Ref(_) => "Ref",
@@ -79,12 +68,9 @@ impl RsValue {
     }
 
     /// Returns the string bytes of the value, if it is a string type.
-    pub fn as_str_bytes(&self) -> Option<&[u8]> {
+    pub const fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
-            RsValue::RmAllocString(str) => Some(str.as_bytes()),
-            RsValue::ConstString(str) => Some(str.as_bytes()),
-            RsValue::RedisString(str) => Some(str.as_bytes()),
-            RsValue::String(str) => Some(str.as_str().as_bytes()),
+            RsValue::String(str) => Some(str.as_bytes()),
             _ => None,
         }
     }
