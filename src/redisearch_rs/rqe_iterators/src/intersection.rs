@@ -10,7 +10,7 @@
 //! Supporting types for [`Intersection`].
 //!
 //! The intersection iterator supports proximity constraints via two parameters:
-//! - `max_slop`: Maximum allowed slop between term positions (negative = no constraint)
+//! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
 use ffi::t_docId;
@@ -24,13 +24,12 @@ unsafe extern "C" {
     /// Mirrors `IndexResult_IsWithinRange` from `src/index_result/index_result.c`.
     /// Returns non-zero when the result is within range.
     ///
-    /// Unlike the Rust `RSIndexResult::is_within_range`, this C implementation correctly
-    /// handles union children (e.g. stemmed/synonym expansions) by recursively merging
-    /// offset positions via `RSIndexResult_IterateOffsets`.
+    /// The C implementation handles union children (e.g. stemmed/synonym expansions)
+    /// by recursively merging offset positions via `RSIndexResult_IterateOffsets`.
     ///
-    /// Note: the C algorithms treat any negative `maxSlop` value as a strict constraint
-    /// (`span > negative` is always true). Always pass a non-negative value; use `i32::MAX`
-    /// to express "no slop constraint".
+    /// Note: the C constructors normalize negative `maxSlop` to `INT_MAX` before storing it,
+    /// so this function always receives a non-negative value. Pass `i32::MAX` to express
+    /// "no slop constraint". The Rust wrapper converts `None` to `i32::MAX`.
     ///
     /// # Safety
     ///
@@ -41,9 +40,9 @@ unsafe extern "C" {
     )]
     unsafe fn IndexResult_IsWithinRange(
         r: *mut RSIndexResult,
-        max_slop: std::os::raw::c_int,
-        in_order: std::os::raw::c_int,
-    ) -> std::os::raw::c_int;
+        max_slop: std::ffi::c_int,
+        in_order: std::ffi::c_int,
+    ) -> std::ffi::c_int;
 }
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
@@ -59,9 +58,9 @@ pub struct Intersection<'index, I> {
     last_doc_id: t_docId,
     num_expected: usize,
     is_eof: bool,
-    /// Maximum allowed slop (distance) between term positions. A negative value disables
-    /// proximity validation entirely (equivalent to `INT_MAX` in the C implementation).
-    max_slop: i32,
+    /// Maximum allowed slop (distance) between term positions. `None` disables proximity
+    /// validation entirely (passed to C as `i32::MAX`).
+    max_slop: Option<i32>,
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
 
@@ -85,21 +84,14 @@ where
 {
     /// Creates a new intersection iterator with proximity constraints.
     ///
-    /// - `max_slop`: Maximum allowed distance between term positions. A negative value disables
-    ///   proximity validation (every document matching all children is yielded).
+    /// - `max_slop`: Maximum allowed distance between term positions. `None` disables proximity
+    ///   validation (every document matching all children is yielded).
     /// - `in_order`: When `true`, terms must appear in the order of the child iterators and
     ///   children are **not** re-sorted by estimated count (their order is meaningful).
     ///
     /// If `children` is empty, returns an iterator immediately at EOF.
     #[must_use]
-    pub fn new(mut children: Vec<I>, max_slop: i32, in_order: bool) -> Self {
-        // Normalize negative slop to i32::MAX: the C proximity algorithms misinterpret
-        // negative values (any span > negative always breaks), so -1 ("no constraint") must
-        // be represented as a sufficiently large positive value.
-        // TODO: Use a different value to bypass max_slop constraint.
-        //       This implementation is a leftover to maximize compatibility with existing C implementation.
-        let max_slop = if max_slop < 0 { i32::MAX } else { max_slop };
-
+    pub fn new(mut children: Vec<I>, max_slop: Option<i32>, in_order: bool) -> Self {
         // Only sort by estimated count when order doesn't matter for proximity checks.
         if !in_order {
             children.sort_by_cached_key(|c| c.num_estimated());
@@ -129,11 +121,10 @@ where
 
     /// Returns `true` if the current result needs a proximity check after consensus.
     ///
-    /// The check is skipped only when both `max_slop == i32::MAX`
-    /// and `in_order` is false — the only case where every document that
-    /// matches all children is trivially within range.
-    fn needs_relevancy_check(&self) -> bool {
-        !(self.max_slop == i32::MAX && !self.in_order)
+    /// The check is skipped only when `max_slop` is `None` and `in_order` is `false` — the
+    /// only case where every document matching all children is trivially within range.
+    const fn needs_relevancy_check(&self) -> bool {
+        self.max_slop.is_some() || self.in_order
     }
 
     /// Check if the current aggregate result satisfies the proximity constraints.
@@ -146,8 +137,8 @@ where
         unsafe {
             IndexResult_IsWithinRange(
                 &self.result as *const RSIndexResult<'_> as *mut RSIndexResult,
-                self.max_slop,
-                self.in_order as std::os::raw::c_int,
+                self.max_slop.unwrap_or(i32::MAX),
+                self.in_order as std::ffi::c_int,
             ) != 0
         }
     }

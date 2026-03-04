@@ -10,13 +10,13 @@
 use std::ptr;
 
 use ffi::{
-    t_docId, t_fieldMask, FieldMask, RSDocumentMetadata, RSYieldableMetric, RS_FIELDMASK_ALL,
+    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSYieldableMetric, t_docId, t_fieldMask,
 };
 use query_term::RSQueryTerm;
 
 use super::aggregate::RSAggregateResult;
 use super::kind::RSResultKind;
-use super::offsets::{OffsetPositionIterator, RSOffsetSlice, RS_OFFSETVECTOR_EOF};
+use super::offsets::RSOffsetSlice;
 use super::result_data::RSResultData;
 use super::term_record::RSTermRecord;
 

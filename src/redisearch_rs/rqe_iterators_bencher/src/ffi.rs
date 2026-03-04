@@ -8,7 +8,7 @@
 */
 
 pub use ffi::{
-    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
     RedisModule_Alloc, RedisModule_Free, ValidateStatus,
@@ -106,8 +106,6 @@ impl QueryIterator {
     ///
     /// Used when passing the iterator to a C function that takes ownership
     /// (e.g. `NewIntersectionIterator`), so that the C side is responsible for freeing it.
-    ///
-    /// TODO: remove once the C FFI layer is no longer needed.
     #[inline(always)]
     pub fn into_raw(self) -> *mut ffi::QueryIterator {
         let ptr = self.0;

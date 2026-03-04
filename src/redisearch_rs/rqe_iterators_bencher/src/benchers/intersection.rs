@@ -145,7 +145,7 @@ impl Bencher {
         // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(make_ids()), -1, false),
+                || Intersection::new(ids_to_rust_children(make_ids()), None, false),
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
@@ -178,7 +178,7 @@ impl Bencher {
         // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(make_ids()), -1, false),
+                || Intersection::new(ids_to_rust_children(make_ids()), None, false),
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + STEP) {
                         black_box(current);
@@ -206,7 +206,7 @@ pub mod slop_and_order {
         measurement::{Measurement, WallTime},
     };
     use ffi::{
-        IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
         IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
     };
     use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
@@ -217,7 +217,6 @@ pub mod slop_and_order {
     use rqe_iterators_test_utils::MockContext;
 
     use crate::ffi::{self, InvertedIndex as CInvertedIndex, IteratorStatus_ITERATOR_OK};
-    use ::ffi::IndexFlags;
 
     const NUM_DOCS: u64 = 100_000;
     const FLAGS: IndexFlags = IndexFlags_Index_StoreFreqs
@@ -226,7 +225,7 @@ pub mod slop_and_order {
         | IndexFlags_Index_StoreByteOffsets;
 
     fn new_query_term() -> Box<RSQueryTerm> {
-        RSQueryTerm::new(b"term", 1, 0)
+        RSQueryTerm::new("term", 1, 0)
     }
 
     /// Build two Rust `InvertedIndex<Full>` instances.
@@ -299,7 +298,7 @@ pub mod slop_and_order {
         fn read_slop0_all_pass(&self, c: &mut Criterion) {
             let mut group =
                 self.benchmark_group(c, "Iterator - Intersection - Read Slop=0 All Pass");
-            self.bench_read(&mut group, 0, false, 1, 2);
+            self.bench_read(&mut group, Some(0), false, 1, 2);
             group.finish();
         }
 
@@ -310,7 +309,7 @@ pub mod slop_and_order {
         fn read_slop100_all_pass(&self, c: &mut Criterion) {
             let mut group =
                 self.benchmark_group(c, "Iterator - Intersection - Read Slop=100 All Pass");
-            self.bench_read(&mut group, 100, false, 1, 50);
+            self.bench_read(&mut group, Some(100), false, 1, 50);
             group.finish();
         }
 
@@ -318,7 +317,7 @@ pub mod slop_and_order {
         fn read_in_order_all_pass(&self, c: &mut Criterion) {
             let mut group =
                 self.benchmark_group(c, "Iterator - Intersection - Read In-Order All Pass");
-            self.bench_read(&mut group, 0, true, 1, 2);
+            self.bench_read(&mut group, Some(0), true, 1, 2);
             group.finish();
         }
 
@@ -330,7 +329,7 @@ pub mod slop_and_order {
                 c,
                 "Iterator - Intersection - Read In-Order Slop=100 All Pass",
             );
-            self.bench_read(&mut group, 100, true, 1, 50);
+            self.bench_read(&mut group, Some(100), true, 1, 50);
             group.finish();
         }
 
@@ -341,14 +340,14 @@ pub mod slop_and_order {
         fn read_in_order_all_fail(&self, c: &mut Criterion) {
             let mut group =
                 self.benchmark_group(c, "Iterator - Intersection - Read In-Order All Fail");
-            self.bench_read(&mut group, 0, true, 2, 1);
+            self.bench_read(&mut group, Some(0), true, 2, 1);
             group.finish();
         }
 
         fn bench_read<M: Measurement>(
             &self,
             group: &mut BenchmarkGroup<'_, M>,
-            max_slop: i32,
+            max_slop: Option<i32>,
             in_order: bool,
             foo_pos: u8,
             bar_pos: u8,
@@ -361,7 +360,7 @@ pub mod slop_and_order {
                         ffi::QueryIterator::new_intersection_from_term_its(
                             foo_c.iterator_term(),
                             bar_c.iterator_term(),
-                            max_slop,
+                            max_slop.unwrap_or(-1),
                             in_order,
                         )
                     },
