@@ -71,7 +71,6 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
       goto cleanup;
     }
   }
-
   rc = f->Call(eval, args, nargs, result);
 
 cleanup:
@@ -100,7 +99,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     goto cleanup;
   }
 
-  double res;
+  double res = 0;
   switch (op->op) {
     case '+':
       res = n1 + n2;
