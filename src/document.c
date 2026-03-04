@@ -635,7 +635,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
-  VecSimIndex *vecsim = openVectorIndex(&sp->fields[fs->index], CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, &sp->fields[fs->index], CREATE_INDEX);
   if (!vecsim) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;

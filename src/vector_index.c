@@ -45,7 +45,7 @@ bool isLVQSupported() {
   return false; // In which case we know that LVQ not supported.
 }
 
-VecSimIndex *openVectorIndex(FieldSpec *fieldSpec, bool create_if_missing) {
+VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(fieldSpec, INDEXFLD_T_VECTOR));
 
   if (!fieldSpec->vectorOpts.vecSimIndex && create_if_missing) {
@@ -56,7 +56,7 @@ VecSimIndex *openVectorIndex(FieldSpec *fieldSpec, bool create_if_missing) {
         .diskContext = &fieldSpec->vectorOpts.diskCtx,
       };
       fieldSpec->vectorOpts.vecSimIndex = SearchDisk_CreateVectorIndex(
-        fieldSpec->vectorOpts.diskCtx.storage, &diskParams);
+        ctx, fieldSpec->vectorOpts.diskCtx.storage, &diskParams);
     } else {
       // RAM path - use standard VectorSimilarity
       fieldSpec->vectorOpts.vecSimIndex = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
@@ -105,7 +105,7 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   // Cast is safe: openVectorIndex only mutates fieldSpec when create_if_missing is true.
-  VecSimIndex *vecsim = openVectorIndex((FieldSpec *)vq->field, DONT_CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, (FieldSpec *)vq->field, DONT_CREATE_INDEX);
   if (!vecsim) {
     return NULL;
   }
@@ -682,8 +682,8 @@ bool VecSim_CallTieredIndexesGC(WeakRef spRef) {
     for (size_t ii = 0; ii < sp->numFields; ++ii) {
       if (sp->fields[ii].types & INDEXFLD_T_VECTOR &&
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
-        // Get the vector index
-        VecSimIndex *vecsim = openVectorIndex(sp->fields + ii, DONT_CREATE_INDEX);
+        // Get the vector index (ctx is NULL because we don't create the index here)
+        VecSimIndex *vecsim = openVectorIndex(NULL, sp->fields + ii, DONT_CREATE_INDEX);
         // Call the tiered index GC if the vector index is not empty
         if (vecsim) VecSimTieredIndex_GC(vecsim);
       }

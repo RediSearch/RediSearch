@@ -3821,7 +3821,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
+        // ctx is NULL because we don't create the index here
+        VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
         if(!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, id);
       }

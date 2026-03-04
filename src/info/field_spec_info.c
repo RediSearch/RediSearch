@@ -192,7 +192,8 @@ size_t IndexSpec_VectorIndexesSize(IndexSpec *sp) {
 // Get the stats of the vector field `fs`.
 VectorIndexStats IndexSpec_GetVectorIndexStats(FieldSpec *fs){
   VectorIndexStats stats = {0};
-  VecSimIndex *vecsim = openVectorIndex(fs, DONT_CREATE_INDEX);
+  // ctx is NULL because we don't create the index here
+  VecSimIndex *vecsim = openVectorIndex(NULL, fs, DONT_CREATE_INDEX);
   if (!vecsim) {
     return stats;
   }

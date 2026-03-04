@@ -1219,7 +1219,7 @@ DEBUG_COMMAND(VecsimInfo) {
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = openVectorIndex(fs, CREATE_INDEX);
+  VecSimIndex *vecsimIndex = openVectorIndex(ctx, fs, CREATE_INDEX);
   if(!vecsimIndex) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Can't open vector index");
@@ -1295,7 +1295,7 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = openVectorIndex(fs, CREATE_INDEX);
+  VecSimIndex *vecsimIndex = openVectorIndex(ctx, fs, CREATE_INDEX);
   if(!vecsimIndex) {
     RedisModule_ReplyWithError(ctx, "Can't open vector index");
     goto cleanup;

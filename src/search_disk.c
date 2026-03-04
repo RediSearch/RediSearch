@@ -229,10 +229,10 @@ bool SearchDisk_IsEnabledForValidation() {
 }
 
 // Vector API wrappers
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params) {
-    RS_ASSERT(disk && index && params);
+void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params) {
+    RS_ASSERT(disk && ctx && index && params);
     RS_ASSERT(disk->vector.createVectorIndex);
-    return disk->vector.createVectorIndex(index, params);
+    return disk->vector.createVectorIndex(ctx, index, params);
 }
 
 void SearchDisk_FreeVectorIndex(void *vecIndex) {

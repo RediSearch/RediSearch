@@ -313,11 +313,12 @@ typedef struct VectorDiskAPI {
    * The returned handle is a VecSimIndex* that can be used with all standard
    * VecSimIndex_* functions (AddVector, TopKQuery, etc.) due to polymorphism.
    *
+   * @param ctx Redis module context for BigModule APIs
    * @param index Pointer to the index spec (provides storage context)
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
+  void* (*createVectorIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
 
   /**
    * @brief Frees a disk-based vector index.

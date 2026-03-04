@@ -353,11 +353,12 @@ bool SearchDisk_IsEnabledForValidation();
  * is a VecSimIndex* that can be used with all standard VecSimIndex_*
  * functions (AddVector, TopKQuery, etc.) due to polymorphism.
  *
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index spec
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
+void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
 
 /**
  * @brief Free a disk-based vector index
