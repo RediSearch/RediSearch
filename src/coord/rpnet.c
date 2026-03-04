@@ -26,6 +26,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_STRING: {
       size_t l;
       const char *s = MRReply_String(r, &l);
+      RS_ASSERT(l <= UINT32_MAX);
       v = RSValue_NewCopiedString(s, l);
       break;
     }
