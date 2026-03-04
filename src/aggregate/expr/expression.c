@@ -83,7 +83,8 @@ cleanup:
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   RSValue *l = RSValue_NewUndefined(), *r = RSValue_NewUndefined();
   int rc = EXPR_EVAL_ERR;
-  double n1, n2;
+  double n1 = 0.0;
+  double n2 = 0.0;
   double res = 0;
 
   if (evalInternal(eval, op->left, l) != EXPR_EVAL_OK) {

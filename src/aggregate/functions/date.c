@@ -21,11 +21,11 @@
 static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
   char timebuf[1024] = {0};  // Should be enough for any human time string
-  double n;
-  time_t tt;
-  struct tm tm;
-  size_t rv;
-  char *buf;
+  double n = 0.0;
+  time_t tt = 0;
+  struct tm tm = {0};
+  size_t rv = 0;
+  char *buf = NULL;
 
   if (argc == 2) {
     VALIDATE_ARG_TYPE("time", argv, 1, RSValueType_String);
