@@ -3819,7 +3819,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       }
 
       // load document only if required
-      if (!r) r = EvalCtx_Create();
+      if (!r) r = EvalCtx_Create(EVAL_MODE_INDEX);
       RLookup_LoadRuleFields(ctx, &r->lk, &r->row, spec, key_p);
 
       if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
