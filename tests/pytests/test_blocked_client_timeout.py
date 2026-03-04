@@ -435,16 +435,16 @@ class TestCoordinatorTimeout:
                         message="Expected no warning with 'return-strict' policy (FT.PROFILE)")
 
         # Test FT.HYBRID with 'fail' policy
-        # Use K=100, WINDOW=100, LIMIT=100 to match the test setup (self.n_docs = 100)
+        # Use K=10000, WINDOW=10000, LIMIT=10000 (100^2) to ensure all docs are returned.
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
         result = env.cmd(
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
-            'KNN', '2', 'K', '100',
-            'COMBINE', 'RRF', '2', 'WINDOW', '100',
+            'KNN', '2', 'K', '10000',
+            'COMBINE', 'RRF', '2', 'WINDOW', '10000',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
-            'LIMIT', '0', '10000',
+            'LIMIT', '0', '10000'
         )
         env.assertEqual(result['total_results'], self.n_docs,
                         message=f"Expected {self.n_docs} total results with 'fail' policy (FT.HYBRID)")

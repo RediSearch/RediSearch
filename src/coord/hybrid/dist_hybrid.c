@@ -868,10 +868,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     RedisModule_EndReply(reply);
 }
 
-// Timeout callback for Coordinator HybridRequest execution (FAIL policy only).
-// Called on the main thread when the blocking client times out.
-// Sets the timeout flag to signal the background thread to skip replying, then replies with error.
-// The background thread checks HybridRequest_TimedOut() before replying to avoid double-reply.
+// Timeout callback for Coordinator HybridRequest execution
+// Called on the main thread when the blocking client times out (FAIL policy only).
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);

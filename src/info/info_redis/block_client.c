@@ -35,12 +35,14 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req,
                                                        int timeoutMS, RedisModuleCmdFunc replyCallback,
                                                        RedisModuleCmdFunc timeoutCallback) {
-  // Assert that if timeoutMS is provided, then timeoutCallback is also provided.
-  RS_ASSERT(timeoutMS == 0 || timeoutCallback != NULL);
+  // Assert that if timeoutMS is provided, then both callbacks must be provided.
+  RS_ASSERT(timeoutMS == 0 || (timeoutCallback != NULL && replyCallback != NULL));
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  // BlockedQueryNode takes shared ownership of the AREQ reference.
+  // AREQ ownership: shared between blockedClientReqCtx (background thread) and BlockedQueryNode (timeout callback, reply callback).
+  // Take a reference for the timeout callback access via node->privdata.
+  // This reference is released in FreeQueryNode via the freePrivData callback after timeout/reply callback completes.
   AREQ_IncrRef(req);
   BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, &req->ast, req,
                                                     (BlockedQueryNode_FreePrivData)AREQ_DecrRef);
