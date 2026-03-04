@@ -2595,11 +2595,13 @@ typedef struct {
 static void RPDepleter_Deplete(RPDepleter *self) {
   RPStatus rc;
   SearchResult *r = rm_calloc(1, sizeof(*r));
+  *r = SearchResult_New();
 
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
+    *r = SearchResult_New();
     self->depleted_results++;
   }
 

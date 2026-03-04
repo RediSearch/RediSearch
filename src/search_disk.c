@@ -11,7 +11,7 @@
 #include "config.h"
 #include "spec.h"
 #include "trie/trie_type.h"
-#include "redismodule-rlec.h"
+#include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
