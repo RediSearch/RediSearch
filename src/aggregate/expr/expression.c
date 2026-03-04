@@ -94,10 +94,6 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
 
   double n1, n2;
   if (!RSValue_ToNumber(l, &n1) || !RSValue_ToNumber(r, &n2)) {
-    if (eval->mode == EVAL_MODE_QUERY) {
-      RS_ASSERT(eval->err);
-      QueryError_SetError(eval->err, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, NULL);
-    }
     rc = EXPR_EVAL_ERR;
     goto cleanup;
   }
@@ -135,9 +131,6 @@ cleanup:
 }
 
 static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *r, RSCondition op) {
-  // Always pass eval->err to comparison functions so RSValue_Cmp returns 0 on type mismatch
-  // (rather than falling back to string comparison). Any errors set internally are ignored
-  // in INDEX mode - we only guard our explicit QueryError_SetError calls with mode checks.
   QueryError *qerr = eval ? eval->err : NULL;
 
   l = RSValue_Dereference(l);
@@ -210,7 +203,7 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
   int res;
   RSValue *l = RSValue_NewUndefined(), *r = RSValue_NewUndefined();
   int rc = EXPR_EVAL_ERR;
-  const int isLogical = (pred->cond == RSCondition_And || pred->cond == RSCondition_Or);
+  const bool isLogical = (pred->cond == RSCondition_And || pred->cond == RSCondition_Or);
 
   // Evaluate left side first
   int rc_left = evalInternal(eval, pred->left, l);
