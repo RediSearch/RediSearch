@@ -74,6 +74,8 @@ extern RedisModuleCtx *RSDummyContext;
 
 static void topologyFailureCB(uv_timer_t *timer) {
   RedisModule_Log(RSDummyContext, "warning", "Topology validation failed: not all nodes connected");
+  // Log which nodes are not connected
+  MR_LogDisconnectedNodes(true);
   uv_timer_stop(&topologyValidationTimer); // stop the validation timer
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)

@@ -198,6 +198,10 @@ int MR_CheckTopologyConnections(bool mastersOnly) {
   return MRCluster_CheckConnections(cluster_g, mastersOnly);
 }
 
+void MR_LogDisconnectedNodes(bool mastersOnly) {
+  MRCluster_LogDisconnectedNodes(cluster_g, mastersOnly);
+}
+
 bool MR_CurrentTopologyExists() {
   return cluster_g->topo != NULL;
 }
