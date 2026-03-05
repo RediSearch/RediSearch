@@ -23,6 +23,8 @@ use query_error::QueryError;
 use redis_module::RedisString;
 use sorting_vector::RSSortingVector;
 
+const UNDERSCORE_KEY: &CStr = c"__key";
+
 #[derive(Debug)]
 pub struct LoadDocumentError {}
 
@@ -33,6 +35,12 @@ impl Display for LoadDocumentError {
 }
 
 impl Error for LoadDocumentError {}
+
+impl From<redis_module::RedisError> for LoadDocumentError {
+    fn from(_: redis_module::RedisError) -> Self {
+        Self {}
+    }
+}
 
 pub struct DocumentLoader<'a> {
     rlookup: &'a mut RLookup<'a>,
