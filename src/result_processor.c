@@ -884,9 +884,17 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 
   self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
+
+  int ret;
+  if (RLookup_IsOptionEnabled(self->lk, RLOOKUP_OPT_ALLLOADED)) {
+      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+  } else {
+      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+  }
+
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
-  if (RLookup_LoadDocument(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts) != REDISMODULE_OK) {
+  if (ret != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
     ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
     // The result contains an expired document.
@@ -923,13 +931,11 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->loadopts.status = &self->status;
   self->loadopts.sctx = sctx;
   self->loadopts.dmd = NULL;
-  self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-  memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-  self->loadopts.nkeys = nkeys;
   if (nkeys) {
-    self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
+    self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
+    memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
+    self->loadopts.nkeys = nkeys;
   } else {
-    self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
     RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
   }
 
