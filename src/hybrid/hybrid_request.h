@@ -38,14 +38,13 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Synchronization context for timeout handling
+    // Synchronization context for timeout/reply callbacks
     RequestSyncCtx syncCtx;
 
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
 
-    // Flag to indicate coordinator mode (uses reply_callback for FAIL policy)
-    bool isCoord;
+    bool useReplyCallback;
 
     // State for reply_callback path (FAIL policy with workers in coordinator mode)
     // Background thread stores results here, then calls UnblockClient.

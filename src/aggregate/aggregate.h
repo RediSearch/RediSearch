@@ -57,8 +57,8 @@ typedef struct {
   bool cursor_done;        // Whether cursor is exhausted (for cursor queries)
   bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
   QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
-  struct Cursor *cursor;   // Cursor pointer (for cursor queries, NULL otherwise)
   cachedVars cv;           // Cached lookup variables for result serialization
+  struct Cursor *cursor;   // Cursor handle for reply_callback to pause/free after finishSendChunk
 } ChunkReplyState;
 
 typedef struct Grouper Grouper;
@@ -224,18 +224,6 @@ typedef enum {
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
 /**
- * Reply state for coordinating replies between main thread (timeout callback)
- * and background thread. Used by HybridRequest only.
- * AREQ uses reply_callback pattern instead (no replyState synchronization needed).
- * Transitions: NOT_REPLIED -> REPLYING -> REPLIED
- */
-typedef enum {
-  ReplyState_NotReplied = 0,  // No reply has been started yet
-  ReplyState_Replying = 1,    // A reply is currently in progress
-  ReplyState_Replied = 2,     // A reply has been completed
-} ReplyState;
-
-/**
  * Common synchronization context for request types (AREQ, HybridRequest).
  * - For AREQ: Only timedOut and refcount are used. AREQ uses reply_callback pattern.
  * - For HybridRequest: All fields are used (timedOut, replyState, refcount).
@@ -243,9 +231,6 @@ typedef enum {
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
-  // Reply ownership state, coordinates reply between main and background thread
-  // Used by HybridRequest only. AREQ uses reply_callback pattern instead.
-  RS_Atomic(uint8_t) replyState;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 } RequestSyncCtx;
@@ -253,7 +238,6 @@ typedef struct RequestSyncCtx {
 // Initialize a RequestSyncCtx with default values
 static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
-  ctx->replyState = ReplyState_NotReplied;
   ctx->refcount = 1;
 }
 
@@ -340,7 +324,7 @@ typedef struct AREQ {
 
   ProfilePrinterCtx profileCtx;
 
-  // Synchronization context for timeout handling
+  // Synchronization context for timeout/reply callbacks
   RequestSyncCtx syncCtx;
 
   // Flag to indicate whether to skip timeout checks using clock checks
@@ -350,6 +334,8 @@ typedef struct AREQ {
   // Background thread stores results here, then calls UnblockClient.
   // The reply_callback reads from here to build the reply on the main thread.
   ChunkReplyState storedReplyState;
+
+  bool useReplyCallback;
 } AREQ;
 
 /**

@@ -56,7 +56,7 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
  * For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
  * For RETURN policy: replies with error directly.
  */
-void HREQ_ReplyOrStoreError(bool useReplyCallback, HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
+void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
 
 /**
  * Serialize results from stored state (reply_callback path for FAIL policy).

@@ -14,6 +14,7 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));
   ctx->type = type;
   atomic_store_explicit(&ctx->timedOut, false, memory_order_relaxed);
+  pthread_mutex_init(&ctx->setReqLock, NULL);
   ctx->preRequestError = QueryError_Default();
   return ctx;
 }
@@ -31,7 +32,16 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->areq) AREQ_DecrRef(ctx->areq);
   }
 
+  pthread_mutex_destroy(&ctx->setReqLock);
   rm_free(ctx);
+}
+
+void CoordRequestCtx_LockSetRequest(CoordRequestCtx *ctx) {
+  pthread_mutex_lock(&ctx->setReqLock);
+}
+
+void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx) {
+  pthread_mutex_unlock(&ctx->setReqLock);
 }
 
 void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
@@ -39,6 +49,18 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     ctx->hreq = HybridRequest_IncrRef((HybridRequest *)req);
   } else {
     ctx->areq = AREQ_IncrRef((AREQ *)req);
+  }
+
+  // Propagate useReplyCallback to the request
+  if (ctx->type == COMMAND_HYBRID) {
+    ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
+  } else {
+    ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+  }
+
+  // Propagate timeout to the request if already set
+  if (CoordRequestCtx_TimedOut(ctx)) {
+    CoordRequestCtx_SetTimedOut(ctx);
   }
 }
 

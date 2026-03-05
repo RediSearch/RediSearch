@@ -342,10 +342,11 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 // Helper for error handling in coordinator HREQ execution.
 // For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
 // For RETURN policy: replies with error directly.
-void HREQ_ReplyOrStoreError(bool useReplyCallback, HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
-  if (useReplyCallback) {
+void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
+  if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
+    QueryError_Clear(&hreq->storedReplyState.err);
     QueryError_CloneFrom(status, &hreq->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
@@ -394,13 +395,9 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       goto done_err;
     }
 
-    // Check if we are replying with reply_callback pattern (FAIL policy in coordinator mode).
-    // Coordinator has isCoord=true and DistHybridReplyCallback set up.
-    if (hreq->isCoord && hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    if (hreq->useReplyCallback) {
       // Store results for reply_callback (includes cv)
       HREQ_StoreResults(hreq, results, rc, cv);
-      // Reply callback will be called to send the reply - cleanup without freeing results
-      SearchResult_Destroy(&r);
       return;
     }
 

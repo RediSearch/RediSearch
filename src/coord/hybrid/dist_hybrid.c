@@ -781,7 +781,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     if (!hreq) {
       CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
     } else {
-      HREQ_ReplyOrStoreError(hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Return, hreq, ctx, status);
+      HREQ_ReplyOrStoreError(hreq, ctx, status);
     }
 
     cleanup:
@@ -828,8 +828,13 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+    // Lock before creating request to prevent race with timeout callback
+    CoordRequestCtx_LockSetRequest(reqCtx);
+
     // Check if already timed out
     if (CoordRequestCtx_TimedOut(reqCtx)) {
+        // Timeout callback will handle reply - just unlock and cleanup
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
         SearchCtx_Free(sctx);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
         return;
@@ -837,8 +842,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-    hreq->isCoord = true;  // Mark as coordinator for reply_callback path
     CoordRequestCtx_SetRequest(reqCtx, hreq);
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
@@ -874,8 +879,13 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
 
+  // Lock to coordinate with request creation in background thread
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
   // Signal timeout to the background thread
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -902,8 +912,15 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
   if (!hreq) {
-    RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no hybrid request");
-    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no hybrid request");
+    // We expect CoordReqCtx to hold the error if hreq is NULL
+    if (QueryError_HasError(&CoordReqCtx->preRequestError)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &CoordReqCtx->preRequestError);
+      return REDISMODULE_OK;
+    }
+    // This should not happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no hybrid request and no preRequestError");
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no hybrid request and no preRequestError");
   }
 
   // Check if results were stored (background thread completed successfully)

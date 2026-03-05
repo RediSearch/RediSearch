@@ -234,6 +234,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 
     // Initialize timeout coordination fields
     RequestSyncCtx_Init(&hybridReq->syncCtx);
+    hybridReq->storedReplyState.err = QueryError_Default();
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
@@ -346,9 +347,9 @@ static void HybridRequest_Free(HybridRequest *req) {
         array_free(req->storedReplyState.results);
         req->storedReplyState.results = NULL;
       }
-      QueryError_ClearError(&req->storedReplyState.err);
       req->storedReplyState.hasStoredResults = false;
     }
+    QueryError_ClearError(&req->storedReplyState.err);
 
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {

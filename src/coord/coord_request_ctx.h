@@ -36,6 +36,7 @@ typedef struct CoordRequestCtx {
     HybridRequest *hreq;
   };
   _Atomic(bool) timedOut;       // Coordinator-level timeout flag
+  pthread_mutex_t setReqLock;   // Lock for request creation/setting
   // Error that occurred before AREQ/HREQ was created (e.g., index not found).
   // When using reply_callback pattern, errors must be stored here since there's
   // no request object to store them in yet. reply_callback checks this field.
@@ -54,6 +55,14 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type);
  * Takes void* to be compatible with free_privdata callback signature.
  */
 void CoordRequestCtx_Free(CoordRequestCtx *ctx);
+
+/**
+ * Lock for request creation. Must be held while creating and setting the request.
+ * Background thread: lock -> check timedOut -> create request -> set request -> unlock
+ * Timeout callback: lock -> set timedOut -> check HasRequest -> unlock -> handle
+ */
+void CoordRequestCtx_LockSetRequest(CoordRequestCtx *ctx);
+void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx);
 
 /**
  * Set the request pointer and take shared ownership.

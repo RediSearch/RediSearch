@@ -1037,6 +1037,7 @@ AREQ *AREQ_New(void) {
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   RequestSyncCtx_Init(&req->syncCtx);
+  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
