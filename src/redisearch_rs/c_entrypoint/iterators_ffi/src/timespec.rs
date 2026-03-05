@@ -13,7 +13,12 @@ use std::time::Duration;
 
 pub(crate) fn duration_from_redis_timespec(deadline: ffi::timespec) -> Option<Duration> {
     // Redis sentinel for no timeout
-    if deadline.tv_sec >= libc::time_t::MAX - 1 {
+    // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
+    // and the libc crate will follow suit — see libc#1848). Suppress the
+    // warning since we just need the MAX sentinel value.
+    #[cfg_attr(target_env = "musl", expect(deprecated))]
+    let time_t_max = libc::time_t::MAX;
+    if deadline.tv_sec >= time_t_max - 1 {
         return None;
     }
 
