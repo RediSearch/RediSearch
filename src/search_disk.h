@@ -108,7 +108,7 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
  * @param fieldIndex Field index for the tag field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTags(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted

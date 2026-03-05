@@ -772,7 +772,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
 
   // TagIndex_Index handles both disk and memory modes internally
-  if (!TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+  if (!TagIndex_Index(ctx->redisCtx, tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }

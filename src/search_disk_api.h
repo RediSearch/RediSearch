@@ -112,8 +112,10 @@ typedef struct IndexDiskAPI {
    * @brief Indexes multiple tag values for a document
    *
    * Adds a document to the inverted index for each specified tag value.
-   * Used for tag field indexing.
+   * Used for tag field indexing. Creates a new column family if this is the
+   * first time indexing this tag field, and registers it with Redis BigModule.
    *
+   * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
    * @param values Array of tag values to associate the document with.
    *               NOTE: The array may contain NULL entries (e.g., from tokenization).
@@ -123,7 +125,7 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex Field index for the tag field
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexTags)(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
