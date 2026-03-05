@@ -58,7 +58,7 @@ pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
 
     let value = RsValue::Array(Array::new(array));
     let shared = SharedRsValue::new(value);
-    shared.into_raw() as *mut _
+    shared.into_raw().cast_mut()
 }
 
 /// Returns the number of elements in an array [`RsValue`].
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RsValue, index: u32) ->
     if let RsValue::Array(array) = value {
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let shared = &array[index as usize];
-        shared.as_ptr() as *mut _
+        shared.as_ptr().cast_mut()
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
         panic!("Expected 'Array' type, got '{}'", value.variant_name())

@@ -165,6 +165,19 @@ if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=incompatible-pointer-types-discards-qualifiers>)
 endif()
 
+# Warn when goto jumps over variable initialization
+# gcc: -Werror=jump-misses-init
+check_c_compiler_flag("-Werror=jump-misses-init" HAS_JUMP_MISSES_INIT)
+if(HAS_JUMP_MISSES_INIT)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=jump-misses-init>)
+endif()
+
+# clang: -Werror=sometimes-uninitialized (equivalent protection)
+check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_SOMETIMES_UNINITIALIZED)
+if(HAS_SOMETIMES_UNINITIALIZED)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
+endif()
+
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""

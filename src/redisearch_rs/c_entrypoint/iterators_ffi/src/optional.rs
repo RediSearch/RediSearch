@@ -66,7 +66,8 @@ pub unsafe extern "C" fn GetOptionalNonOptimizedIteratorChild(
 }
 
 #[unsafe(no_mangle)]
-/// Take ownership over the child of the optional (non-optimized) iterator or
+/// Take ownership over the child of the optional (non-optimized) iterator,
+/// or return NULL if there is no child.
 ///
 /// # Safety
 ///

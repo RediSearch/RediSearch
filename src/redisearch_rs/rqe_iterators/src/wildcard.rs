@@ -177,7 +177,7 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     }
 }
 
-/// [`EmptyIterator`] matches all documents (vacuously, since the index is empty).
+/// [`EmptyWildcard`] matches all documents (vacuously, since the index is empty).
 impl<'index> WildcardIterator<'index> for EmptyWildcard {}
 
 // TODO: new_wildcard_iterator_optimized() and new_wildcard_iterator() have to return
