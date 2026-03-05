@@ -504,12 +504,13 @@ char *escapeSimpleString(const char *str) {
 int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
   v = RSValue_Dereference(v);
   uint32_t len = 0;
-  char *str = NULL;
 
   switch (RSValue_Type(v)) {
     case RSValueType_String:
-      str = RSValue_String_Get(v, &len);
-      return RedisModule_Reply_StringBuffer(reply, str, len);
+      {
+        const char* str = RSValue_String_Get(v, &len);
+        return RedisModule_Reply_StringBuffer(reply, str, len);
+      }
 
     case RSValueType_RedisString:
       return RedisModule_Reply_String(reply, RSValue_RedisString_Get(v));
