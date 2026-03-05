@@ -1682,7 +1682,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
     // Register BigModule callbacks for disk usage reporting
     if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
-      RedisModule_Log(ctx, "error", "Failed to register BigModule callbacks for disk usage reporting");
+      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
       return REDISMODULE_ERR;
     }
 
