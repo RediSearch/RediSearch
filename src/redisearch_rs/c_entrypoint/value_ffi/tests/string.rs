@@ -127,9 +127,7 @@ fn string_ptr_len_with_string_value() {
 #[test]
 fn string_ptr_len_dereferences_ref_to_string() {
     // No FFI constructor for Ref, so build one directly from Rust types.
-    let inner = SharedRsValue::new(RsValue::String(RsString::cstring(
-        CString::new("referenced").unwrap(),
-    )));
+    let inner = SharedRsValue::new(RsValue::String(RsString::from_vec(b"referenced".to_vec())));
     let ref_value = SharedRsValue::new(RsValue::Ref(inner));
     let ptr = ref_value.into_raw() as *mut RsValue;
 

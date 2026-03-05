@@ -165,6 +165,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   }
 
   bufTmp.len = trimTrailingSpaces(bufTmp.data, bufTmp.len);
+  Array_Write(&bufTmp, "\0", 1);
   char *ret = Array_Steal(&bufTmp, docLen);
   return ret;
 }
@@ -190,7 +191,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      return RSValue_NewString(summarized, docLen);
+      return RSValue_NewString(summarized, docLen - 1); // Exclude nul-terminator from reported length
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
@@ -240,11 +241,12 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
 
   // Set the string value to the contents of the array. It might be nice if we didn't
   // need to strndup it.
+  Array_Write(&bufTmp, "\0", 1);
   size_t hlLen;
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);
-  return RSValue_NewString(hlText, hlLen);
+  return RSValue_NewString(hlText, hlLen - 1); // Exclude nul-terminator from reported length
 }
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {

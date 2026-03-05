@@ -15,13 +15,13 @@ use value::RsValue;
 
 /// Gets the numeric value from an [`RsValue`].
 ///
+/// # Panic
+///
+/// Panics if the value is not an [`RsValue::Number`].
+///
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-///
-/// # Panic
-///
-/// Panics if the value is not a number type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
     // Safety: ensured by caller (1.)
@@ -36,13 +36,13 @@ pub unsafe extern "C" fn RSValue_Number_Get(value: *const RsValue) -> c_double {
 
 /// Borrows an immutable reference to the left value of a trio.
 ///
+/// # Panic
+///
+/// Panics if the value is not an [`RsValue::Trio`].
+///
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-///
-/// # Panic
-///
-/// Panics if the value is not a trio type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RsValue) -> *const RsValue {
     // Safety: ensured by caller (1.)
@@ -57,13 +57,13 @@ pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RsValue) -> *const R
 
 /// Borrows an immutable reference to the middle value of a trio.
 ///
+/// # Panic
+///
+/// Panics if the value is not an [`RsValue::Trio`].
+///
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-///
-/// # Panic
-///
-/// Panics if the value is not a trio type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RsValue) -> *const RsValue {
     // Safety: ensured by caller (1.)
@@ -78,13 +78,13 @@ pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RsValue) -> *const
 
 /// Borrows an immutable reference to the right value of a trio.
 ///
+/// # Panic
+///
+/// Panics if the value is not an [`RsValue::Trio`].
+///
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-///
-/// # Panic
-///
-/// Panics if the value is not a trio type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const RsValue {
     // Safety: ensured by caller (1.)
@@ -102,16 +102,16 @@ pub unsafe extern "C" fn RSValue_Trio_GetRight(value: *const RsValue) -> *const 
 ///
 /// The returned pointer borrows from the [`RsValue`] and must not outlive it.
 ///
+/// # Panic
+///
+/// Panics if the value is not an [`RsValue::String`].
+///
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 /// 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-///
-/// # Panic
-///
-/// Panics if the value is not a `String` type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_String_Get(
     value: *const RsValue,
@@ -138,13 +138,13 @@ pub unsafe extern "C" fn RSValue_String_Get(
 ///
 /// The returned reference borrows from the [`RsValue`] and must not outlive it.
 ///
+/// # Panic
+///
+/// Panics if the value is not an [`RsValue::RedisString`].
+///
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
-///
-/// # Panic
-///
-/// Panics if the value is not a `RedisString` type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_RedisString_Get(
     value: *const RsValue,
