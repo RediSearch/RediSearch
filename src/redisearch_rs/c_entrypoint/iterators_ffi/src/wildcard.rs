@@ -33,7 +33,7 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
 ///
 /// `it`, when non-null, must point to a valid [`QueryIterator`].
 #[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
+#[expect(non_upper_case_globals)]
 pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> bool {
     // SAFETY: Caller guarantees `it`, when non-null, points to a valid `QueryIterator`.
     let Some(it) = (unsafe { it.as_ref() }) else {
