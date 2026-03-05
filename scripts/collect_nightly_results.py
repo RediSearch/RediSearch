@@ -13,6 +13,8 @@ import io
 import re
 from datetime import datetime, timedelta, timezone
 
+from ci_failure_suggestions import get_suggestion_for_failure
+
 def get_yesterday_date_range():
     """Get midnight-to-midnight date range for yesterday in UTC."""
     today = datetime.now(timezone.utc)
@@ -188,8 +190,8 @@ def simplify_job_name(job_name):
     Special cases (show only title):
     - "coverage / Test ubuntu-latest, Redis unstable" -> "coverage"
     - "sanitize / Test ubuntu-latest, Redis unstable" -> "sanitize"
-    - "test-macos / build-macos (macos-15-intel) / ..." -> "macos-15-intel"
-    - "test-macos / build-macos (macos-latest) / ..." -> "macos-latest"
+    - "test-macos-15 / build-macos-15 (macos-15) / ..." -> "macos-15"
+    - "test-macos-26 / build-macos-26 (macos-26) / ..." -> "macos-26"
     - "run-on-intel / Start self-hosted EC2 runner" -> "run-on-intel"
 
     Container jobs (show as "container arch"):
@@ -202,10 +204,11 @@ def simplify_job_name(job_name):
     if job_name.startswith("coverage /") or job_name.startswith("sanitize /"):
         return job_name.split(" /")[0]
 
-    # Special case: test-macos with macos version
-    if job_name.startswith("test-macos / build-macos"):
-        # Extract macos version from parentheses: "test-macos / build-macos (macos-latest) / ..."
-        match = re.search(r'build-macos \(([^)]+)\)', job_name)
+    # Special case: test-macos-* with macOS runner version.
+    if re.match(r'^test-macos(?:-\d+)? / build-macos(?:-\d+)?', job_name):
+        # Extract macOS runner from parentheses:
+        # "test-macos-15 / build-macos-15 (macos-15) / ..."
+        match = re.search(r'build-macos(?:-\d+)? \(([^)]+)\)', job_name)
         if match:
             return match.group(1)
 
@@ -444,6 +447,11 @@ def parse_failure_from_logs(log_content, job_name):
     }
 
 
+def get_run_url(repo, run_id):
+    """Generate GitHub Actions run URL."""
+    return f"https://github.com/{repo}/actions/runs/{run_id}"
+
+
 def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None, workflow_name="merge_queue"):
     """Download logs for failed jobs and analyze failure reasons."""
     failed_runs = [r for r in runs if r["conclusion"] == "failure"]
@@ -551,6 +559,18 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                             break
 
 
+            # Build log excerpt for AI analysis (join error_lines)
+            log_excerpt = '\n'.join(error_lines) if error_lines else None
+
+            # Get suggested fix for this failure using AI
+            print(f"      Analyzing failure with AI...")
+            suggestion = get_suggestion_for_failure(
+                error_message=error_message,
+                job_name=job_name,
+                failure_type=failure_type,
+                log_excerpt=log_excerpt
+            )
+
             failure_analysis.append({
                 'run_id': run_id,
                 'branch': branch,
@@ -558,12 +578,15 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                 'full_job_name': job_name,
                 'failure_type': failure_type,
                 'error_message': error_message,
-                'error_lines': error_lines
+                'error_lines': error_lines,
+                'suggestion': suggestion
             })
 
             print(f"      Failure type: {failure_type}")
             if error_message:
-                print(f"      Error: {error_message}")
+                print(f"      Error: {error_message[:100]}...")
+            if suggestion:
+                print(f"      💡 AI Suggestion: {suggestion[:100]}...")
 
     # Save analysis to file
     if failure_analysis:
@@ -626,12 +649,15 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
 
                 for run_id in sorted(branch_runs[branch].keys()):
                     failures = branch_runs[branch][run_id]
-                    f.write(f"\n Run {run_id} (branch: {branch}) - {len(failures)} failed job(s)\n")
+                    run_url = get_run_url(repo, run_id)
+                    f.write(f"\n Run: {run_url}\n")
+                    f.write(f" {len(failures)} failed job(s)\n")
 
                     for failure in failures:
                         full_job_name = failure['full_job_name']
                         failure_type = failure['failure_type']
                         error_message = failure.get('error_message')
+                        suggestion = failure.get('suggestion')
 
                         f.write(f" Job: {full_job_name}\n")
                         f.write(f" Failure type: {failure_type}\n")
@@ -648,10 +674,8 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
 
                             f.write(f" Error: {first_line}\n")
 
-                            # If there are more lines, indicate it
-                            # if '\n' in clean_msg:
-                            #     num_lines = len(clean_msg.split('\n'))
-                            #     f.write(f"        (+ {num_lines - 1} more lines, see detailed logs below)\n")
+                        if suggestion:
+                            f.write(f" 💡 Suggested fix: {suggestion}\n")
 
                         f.write("\n")
 
@@ -662,7 +686,8 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
             f.write("=" * 80 + "\n\n")
 
             for item in failure_analysis:
-                f.write(f"Run ID: {item['run_id']}\n")
+                run_url = get_run_url(repo, item['run_id'])
+                f.write(f"Run: {run_url}\n")
                 f.write(f"Branch: {item['branch']}\n")
                 f.write(f"Job: {item['job_name']}\n")
                 f.write(f"Full Job Name: {item['full_job_name']}\n")
@@ -680,7 +705,14 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                     if clean_line:
                         f.write(clean_line + "\n")
 
-                f.write("-" * 80 + "\n\n")
+                f.write("-" * 80 + "\n")
+
+                # Add suggested fix
+                if item.get('suggestion'):
+                    f.write(f"\n💡 Suggested Fix:\n")
+                    f.write(f"   {item['suggestion']}\n")
+
+                f.write("\n")
 
         print(f"✅ Saved failure report to {report_file}")
 
