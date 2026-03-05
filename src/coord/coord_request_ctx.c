@@ -14,13 +14,15 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));
   ctx->type = type;
   atomic_store_explicit(&ctx->timedOut, false, memory_order_relaxed);
-  pthread_mutex_init(&ctx->setReqLock, NULL);
-  // Request pointer starts as NULL, set by background thread after parsing
+  ctx->preRequestError = QueryError_Default();
   return ctx;
 }
 
 void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   if (!ctx) return;
+
+  // Clear pre-request error if set
+  QueryError_ClearError(&ctx->preRequestError);
 
   // Decrement refcount on the request (if set)
   if (ctx->type == COMMAND_HYBRID) {
@@ -29,19 +31,9 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->areq) AREQ_DecrRef(ctx->areq);
   }
 
-  pthread_mutex_destroy(&ctx->setReqLock);
   rm_free(ctx);
 }
 
-void CoordRequestCtx_LockSetRequest(CoordRequestCtx *ctx) {
-  pthread_mutex_lock(&ctx->setReqLock);
-}
-
-void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx) {
-  pthread_mutex_unlock(&ctx->setReqLock);
-}
-
-// Must be called with setReqLock held.
 void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   if (ctx->type == COMMAND_HYBRID) {
     ctx->hreq = HybridRequest_IncrRef((HybridRequest *)req);
@@ -73,5 +65,20 @@ void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
     if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);
   } else {
     if (ctx->areq) AREQ_SetTimedOut(ctx->areq);
+  }
+}
+
+void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback) {
+  ctx->useReplyCallback = useReplyCallback;
+}
+
+void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx, QueryError *status) {
+  if (req->useReplyCallback) {
+    // Deep copy since QueryError contains heap-allocated strings.
+    QueryError_CloneFrom(status, &req->preRequestError);
+    // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
+  } else {
+    QueryError_ReplyAndClear(ctx, status);
   }
 }

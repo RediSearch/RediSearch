@@ -13,6 +13,7 @@
 #include "hybrid/hybrid_request.h"
 #include <stdatomic.h>
 #include <pthread.h>
+#include "query_error.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,9 +27,7 @@ extern "C" {
  * - Background thread executes query and stores results
  * - Background thread calls UnblockClient to trigger reply_callback on main thread
  * - reply_callback builds and sends the reply
- * - Timeout callback simply replies with timeout error (no synchronization needed)
- *
- * The setReqLock mutex coordinates request creation with timeout callback.
+ * - Timeout callback sets timedOut flag and replies with timeout error
  */
 typedef struct CoordRequestCtx {
   CommandType type;
@@ -37,7 +36,11 @@ typedef struct CoordRequestCtx {
     HybridRequest *hreq;
   };
   _Atomic(bool) timedOut;       // Coordinator-level timeout flag
-  pthread_mutex_t setReqLock;   // Lock for request creation/setting
+  // Error that occurred before AREQ/HREQ was created (e.g., index not found).
+  // When using reply_callback pattern, errors must be stored here since there's
+  // no request object to store them in yet. reply_callback checks this field.
+  QueryError preRequestError;
+  bool useReplyCallback;
 } CoordRequestCtx;
 
 /**
@@ -51,14 +54,6 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type);
  * Takes void* to be compatible with free_privdata callback signature.
  */
 void CoordRequestCtx_Free(CoordRequestCtx *ctx);
-
-/**
- * Lock for request creation. Must be held while creating and setting the request.
- * Background thread: lock -> check timedOut -> create request -> set request -> unlock
- * Timeout callback: lock -> set timedOut -> check HasRequest -> unlock -> handle
- */
-void CoordRequestCtx_LockSetRequest(CoordRequestCtx *ctx);
-void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx);
 
 /**
  * Set the request pointer and take shared ownership.
@@ -91,6 +86,15 @@ bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx);
  * Also propagates to the underlying request if set.
  */
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx);
+
+void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback);
+
+/**
+ * Store error for reply_callback to handle (pre-request errors).
+ * Used when errors occur before AREQ/HREQ is created.
+ * If already timed out, just clears the error.
+ */
+void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *ctx, RedisModuleCtx *redisCtx, QueryError *status);
 
 #ifdef __cplusplus
 }

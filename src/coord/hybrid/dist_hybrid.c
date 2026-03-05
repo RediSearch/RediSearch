@@ -768,21 +768,21 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
-    if (!QueryError_HasError(status)) {
-      // No error - just cleanup
-      // This can happen if during request creation we realized the query timed out
-      goto cleanup;
-    }
-
     // If timeout already occurred, the timeout callback already replied - don't reply again
     if (CoordRequestCtx_TimedOut(reqCtx)) {
+      if (QueryError_HasError(status)) {
         QueryError_ClearError(status);
-        goto cleanup;
+      }
+      goto cleanup;
     }
 
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
-    QueryError_ReplyAndClear(ctx, status);
+    if (!hreq) {
+      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
+    } else {
+      HREQ_ReplyOrStoreError(hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Return, hreq, ctx, status);
+    }
 
     cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -801,11 +801,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
 
-    // Lock before creating request to prevent race with timeout callback
-    CoordRequestCtx_LockSetRequest(reqCtx);
     if(CoordRequestCtx_TimedOut(reqCtx)) {
-      // Query timed out before request creation - unlock and return
-      CoordRequestCtx_UnlockSetRequest(reqCtx);
+      // Query timed out before request creation
       return;
     }
 
@@ -819,7 +816,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
         DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
         return;
     }
 
@@ -829,13 +825,11 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (!sp) {
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
         return;
     }
 
     // Check if already timed out
     if (CoordRequestCtx_TimedOut(reqCtx)) {
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
         SearchCtx_Free(sctx);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
         return;
@@ -848,8 +842,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
-
-    CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     // Get numShards captured from main thread for thread-safe access
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);

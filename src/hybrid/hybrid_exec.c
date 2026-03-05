@@ -337,13 +337,21 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
   hreq->storedReplyState.rc = rc;
   hreq->storedReplyState.cv = cv;
   hreq->storedReplyState.hasStoredResults = true;
+}
 
-  // Deep copy error state since err points to a local variable in the caller
-  // which will go out of scope. QueryError contains heap-allocated strings.
-  QueryError err = QueryError_Default();
-  HybridRequest_GetError(hreq, &err);
-  HybridRequest_ClearErrors(hreq);
-  QueryError_CloneFrom(&err, &hreq->storedReplyState.err);
+// Helper for error handling in coordinator HREQ execution.
+// For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
+// For RETURN policy: replies with error directly.
+void HREQ_ReplyOrStoreError(bool useReplyCallback, HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
+  if (useReplyCallback) {
+    // Deep copy since QueryError contains heap-allocated strings.
+    // reply_callback will clear the stored error after replying.
+    QueryError_CloneFrom(status, &hreq->storedReplyState.err);
+    // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
+  } else {
+    QueryError_ReplyAndClear(ctx, status);
+  }
 }
 
 /**
@@ -396,9 +404,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
       return;
     }
 
-    // Get and clear errors before replying
+    // Get errors before replying (do not clear here; cleanup/teardown will handle it)
     HybridRequest_GetError(hreq, &err);
-    HybridRequest_ClearErrors(hreq);
 
     serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &cv, &r, &results, &err);
 
@@ -418,21 +425,25 @@ void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
     // Create a stack-allocated SearchResult for finishSendChunk_HREQ cleanup
     SearchResult r = SearchResult_New();
 
-    // Point to stored error
-    QueryError *err = &stored->err;
+    // Get error directly from hreq (no need to copy in HREQ_StoreResults)
+    QueryError err = QueryError_Default();
+    HybridRequest_GetError(hreq, &err);
 
     // Get stored results and rc
     SearchResult **results = stored->results;
     int rc = stored->rc;
 
-    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results, err);
+    serializeAndReplyResults_hybrid(hreq, reply, rp, qctx, rc, &stored->cv, &r, &results, &err);
 
     // Clear stored results pointer since ownership was transferred
     stored->results = NULL;
     stored->hasStoredResults = false;
 
     // finishSendChunk_HREQ handles cleanup and stats
-    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), err);
+    finishSendChunk_HREQ(hreq, results, &r, rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock), &err);
+
+    // Clear the local error to avoid leak (QueryError may have allocated strings)
+    QueryError_ClearError(&err);
 }
 
 // Simple version of sendChunk_hybrid that returns empty results for hybrid queries.

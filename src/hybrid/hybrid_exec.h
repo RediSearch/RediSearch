@@ -52,6 +52,13 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
 void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv);
 
 /**
+ * Helper for error handling in coordinator HREQ execution.
+ * For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
+ * For RETURN policy: replies with error directly.
+ */
+void HREQ_ReplyOrStoreError(bool useReplyCallback, HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
+
+/**
  * Serialize results from stored state (reply_callback path for FAIL policy).
  * Called by DistHybridReplyCallback on the main thread after background thread stored results.
  */

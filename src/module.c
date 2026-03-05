@@ -3716,6 +3716,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
     handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,

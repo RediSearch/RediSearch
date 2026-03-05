@@ -619,11 +619,6 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
                                && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
       // Store results for reply_callback (includes cv)
       AREQ_StoreResults(req, state.results, rc, cv);
-      // Set QEXEC_S_ITERDONE so runCursor knows to free the cursor instead of pausing it
-      if (cursor_done) {
-        req->stateflags |= QEXEC_S_ITERDONE;
-      }
-      // Reply callback will be called to send the reply
       return;
     }
 
@@ -826,11 +821,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
                                && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
       // Store results for reply_callback (includes cv)
       AREQ_StoreResults(req, state.results, rc, cv);
-      // Set QEXEC_S_ITERDONE so runCursor knows to free the cursor instead of pausing it
-      if (cursor_done) {
-        req->stateflags |= QEXEC_S_ITERDONE;
-      }
-      // Reply callback will be called to send the reply
       return;
     }
 
@@ -1028,8 +1018,15 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
   RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
 
-  // Note: We don't call AREQ_DecrRef here despite owning the transferred reference.
-  // The reference is released by AREQ_Execute (shared code path also used by the main thread).
+  // Release the owned AREQ reference if it has not already been released.
+  // On the normal success path, AREQ_Execute() releases the reference and
+  // the owner clears it via blockedClientReqCtx_setRequest(BCRctx, NULL),
+  // so this conditional avoids a double-decr while still handling error paths
+  // where AREQ_Execute() is never called.
+  if (BCRctx->req) {
+    AREQ_DecrRef(BCRctx->req);
+    BCRctx->req = NULL;
+  }
 
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
@@ -1038,11 +1035,13 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 // Helper for error handling in AREQ_Execute_Callback.
 // For FAIL policy (useReplyCallback=true): stores error for QueryReplyCallback to handle.
 // For RETURN policy: replies with error directly.
-static void ReplyOrStoreError(bool useReplyCallback, AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
+static void AREQ_ReplyOrStoreError(bool useReplyCallback, AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
   if (useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
     // QueryReplyCallback will clear the stored error after replying.
     QueryError_CloneFrom(status, &req->storedReplyState.err);
+    // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
   } else {
     QueryError_ReplyAndClear(ctx, status);
   }
@@ -1054,7 +1053,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Check if timed out while in the job queue.
   if (AREQ_TimedOut(req)) {
     // Timeout callback already replied.
-    AREQ_DecrRef(req);
+    // blockedClientReqCtx_destroy will release the AREQ ref.
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
@@ -1074,7 +1073,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    ReplyOrStoreError(useReplyCallback, req, outctx, &status);
+    AREQ_ReplyOrStoreError(useReplyCallback, req, outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientReqCtx_destroy(BCRctx);
     return;
@@ -1112,7 +1111,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  ReplyOrStoreError(useReplyCallback, req, outctx, &status);
+  AREQ_ReplyOrStoreError(useReplyCallback, req, outctx, &status);
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
@@ -1330,7 +1329,9 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   ResultProcessor *rp = qctx->endProc;
   ChunkReplyState *stored = &req->storedReplyState;
 
-  // Point qctx->err to the stored error so serializeAndReplyResults can access it
+  // Temporarily point qctx->err to the stored error so serializeAndReplyResults can access it.
+  // Save the original pointer and restore it after serialization to avoid coupling issues.
+  QueryError *originalErr = qctx->err;
   qctx->err = &stored->err;
 
   // Create a stack-allocated SearchResult for finishSendChunk cleanup
@@ -1356,6 +1357,9 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   RedisModule_EndReply(reply);
+
+  // Restore qctx->err to its original value to avoid coupling with stored state
+  qctx->err = originalErr;
 
   // Clear stored results pointer since ownership was transferred to state
   stored->results = NULL;
