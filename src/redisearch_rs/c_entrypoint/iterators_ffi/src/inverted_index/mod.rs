@@ -9,6 +9,7 @@
 
 mod missing;
 mod numeric;
+mod tag;
 mod term;
 mod wildcard;
 
