@@ -91,26 +91,6 @@ int CoordReduceDebugCtx_GetReduceCount(void) {
   return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
 }
 
-// Global hybrid reply debug context
-static HybridReplyDebugCtx globalHybridReplyDebugCtx = {0};
-
-bool HybridReplyDebugCtx_IsPauseEnabled(void) {
-  return atomic_load(&globalHybridReplyDebugCtx.pauseEnabled);
-}
-
-void HybridReplyDebugCtx_SetPauseEnabled(bool enabled) {
-  atomic_store(&globalHybridReplyDebugCtx.pauseEnabled, enabled);
-  atomic_store(&globalHybridReplyDebugCtx.pause, false);
-}
-
-bool HybridReplyDebugCtx_IsPaused(void) {
-  return atomic_load(&globalHybridReplyDebugCtx.pause);
-}
-
-void HybridReplyDebugCtx_SetPause(bool pause) {
-  atomic_store(&globalHybridReplyDebugCtx.pause, pause);
-}
-
 // Global store results debug context
 static StoreResultsDebugCtx globalStoreResultsDebugCtx = {0};
 
@@ -2083,64 +2063,6 @@ DEBUG_COMMAND(getCoordReduceCount) {
   }
 
   return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_HYBRID_REPLY <true/false>
- * Enable/disable pausing before replyWithCursors in hybrid execution.
- */
-DEBUG_COMMAND(setPauseBeforeHybridReply) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
-
-  if (!strcasecmp(op, "true")) {
-    HybridReplyDebugCtx_SetPauseEnabled(true);
-  } else if (!strcasecmp(op, "false")) {
-    HybridReplyDebugCtx_SetPauseEnabled(false);
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_HYBRID_REPLY'");
-  }
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER GET_IS_HYBRID_REPLY_PAUSED
- */
-DEBUG_COMMAND(getIsHybridReplyPaused) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  return RedisModule_ReplyWithBool(ctx, HybridReplyDebugCtx_IsPaused());
-}
-
-/**
- * FT.DEBUG QUERY_CONTROLLER SET_HYBRID_REPLY_RESUME
- */
-DEBUG_COMMAND(setHybridReplyResume) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  if (!HybridReplyDebugCtx_IsPaused()) {
-    return RedisModule_ReplyWithError(ctx, "Hybrid reply is not paused");
-  }
-
-  HybridReplyDebugCtx_SetPause(false);
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /**
