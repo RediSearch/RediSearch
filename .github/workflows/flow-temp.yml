@@ -22,5 +22,5 @@ jobs:
   test-daily-report:
     uses: ./.github/workflows/daily-ci-report.yml
     with:
-      date: ${{ inputs.date }}
+      date: '2026-02-05'
     secrets: inherit
