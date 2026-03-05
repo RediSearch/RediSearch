@@ -180,7 +180,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         let status = unsafe { callback(self.header.as_ptr()) };
-        #[allow(non_upper_case_globals)]
+        #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
             IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
@@ -217,7 +217,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         let status = unsafe { callback(self.header.as_ptr(), doc_id) };
-        #[allow(non_upper_case_globals)]
+        #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
             IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
@@ -265,7 +265,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         let status = unsafe { callback(self.header.as_ptr()) };
-        #[allow(non_upper_case_globals)]
+        #[expect(non_upper_case_globals)]
         let status = match status {
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
             ValidateStatus_VALIDATE_MOVED => RQEValidateStatus::Moved {
@@ -309,7 +309,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
-    #[allow(non_upper_case_globals)]
+    #[expect(non_upper_case_globals)]
     fn is_wildcard(&self) -> bool {
         matches!(
             self.type_,
