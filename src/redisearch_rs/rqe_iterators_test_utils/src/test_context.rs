@@ -128,6 +128,7 @@ fn create_spec_sctx(
 
     let spec_ref = unsafe {
         ffi::IndexSpec_ParseC(
+            ctx.as_ptr(),
             index_name.as_ptr(),
             args_ptr.as_mut_ptr(),
             args_ptr.len() as i32,
