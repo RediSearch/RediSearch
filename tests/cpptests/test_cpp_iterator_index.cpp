@@ -141,7 +141,7 @@ private:
         // Create IndexSpec for TAG field
         const char *args[] = {"SCHEMA", "tag_field", "TAG"};
         QueryError err = QueryError_Default();
-        StrongRef ref = IndexSpec_ParseC("tag_idx", args, sizeof(args) / sizeof(const char *), &err);
+        StrongRef ref = IndexSpec_ParseC(NULL, "tag_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
         ASSERT_TRUE(spec);
@@ -180,7 +180,7 @@ private:
         // Create IndexSpec for TEXT field (missing uses any field type)
         const char *args[] = {"SCHEMA", "text_field", "TEXT"};
         QueryError err = QueryError_Default();
-        StrongRef ref = IndexSpec_ParseC("missing_idx", args, sizeof(args) / sizeof(const char *), &err);
+        StrongRef ref = IndexSpec_ParseC(NULL, "missing_idx", args, sizeof(args) / sizeof(const char *), &err);
         spec = (IndexSpec *)StrongRef_Get(ref);
         ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
         ASSERT_TRUE(spec);

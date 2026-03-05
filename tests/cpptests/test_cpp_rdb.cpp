@@ -91,7 +91,7 @@ TEST_F(RdbMockTest, testCreateIndexSpec) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "1.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = QueryError_Default();
 
-    StrongRef spec_ref = IndexSpec_ParseC("test_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef spec_ref = IndexSpec_ParseC(NULL, "test_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
@@ -133,7 +133,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = QueryError_Default();
 
-    StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
@@ -222,7 +222,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = QueryError_Default();
 
-    StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
@@ -264,7 +264,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
     QueryError err = QueryError_Default();
 
-    StrongRef spec_ref = IndexSpec_ParseC("test_duplicate_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef spec_ref = IndexSpec_ParseC(NULL, "test_duplicate_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);

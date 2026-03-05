@@ -47,14 +47,14 @@ TEST_F(ClusterTest, SchemaPropagation) {
 
     // Create an IndexSpec
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
-    StrongRef original_spec_ref = IndexSpec_ParseC("idx1", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "idx1", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
     Spec_AddToDict(original_spec_ref.rm);
     specs.push_back(original_spec_ref); // Keep track of created spec for cleanup
 
     // Create a second IndexSpec
     const char *args2[] = {"SCHEMA", "name", "TEXT", "age", "NUMERIC", "city", "TAG"};
-    StrongRef second_spec_ref = IndexSpec_ParseC("idx2", args2, sizeof(args2) / sizeof(const char *), &err);
+    StrongRef second_spec_ref = IndexSpec_ParseC(NULL, "idx2", args2, sizeof(args2) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
     Spec_AddToDict(second_spec_ref.rm);
     specs.push_back(second_spec_ref); // Keep track of created spec for cleanup
