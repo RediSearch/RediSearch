@@ -93,9 +93,11 @@ def analyze_failure_with_ai(
     Returns:
         A specific, actionable suggestion from the AI, or None if unavailable
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    # Try project key first (no org ID needed), fall back to regular API key
+    api_key = os.getenv("OPENAI_PROJECT_KEY") or os.getenv("OPENAI_API_KEY")
 
     if not api_key:
+        print("      ⚠️  OPENAI_PROJECT_KEY or OPENAI_API_KEY not set, skipping AI analysis")
         return None
 
     if not OPENAI_AVAILABLE:
@@ -127,7 +129,12 @@ def analyze_failure_with_ai(
         return cached
 
     try:
-        client = openai.OpenAI(api_key=api_key)
+        # Support organization ID if the API key is org-tied
+        org_id = os.getenv("OPENAI_ORG_ID")
+        client = openai.OpenAI(
+            api_key=api_key,
+            organization=org_id  # None is fine if not set
+        )
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",  # Fast and cost-effective
@@ -147,7 +154,13 @@ def analyze_failure_with_ai(
         return suggestion
 
     except Exception as e:
-        print(f"      ⚠️  AI analysis failed: {e}")
+        error_str = str(e)
+        if "invalid_organization" in error_str:
+            print(f"      ⚠️  AI analysis failed: Invalid OpenAI organization.")
+            print(f"         Either use a project API key (sk-proj-...) which doesn't need org ID,")
+            print(f"         or set OPENAI_ORG_ID to your org ID (org-xxx) from platform.openai.com/settings/organization")
+        else:
+            print(f"      ⚠️  AI analysis failed: {e}")
         return None
 
 

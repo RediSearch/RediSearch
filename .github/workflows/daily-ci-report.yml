@@ -60,7 +60,9 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_PROJECT_KEY: ${{ secrets.OPENAI_PROJECT_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_ORG_ID: ${{ secrets.OPENAI_ORG_ID }}
         run: |
           python scripts/collect_nightly_results.py --date "${{ steps.date.outputs.date }}"
       
