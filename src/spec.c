@@ -3267,9 +3267,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   IndexFlags flags = 0;
   int16_t numFields = 0;
   size_t narr = 0;
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
-  size_t len = strlen(rawName);
-  HiddenString* specName = NewHiddenString(rawName, len, true);
+  char *rawName = NULL;
+  size_t len = 0;
+  HiddenString* specName = NULL;
+
+  rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
+  len = strlen(rawName);
+  specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
   sp = rm_calloc(1, sizeof(IndexSpec));
