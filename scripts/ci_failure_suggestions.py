@@ -75,6 +75,54 @@ def _cache_suggestion(cache_key: str, suggestion: str):
         pass  # Caching is best-effort
 
 
+def _check_ai_prerequisites() -> Optional[str]:
+    """Check if AI analysis prerequisites are met and return API key if available."""
+    if not OPENAI_AVAILABLE:
+        print("      ⚠️  openai package not installed, skipping AI analysis")
+        return None
+
+    api_key = os.getenv("OPENAI_PROJECT_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("      ⚠️  OPENAI_PROJECT_KEY or OPENAI_API_KEY not set, skipping AI analysis")
+        return None
+
+    return api_key
+
+
+def _build_user_content(
+    job_name: str,
+    failure_type: str,
+    error_message: Optional[str],
+    log_excerpt: Optional[str]
+) -> str:
+    """Build the user content string for the AI prompt."""
+    content_parts = [f"Job: {job_name}"]
+
+    if failure_type and failure_type != "unknown":
+        content_parts.append(f"Failure type: {failure_type}")
+
+    if error_message:
+        content_parts.append(f"Error message:\n{error_message}")
+
+    if log_excerpt:
+        # Limit log excerpt to avoid token limits
+        lines = log_excerpt.split('\n')[-50:]
+        content_parts.append("Log excerpt (last lines before failure):\n" + '\n'.join(lines))
+
+    return '\n\n'.join(content_parts)
+
+
+def _handle_ai_error(e: Exception) -> None:
+    """Handle and log AI analysis errors."""
+    error_str = str(e)
+    if "invalid_organization" in error_str:
+        print("      ⚠️  AI analysis failed: Invalid OpenAI organization.")
+        print("         Either use a project API key (sk-proj-...) which doesn't need org ID,")
+        print("         or set OPENAI_ORG_ID to your org ID (org-xxx) from platform.openai.com/settings/organization")
+    else:
+        print(f"      ⚠️  AI analysis failed: {e}")
+
+
 def analyze_failure_with_ai(
     error_message: Optional[str],
     job_name: str,
@@ -93,74 +141,38 @@ def analyze_failure_with_ai(
     Returns:
         A specific, actionable suggestion from the AI, or None if unavailable
     """
-    # Try project key first (no org ID needed), fall back to regular API key
-    api_key = os.getenv("OPENAI_PROJECT_KEY") or os.getenv("OPENAI_API_KEY")
-
-    if not api_key:
-        print("      ⚠️  OPENAI_PROJECT_KEY or OPENAI_API_KEY not set, skipping AI analysis")
-        return None
-
-    if not OPENAI_AVAILABLE:
-        print("      ⚠️  openai package not installed, skipping AI analysis")
-        return None
-
-    # Build the content to analyze
-    content_parts = [f"Job: {job_name}"]
-
-    if failure_type and failure_type != "unknown":
-        content_parts.append(f"Failure type: {failure_type}")
-
-    if error_message:
-        content_parts.append(f"Error message:\n{error_message}")
-
-    if log_excerpt:
-        # Limit log excerpt to avoid token limits
-        lines = log_excerpt.split('\n')
-        if len(lines) > 50:
-            lines = lines[-50:]
-        content_parts.append(f"Log excerpt (last lines before failure):\n" + '\n'.join(lines))
-
-    user_content = '\n\n'.join(content_parts)
-
-    # Check cache first
+    # Check cache first - before any other operations
     cache_key = _get_cache_key(error_message or "", job_name, log_excerpt or "")
     cached = _get_cached_suggestion(cache_key)
     if cached:
         return cached
 
+    api_key = _check_ai_prerequisites()
+    if not api_key:
+        return None
+
+    user_content = _build_user_content(job_name, failure_type, error_message, log_excerpt)
+
     try:
-        # Support organization ID if the API key is org-tied
         org_id = os.getenv("OPENAI_ORG_ID")
-        client = openai.OpenAI(
-            api_key=api_key,
-            organization=org_id  # None is fine if not set
-        )
+        client = openai.OpenAI(api_key=api_key, organization=org_id)
 
         response = client.chat.completions.create(
-            model="gpt-4o",  # Better reasoning for code analysis
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_content}
             ],
             max_tokens=200,
-            temperature=0.3  # Lower temperature for more focused responses
+            temperature=0.3
         )
 
         suggestion = response.choices[0].message.content.strip()
-
-        # Cache the result
         _cache_suggestion(cache_key, suggestion)
-
         return suggestion
 
     except Exception as e:
-        error_str = str(e)
-        if "invalid_organization" in error_str:
-            print(f"      ⚠️  AI analysis failed: Invalid OpenAI organization.")
-            print(f"         Either use a project API key (sk-proj-...) which doesn't need org ID,")
-            print(f"         or set OPENAI_ORG_ID to your org ID (org-xxx) from platform.openai.com/settings/organization")
-        else:
-            print(f"      ⚠️  AI analysis failed: {e}")
+        _handle_ai_error(e)
         return None
 
 

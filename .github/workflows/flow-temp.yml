@@ -10,11 +10,17 @@ name: temporary testing
 on:
   push:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to generate report for (YYYY-MM-DD). Leave empty for yesterday.'
+        required: false
+        type: string
 
 jobs:
 
-  alpine-test:
-    uses: ./.github/workflows/flow-test.yml
-    secrets: inherit
+  test-daily-report:
+    uses: ./.github/workflows/daily-ci-report.yml
     with:
-      platform: alpine:3.22
+      date: ${{ inputs.date }}
+    secrets: inherit

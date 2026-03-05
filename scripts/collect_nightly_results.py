@@ -460,7 +460,7 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
         print("No failed runs to analyze")
         return
 
-    print(f"\n📥 Downloading and analyzing logs for failed jobs...")
+    print("\n📥 Downloading and analyzing logs for failed jobs...")
 
     failure_analysis = []
 
@@ -515,16 +515,16 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
             if not log_content:
                 # Download run logs once and reuse for all jobs in this run
                 if run_logs_zip is None:
-                    print(f"      Job logs not available, downloading run logs...")
+                    print("      Job logs not available, downloading run logs...")
                     run_logs_zip = fetch_run_logs(token, repo, run_id)
                     if not run_logs_zip:
-                        print(f"      ⚠️  Could not download run logs")
+                        print("      ⚠️  Could not download run logs")
                         continue
 
                 # Extract this job's logs from the zip
                 log_content = extract_job_log_from_zip(run_logs_zip, job_name)
                 if not log_content:
-                    print(f"      ⚠️  Could not find job logs in zip")
+                    print("      ⚠️  Could not find job logs in zip")
                     continue
 
             # Save log content to a unique file
@@ -559,16 +559,13 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                             break
 
 
-            # Build log excerpt for AI analysis (join error_lines)
-            log_excerpt = '\n'.join(error_lines) if error_lines else None
-
             # Get suggested fix for this failure using AI
-            print(f"      Analyzing failure with AI...")
+            print("      Analyzing failure with AI...")
             suggestion = get_suggestion_for_failure(
                 error_message=error_message,
                 job_name=job_name,
                 failure_type=failure_type,
-                log_excerpt=log_excerpt
+                log_excerpt=log_content  # Pass raw log content for additional context
             )
 
             failure_analysis.append({
@@ -877,8 +874,8 @@ Examples:
             print(f"   Using specified date: {date_str}")
         except ValueError:
             print(f"   ⚠️  Invalid date format: {args.date}")
-            print(f"   Expected format: YYYY-MM-DD (e.g., 2025-12-07)")
-            print(f"   Falling back to yesterday")
+            print("   Expected format: YYYY-MM-DD (e.g., 2025-12-07)")
+            print("   Falling back to yesterday")
             start_time, end_time, date_str = get_yesterday_date_range()
     else:
         start_time, end_time, date_str = get_yesterday_date_range()
