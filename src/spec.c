@@ -2803,6 +2803,9 @@ if (scanner->isDebug) { \
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
+  size_t counter = 0;
+  RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
+
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
@@ -2815,9 +2818,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
-
-  size_t counter = 0;
-  RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (globalDebugCtx.debugMode) {
     // If we are in debug mode, we need to use the debug scanner function
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
@@ -3236,7 +3236,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     // In a forked child process, the memory is a snapshot so no lock is needed.
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-    const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD); 
+    const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
     if (inMainProcess) {
       RedisSearchCtx_LockSpecRead(&sctx);
     }
@@ -3250,22 +3250,31 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
-  size_t len = strlen(rawName);
-  HiddenString* specName = NewHiddenString(rawName, len, true);
+  char *rawName = NULL;
+  size_t len = 0;
+  HiddenString* specName = NULL;
+  IndexSpec *sp = NULL;
+  StrongRef spec_ref = {0};
+  IndexFlags flags = 0;
+  int16_t numFields = 0;
+  size_t narr = 0;
+
+  rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
+  len = strlen(rawName);
+  specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp = rm_calloc(1, sizeof(IndexSpec));
+  spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
   // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
-  IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
+  flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
-  int16_t numFields = LoadUnsigned_IOError(rdb, goto cleanup);
+  numFields = LoadUnsigned_IOError(rdb, goto cleanup);
 
   initializeIndexSpec(sp, specName, flags, numFields);
 
@@ -3317,7 +3326,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
+  narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -3550,13 +3559,14 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load");
+  size_t nIndexes = 0;
+  QueryError status = QueryError_Default();
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return REDISMODULE_ERR;
   }
 
-  size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
-  QueryError status = QueryError_Default();
+  nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   if (!SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
     RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
     return REDISMODULE_ERR;
@@ -3958,6 +3968,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       // Clean up state between iterations (indexes)
       QueryError_ClearError(&r->status);
       RLookup_Cleanup(&r->lk);
+      r->lk = RLookup_New();
       RLookupRow_Reset(&r->row);
     }
 

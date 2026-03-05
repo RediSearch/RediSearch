@@ -1780,6 +1780,8 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   AREQ *r = NULL;
+  AREQ_Debug_params debug_params = {0};
+  int debug_argv_count = 0;
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
   QueryError status = QueryError_Default();
@@ -1788,9 +1790,9 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
   r = &debug_req->r;
-  AREQ_Debug_params debug_params = debug_req->debug_params;
+  debug_params = debug_req->debug_params;
 
-  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   // Parse the query, not including debug params
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {

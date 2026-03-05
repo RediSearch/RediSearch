@@ -56,7 +56,7 @@ where
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
-    /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
+    /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
     /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
     pub unsafe fn new(
         reader: R,
