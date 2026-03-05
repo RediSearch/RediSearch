@@ -32,6 +32,17 @@ extern RedisSearchDisk *disk_db;
 bool SearchDisk_Initialize(RedisModuleCtx *ctx);
 
 /**
+ * @brief Register BigModule callbacks for disk usage reporting
+ *
+ * Registers a getDiskUsage callback with Redis that iterates over all
+ * disk-based indexes and returns the total disk usage.
+ *
+ * @param ctx Redis module context
+ * @return true if registration succeeded, false otherwise
+ */
+bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
+
+/**
  * @brief Close the search disk module
  */
 void SearchDisk_Close();
@@ -387,3 +398,23 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
  * @param ctx Redis module info context
  */
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+
+/**
+ * @brief Get the total disk usage for a disk index
+ *
+ * Returns the sum of live SST file sizes across all column families.
+ *
+ * @param index Pointer to the disk index spec
+ * @return Total disk usage in bytes
+ */
+uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Flush all memtables to disk (SST files)
+ *
+ * Forces all in-memory data to be written to SST files on disk.
+ * Useful for testing to ensure disk usage metrics are accurate.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);

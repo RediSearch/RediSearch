@@ -172,6 +172,23 @@ typedef struct IndexDiskAPI {
    * @return Number of deletedIDs removed from the disk index
    */
   size_t (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
+
+  /**
+   * @brief Get the total disk usage for this index.
+   *
+   * @param index Pointer to the disk index
+   * @return Total disk usage in bytes
+   */
+  uint64_t (*getDiskUsage)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Flush all to disk
+   *
+   * Forces all memory to be flushed to disk
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*flush)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

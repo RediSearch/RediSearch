@@ -46,6 +46,7 @@ class TestDebugCommands(object):
             "SPEC_INVIDXES_INFO",
             "GC_FORCEINVOKE",
             "GC_FORCEBGINVOKE",
+            "DISK_FLUSH",
             "GC_CLEAN_NUMERIC",
             "GC_STOP_SCHEDULE",
             "GC_CONTINUE_SCHEDULE",
