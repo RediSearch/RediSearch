@@ -29,7 +29,7 @@ Dependency versions should be updated:
 Rust Unit tests use the regular Rust test harness and test runner. All regular Rust testing practices apply with a few specifics:
 
 - Use [`proptest`](https://docs.rs/proptest/latest/proptest/) whenever possible, this lets us test inputs in-depth instead of superficially.
-- Prefer integration tests in `tests/` over in-crate unit tests.
+- Prefer integration tests in tests/ over in-crate unit tests, as integration tests are restricted to a crate's public interface, which is what you generally want to test. In-crate unit tests can access internal implementation details, which is only occasionally useful.
 - All tests *should* pass under [miri](https://github.com/rust-lang/miri). We’re writing nuanced, tricky code and miri is invaluable in making it safe. If miri flags UB in your test and you think it's false positive, think again, then raise the issue with the team before skipping the test under miri.
 *All skipped tests must have a reason for skipping attached.*
 
