@@ -53,7 +53,7 @@ where
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
-    /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
+    /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
     /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
     /// 4. `context.spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding

@@ -36,7 +36,7 @@ pub struct ProfileCounters {
 /// A wrapper iterator that collects profiling metrics from a child iterator.
 ///
 /// This iterator delegates all operations to its inner child iterator while:
-/// - Tracking the number of `read()` and `skip_to()` calls
+/// - Tracking the number of [`read()`](RQEIterator::read) and [`skip_to()`](RQEIterator::skip_to) calls
 /// - Measuring wall-clock time spent in these operations
 /// - Recording whether EOF was reached
 ///

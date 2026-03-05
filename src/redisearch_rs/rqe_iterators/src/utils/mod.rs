@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `RQEIterator`utilities
+//! [`RQEIterator`](crate::RQEIterator) utilities
 
 mod owned_slice;
 

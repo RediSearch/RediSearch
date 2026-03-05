@@ -26,10 +26,10 @@ pub struct IdList<'index, const SORTED: bool> {
     /// The list of document IDs to iterate over.
     /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
     ids: OwnedSlice<t_docId>,
-    /// The current position of the iterator (a.k.a the next document ID to return by `read`).
+    /// The current position of the iterator (a.k.a the next document ID to return by [`read`](RQEIterator::read)).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
-    /// A reusable result object to avoid allocations on each `read` call.
+    /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RSIndexResult<'index>,
 }
 
@@ -45,7 +45,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
     /// Get the current iterator offset—i.e. its position in the list of IDs.
     ///
-    /// This is used by [`MetricIterator`](crate::metric::MetricIterator) to iterate over the corresponding list
+    /// This is used by [`Metric`](crate::metric::Metric) to iterate over the corresponding list
     /// of metric data in lockstep.
     #[inline(always)]
     pub(super) const fn offset(&self) -> usize {
