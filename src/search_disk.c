@@ -76,7 +76,7 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
 }
 
 void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(index);
+    RS_ASSERT(disk_db && index);
     disk->basic.closeIndexSpec(ctx, disk_db, index);
 }
 

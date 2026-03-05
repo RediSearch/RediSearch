@@ -47,6 +47,7 @@ bool isLVQSupported() {
 
 VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(fieldSpec, INDEXFLD_T_VECTOR));
+  RS_ASSERT(!create_if_missing || ctx != NULL);
 
   if (!fieldSpec->vectorOpts.vecSimIndex && create_if_missing) {
     if (fieldSpec->vectorOpts.diskCtx.storage) {
