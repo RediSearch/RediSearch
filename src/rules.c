@@ -334,7 +334,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
                                 RedisJSON jsonRoot, const char *kname) {
   double score = rule->score_default;
   JSONResultsIterator jsonIter = NULL;
-  RedisJSON scoreJson = NULL;
+  RedisJSON scoreJson;
 
   if (!rule->score_field) {
     goto done;
