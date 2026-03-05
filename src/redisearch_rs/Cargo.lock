@@ -2015,6 +2015,7 @@ dependencies = [
  "rlookup_ffi",
  "search_result",
  "sorting_vector",
+ "tracing",
  "value",
  "workspace_hack",
 ]
