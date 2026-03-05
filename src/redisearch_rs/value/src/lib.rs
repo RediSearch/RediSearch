@@ -9,10 +9,12 @@
 
 pub use crate::{
     collection::{Array, Map},
+    redis_string::RedisString,
+    rs_string::RsString,
     shared::SharedRsValue,
-    strings::{ConstString, RedisString, RmAllocString, RsValueString},
     trio::RsValueTrio,
 };
+use std::fmt::Debug;
 
 /// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 /// Rust port of the RSValue type.
@@ -21,13 +23,14 @@ mod rs_value_ffi;
 #[cfg(feature = "c_ffi_impl")]
 pub use rs_value_ffi::*;
 
-mod collection;
+pub mod collection;
+pub mod redis_string;
+pub mod rs_string;
 pub mod shared;
-pub mod strings;
 pub mod trio;
 
 /// An actual [`RsValue`] object
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RsValue {
     /// Undefined, not holding a value.
     Undefined,
@@ -35,14 +38,10 @@ pub enum RsValue {
     Null,
     /// Numeric value
     Number(f64),
-    /// String value backed by a rm_alloc'd string
-    RmAllocString(RmAllocString),
-    /// String value backed by a constant C string
-    ConstString(ConstString),
+    /// String
+    String(RsString),
     /// String value backed by a Redis string
     RedisString(RedisString),
-    /// String value
-    String(Box<RsValueString>),
     /// Array value
     Array(Array),
     /// Reference value
@@ -54,11 +53,19 @@ pub enum RsValue {
 }
 
 impl RsValue {
-    pub fn fully_dereferenced(&self) -> &Self {
+    pub fn fully_dereferenced_ref(&self) -> &Self {
         if let RsValue::Ref(ref_value) = self {
-            ref_value.value().fully_dereferenced()
+            ref_value.value().fully_dereferenced_ref()
         } else {
             self
+        }
+    }
+
+    pub fn fully_dereferenced_ref_and_trio(&self) -> &Self {
+        match self {
+            RsValue::Ref(ref_value) => ref_value.value().fully_dereferenced_ref_and_trio(),
+            RsValue::Trio(trio) => trio.left().value().fully_dereferenced_ref_and_trio(),
+            _ => self,
         }
     }
 
@@ -67,10 +74,8 @@ impl RsValue {
             RsValue::Undefined => "Undefined",
             RsValue::Null => "Null",
             RsValue::Number(_) => "Number",
-            RsValue::RmAllocString(_) => "RmAllocString",
-            RsValue::ConstString(_) => "ConstString",
-            RsValue::RedisString(_) => "RedisString",
             RsValue::String(_) => "String",
+            RsValue::RedisString(_) => "RedisString",
             RsValue::Array(_) => "Array",
             RsValue::Ref(_) => "Ref",
             RsValue::Trio(_) => "Trio",
@@ -81,10 +86,8 @@ impl RsValue {
     /// Returns the string bytes of the value, if it is a string type.
     pub fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
-            RsValue::RmAllocString(str) => Some(str.as_bytes()),
-            RsValue::ConstString(str) => Some(str.as_bytes()),
+            RsValue::String(str) => Some(str.as_bytes()),
             RsValue::RedisString(str) => Some(str.as_bytes()),
-            RsValue::String(str) => Some(str.as_str().as_bytes()),
             _ => None,
         }
     }

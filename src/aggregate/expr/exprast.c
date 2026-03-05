@@ -84,11 +84,6 @@ RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
   e->pred.cond = cond;
   e->pred.left = left;
   e->pred.right = right;
-  // e->pred = (RSPredicate){
-  //     .cond = cond,
-  //     .left = left,
-  //     .right = right,
-  // };
   return e;
 }
 
@@ -190,7 +185,7 @@ sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
       }
       s = sdscat(s, ")");
       break;
-    case RSExpr_Op:
+    case RSExpr_Op: {
       s = sdscat(s, "(");
       s = RSExpr_DumpSds(e->op.left, s, obfuscate);
       const char buffer[2] = {e->op.op, 0};
@@ -198,6 +193,7 @@ sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
       s = RSExpr_DumpSds(e->op.right, s, obfuscate);
       s = sdscat(s, ")");
       break;
+    }
 
     case RSExpr_Predicate:
       s = sdscat(s, "(");

@@ -151,7 +151,6 @@ pub(super) type TermIterator<'index> =
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 /// 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
-#[allow(improper_ctypes_definitions)] // `field_mask_or_index` contains `t_fieldMask` (u128)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     idx: *const ffi::InvertedIndex,
@@ -225,15 +224,18 @@ pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     // SAFETY: 5. guarantees term is a heap-allocated RSQueryTerm
     let term = unsafe { Box::from_raw(term) };
 
-    // Create the expiration checker
-    let expiration_checker = FieldExpirationChecker::new(
-        sctx,
-        FieldFilterContext {
-            field: field_mask_or_index,
-            predicate: FieldExpirationPredicate::Default,
-        },
-        reader.flags(),
-    );
+    // SAFETY: The caller guarantees `sctx` points to a valid `RedisSearchCtx`
+    // with a valid `spec`, both remaining valid for the iterator's lifetime.
+    let expiration_checker = unsafe {
+        FieldExpirationChecker::new(
+            sctx,
+            FieldFilterContext {
+                field: field_mask_or_index,
+                predicate: FieldExpirationPredicate::Default,
+            },
+            reader.flags(),
+        )
+    };
 
     // SAFETY: All preconditions for `Term::new` are upheld by this function's
     // own safety contract (valid reader, valid sctx, valid term).

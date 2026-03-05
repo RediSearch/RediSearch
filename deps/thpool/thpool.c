@@ -802,8 +802,6 @@ static jobsChain create_jobs_chain(redisearch_thpool_work_t *jobs,
   jobsChain jobs_chain = {.first_job = NULL, .last_job = NULL};
 
   job *first_newjob = (job *)rm_malloc(sizeof(job));
-  if (first_newjob == NULL)
-    goto fail;
 
   jobs_chain.first_job = first_newjob;
 
@@ -814,8 +812,6 @@ static jobsChain create_jobs_chain(redisearch_thpool_work_t *jobs,
 
   for (size_t i = 1; i < n_jobs; i++) {
     job *cur_newjob = (job *)rm_malloc(sizeof(job));
-    if (cur_newjob == NULL)
-      goto fail;
 
     /* Add function and argument */
     cur_newjob->function = jobs[i].function_p;
@@ -828,15 +824,6 @@ static jobsChain create_jobs_chain(redisearch_thpool_work_t *jobs,
   }
 
   jobs_chain.last_job = last_newjob;
-
-  return jobs_chain;
-
-fail:
-  while (first_newjob) {
-    job *tmp = first_newjob->prev;
-    rm_free(first_newjob);
-    first_newjob = tmp;
-  }
 
   return jobs_chain;
 }
