@@ -37,7 +37,7 @@ This document contains valid links:
 This document contains invalid links:
 
 - [Broken Link](https://this-domain-does-not-exist-12345.com)
-- [Bad Anchor](https://github.com#non-existent-anchor)
+- [Bad Anchor](https://www.python.org#non-existent-anchor)
 - Direct bad link: https://httpstat.us/404
 
 ## Mixed Links
