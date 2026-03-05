@@ -52,7 +52,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
 
-  disk_db = disk->basic.open(ctx);
+  disk_db = disk->basic.open();
 
   return disk_db != NULL;
 }
