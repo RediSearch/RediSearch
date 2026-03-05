@@ -72,6 +72,10 @@ void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx);
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
 
+/* Get the state string of the first connection for a specific node by id.
+ * Returns NULL if this node is not in the pool */
+const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id);
+
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
 /* Add a node to the connection manager */

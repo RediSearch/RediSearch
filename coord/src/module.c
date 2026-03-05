@@ -2016,6 +2016,19 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+
+  // Log the received topology with master nodes
+  for (size_t i = 0; i < topo->numShards; i++) {
+    MRClusterShard *sh = &topo->shards[i];
+    for (size_t j = 0; j < sh->numNodes; j++) {
+      MRClusterNode *node = &sh->nodes[j];
+      if (node->flags & MRNode_Master) {
+        RedisModule_Log(ctx, "notice", "CLUSTERSET shard %zu: master %s (%s:%d)",
+                        i, node->id, node->endpoint.host, node->endpoint.port);
+      }
+    }
+  }
+
   NumShards = topo->numShards;
 
   // send the topology to the cluster
