@@ -184,6 +184,13 @@ static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *inv
 }
 
 DEBUG_COMMAND(InvertedIndexSummary) {
+  size_t len;
+  const char *invIdxName = NULL;
+  InvertedIndex *invidx = NULL;
+  size_t invIdxBulkLen = 0;
+  size_t blockCount = 0;
+  IIBlockSummary *blocksSummary = NULL;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -191,21 +198,19 @@ DEBUG_COMMAND(InvertedIndexSummary) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  size_t len;
-  const char *invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invIdxName = RedisModule_StringPtrLen(argv[3], &len);
+  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  size_t invIdxBulkLen = InvertedIndexSummaryHeader(ctx, invidx);
+  invIdxBulkLen = InvertedIndexSummaryHeader(ctx, invidx);
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
-  size_t blockCount = 0;
-  IIBlockSummary *blocksSummary = InvertedIndex_BlocksSummary(invidx, &blockCount);
+  blocksSummary = InvertedIndex_BlocksSummary(invidx, &blockCount);
 
   for (size_t i = 0; i < blockCount; i++) {
     IIBlockSummary *blockSummary = blocksSummary + i;
@@ -231,6 +236,13 @@ end:
 }
 
 DEBUG_COMMAND(DumpInvertedIndex) {
+  size_t len = 0;
+  const char *invIdxName = NULL;
+  InvertedIndex *invidx = NULL;
+  IndexDecoderCtx decoderCtx;
+  IndexReader *reader = NULL;
+  RSIndexResult *res = NULL;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -238,16 +250,15 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  size_t len;
-  const char *invIdxName = RedisModule_StringPtrLen(argv[3], &len);
-  InvertedIndex *invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
+  invIdxName = RedisModule_StringPtrLen(argv[3], &len);
+  invidx = Redis_OpenInvertedIndex(sctx, invIdxName, len, 0, NULL);
   if (!invidx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
-  IndexReader *reader = NewIndexReader(invidx, decoderCtx);
-  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  decoderCtx = (IndexDecoderCtx){.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
+  reader = NewIndexReader(invidx, decoderCtx);
+  res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
   ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
@@ -259,6 +270,11 @@ end:
 
 // FT.DEBUG NUMIDX_SUMMARY INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(NumericIndexSummary) {
+  FieldSpec *fs = NULL;
+  NumericRangeTree *rt = NULL;
+  NumericRangeTree rt_info = {0};
+  int root_max_depth = 0;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -266,15 +282,13 @@ DEBUG_COMMAND(NumericIndexSummary) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree rt_info = {0};
-  int root_max_depth = 0;
 
-  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+  rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet.
   // Else, we copy the data to a local variable.
   if (rt) {
@@ -300,6 +314,10 @@ end:
 
 // FT.DEBUG DUMP_NUMIDX <INDEX_NAME> <NUMERIC_FIELD_NAME> [WITH_HEADERS]
 DEBUG_COMMAND(DumpNumericIndex) {
+  FieldSpec *fs = NULL;
+  bool with_headers = false;
+  NumericRangeTree *rt = NULL;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -307,16 +325,16 @@ DEBUG_COMMAND(DumpNumericIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
 
   // It's a debug command... lets not waste time on string comparison.
-  int with_headers = argc == 5 ? true : false;
+  with_headers = argc == 5 ? true : false;
 
-  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+  rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet.
   if (!rt) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
@@ -352,6 +370,10 @@ end:
 }
 
 DEBUG_COMMAND(DumpGeometryIndex) {
+  FieldSpec *fs = NULL;
+  const GeometryIndex *idx = NULL;
+  const GeometryApi *api = NULL;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -360,19 +382,19 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   }
   GET_SEARCH_CTX(argv[2])
 
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_GEOMETRY);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_GEOMETRY);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
 
   // TODO: use DONT_CREATE_INDEX and imitate the reply struct of an empty index.
-  const GeometryIndex *idx = OpenGeometryIndex(fs, CREATE_INDEX);
+  idx = OpenGeometryIndex(fs, CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not open geoshape index");
     goto end;
   }
-  const GeometryApi *api = GeometryApi_Get(idx);
+  api = GeometryApi_Get(idx);
   api->dump(idx, ctx);
 
 end:
@@ -524,6 +546,10 @@ void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt, bool
 
 // FT.DEBUG DUMP_NUMIDXTREE INDEX_NAME NUMERIC_FIELD_NAME [MINIMAL]
 DEBUG_COMMAND(DumpNumericIndexTree) {
+  FieldSpec *fs = NULL;
+  NumericRangeTree *rt = NULL;
+  bool minimal = false;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -531,23 +557,23 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
   NumericRangeTree dummy_rt = {0};
-  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+  rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   // If we failed to open the numeric index, it was not initialized yet,
   // reply as if the tree is empty.
   if (!rt) {
     rt = &dummy_rt;
   }
-  bool minimal = argc > 4 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "minimal");
+  minimal = argc > 4 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "minimal");
 
   NumericRangeTree_DebugReply(sctx->redisCtx, rt, minimal);
 
-  end:
+end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -571,6 +597,14 @@ DEBUG_COMMAND(SpecInvertedIndexesInfo) {
 }
 
 DEBUG_COMMAND(DumpTagIndex) {
+  FieldSpec *fs = NULL;
+  const TagIndex *tagIndex = NULL;
+  TrieMapIterator *iter = NULL;
+  char *tag = NULL;
+  tm_len_t len = 0;
+  InvertedIndex *iv = NULL;
+  size_t resultSize = 0;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -578,12 +612,12 @@ DEBUG_COMMAND(DumpTagIndex) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  tagIndex = TagIndex_Open(fs, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -591,13 +625,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  TrieMapIterator *iter = TrieMap_Iterate(tagIndex->values);
-
-  char *tag;
-  tm_len_t len;
-  InvertedIndex *iv;
-
-  size_t resultSize = 0;
+  iter = TrieMap_Iterate(tagIndex->values);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
@@ -695,6 +723,9 @@ end:
 }
 
 DEBUG_COMMAND(IdToDocId) {
+  long long id;
+  const RSDocumentMetadata *doc;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -702,12 +733,11 @@ DEBUG_COMMAND(IdToDocId) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  long long id;
   if (RedisModule_StringToLongLong(argv[3], &id) != REDISMODULE_OK) {
     RedisModule_ReplyWithError(sctx->redisCtx, "bad id given");
     goto end;
   }
-  const RSDocumentMetadata *doc = DocTable_Borrow(&sctx->spec->docs, id);
+  doc = DocTable_Borrow(&sctx->spec->docs, id);
   if (!doc || (doc->flags & Document_Deleted)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "document was removed");
   } else {
@@ -868,6 +898,10 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
 
 // GC_CLEAN_NUMERIC INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(GCCleanNumeric) {
+  FieldSpec *fs;
+  NumericRangeTree *rt;
+  NRN_AddRv rv;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -876,17 +910,17 @@ DEBUG_COMMAND(GCCleanNumeric) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+  rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   if (!rt) {
     goto end;
   }
 
-  NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
+  rv = NumericRangeTree_TrimEmptyLeaves(rt);
 
 end:
   SearchCtx_Free(sctx);
@@ -1089,13 +1123,6 @@ static void seekTagIterator(TrieMapIterator *it, size_t offset) {
  * INFO_TAGIDX <index> <field> [OPTIONS...]
  */
 DEBUG_COMMAND(InfoTagIndex) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc < 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-  GET_SEARCH_CTX(argv[2]);
   DumpOptions options = {0};
   ACArgSpec argspecs[] = {
       {.name = "count_value_entries",
@@ -1108,20 +1135,39 @@ DEBUG_COMMAND(InfoTagIndex) {
       {NULL}};
   ArgsCursor ac = {0};
   ACArgSpec *errSpec = NULL;
+  int rv;
+  FieldSpec *fs;
+  const TagIndex *idx;
+  size_t nelem = 0;
+  int shouldDescend;
+  size_t limit;
+  TrieMapIterator *iter;
+  char *tag;
+  tm_len_t len;
+  InvertedIndex *iv;
+  size_t nvalues = 0;
+
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
   ArgsCursor_InitRString(&ac, argv + 4, argc - 4);
-  int rv = AC_ParseArgSpec(&ac, argspecs, &errSpec);
+  rv = AC_ParseArgSpec(&ac, argspecs, &errSpec);
   if (rv != AC_OK) {
     RedisModule_ReplyWithError(ctx, "Could not parse argument (argspec fixme)");
     goto end;
   }
 
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_TAG);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!idx) {
@@ -1129,7 +1175,6 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  size_t nelem = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithLiteral(ctx, "num_values");
   RedisModule_ReplyWithLongLong(ctx, TrieMap_NUniqueKeys(idx->values));
@@ -1138,23 +1183,19 @@ DEBUG_COMMAND(InfoTagIndex) {
   if (options.dumpIdEntries) {
     options.countValueEntries = 1;
   }
-  int shouldDescend = options.countValueEntries || options.dumpIdEntries;
+  shouldDescend = options.countValueEntries || options.dumpIdEntries;
   if (!shouldDescend) {
     goto reply_done;
   }
 
-  size_t limit = options.limit ? options.limit : 0;
-  TrieMapIterator *iter = TrieMap_Iterate(idx->values);
-  char *tag;
-  tm_len_t len;
-  InvertedIndex *iv;
+  limit = options.limit ? options.limit : 0;
+  iter = TrieMap_Iterate(idx->values);
 
   nelem += 2;
   RedisModule_ReplyWithLiteral(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   seekTagIterator(iter, options.offset);
-  size_t nvalues = 0;
   while (nvalues++ < limit && TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     size_t nsubelem = 8;
     if (!options.dumpIdEntries) {
@@ -1399,6 +1440,11 @@ void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 }
 
 DEBUG_COMMAND(dumpHNSWData) {
+  FieldSpec *fs;
+  VecSimIndex *vecsimIndex;
+  VecSimIndexBasicInfo info;
+  size_t len_num_docs = 0;
+
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -1407,21 +1453,21 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
   GET_SEARCH_CTX(argv[2])
 
-  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
+  fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {
     RedisModule_ReplyWithError(ctx, "Vector index not found");
 	  goto cleanup;
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
-  VecSimIndex *vecsimIndex = openVectorIndex(fs, CREATE_INDEX);
+  vecsimIndex = openVectorIndex(fs, CREATE_INDEX);
   if(!vecsimIndex) {
     RedisModule_ReplyWithError(ctx, "Can't open vector index");
     goto cleanup;
   }
 
 
-  VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
+  info = VecSimIndex_BasicInfo(vecsimIndex);
   if (info.algo != VecSimAlgo_HNSWLIB) {
 	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
 	  goto cleanup;
@@ -1443,9 +1489,9 @@ DEBUG_COMMAND(dumpHNSWData) {
 	  goto cleanup;
   }
   // Otherwise, dump neighbors for every document in the index.
-  START_POSTPONED_LEN_ARRAY(num_docs);
-  DOCTABLE_FOREACH((&sctx->spec->docs), {replyDumpHNSW(ctx, vecsimIndex, dmd->id); (ARRAY_LEN_VAR(num_docs))++;})
-  END_POSTPONED_LEN_ARRAY(num_docs);
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  DOCTABLE_FOREACH((&sctx->spec->docs), {replyDumpHNSW(ctx, vecsimIndex, dmd->id); len_num_docs++;})
+  RedisModule_ReplySetArrayLength(ctx, len_num_docs);
 
   cleanup:
   SearchCtx_Free(sctx);

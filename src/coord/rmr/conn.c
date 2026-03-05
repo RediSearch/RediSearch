@@ -483,8 +483,6 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     goto cleanup;
   }
 
-  uv_loop_t *loop = conn->loop;
-
   if (c->err || !r) {
     detachFromConn(conn, !!r);
     MRConn_SwitchState(conn, MRConn_Connecting);

@@ -71,7 +71,6 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
       goto cleanup;
     }
   }
-
   rc = f->Call(eval, args, nargs, result);
 
 cleanup:
@@ -84,6 +83,9 @@ cleanup:
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
   RSValue *l = RSValue_NewUndefined(), *r = RSValue_NewUndefined();
   int rc = EXPR_EVAL_ERR;
+  double n1 = 0.0;
+  double n2 = 0.0;
+  double res = 0;
 
   if (evalInternal(eval, op->left, l) != EXPR_EVAL_OK) {
     goto cleanup;
@@ -92,7 +94,6 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     goto cleanup;
   }
 
-  double n1, n2;
   if (!RSValue_ToNumber(l, &n1) || !RSValue_ToNumber(r, &n2)) {
 
     QueryError_SetError(eval->err, QUERY_ERROR_CODE_NOT_NUMERIC, NULL);
@@ -100,7 +101,6 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     goto cleanup;
   }
 
-  double res;
   switch (op->op) {
     case '+':
       res = n1 + n2;

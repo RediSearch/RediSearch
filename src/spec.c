@@ -2703,6 +2703,9 @@ if (scanner->isDebug) { \
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
+  size_t counter = 0;
+  RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
+
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
@@ -2715,9 +2718,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
-
-  size_t counter = 0;
-  RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (globalDebugCtx.debugMode) {
     // If we are in debug mode, we need to use the debug scanner function
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
@@ -3433,13 +3433,14 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 }
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
+  size_t nIndexes = 0;
+  QueryError status = QueryError_Default();
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return REDISMODULE_ERR;
   }
 
-  size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
-  QueryError status = QueryError_Default();
+  nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   if (!SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
     RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
     return REDISMODULE_ERR;

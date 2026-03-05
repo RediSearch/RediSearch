@@ -868,8 +868,16 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
+  const RSDocumentMetadata *dmd = 0;
+  RLookup lookup_s;
+  RLookupRow row = {0};
+  RSValue *rv = NULL;
+  IndexSpecCache *spcache = NULL;
+  RLookupLoadOptions loadopts = {0};
+  ExprEval evaluator = {0};
+
   RedisSearchCtx_LockSpecRead(sctx);
-  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
+  dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");
@@ -881,22 +889,19 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  RLookup lookup_s;
-  RLookupRow row = {0};
-  RSValue *rv = NULL;
-  IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
+  spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
   lookup_s.options |= RLOOKUP_OPT_ALL_LOADED; // Setting this option will cause creating keys of non-sortable fields possible
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
     goto CleanUp;
   }
 
-  RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
+  loadopts = (RLookupLoadOptions){.sctx = sctx, .dmd = dmd, .status = status};
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
     goto CleanUp;
   }
 
-  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
+  evaluator = (ExprEval){.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   rv = RSValue_NewUndefined();
   if (ExprEval_Eval(&evaluator, rv) != EXPR_EVAL_OK) {
     goto CleanUp;

@@ -178,6 +178,20 @@ set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
 
+# Warn when goto jumps over variable initialization
+include(CheckCCompilerFlag)
+# gcc: -Werror=jump-misses-init
+check_c_compiler_flag("-Werror=jump-misses-init" HAS_JUMP_MISSES_INIT)
+if(HAS_JUMP_MISSES_INIT)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=jump-misses-init>)
+endif()
+
+# clang: -Werror=sometimes-uninitialized (equivalent protection)
+check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_SOMETIMES_UNINITIALIZED)
+if(HAS_SOMETIMES_UNINITIALIZED)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
+endif()
+
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""

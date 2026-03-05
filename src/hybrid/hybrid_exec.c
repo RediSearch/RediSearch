@@ -233,6 +233,10 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
+    QueryError err = QueryError_Default();
+    RedisSearchCtx *sctx = NULL;
+    rs_wall_clock_ns_t duration = 0;
+    double executionTime = 0.0;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
@@ -240,7 +244,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    QueryError err = QueryError_Default();
     HybridRequest_GetError(hreq, &err);
     HybridRequest_ClearErrors(hreq);
     if (ShouldReplyWithError(QueryError_GetCode(&err), hreq->reqConfig.timeoutPolicy, false)) {
@@ -287,7 +290,7 @@ done:
 
     // warnings
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
-    RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
+    sctx = HREQ_SearchCtx(hreq);
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
@@ -303,8 +306,8 @@ done:
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time
-    const rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
-    double executionTime = rs_wall_clock_convert_ns_to_ms_d(duration);
+    duration = rs_wall_clock_elapsed_ns(&hreq->profileClocks.initClock);
+    executionTime = rs_wall_clock_convert_ns_to_ms_d(duration);
     RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
 
     if (IsProfile(hreq)) {

@@ -397,10 +397,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    RedisSearchCtx *sctx = NULL;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
     long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
     bool cursor_done = false;
+    bool has_timedout = false;
 
     startPipeline(req, rp, &results, &r, &rc);
 
@@ -474,7 +476,7 @@ done_2:
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
-    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
+    has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
     if (has_timedout) {
       // Track warnings in global statistics
       // Assuming that if we reached here, timeout is not an error.
@@ -494,7 +496,7 @@ done_2:
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS);
     }
 
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    sctx = AREQ_SearchCtx(req);
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_BG_SCAN_OOM);
     }
@@ -576,6 +578,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
     bool cursor_done = false;
+    bool has_timedout = false;
 
     startPipeline(req, rp, &results, &r, &rc);
 
@@ -658,7 +661,7 @@ done_3:
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
-    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
+    has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
 
     if (IsProfile(req)) {
       if (has_timedout) {
@@ -1479,6 +1482,8 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   }
 
   AREQ *r = NULL;
+  AREQ_Debug_params debug_params = {0};
+  int debug_argv_count = 0;
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
   QueryError status = QueryError_Default();
@@ -1487,9 +1492,9 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
   r = &debug_req->r;
-  AREQ_Debug_params debug_params = debug_req->debug_params;
+  debug_params = debug_req->debug_params;
 
-  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   // Parse the query, not including debug params
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {

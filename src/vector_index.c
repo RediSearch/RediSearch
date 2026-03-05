@@ -410,8 +410,11 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
 
 int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
                       const char *field_name) {
+  VecSimLogCtx *logCtx = NULL;
+  VecSimParams *primaryParams = NULL;
+
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
-  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx = rm_new(VecSimLogCtx);
   logCtx->index_field_name = field_name;
   vecsimParams->logCtx = logCtx;
 
@@ -424,7 +427,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     break;
   case VecSimAlgo_TIERED:
     VecSim_TieredParams_Init(&vecsimParams->algoParams.tieredParams, sp_ref);
-    VecSimParams *primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
+    primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
     primaryParams->logCtx = vecsimParams->logCtx;
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
@@ -469,8 +472,11 @@ fail:
 
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
                       const char *field_name) {
+  VecSimLogCtx *logCtx = NULL;
+  VecSimParams *primaryParams = NULL;
+
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
-  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx = rm_new(VecSimLogCtx);
   logCtx->index_field_name = field_name;
   vecsimParams->logCtx = logCtx;
 
@@ -485,7 +491,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     break;
   case VecSimAlgo_TIERED:
     VecSim_TieredParams_Init(&vecsimParams->algoParams.tieredParams, sp_ref);
-    VecSimParams *primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
+    primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
     primaryParams->logCtx = vecsimParams->logCtx;
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 

@@ -190,7 +190,7 @@ sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
       }
       s = sdscat(s, ")");
       break;
-    case RSExpr_Op:
+    case RSExpr_Op: {
       s = sdscat(s, "(");
       s = RSExpr_DumpSds(e->op.left, s, obfuscate);
       const char buffer[2] = {e->op.op, 0};
@@ -198,6 +198,7 @@ sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
       s = RSExpr_DumpSds(e->op.right, s, obfuscate);
       s = sdscat(s, ")");
       break;
+    }
 
     case RSExpr_Predicate:
       s = sdscat(s, "(");

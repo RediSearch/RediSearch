@@ -319,6 +319,9 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
   getJSONElementFunc getElement;
   RedisJSON element;
 
+  unsigned char step = 0;
+  size_t count = 0;
+
   VecSimParams *params = &fs->vectorOpts.vecSimParams;
   if (params->algo == VecSimAlgo_TIERED) {
     params = params->algoParams.tieredParams.primaryIndexParams;
@@ -344,17 +347,17 @@ switch (params->algo) {
     default: goto fail;
   }
 
+  step = VecSimType_sizeof(type);
+
   if (!multi)
     goto fail;
 
   getElement = VecSimGetJSONCallback(type);
-  unsigned char step = VecSimType_sizeof(type);
 
   if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
     goto fail;
   }
   df->blobSize = fs->vectorOpts.expBlobSize;
-  size_t count = 0;
 
   while ((element = JSONIterable_Next(itr))) {
     JSONType jsonType = japi->getType(element);

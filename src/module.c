@@ -322,11 +322,17 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
   QueryError status = QueryError_Default();
-  size_t len;
+  size_t len = 0;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
+  int distanceArgPos = 0;
+  long long distance = DEFAULT_LEV_DISTANCE;
+  int nextPos = 0;
+  bool fullScoreInfo = false;
+  SpellCheckCtx scCtx;
+
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
@@ -337,8 +343,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   includeDict = array_new(const char *, DICT_INITIAL_SIZE);
   excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
 
-  int distanceArgPos = 0;
-  long long distance = DEFAULT_LEV_DISTANCE;
   if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))) {
     if (distanceArgPos + 1 >= argc) {
       RedisModule_ReplyWithError(ctx, "DISTANCE arg is given but no DISTANCE comes after");
@@ -353,7 +357,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }  // LCOV_EXCL_LINE
 
-  int nextPos = 0;
   while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
     if (nextPos + 2 >= argc) {
       RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
@@ -374,16 +377,15 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   SET_DIALECT(sctx->spec->used_dialects, dialect);
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
 
-  bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
     fullScoreInfo = true;
   }
 
-  SpellCheckCtx scCtx = {.sctx = sctx,
-                         .includeDict = includeDict,
-                         .excludeDict = excludeDict,
-                         .distance = distance,
-                         .fullScoreInfo = fullScoreInfo};
+  scCtx = (SpellCheckCtx){.sctx = sctx,
+                          .includeDict = includeDict,
+                          .excludeDict = excludeDict,
+                          .distance = distance,
+                          .fullScoreInfo = fullScoreInfo};
 
   SpellCheck_Reply(&scCtx, &qast);
 
@@ -512,9 +514,11 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  size_t len;
+  size_t len = 0;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
+  TagIndex *idx = NULL;
+
   if (!fs) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
@@ -524,7 +528,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
@@ -1839,6 +1843,11 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
+  char *s = NULL;
+  tm_len_t sl = 0;
+  void *p = NULL;
+  TrieMapIterator *it = NULL;
+
   // if there are no values - either reply with an empty set or an error
   if (TrieMap_NUniqueKeys(dict) == 0) {
 
@@ -1854,10 +1863,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
 
   // Iterate the dict and reply with all values
   RedisModule_Reply_Set(reply);
-    char *s;
-    tm_len_t sl;
-    void *p;
-    TrieMapIterator *it = TrieMap_Iterate(dict);
+    it = TrieMap_Iterate(dict);
     while (TrieMapIterator_Next(it, &s, &sl, &p)) {
       RedisModule_Reply_StringBuffer(reply, s, sl);
     }
@@ -1934,15 +1940,14 @@ int mergeArraysReducer(struct MRCtx *mc, int count, MRReply **replies) {
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool isIntegerReply = false, isDoubleReply = false;
+  long long integerReply = 0;
+  double doubleReply = 0;
 
   if (count == 0) {
     RedisModule_Reply_Error(reply, "Could not distribute command");
     goto end;
   }
-
-  bool isIntegerReply = false, isDoubleReply = false;
-  long long integerReply = 0;
-  double doubleReply = 0;
   for (int i = 0; i < count; i++) {
     if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
       MR_ReplyWithMRReply(reply, replies[i]);
@@ -3139,6 +3144,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
   searchReducerCtx rCtx = {NULL};
   int profile = req->profileArgs > 0;
+  size_t num = 0;
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   int res = REDISMODULE_OK;
@@ -3171,7 +3177,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   getReplyOffsets(rCtx.searchCtx, &rCtx.offsets);
 
   // Init results heap.
-  size_t num = req->requestedResultsCount;
+  num = req->requestedResultsCount;
   rCtx.pq = rm_malloc(heap_sizeof(num));
   heap_init(rCtx.pq, cmp_results, req, num);
 

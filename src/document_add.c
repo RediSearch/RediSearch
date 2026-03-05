@@ -220,13 +220,21 @@ static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unu
 }
 
 int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  StrongRef ref;
+  IndexSpec *sp = NULL;
+  ArgsCursor ac;
+  AddDocumentOptions opts;
+  QueryError status = QueryError_Default();
+  int rv = 0;
+  RedisSearchCtx sctx;
+
   if (argc < 4) {
     // cmd, index, document, [arg] ...
     return RedisModule_WrongArity(ctx);
   }
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
+  ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
@@ -236,13 +244,10 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  ArgsCursor ac;
-  AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
-  QueryError status = QueryError_Default();
+  opts = (AddDocumentOptions){.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 
-  int rv = 0;
   if ((rv = AC_GetDouble(&ac, &opts.score, 0) != AC_OK)) {
     QueryError_SetError(&status, QUERY_ERROR_CODE_ADD_ARGS, "Could not parse document score");
   } else if (opts.score < 0 || opts.score > 1.0) {
@@ -258,7 +263,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   CurrentThread_SetIndexSpec(ref);
 
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_DOC_NOT_ADDED) {
