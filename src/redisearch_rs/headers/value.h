@@ -105,16 +105,18 @@ struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 /**
  * Creates and returns a new **owned** [`RsValue::Undefined`].
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  */
 struct RsValue *RSValue_NewUndefined(void);
 
 /**
  * Creates and returns a new **owned** [`RsValue::Null`].
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  */
 struct RsValue *RSValue_NewNull(void);
 
@@ -122,8 +124,9 @@ struct RsValue *RSValue_NewNull(void);
  * Creates and returns a new **owned** [`RsValue::Number`]
  * containing the given numeric value.
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  */
 struct RsValue *RSValue_NewNumber(double value);
 
@@ -132,8 +135,9 @@ struct RsValue *RSValue_NewNumber(double value);
  *
  * Takes ownership of all three arguments.
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  *
  * # Safety
  *
@@ -148,8 +152,9 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
  * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  *
  * # Safety
  *
@@ -162,14 +167,16 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RsValue *RSValue_NewString(char *str, uint32_t len);
+struct RsValue *RSValue_NewString(char *str,
+                                  uint32_t len);
 
 /**
  * Creates and returns a new **owned** [`RsValue::String`],
  * borrowing the given string buffer without taking ownership.
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  *
  * # Safety
  *
@@ -181,14 +188,16 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RsValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
+struct RsValue *RSValue_NewBorrowedString(const char *str,
+                                          uint32_t len);
 
 /**
  * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given [`RedisModuleString`].
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  *
  * # Safety
  *
@@ -206,8 +215,9 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  *
  * The caller retains ownership of `str`.
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  *
  * # Safety
  *
@@ -216,7 +226,8 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
+struct RsValue *RSValue_NewCopiedString(const char *str,
+                                        uint32_t len);
 
 /**
  * Creates and returns a new **owned** [`RsValue::Number`] by parsing the given
@@ -225,8 +236,9 @@ struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
  *
  * The caller retains ownership of `value`.
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  *
  * # Safety
  *
@@ -235,7 +247,8 @@ struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RsValue *RSValue_NewParsedNumber(const char *value, size_t len);
+struct RsValue *RSValue_NewParsedNumber(const char *value,
+                                        size_t len);
 
 /**
  * Creates and returns a new **owned** [`RsValue::Number`] from an `i64`.
@@ -243,8 +256,9 @@ struct RsValue *RSValue_NewParsedNumber(const char *value, size_t len);
  * The `i64` is cast to `f64`, which may lose precision for values outside
  * the exact representable range of `f64`.
  *
- * The caller must make sure to pass the returned [`RsValue`] to one of the
- * ownership taking `RSValue_` functions, directly or indirectly.
+ * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+ * eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+ * through other `RSValue_` functions before that happens.
  */
 struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 
