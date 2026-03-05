@@ -261,14 +261,41 @@ To start the external redis-server instance:
 
 ## Benchmarking RediSearch
 
+### Dependencies
+
+#### Full-Text Search Benchmark (FTSB)
+
+Ensure you have Full-Text Search Benchmark (FTSB) installed. See installation instructions here: https://github.com/RediSearch/ftsb
+
+Make sure you have the `ftsb_redisearch` binary available in your `$PATH`.
+
+#### memtier_benchmark
+
+Also ensure you have `memtier_benchmark` installed. See installation instructions here: https://github.com/redis/memtier_benchmark
+
+#### Python packages
+
+Install necessary python packages:
+
 ```sh
-PATH=$PATH:~/GitHub/RediSearch/bench_tools redisbench-admin run-local \
-    --module_path ~/GitHub/RediSearch/bin/macos-aarch64-debug/search-community/redisearch.so \
+pip3 install -r ./tests/benchmarks/requirements.txt
+```
+
+### Run benchmarks
+
+To run a specific benchmark, use the following command:
+
+```sh
+redisbench-admin run-local \
+    --module_path $(find $(pwd)/bin -name "redisearch.so" | head -1) \
     --required-module search \
     --allowed-setups oss-standalone \
     --allowed-envs oss-standalone \
-    --test search-ftsb-10K-enwiki_abstract-hashes-term-wildcard.yml
+    --skip-redis-spin True \
+    --test tests/benchmarks/<benchmark>.yml
 ```
+
+Replace `<benchmark>` in the `--test` argument with the desired benchmark file. Look in `tests/benchmarks` for all available benchmarks.
 
 Use `--skip-redis-spin True` to skip spinning up a Redis instance.
 
