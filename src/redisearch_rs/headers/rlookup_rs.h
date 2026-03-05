@@ -564,12 +564,38 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
-                               struct RLookup *lookup,
-                               struct RLookupRow *dst_row,
-                               IndexSpec *index_spec,
-                               const char *key,
-                               QueryError *status);
+int RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
+                           struct RLookup *lookup,
+                           struct RLookupRow *dst_row,
+                           IndexSpec *index_spec,
+                           const char *key,
+                           QueryError *status);
+
+/**
+ * Load values from the document `dmd` into `dst_row`
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+ * 2. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+ */
+int RLookup_LoadDocumentAll(struct RLookup *lookup,
+                            struct RLookupRow *dst_row,
+                            const RSDocumentMetadata *dmd,
+                            RedisSearchCtx *search_ctx,
+                            bool force_string,
+                            QueryError *status);
+
+/**
+ * Load values for all non-present and loadable keys in `rlookup` from the document `dmd` into `dst_row`
+ */
+int RLookup_LoadDocumentSpecific(struct RLookup *lookup,
+                                 struct RLookupRow *dst_row,
+                                 const RSDocumentMetadata *dmd,
+                                 RedisSearchCtx *search_ctx,
+                                 bool force_load,
+                                 bool cached_only,
+                                 QueryError *status);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list.
