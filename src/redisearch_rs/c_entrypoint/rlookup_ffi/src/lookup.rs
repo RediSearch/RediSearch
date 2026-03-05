@@ -624,7 +624,21 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     // Safety: ensured by caller (8.)
     let status = unsafe { status.unwrap().as_mut() };
 
-    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+    match lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status) {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) => {
+            tracing::error!(
+                search_ctx?,
+                dst_row?,
+                index_spec?,
+                key?,
+                status?,
+                "RLookup::load_rule_fields failed with {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
 }
 
 /// Return an iterator over an [`RLookup`]'s key list.
