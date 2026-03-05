@@ -27,7 +27,7 @@ pub struct DocumentMetadata(
     /// entire lifetime of this struct.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    NonNull<crate::RSDocumentMetadata>,
+    *const crate::RSDocumentMetadata,
 );
 
 impl DocumentMetadata {
@@ -39,7 +39,7 @@ impl DocumentMetadata {
     /// **stay** valid for the entire lifetime of the returned [`DocumentMetadata`].
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn from_raw(ptr: NonNull<crate::RSDocumentMetadata>) -> Self {
+    pub unsafe fn from_raw(ptr: *const crate::RSDocumentMetadata) -> Self {
         debug_assert!(ptr.is_aligned());
 
         Self(ptr)
@@ -61,7 +61,7 @@ impl Deref for DocumentMetadata {
 
     fn deref(&self) -> &Self::Target {
         // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.
-        unsafe { self.0.as_ref() }
+        unsafe { self.0.as_ref().unwrap_unchecked() }
     }
 }
 
@@ -69,7 +69,7 @@ impl Clone for DocumentMetadata {
     fn clone(&self) -> Self {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
-        let refcount = unsafe { &raw const self.0.as_ref().ref_count };
+        let refcount = &raw const self.ref_count;
 
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
@@ -86,7 +86,7 @@ impl Drop for DocumentMetadata {
     fn drop(&mut self) {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
-        let refcount = unsafe { &raw const self.0.as_ref().ref_count };
+        let refcount = &raw const self.ref_count;
 
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
@@ -95,7 +95,7 @@ impl Drop for DocumentMetadata {
         if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
             // Safety: The caller of `DocumentMetadata::from_raw` promised the pointer is valid.
             unsafe {
-                crate::DMD_Free(self.0.as_ptr());
+                crate::DMD_Free(self.0);
             }
         }
     }

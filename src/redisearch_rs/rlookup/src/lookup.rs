@@ -11,14 +11,15 @@ mod key;
 mod key_list;
 
 use crate::{
-    IndexSpec, RLookupRow,
+    IndexSpec, LoadDocumentError, RLookupRow,
     bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
     lookup::key_list::{Iter, IterMut},
 };
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
+use query_error::QueryError;
 use redis_module::RedisString;
-use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr};
+use std::{borrow::Cow, ffi::CStr, pin::Pin, ptr::NonNull};
 
 pub use key::{GET_KEY_FLAGS, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, TRANSIENT_FLAGS};
 pub use key_list::{Cursor, CursorMut};
@@ -416,22 +417,24 @@ impl<'a> RLookup<'a> {
         status: &mut QueryError,
     ) -> Result<(), LoadDocumentError> {
         let keys = create_keys_from_spec(index_spec);
-        let keys_to_load = keys.into_iter().map(|k| self.keys.push(k)).collect();
+        let keys_to_load = keys.into_iter().map(|k| {
+            // Safety: we return an immutable reference here, so pinning invariants remain upheld
+            &*unsafe { Pin::into_inner_unchecked(self.keys.push(k)) }
+        });
 
+        // Safety: `CStr` is a valid pointer to a null-terminated string.
         let key_name = unsafe {
             RedisString::from_raw_parts(Some(ctx.cast()), key.as_ptr(), key.count_bytes())
         };
 
-        // mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,???
-        // forceString: false,
-        crate::load_document::load_specific_keys(
+        crate::load_document::load_specific_keys_internal(
             dst_row,
             ctx,
-            index_spec.rule().type_(), // doc_ty
-            &key_name, // ptr::null() ?? but type = index_spec.rule().type_() AND keyPtr = key.as_ptr(),
+            index_spec.rule().type_(),
+            &key_name,
             keys_to_load,
-            true, //force_load
-            api_version,
+            true,
+            0,
             status,
         )
     }
