@@ -55,9 +55,8 @@ fn wildcard_read() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn wildcard_skip_to() {
-    let test = WildcardBaseTest::new(100);
+    let test = WildcardBaseTest::new(10);
     let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
