@@ -170,6 +170,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   size_t fmtsz = 0;
   const char *fmt = RSValue_StringPtrLen(argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
+  size_t len = 0;
 
   size_t out_cap = fmtsz;
   char *out = rm_malloc(fmtsz);
@@ -187,7 +188,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
     }
 
     // Detected a format string. Write from 'last' up to 'fmt'
-    size_t len = (fmt + ii) - last;
+    len = (fmt + ii) - last;
     append_to_string(&out, &out_tail, &out_cap, last, len);
     last = fmt + ii + 2;
 
@@ -238,7 +239,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   append_to_string(&out, &out_tail, &out_cap, "\0", 1);
 
   // Don't count the null terminator
-  size_t len = out_tail - out - 1;
+  len = out_tail - out - 1;
   RS_ASSERT(len <= UINT32_MAX);
   RSValue_SetString(result, out, len);
   return EXPR_EVAL_OK;

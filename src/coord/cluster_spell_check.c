@@ -308,11 +308,13 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
     }
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Array(reply);
-    spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
-  RedisModule_Reply_ArrayEnd(reply);
-  RedisModule_EndReply(reply);
+  {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    RedisModule_Reply_Array(reply);
+      spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_EndReply(reply);
+  }
 
 finish:
   spellcheckReducerCtx_Free(spellcheckCtx);
@@ -374,12 +376,14 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
     }
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Map(reply);
-    RedisModule_Reply_SimpleString(reply, "results");
-    spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
-  RedisModule_Reply_MapEnd(reply);
-  RedisModule_EndReply(reply);
+  {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    RedisModule_Reply_Map(reply);
+      RedisModule_Reply_SimpleString(reply, "results");
+      spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+    RedisModule_Reply_MapEnd(reply);
+    RedisModule_EndReply(reply);
+  }
 
 finish:
   spellcheckReducerCtx_Free(spellcheckCtx);
