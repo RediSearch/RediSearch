@@ -9,6 +9,7 @@
 #include "aggregate.h"
 #include "reducer.h"
 
+#include <cursor.h>
 #include <query.h>
 #include <extension.h>
 #include <result_processor.h>
@@ -1470,6 +1471,12 @@ static void AREQ_Free(AREQ *req) {
     }
     array_free(req->storedReplyState.results);
     req->storedReplyState.results = NULL;
+  }
+  // Free any stored cursor that wasn't handled by QueryReplyCallback
+  // (e.g., if timeout fired before the reply_callback ran)
+  if (req->storedReplyState.cursor) {
+    Cursor_Free(req->storedReplyState.cursor);
+    req->storedReplyState.cursor = NULL;
   }
   // Clear stored error state
   QueryError_ClearError(&req->storedReplyState.err);
