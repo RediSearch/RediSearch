@@ -21,7 +21,7 @@ use super::value::ReplyValue;
 /// # Safety
 ///
 /// The context pointer is ignored in mock mode.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplyWithLongLong(
     _ctx: *mut RedisModuleCtx,
     ll: c_longlong,
@@ -37,7 +37,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithLongLong(
 /// # Safety
 ///
 /// The context pointer is ignored in mock mode.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplyWithDouble(_ctx: *mut RedisModuleCtx, d: f64) -> c_int {
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().push_value(ReplyValue::Double(d));
@@ -50,7 +50,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithDouble(_ctx: *mut RedisModuleCtx, 
 /// # Safety
 ///
 /// The `msg` pointer must be a valid null-terminated C string.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplyWithSimpleString(
     _ctx: *mut RedisModuleCtx,
     msg: *const c_char,
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithSimpleString(
 /// # Safety
 ///
 /// The context pointer is ignored in mock mode.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplyWithEmptyArray(_ctx: *mut RedisModuleCtx) -> c_int {
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().push_value(ReplyValue::Array(vec![]));
@@ -86,7 +86,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithEmptyArray(_ctx: *mut RedisModuleC
 /// # Safety
 ///
 /// The context pointer is ignored in mock mode.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplyWithArray(
     _ctx: *mut RedisModuleCtx,
     len: c_longlong,
@@ -116,7 +116,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithArray(
 /// # Safety
 ///
 /// The context pointer is ignored in mock mode.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplyWithMap(
     _ctx: *mut RedisModuleCtx,
     len: c_longlong,
@@ -143,7 +143,7 @@ pub unsafe extern "C" fn RedisModule_ReplyWithMap(
 /// # Safety
 ///
 /// The context pointer is ignored in mock mode.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplySetArrayLength(
     _ctx: *mut RedisModuleCtx,
     len: c_longlong,
@@ -160,7 +160,7 @@ pub unsafe extern "C" fn RedisModule_ReplySetArrayLength(
 /// # Safety
 ///
 /// The context pointer is ignored in mock mode.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ReplySetMapLength(_ctx: *mut RedisModuleCtx, len: c_longlong) {
     CAPTURE_STATE.with(|state| {
         state.borrow_mut().finalize_map(len);

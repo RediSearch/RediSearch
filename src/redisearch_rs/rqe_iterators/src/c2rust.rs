@@ -47,7 +47,6 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 /// It might be a Rust iterator, wrapped to obey the C API, being passed into
 /// a Rust composite iterator.
 #[repr(transparent)]
-#[allow(unused)]
 pub struct CRQEIterator {
     /// # Safety invariants
     ///
@@ -136,7 +135,6 @@ impl CRQEIterator {
     ///    with the exception of `SkipTo`, which is optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
-    #[allow(unused)]
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
         // SAFETY: the caller is required to uphold `Self::header` field invariants.
         let self_ = Self { header };
@@ -167,7 +165,6 @@ impl CRQEIterator {
     ///
     /// The caller is taking ownership of the [`QueryIterator`] instance and is
     /// therefore responsible to free its contents.
-    #[allow(unused)]
     pub fn into_raw(self) -> NonNull<QueryIterator> {
         let self_ = ManuallyDrop::new(self);
         self_.header
@@ -183,7 +180,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         let status = unsafe { callback(self.header.as_ptr()) };
-        #[allow(non_upper_case_globals)]
+        #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
             IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
@@ -220,7 +217,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         let status = unsafe { callback(self.header.as_ptr(), doc_id) };
-        #[allow(non_upper_case_globals)]
+        #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
             IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
@@ -268,7 +265,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         let status = unsafe { callback(self.header.as_ptr()) };
-        #[allow(non_upper_case_globals)]
+        #[expect(non_upper_case_globals)]
         let status = match status {
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
             ValidateStatus_VALIDATE_MOVED => RQEValidateStatus::Moved {
@@ -312,7 +309,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
-    #[allow(non_upper_case_globals)]
+    #[expect(non_upper_case_globals)]
     fn is_wildcard(&self) -> bool {
         matches!(
             self.type_,

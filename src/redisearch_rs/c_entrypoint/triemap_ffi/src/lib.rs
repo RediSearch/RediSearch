@@ -172,7 +172,7 @@ pub unsafe extern "C" fn TrieMap_Find(
 
     // Static muts are footguns, but there's no real way around them given
     // the intention to mimic the API of the original C implementation.
-    #[allow(static_mut_refs)]
+    #[expect(static_mut_refs)]
     // SAFETY: TRIEMAP_NOTFOUND is a pointer to a static mut `c_void`.
     // It is only referred to by this function and is not available outside this module,
     // except through the `extern void * TRIEMAP_NOTFOUND`.

@@ -16,7 +16,6 @@ use wildcard::WildcardPattern;
 
 /// Used by [`TrieMapIterator`] to determine type of query.
 #[repr(C)]
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum tm_iter_mode {
     TM_PREFIX_MODE = 0,

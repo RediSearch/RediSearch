@@ -16,6 +16,7 @@
     dead_code,
     unnecessary_transmutes,
     unsafe_op_in_unsafe_fn,
+    clippy::allow_attributes,
     clippy::ptr_offset_with_cast,
     clippy::upper_case_acronyms,
     clippy::useless_transmute,

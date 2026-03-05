@@ -24,7 +24,6 @@ pub enum TrieMapIteratorImpl<'tm> {
 }
 
 #[gat]
-#[allow(clippy::needless_lifetimes)]
 impl<'tm> LendingIterator for TrieMapIteratorImpl<'tm> {
     type Item<'next>
     where

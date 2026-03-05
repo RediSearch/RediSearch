@@ -112,7 +112,7 @@ impl Default for TestContext {
 ///
 /// This function must be called before mocks of Redis module API functions
 /// are called by test code.
-#[allow(clippy::undocumented_unsafe_blocks)]
+#[expect(clippy::undocumented_unsafe_blocks)]
 pub fn init_redis_module_mock() {
     // register string methods
     unsafe { redis_module::raw::RedisModule_CreateString = Some(RedisModule_CreateString) };

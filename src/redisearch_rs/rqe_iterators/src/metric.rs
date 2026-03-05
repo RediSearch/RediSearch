@@ -38,7 +38,6 @@ pub type MetricSortedByScore<'index> = Metric<'index, false>;
 pub struct Metric<'index, const SORTED_BY_ID: bool> {
     base: IdList<'index, SORTED_BY_ID>,
     metric_data: OwnedSlice<f64>,
-    #[allow(dead_code)]
     type_: MetricType,
     own_key: *mut RLookupKey,
     /// # Invariants

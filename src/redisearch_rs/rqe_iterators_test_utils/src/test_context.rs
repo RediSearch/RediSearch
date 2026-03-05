@@ -390,7 +390,7 @@ impl TestContext {
 
     /// Get a mutable reference to the numeric range tree for this context.
     /// Panics if this is not a numeric context.
-    #[allow(clippy::mut_from_ref)]
+    #[expect(clippy::mut_from_ref)]
     pub fn numeric_range_tree_mut(&self) -> &mut numeric_range_tree::NumericRangeTree {
         unsafe { self.numeric_range_tree().as_mut() }
     }
@@ -424,7 +424,7 @@ impl TestContext {
 
     /// Get a mutable reference to the opaque term inverted index for this context.
     /// Panics if this is not a term context.
-    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    #[expect(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
     pub fn term_inverted_index_mut(&self) -> &mut inverted_index_ffi::InvertedIndex {
         match &self.inner {
             TestContextInner::Term { inverted_index, .. } => {
@@ -465,7 +465,7 @@ impl TestContext {
     /// Get the wildcard (doc-ids-only) inverted index for this context.
     /// Returns a reference to the FFI inverted index wrapper.
     /// Panics if this is not a wildcard context.
-    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    #[expect(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
     pub fn wildcard_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
         match &self.inner {
             TestContextInner::Wildcard { inverted_index } => {
@@ -487,7 +487,6 @@ impl TestContext {
     }
 
     /// Get the ffi inverted index for this context.
-    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
     pub fn numeric_inverted_index(&self) -> &mut NumericIndex {
         let tree = self.numeric_range_tree_mut();
         let index = tree

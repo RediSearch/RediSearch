@@ -12,11 +12,11 @@
 //! This module provides utilities for testing iterators, including contexts
 //! for setting up test environments.
 
-#[allow(clippy::undocumented_unsafe_blocks)]
-#[allow(clippy::multiple_unsafe_ops_per_block)]
+#[expect(clippy::undocumented_unsafe_blocks)]
+#[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod mock_context;
-#[allow(clippy::undocumented_unsafe_blocks)]
-#[allow(clippy::multiple_unsafe_ops_per_block)]
+#[expect(clippy::undocumented_unsafe_blocks)]
+#[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod test_context;
 
 pub use mock_context::MockContext;
