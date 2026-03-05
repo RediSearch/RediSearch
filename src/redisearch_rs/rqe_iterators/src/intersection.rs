@@ -156,8 +156,14 @@ where
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
-                // SAFETY: child_ptr points to child's result containing data with 'index
-                // lifetime. Children are owned by self, so their results remain valid.
+                // SAFETY:
+                // - `child_ptr` was derived from a valid `&mut RSIndexResult`, so it
+                //   is aligned and points to initialized memory.
+                // - The mutable borrow from `child.current()` ends when coerced to a
+                //   raw pointer, so no mutable reference to this data is live.
+                // - The underlying data has `'index` lifetime because children own
+                //   index-backed results; children are owned by `self` and outlive
+                //   this call.
                 let child_ref = unsafe { &*child_ptr };
                 self.result.push_borrowed(child_ref);
             }
