@@ -12,11 +12,13 @@
 mod core;
 mod missing;
 mod numeric;
+mod tag;
 mod term;
 mod wildcard;
 
 pub use core::InvIndIterator;
 pub use missing::Missing;
 pub use numeric::Numeric;
+pub use tag::Tag;
 pub use term::Term;
 pub use wildcard::Wildcard;
