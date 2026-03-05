@@ -58,22 +58,6 @@ cargo install cargo-nextest --locked
 
 A dev container based on `ubuntu:latest` is available with all dependencies pre-installed. Open the repository in VS Code with the Dev Containers extension, and it will set up the environment automatically.
 
-### Alternative: Nix
-
-If you prefer Nix, skip the install scripts and start a development environment:
-
-```sh
-nix develop github:chesedo/redisearch-nix-env
-```
-
-This also builds Redis from source and includes Python test dependencies.
-
-To run the coverage tests, you’ll need nightly Rust. You can get that here
-
-```sh
-nix develop github:chesedo/redisearch-nix-env#nightly
-```
-
 ### Installing Redis
 
 RediSearch requires `redis-server` in your PATH. We recommend building Redis from source since RediSearch `master` often requires unreleased features.
