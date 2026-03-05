@@ -103,7 +103,7 @@ uint32_t RSValue_ArrayLen(const struct RsValue *value);
 struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type undefined.
+ * Creates and returns a new **owned** [`RsValue::Undefined`].
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
  * ownership taking `RSValue_` functions, directly or indirectly.
@@ -111,7 +111,7 @@ struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 struct RsValue *RSValue_NewUndefined(void);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type null.
+ * Creates and returns a new **owned** [`RsValue::Null`].
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
  * ownership taking `RSValue_` functions, directly or indirectly.
@@ -119,7 +119,7 @@ struct RsValue *RSValue_NewUndefined(void);
 struct RsValue *RSValue_NewNull(void);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type number
+ * Creates and returns a new **owned** [`RsValue::Number`]
  * containing the given numeric value.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -128,7 +128,7 @@ struct RsValue *RSValue_NewNull(void);
 struct RsValue *RSValue_NewNumber(double value);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type trio from three [`RsValue`]s.
+ * Creates and returns a new **owned** [`RsValue::Trio`] from three [`RsValue`]s.
  *
  * Takes ownership of all three arguments.
  *
@@ -145,7 +145,7 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
                                 struct RsValue *right);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given `RedisModule_Alloc`-allocated buffer.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -153,9 +153,11 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
  *
  * # Safety
  *
- * 1. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
- * 2. `str` must be [valid] for reads of `len` bytes.
- * 3. `str` **must not** be used or freed after this function is called, as this function
+ * 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+ *    allocated by `RedisModule_Alloc`.
+ * 2. A nul-terminator is expected in memory at `str+len`.
+ * 3. The size determined by `len` excludes the nul-terminator.
+ * 4. `str` **must not** be used or freed after this function is called, as this function
  *    takes ownership of the allocation.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -163,7 +165,7 @@ struct RsValue *RSValue_NewTrio(struct RsValue *left,
 struct RsValue *RSValue_NewString(char *str, uint32_t len);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * borrowing the given string buffer without taking ownership.
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -171,9 +173,10 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
  *
  * # Safety
  *
- * 1. `str` must be a [valid], non-null pointer to a string buffer.
- * 2. `str` must be [valid] for reads of `len` bytes.
- * 3. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ * 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
+ * 2. A nul-terminator is expected in memory at `str+len`.
+ * 3. The size determined by `len` excludes the nul-terminator.
+ * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
  *    lifetime of the returned [`RsValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -181,7 +184,7 @@ struct RsValue *RSValue_NewString(char *str, uint32_t len);
 struct RsValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * taking ownership of the given [`RedisModuleString`].
  *
  * The caller must make sure to pass the returned [`RsValue`] to one of the
@@ -198,7 +201,7 @@ struct RsValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
 
 /**
- * Creates and returns a new **owned** [`RsValue`] object of type string,
+ * Creates and returns a new **owned** [`RsValue::String`],
  * copying `len` bytes from the given string buffer into a new Rust-allocated [`Box<CStr>`].
  *
  * The caller retains ownership of `str`.
@@ -210,7 +213,6 @@ struct RsValue *RSValue_NewRedisString(RedisModuleString *str);
  *
  * 1. `str` must be a [valid], non-null pointer to a string buffer.
  * 2. `str` must be [valid] for reads of `len` bytes.
- * 3. The `len` bytes pointed to by `str` must not contain any null bytes.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -219,52 +221,52 @@ struct RsValue *RSValue_NewCopiedString(const char *str, uint32_t len);
 /**
  * Gets the numeric value from an [`RsValue`].
  *
+ * # Panic
+ *
+ * Panics if the value is not an [`RsValue::Number`].
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
- * # Panic
- *
- * Panics if the value is not a number type.
  */
 double RSValue_Number_Get(const struct RsValue *value);
 
 /**
  * Borrows an immutable reference to the left value of a trio.
  *
+ * # Panic
+ *
+ * Panics if the value is not an [`RsValue::Trio`].
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
- * # Panic
- *
- * Panics if the value is not a trio type.
  */
 const struct RsValue *RSValue_Trio_GetLeft(const struct RsValue *value);
 
 /**
  * Borrows an immutable reference to the middle value of a trio.
  *
+ * # Panic
+ *
+ * Panics if the value is not an [`RsValue::Trio`].
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
- * # Panic
- *
- * Panics if the value is not a trio type.
  */
 const struct RsValue *RSValue_Trio_GetMiddle(const struct RsValue *value);
 
 /**
  * Borrows an immutable reference to the right value of a trio.
  *
+ * # Panic
+ *
+ * Panics if the value is not an [`RsValue::Trio`].
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
- * # Panic
- *
- * Panics if the value is not a trio type.
  */
 const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
 
@@ -274,16 +276,16 @@ const struct RsValue *RSValue_Trio_GetRight(const struct RsValue *value);
  *
  * The returned pointer borrows from the [`RsValue`] and must not outlive it.
  *
+ * # Panic
+ *
+ * Panics if the value is not an [`RsValue::String`].
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  * 2. `lenp` must be either null or a [valid], non-null pointer to a `u32`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- *
- * # Panic
- *
- * Panics if the value is not a `String` type.
  */
 const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
 
@@ -292,13 +294,13 @@ const char *RSValue_String_Get(const struct RsValue *value, uint32_t *lenp);
  *
  * The returned reference borrows from the [`RsValue`] and must not outlive it.
  *
+ * # Panic
+ *
+ * Panics if the value is not an [`RsValue::RedisString`].
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
- *
- * # Panic
- *
- * Panics if the value is not a `RedisString` type.
  */
 const RedisModuleString *RSValue_RedisString_Get(const struct RsValue *value);
 
@@ -408,14 +410,14 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
  *
  * This clears the existing value and sets it to Number with the given value.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetNumber(struct RsValue *value, double n);
 
@@ -424,14 +426,14 @@ void RSValue_SetNumber(struct RsValue *value, double n);
  *
  * This clears the existing value and sets it to Null.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetNull(struct RsValue *value);
 
@@ -442,20 +444,22 @@ void RSValue_SetNull(struct RsValue *value);
  * This clears the existing value and sets it to an [`RsString`] of kind `RmAlloc`
  * with the given buffer.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- * 2. `str` must be a [valid], non-null pointer to a buffer allocated by `RedisModule_Alloc`.
- * 3. `str` must be [valid] for reads of `len` bytes.
- * 4. `str` **must not** be used or freed after this function is called, as this function
+ * 2. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+ *    allocated by `RedisModule_Alloc`.
+ * 3. A nul-terminator is expected in memory at `str+len`.
+ * 4. The size determined by `len` excludes the nul-terminator.
+ * 5. `str` **must not** be used or freed after this function is called, as this function
  *    takes ownership of the allocation.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
 
@@ -466,20 +470,21 @@ void RSValue_SetString(struct RsValue *value, char *str, uint32_t len);
  * This clears the existing value and sets it to an [`RsString`] of kind `Const`
  * with the given buffer.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function returning an owned [`RsValue`] object.
- * 2. `str` must be a [valid], non-null pointer to a string buffer.
- * 3. `str` must be [valid] for reads of `len` bytes.
- * 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
- *    lifetime of the [`RsValue`] and any clones of it.
+ * 2. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
+ * 3. A nul-terminator is expected in memory at `str+len`.
+ * 4. The size determined by `len` excludes the nul-terminator.
+ * 5. The memory pointed to by `str` must remain valid and not be mutated for the entire
+ *    lifetime of the returned [`RsValue`] and any clones of it.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- *
- * # Panic
- *
- * Panics if more than 1 reference exists to this [`RsValue`] object.
  */
 void RSValue_SetConstString(struct RsValue *value, const char *str, uint32_t len);
 

@@ -25,7 +25,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
 ///
-/// If you squint a bit, this is a C-flavored version of a `Box<dyn RQEIterator>`,
+/// If you squint a bit, this is a C-flavored version of a `Box<dyn [`RQEIterator`]>`,
 /// using the C iterator interface rather than the Rust trait.
 /// It can be used to pass around different iterator kinds, it is heap-allocated
 /// and it has ownership (and must free) the underlying iterator
@@ -66,7 +66,7 @@ impl AsRef<QueryIterator> for CRQEIterator {
     fn as_ref(&self) -> &QueryIterator {
         // SAFETY: We can convert to a reference thanks to invariant 1. of
         // [`CRQEIterator::header`]. It is safe to create a shared reference
-        // since [`CRQEIteator::header`] owns the iterator (invariant 2.) and
+        // since [`CRQEIterator::header`] owns the iterator (invariant 2.) and
         // this methods takes a shared reference to `self`, thus ensuring that
         // no mutable reference is live at the same time.
         unsafe { self.header.as_ref() }
@@ -77,7 +77,7 @@ impl AsMut<QueryIterator> for CRQEIterator {
     fn as_mut(&mut self) -> &mut QueryIterator {
         // SAFETY: We can convert to a reference thanks to invariant 1. of
         // [`CRQEIterator::header`]. It is safe to create a mutable reference
-        // since [`CRQEIteator::header`] owns the iterator (invariant 2.) and
+        // since [`CRQEIterator::header`] owns the iterator (invariant 2.) and
         // this methods takes a mutable reference to `self`, thus ensuring that
         // no other reference (either shared or mutable) is live at the same time.
         unsafe { self.header.as_mut() }
@@ -90,7 +90,7 @@ impl Deref for CRQEIterator {
     fn deref(&self) -> &Self::Target {
         // SAFETY: We can dereference safety thanks to invariant 1. of
         // [`CRQEIterator::header`]. It is safe to create a shared reference
-        // to the underlying iterator since [`CRQEIteator::header`] owns the iterator
+        // to the underlying iterator since [`CRQEIterator::header`] owns the iterator
         // (invariant 2.) and this methods takes a shared reference to `self`,
         // thus ensuring that no other mutable reference is live
         // at the same time.
@@ -102,7 +102,7 @@ impl DerefMut for CRQEIterator {
     fn deref_mut(&mut self) -> &mut Self::Target {
         // SAFETY: We can dereference safety thanks to invariant 1. of
         // [`CRQEIterator::header`]. It is safe to create a mutable reference
-        // to the underlying iterator since [`CRQEIteator::header`] owns the iterator
+        // to the underlying iterator since [`CRQEIterator::header`] owns the iterator
         // (invariant 2.) and this methods takes a mutable reference to `self`,
         // thus ensuring that no other reference (either shared or mutable) is live
         // at the same time.

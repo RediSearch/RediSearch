@@ -71,7 +71,7 @@ where
     ///
     /// # Safety
     ///
-    /// 1. If `range_tree` is Some, it must be a valid pointer to a `NumericRangeTree`.
+    /// 1. If `range_tree` is Some, it must be a valid pointer to a [`NumericRangeTree`].
     /// 2. If `range_tree` is Some, it must stay valid during the iterator's lifetime.
     pub unsafe fn new(
         reader: R,
