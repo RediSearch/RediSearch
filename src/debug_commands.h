@@ -75,6 +75,35 @@ int CoordReduceDebugCtx_GetPauseBeforeN(void);
 void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
+
+// Struct used for debugging hybrid reply (pause before replyWithCursors)
+// Only available in debug builds to avoid affecting release performance
+typedef struct HybridReplyDebugCtx {
+  atomic_bool pauseEnabled;    // Whether pause is enabled
+  atomic_bool pause;           // Atomic bool to wait for the resume command
+} HybridReplyDebugCtx;
+
+// HybridReplyDebugCtx API function declarations
+bool HybridReplyDebugCtx_IsPauseEnabled(void);
+void HybridReplyDebugCtx_SetPauseEnabled(bool enabled);
+bool HybridReplyDebugCtx_IsPaused(void);
+void HybridReplyDebugCtx_SetPause(bool pause);
+
+// Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
+// Only available in debug builds to avoid affecting release performance
+typedef struct StoreResultsDebugCtx {
+  atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
+  atomic_bool pauseAfterEnabled;    // Whether pause after StoreResults is enabled
+  atomic_bool pause;                // Atomic bool to wait for the resume command
+} StoreResultsDebugCtx;
+
+// StoreResultsDebugCtx API function declarations
+bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void);
+void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled);
+bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
+void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
+bool StoreResultsDebugCtx_IsPaused(void);
+void StoreResultsDebugCtx_SetPause(bool pause);
 #endif
 
 // Yield counter functions

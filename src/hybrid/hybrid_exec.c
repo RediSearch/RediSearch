@@ -320,6 +320,31 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
   return true;
 }
 
+#ifdef ENABLE_ASSERT
+// Helper function to pause before/after store results for hybrid (for testing timeout during store)
+static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
+  bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
+                        : StoreResultsDebugCtx_IsPauseAfterEnabled();
+  if (enabled) {
+    StoreResultsDebugCtx_SetPause(true);
+    while (StoreResultsDebugCtx_IsPaused()) {
+      // Check if timed out - break to avoid deadlock with timeout callback
+      if (HybridRequest_TimedOut(hreq)) {
+        StoreResultsDebugCtx_SetPause(false);
+        break;
+      }
+      usleep(1000);  // Spin-wait with 1ms sleep
+    }
+  }
+}
+#else
+// Compiler eliminates the function completely in release builds - zero overhead
+static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
+  UNUSED(hreq);
+  UNUSED(before);
+}
+#endif
+
 /**
  * Store pipeline results for reply_callback path (FAIL policy with workers).
  * Called after startPipelineHybrid when using reply_callback mode.
@@ -400,7 +425,9 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     if (hreq->useReplyCallback) {
       // Store results for reply_callback (includes cv)
+      debugPauseStoreResultsHybrid(hreq, true);  // pause before
       HREQ_StoreResults(hreq, results, rc, cv);
+      debugPauseStoreResultsHybrid(hreq, false); // pause after
       return;
     }
 

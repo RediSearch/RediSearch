@@ -22,6 +22,7 @@
 #include "query_error.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
+#include "debug_commands.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
@@ -339,6 +340,31 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
+#ifdef ENABLE_ASSERT
+// Helper function to pause before/after store results (for testing timeout during store)
+static inline void debugPauseStoreResults(AREQ *req, bool before) {
+  bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
+                        : StoreResultsDebugCtx_IsPauseAfterEnabled();
+  if (enabled) {
+    StoreResultsDebugCtx_SetPause(true);
+    while (StoreResultsDebugCtx_IsPaused()) {
+      // Check if timed out - break to avoid deadlock with timeout callback
+      if (AREQ_TimedOut(req)) {
+        StoreResultsDebugCtx_SetPause(false);
+        break;
+      }
+      usleep(1000);  // Spin-wait with 1ms sleep
+    }
+  }
+}
+#else
+// Compiler eliminates the function completely in release builds - zero overhead
+static inline void debugPauseStoreResults(AREQ *req, bool before) {
+  UNUSED(req);
+  UNUSED(before);
+}
+#endif
+
 /**
  * Store pipeline results for reply_callback path.
  * Called after startPipeline when using reply_callback mode (FAIL policy with workers).
@@ -611,7 +637,9 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     if (req->useReplyCallback) {
       // Store results for reply_callback (includes cv)
+      debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv);
+      debugPauseStoreResults(req, false); // pause after
       return;
     }
 
@@ -804,7 +832,9 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     if (req->useReplyCallback) {
       // Store results for reply_callback (includes cv)
+      debugPauseStoreResults(req, true);  // pause before
       AREQ_StoreResults(req, state.results, rc, cv);
+      debugPauseStoreResults(req, false); // pause after
       return;
     }
 
