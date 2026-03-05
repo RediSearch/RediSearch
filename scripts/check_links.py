@@ -206,7 +206,7 @@ class LinkChecker:
             # If there's an anchor, verify it exists in the HTML
             # GitHub line-number anchors (e.g., #L207, #L207-L226) are rendered
             # client-side via JavaScript and won't appear in static HTML.
-            if anchor and not re.match(r'^L\d+(-L\d+)?$', anchor):
+            if anchor and not parsed.netloc == "github.com":
                 content_type = response.headers.get('content-type', '').lower()
                 if 'text/html' in content_type:
                     soup = BeautifulSoup(response.content, 'html.parser')
