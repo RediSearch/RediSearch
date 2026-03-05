@@ -1216,6 +1216,8 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 /*********************************************************************************/
 
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags) {
+  RS_LOG_ASSERT(!(SearchDisk_IsEnabledForValidation() && sctx && sctx->spec && sctx->spec->diskSpec),
+                "RPLoader should not be created for disk indexes");
   if (RSGlobalConfig.enableUnstableFeatures) {
     if (nkeys == 1 && !strcmp(RLookupKey_GetPath(keys[0]), UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space
