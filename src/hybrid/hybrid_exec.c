@@ -11,6 +11,7 @@
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "debug_commands.h"
 
 #include "redismodule.h"
 #include "redisearch.h"
@@ -371,7 +372,7 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
   if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
     // reply_callback will clear the stored error after replying.
-    QueryError_Clear(&hreq->storedReplyState.err);
+    QueryError_ClearError(&hreq->storedReplyState.err);
     QueryError_CloneFrom(status, &hreq->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);

@@ -387,7 +387,7 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
 
   // Deep copy error state since qctx->err points to a local variable in the caller
   // which will go out of scope. QueryError contains heap-allocated strings.
-  QueryError_Clear(&req->storedReplyState.err);
+  QueryError_ClearError(&req->storedReplyState.err);
   QueryError_CloneFrom(qctx->err, &req->storedReplyState.err);
 }
 
