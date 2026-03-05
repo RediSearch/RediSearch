@@ -1339,9 +1339,8 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   ResultProcessor *rp = qctx->endProc;
   ChunkReplyState *stored = &req->storedReplyState;
 
-  // Temporarily point qctx->err to the stored error so serializeAndReplyResults can access it.
-  // Save the original pointer and restore it after serialization to avoid coupling issues.
-  QueryError *originalErr = qctx->err;
+  // Point qctx->err to the stored error so serializeAndReplyResults/finishSendChunk can access it.
+  // This is the end of the request lifecycle, so no need to restore.
   qctx->err = &stored->err;
 
   // Create a stack-allocated SearchResult for finishSendChunk cleanup
@@ -1367,9 +1366,6 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
 
   RedisModule_EndReply(reply);
-
-  // Restore qctx->err to its original value to avoid coupling with stored state
-  qctx->err = originalErr;
 
   // Clear stored results pointer since ownership was transferred to state
   stored->results = NULL;

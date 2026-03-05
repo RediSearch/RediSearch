@@ -1005,6 +1005,28 @@ def resetCoordReduceDebug(env):
     except Exception:
         pass  # Ignore error if coordinator is not paused
 
+# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeStoreResults(env, enabled):
+    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'true' if enabled else 'false').ok()
+
+def setPauseAfterStoreResults(env, enabled):
+    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'true' if enabled else 'false').ok()
+
+def getIsStoreResultsPaused(env):
+    """Check if the query is currently paused during store results."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED')
+
+def resetStoreResultsDebug(env):
+    """Reset the store results debug context (disable pauses and resume)."""
+    setPauseBeforeStoreResults(env, False)
+    setPauseAfterStoreResults(env, False)
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
+    except Exception:
+        pass  # Ignore error if not paused
+
 def isEnableAssertEnabled(env):
     """
     Check if ENABLE_ASSERT is enabled in the build.
