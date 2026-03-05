@@ -33,7 +33,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install requests
+          pip install requests openai
       
       - name: Determine date
         id: date
@@ -60,6 +60,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           python scripts/collect_nightly_results.py --date "${{ steps.date.outputs.date }}"
       

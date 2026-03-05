@@ -9,12 +9,12 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  alpine-test:
-    uses: ./.github/workflows/flow-test.yml
+  test-ci-report:
+    uses: ./.github/workflows/daily-ci-report.yml
     secrets: inherit
     with:
-      platform: alpine:3.22
+      date: '2026-03-05'  # Test with today's failures
