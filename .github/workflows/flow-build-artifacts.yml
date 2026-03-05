@@ -54,7 +54,8 @@ jobs:
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
-      beta-version: ''  # beta-version not used for OSS builds
+      # beta-version not used for OSS builds by default
+      beta-version: ${{ inputs.force_beta && steps.beta-version.outputs.BETA_VERSION || '' }}
       version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
     steps:
       - uses: actions/checkout@v4
@@ -81,16 +82,10 @@ jobs:
           SHORT_SHA="${GIT_SHA:0:7}"
           VERSION_SUFFIX=".${TIMESTAMP}.${SHORT_SHA}"
           echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
-          if [[ "$BRANCH_NAME" == "master" ]] || [[ "$FORCE_BETA" == "true" ]]; then
+          if [[ "$FORCE_BETA" == "true" ]]; then
             BETA_VERSION="99.99.99"
             echo "BETA_VERSION=$BETA_VERSION" >> $GITHUB_OUTPUT
-            if [[ "$BRANCH_NAME" == "master" ]]; then
-              echo "Master branch detected, generating beta version: $BETA_VERSION"
-            else
-              echo "Force beta enabled for branch $BRANCH_NAME, generating beta version: $BETA_VERSION"
-            fi
-          else
-            echo "Non-master branch detected ($BRANCH_NAME) and force_beta not enabled, no beta version generated"
+            echo "Force beta enabled for branch $BRANCH_NAME, generating beta version: $BETA_VERSION"
           fi
       - name: Validate Reference
         shell: python
