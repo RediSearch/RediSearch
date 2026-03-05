@@ -62,9 +62,10 @@ typedef struct BasicDiskAPI {
   /**
    * @brief Close an index spec
    * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
+   * @param disk Pointer to the disk context (for cleanup of index metrics)
    * @param index Pointer to the index spec
    */
-  void (*closeIndexSpec)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
