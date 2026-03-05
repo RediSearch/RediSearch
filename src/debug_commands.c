@@ -2222,16 +2222,6 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
   }
-  // Hybrid reply pause commands
-  if (!strcmp("SET_PAUSE_BEFORE_HYBRID_REPLY", op)) {
-    return setPauseBeforeHybridReply(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("GET_IS_HYBRID_REPLY_PAUSED", op)) {
-    return getIsHybridReplyPaused(ctx, argv + 1, argc - 1);
-  }
-  if (!strcmp("SET_HYBRID_REPLY_RESUME", op)) {
-    return setHybridReplyResume(ctx, argv + 1, argc - 1);
-  }
   // Store results pause commands
   if (!strcmp("SET_PAUSE_BEFORE_STORE_RESULTS", op)) {
     return setPauseBeforeStoreResults(ctx, argv + 1, argc - 1);
