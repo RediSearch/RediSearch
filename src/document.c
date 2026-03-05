@@ -884,8 +884,16 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
+  const RSDocumentMetadata *dmd = 0;
+  RLookup lookup_s = RLookup_New();
+  RLookupRow row = RLookupRow_New();;
+  RSValue *rv = NULL;
+  IndexSpecCache *spcache = NULL;
+  RLookupLoadOptions loadopts = {0};
+  ExprEval evaluator = {0};
+
   RedisSearchCtx_LockSpecRead(sctx);
-  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
+  dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");
@@ -896,39 +904,33 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   if (!(e = ExprAST_Parse(expr, status)) || QueryError_HasError(status)) {
     goto done;
   }
-
-  RLookup lookup_s = RLookup_New();
-  RLookupRow row = RLookupRow_New();
-  RSValue *rv = NULL;
-  IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
+  spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_SetCache(&lookup_s, spcache);
   RLookup_EnableOptions(&lookup_s, RLOOKUP_OPT_ALLLOADED); // Setting this option will cause creating keys of non-sortable fields possible
   if (ExprAST_GetLookupKeys(e, &lookup_s, status) == EXPR_EVAL_ERR) {
-    goto CleanUp;
+    goto done;
   }
 
-  RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
+  loadopts = (RLookupLoadOptions){.sctx = sctx, .dmd = dmd, .status = status};
   if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
-    goto CleanUp;
+    goto done;
   }
 
-  // In query mode missing properties are errors, as expected for `FT.ADD`.
-  ExprEval evaluator = {.err = status, .mode = EVAL_MODE_QUERY, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
+  evaluator = (ExprEval){.err = status, .mode = EVAL_MODE_QUERY, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
   rv = RSValue_NewUndefined();
   if (ExprEval_Eval(&evaluator, rv) != EXPR_EVAL_OK) {
-    goto CleanUp;
+    goto done;
   }
 
   *result = RSValue_BoolTest(rv);
   rc = REDISMODULE_OK;
 
-CleanUp:
+done:
   if (rv) {
     RSValue_DecrRef(rv);
   }
   RLookupRow_Reset(&row);
   RLookup_Cleanup(&lookup_s);
-done:
   ExprAST_Free(e);
   DMD_Return(dmd);
   RedisSearchCtx_UnlockSpec(sctx);

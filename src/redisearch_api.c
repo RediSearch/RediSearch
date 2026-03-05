@@ -606,6 +606,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     options.language = sp->rule->lang_default;
   }
 
+  const char *defaultScorer = NULL;
+  ExtScoringFunctionCtx* scoreCtx = NULL;
+
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
   it->sctx = SEARCH_CTX_STATIC(NULL, sp);
 
@@ -629,9 +632,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  defaultScorer = RSGlobalConfig.defaultScorer;
   RS_LOG_ASSERT(defaultScorer, "No default scorer");
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
+  scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;

@@ -29,7 +29,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 pub struct Intersection<'index, I> {
     /// Child iterators, sorted by estimated count (smallest first).
     children: Vec<I>,
-    /// Last doc_id successfully found in ALL children (returned by `last_doc_id()`).
+    /// Last doc_id successfully found in ALL children (returned by [`last_doc_id()`](Self::last_doc_id)).
     last_doc_id: t_docId,
     num_expected: usize,
     is_eof: bool,
@@ -130,20 +130,20 @@ where
     /// `&mut self.result` and `&mut self.children` separately), but it doesn't work due
     /// to a fundamental lifetime mismatch:
     ///
-    /// - `push_borrowed` requires `&'index RSIndexResult` - a reference with `'index` lifetime
-    /// - `child.current()` returns `&mut RSIndexResult<'index>` - the *data* has `'index`
+    /// - [`push_borrowed`](RSIndexResult::push_borrowed) requires `&'index RSIndexResult` - a reference with `'index` lifetime
+    /// - [`child.current()`](RQEIterator::current) returns `&mut RSIndexResult<'index>` - the *data* has `'index`
     ///   lifetime, but the *reference* is bounded by `&mut self`
     ///
     /// The compiler cannot verify that children's internal results live for `'index`,
     /// even though we know they reference index data that does. Splitting the borrow
-    /// doesn't help because `current()` still returns a reference bounded by the call.
+    /// doesn't help because [`current()`](RQEIterator::current) still returns a reference bounded by the call.
     ///
     /// # TODO
     ///
     /// Explore removing the unsafe code by using one of the following alternatives (as suggested in the PR):
     ///
     /// - Store owned copies instead of borrowed references (memory/perf tradeoff)
-    /// - Restructure `RSAggregateResult` to not require `'index` on stored references
+    /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
         self.last_doc_id = doc_id;

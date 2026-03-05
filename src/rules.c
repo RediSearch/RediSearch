@@ -231,18 +231,21 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
                                const char *kname) {
   RSLanguage lang = rule->lang_default;
   RedisModuleString *lang_rms = NULL;
+  int rv = REDISMODULE_ERR;
+  size_t len = 0;
+  const char *lang_s = NULL;
+
   if (!rule->lang_field) {
     goto done;
   }
-  int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->lang_field, &lang_rms, NULL);
+  rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->lang_field, &lang_rms, NULL);
   if (rv != REDISMODULE_OK) {
     goto done;
   }
   if (lang_rms == NULL) {
     goto done;
   }
-  size_t len;
-  const char *lang_s = RedisModule_StringPtrLen(lang_rms, &len);
+  lang_s = RedisModule_StringPtrLen(lang_rms, &len);
   lang = RSLanguage_Find(lang_s, len);
   if (lang == RS_LANG_UNSUPPORTED) {
     RedisModule_Log(rctx, "warning", "invalid language for key %s", kname);
@@ -260,6 +263,10 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
   int rv = REDISMODULE_ERR;
   JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
+  const char *langStr = NULL;
+  size_t len = 0;
+  RedisJSON langJson = NULL;
+
   if (!rule->lang_field) {
     goto done;
   }
@@ -274,9 +281,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  const char *langStr;
-  size_t len;
-  RedisJSON langJson = japi->next(jsonIter);
+  langJson = japi->next(jsonIter);
   if (!langJson || japi->getString(langJson, &langStr, &len) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
     goto done;
@@ -300,10 +305,12 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
                             const char *kname) {
   double score = rule->score_default;
   RedisModuleString *score_rms = NULL;
+  int rv = REDISMODULE_ERR;
+
   if (!rule->score_field) {
     goto done;
   }
-  int rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
+  rv = RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS, rule->score_field, &score_rms, NULL);
   if (rv != REDISMODULE_OK) {
     goto done;
   }
@@ -328,6 +335,8 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
                                 RedisJSON jsonRoot, const char *kname) {
   double score = rule->score_default;
   JSONResultsIterator jsonIter = NULL;
+  RedisJSON scoreJson = NULL;
+
   if (!rule->score_field) {
     goto done;
   }
@@ -342,7 +351,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  RedisJSON scoreJson = japi->next(jsonIter);
+  scoreJson = japi->next(jsonIter);
   if (!scoreJson || japi->getDouble(scoreJson, &score) != REDISMODULE_OK) {
     RedisModule_Log(ctx, "warning", "invalid field %s for key %s", rule->score_field, kname);
   }
@@ -376,6 +385,12 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   size_t len;
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
   char *prefixes[RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK];
+  uint64_t exist = 0;
+  double score_default = 0.0;
+  RSLanguage lang_default = DEFAULT_LANGUAGE;
+  bool index_all = false;
+  SchemaRule *rule = NULL;
+  IndexSpec *sp = NULL;
 
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
@@ -392,7 +407,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     args.prefixes[i] = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
 
-  uint64_t exist = LoadUnsigned_IOError(rdb, goto cleanup);
+  exist = LoadUnsigned_IOError(rdb, goto cleanup);
   if (exist) {
     args.filter_exp_str = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
@@ -408,14 +423,13 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   if (exist) {
     args.payload_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
-  double score_default = LoadDouble_IOError(rdb, goto cleanup);
-  RSLanguage lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
-  bool index_all = false;
+  score_default = LoadDouble_IOError(rdb, goto cleanup);
+  lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
   if (encver >= INDEX_INDEXALL_VERSION) {
     index_all = LoadUnsigned_IOError(rdb, goto cleanup);
   }
 
-  SchemaRule *rule = SchemaRule_Create(&args, ref, status);
+  rule = SchemaRule_Create(&args, ref, status);
   if (!rule) {
     ret = REDISMODULE_ERR;
     goto cleanup;
@@ -425,7 +439,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB
-  IndexSpec *sp = StrongRef_Get(ref);
+  sp = StrongRef_Get(ref);
   sp->rule = rule;
   SchemaRule_FilterFields(sp);
 

@@ -151,7 +151,6 @@ pub(super) type TermIterator<'index> =
 /// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
 /// 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
-#[allow(improper_ctypes_definitions)] // `field_mask_or_index` contains `t_fieldMask` (u128)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     idx: *const ffi::InvertedIndex,
