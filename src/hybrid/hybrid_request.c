@@ -279,17 +279,6 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
 static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Free any stored results from reply_callback path that weren't consumed
-    // (e.g., if timeout occurred before DistHybridReplyCallback ran)
-    if (req->storedReplyState.results) {
-      for (size_t i = 0; i < array_len(req->storedReplyState.results); i++) {
-        SearchResult_Destroy(req->storedReplyState.results[i]);
-        rm_free(req->storedReplyState.results[i]);
-      }
-      array_free(req->storedReplyState.results);
-      req->storedReplyState.results = NULL;
-    }
-
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
 
@@ -337,17 +326,15 @@ static void HybridRequest_Free(HybridRequest *req) {
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
 
-    // Clean up storedReplyState if results were stored for reply_callback
-    if (req->storedReplyState.hasStoredResults) {
-      if (req->storedReplyState.results) {
-        for (size_t i = 0; i < array_len(req->storedReplyState.results); i++) {
-          SearchResult_Destroy(req->storedReplyState.results[i]);
-          rm_free(req->storedReplyState.results[i]);
-        }
-        array_free(req->storedReplyState.results);
-        req->storedReplyState.results = NULL;
+    // Clean up storedReplyState unconditionally - errors can be stored via
+    // HREQ_ReplyOrStoreError without setting hasStoredResults, so always clear.
+    if (req->storedReplyState.results) {
+      for (size_t i = 0; i < array_len(req->storedReplyState.results); i++) {
+        SearchResult_Destroy(req->storedReplyState.results[i]);
+        rm_free(req->storedReplyState.results[i]);
       }
-      req->storedReplyState.hasStoredResults = false;
+      array_free(req->storedReplyState.results);
+      req->storedReplyState.results = NULL;
     }
     QueryError_ClearError(&req->storedReplyState.err);
 

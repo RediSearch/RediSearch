@@ -375,14 +375,16 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
  * @param results Pipeline results (ownership transferred to storedReplyState)
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
+ * @param limit Original limit passed to sendChunk (for RESP2 resultsLen calculation)
  */
-static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv) {
+static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedVars cv, size_t limit) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
 
   // Store results in AREQ for reply_callback to use
   req->storedReplyState.results = results;
   req->storedReplyState.rc = rc;
   req->storedReplyState.cv = cv;
+  req->storedReplyState.limit = limit;
   req->storedReplyState.hasStoredResults = true;
 
   // Deep copy error state since qctx->err points to a local variable in the caller
@@ -636,9 +638,9 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
-      // Store results for reply_callback (includes cv)
+      // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
-      AREQ_StoreResults(req, state.results, rc, cv);
+      AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
       return;
     }
@@ -831,9 +833,9 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
-      // Store results for reply_callback (includes cv)
+      // Store results for reply_callback (includes cv and limit)
       debugPauseStoreResults(req, true);  // pause before
-      AREQ_StoreResults(req, state.results, rc, cv);
+      AREQ_StoreResults(req, state.results, rc, cv, limit);
       debugPauseStoreResults(req, false); // pause after
       return;
     }
@@ -1051,8 +1053,10 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 // For RETURN policy: replies with error directly.
 static void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) {
   if (req->useReplyCallback) {
+    // Clear destination before cloning to avoid leaking any existing error strings.
     // Deep copy since QueryError contains heap-allocated strings.
     // QueryReplyCallback will clear the stored error after replying.
+    QueryError_ClearError(&req->storedReplyState.err);
     QueryError_CloneFrom(status, &req->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
@@ -1362,7 +1366,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (reply->resp3) {
     rc = serializeAndReplyResults_Resp3(req, reply, rp, qctx, rc, &stored->cv, &state);
   } else {
-    rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, qctx->resultLimit, &stored->cv, &state);
+    rc = serializeAndReplyResults_Resp2(req, reply, rp, qctx, rc, stored->limit, &stored->cv, &state);
   }
 
   RedisModule_EndReply(reply);

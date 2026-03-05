@@ -59,6 +59,7 @@ typedef struct {
   QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
   cachedVars cv;           // Cached lookup variables for result serialization
   struct Cursor *cursor;   // Cursor handle for reply_callback to pause/free after finishSendChunk
+  size_t limit;            // Original limit passed to sendChunk (for RESP2 resultsLen calculation)
 } ChunkReplyState;
 
 typedef struct Grouper Grouper;
