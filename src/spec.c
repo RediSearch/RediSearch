@@ -3513,7 +3513,7 @@ void Indexes_Init(RedisModuleCtx *ctx) {
 }
 
 SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                                   bool runFilters,
+                                                   DocumentType type, bool runFilters,
                                                    RedisModuleString *keyToReadData) {
   if (!keyToReadData) {
     keyToReadData = key;
@@ -3550,6 +3550,12 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       StrongRef global = node->index_specs[j];
       IndexSpec *spec = StrongRef_Get(global);
       if (spec && !dictFind(specs, spec->specName)) {
+        // skip if document type does not match the index type
+        // The unsupported type is needed for crdt empty keys (deleted)
+        if (type != DocumentType_Unsupported && type != spec->rule->type) {
+          continue;
+        }
+
         SpecOpCtx specOp = {
             .spec = spec,
             .op = SpecOp_Add,
@@ -3630,19 +3636,14 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_Unsupported) {
     // COPY could overwrite a hash/json with other types so we must try and remove old doc
-    Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+    Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, hashFields);
     return;
   }
 
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, true, NULL);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, true, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
-
-    // skip if document type does not match the index type
-    if (type != specOp->spec->rule->type) {
-      continue;
-    }
 
     if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
@@ -3657,8 +3658,9 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 }
 
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           DocumentType type,
                                            RedisModuleString **hashFields) {
-  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, false, NULL);
+  SpecOpIndexingCtx *specs = Indexes_FindMatchingSchemaRules(ctx, key, type, false, NULL);
 
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
@@ -3677,8 +3679,8 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     return;
   }
 
-  SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, true, to_key);
-  SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, true, NULL);
+  SpecOpIndexingCtx *from_specs = Indexes_FindMatchingSchemaRules(ctx, from_key, type, true, to_key);
+  SpecOpIndexingCtx *to_specs = Indexes_FindMatchingSchemaRules(ctx, to_key, type, true, NULL);
 
   size_t from_len, to_len;
   const char *from_str = RedisModule_StringPtrLen(from_key, &from_len);
