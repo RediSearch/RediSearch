@@ -61,7 +61,6 @@ impl MockCallReply {
 /// # Safety
 /// 1. ctx must be a valid pointer to a [crate::TestContext]
 /// 2. cmdname must be a valid C string.
-#[allow(non_snake_case)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RedisModule_CallHgetAll(
     ctx: *mut ffi::RedisModuleCtx,

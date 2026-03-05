@@ -47,7 +47,6 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 /// It might be a Rust iterator, wrapped to obey the C API, being passed into
 /// a Rust composite iterator.
 #[repr(transparent)]
-#[allow(unused)]
 pub struct CRQEIterator {
     /// # Safety invariants
     ///
@@ -136,7 +135,6 @@ impl CRQEIterator {
     ///    with the exception of `SkipTo`, which is optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
-    #[allow(unused)]
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
         // SAFETY: the caller is required to uphold `Self::header` field invariants.
         let self_ = Self { header };
@@ -167,7 +165,6 @@ impl CRQEIterator {
     ///
     /// The caller is taking ownership of the [`QueryIterator`] instance and is
     /// therefore responsible to free its contents.
-    #[allow(unused)]
     pub fn into_raw(self) -> NonNull<QueryIterator> {
         let self_ = ManuallyDrop::new(self);
         self_.header
