@@ -204,7 +204,8 @@ class LinkChecker:
             response.raise_for_status()
 
             # If there's an anchor, verify it exists in the HTML
-            # GitHub line-number anchors (e.g., #L207, #L207-L226) are rendered
+            # Github doesn't render generated markdown anchors (e.g. readme) and
+            # line-number anchors (e.g., #L207, #L207-L226). Those are rendered
             # client-side via JavaScript and won't appear in static HTML.
             if anchor and parsed.netloc != "github.com":
                 content_type = response.headers.get('content-type', '').lower()
