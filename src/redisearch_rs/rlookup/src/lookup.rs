@@ -470,7 +470,7 @@ fn load_specific_keys<'a>(
         type_: index_spec.rule().type_(),
         status: ptr::from_mut(status),
         forceLoad: true,
-        mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+        cachedOnly: false,
         dmd: ptr::null(),
         forceString: false,
     };

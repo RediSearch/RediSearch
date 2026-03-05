@@ -912,8 +912,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   loadopts = (RLookupLoadOptions){.sctx = sctx, .dmd = dmd, .status = status};
-  if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
-    goto done;
+  if (RLookup_LoadDocumentIndividual(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+     goto done;
   }
 
   evaluator = (ExprEval){.err = status, .mode = EVAL_MODE_QUERY, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
