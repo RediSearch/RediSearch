@@ -7,15 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(non_camel_case_types, non_snake_case)]
-
-pub mod array;
-pub mod constructors;
-pub mod conversions;
-pub mod getters;
-pub mod map;
-pub mod sds;
-pub mod setters;
-pub mod shared;
-pub mod util;
-pub mod value_type;
+fn main() {
+    #[cfg(feature = "unittest")]
+    build_utils::bind_foreign_c_symbols();
+}

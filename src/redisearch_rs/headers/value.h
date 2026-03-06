@@ -482,6 +482,22 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
                           struct RsValue **value);
 
 /**
+ * Writes the debug representation of an [`RsValue`] into an SDS string.
+ *
+ * If `value` is null, writes `"nil"`. Otherwise, formats the value using
+ * [`DebugFormatter`](value::debug::DebugFormatter), optionally obfuscating
+ * sensitive data when `obfuscate` is `true`.
+ *
+ * # Safety
+ *
+ * 1. If non-null, `value` must be a [valid] pointer to an [`RsValue`].
+ * 2. `sds` must be a [valid], non-null SDS string allocated by the C SDS library.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+sds RSValue_DumpSds(const struct RsValue *value, sds sds, bool obfuscate);
+
+/**
  * Converts an [`RsValue`] to a number type in-place.
  *
  * This clears the existing value and sets it to Number with the given value.

@@ -24,8 +24,10 @@ mod rs_value_ffi;
 pub use rs_value_ffi::*;
 
 pub mod collection;
+pub mod debug;
 pub mod redis_string;
 pub mod rs_string;
+pub mod sds_writer;
 pub mod shared;
 pub mod trio;
 pub mod util;
@@ -90,6 +92,13 @@ impl RsValue {
             RsValue::String(str) => Some(str.as_bytes()),
             RsValue::RedisString(str) => Some(str.as_bytes()),
             _ => None,
+        }
+    }
+
+    pub const fn debug_formatter(&self, obfuscate: bool) -> debug::DebugFormatter<'_> {
+        debug::DebugFormatter {
+            value: self,
+            obfuscate,
         }
     }
 }

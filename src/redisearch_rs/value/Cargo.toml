@@ -13,7 +13,12 @@ workspace_hack.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+value = { path = ".", features = ["unittest"] }
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 redis_mock.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
@@ -36,3 +41,4 @@ workspace = true
 # in case bindings are being generated for types
 # exposed in this crate.
 c_ffi_impl = []
+unittest = []
