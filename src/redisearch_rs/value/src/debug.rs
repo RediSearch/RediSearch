@@ -7,6 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Debug formatting for [`RsValue`] with optional obfuscation.
+//!
+//! Provides [`DebugFormatter`], a wrapper that implements [`Debug`] for [`RsValue`],
+//! with support for obfuscating sensitive data via C-side obfuscation functions.
+
 use crate::RsValue;
 use ffi::{Obfuscate_Number, Obfuscate_Text};
 use std::{
@@ -14,6 +19,13 @@ use std::{
     fmt::{self, Debug},
 };
 
+/// A wrapper around an [`RsValue`] reference that implements [`Debug`] with
+/// optional obfuscation of string and numeric values.
+///
+/// When `obfuscate` is `true`, string and numeric values are replaced with
+/// obfuscated representations using the C-side `Obfuscate_Text` and
+/// `Obfuscate_Number` functions. Composite types (arrays, maps) recursively
+/// obfuscate their elements.
 pub struct DebugFormatter<'a> {
     pub(crate) value: &'a RsValue,
     pub(crate) obfuscate: bool,
@@ -67,12 +79,21 @@ impl<'a> Debug for DebugFormatter<'a> {
     }
 }
 
+/// Returns a static string representation of the obfuscated number.
 fn obfuscate_number(number: f64) -> &'static str {
+    // SAFETY: `Obfuscate_Number` is a C function that returns a pointer to a
+    // static null-terminated string.
     let obfuscated = unsafe { Obfuscate_Number(number) };
+    // SAFETY: The returned pointer is a valid, null-terminated, static C string.
     unsafe { CStr::from_ptr(obfuscated) }.to_str().unwrap()
 }
 
+/// Returns a static string representation of the obfuscated text.
 fn obfuscate_text(text: &[u8]) -> &'static str {
+    // SAFETY: `Obfuscate_Text` expects a `*const c_char` pointer. `text` is a
+    // valid byte slice, and the function returns a pointer to a static
+    // null-terminated string.
     let obfuscated = unsafe { Obfuscate_Text(text.as_ptr().cast()) };
+    // SAFETY: The returned pointer is a valid, null-terminated, static C string.
     unsafe { CStr::from_ptr(obfuscated) }.to_str().unwrap()
 }
