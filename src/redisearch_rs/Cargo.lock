@@ -1044,6 +1044,7 @@ dependencies = [
  "field",
  "inverted_index",
  "inverted_index_ffi",
+ "libc",
  "numeric_range_tree",
  "rqe_iterators",
  "rqe_iterators_interop",

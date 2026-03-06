@@ -7,26 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for the wildcard inverted index iterator.
+//! Tests for the missing-field inverted index iterator.
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
-use rqe_iterators::{RQEIterator, inverted_index::Wildcard};
-
-use crate::inverted_index::utils::BaseTest;
+use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Missing};
 use rqe_iterators_test_utils::MockContext;
 
-struct WildcardBaseTest {
+use crate::inverted_index::utils::BaseTest;
+
+struct MissingBaseTest {
     test: BaseTest<DocIdsOnly>,
 }
 
-impl WildcardBaseTest {
+impl MissingBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
         RSIndexResult::virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
-            .weight(1.0)
+            .weight(0.0)
     }
 
     fn new(n_docs: u64) -> Self {
@@ -39,37 +39,37 @@ impl WildcardBaseTest {
         }
     }
 
-    fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
+    fn create_iterator(&self) -> Missing<'_, DocIdsOnly, NoOpChecker> {
         let reader = self.test.ii.reader();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
-        // that outlives the returned iterator.
-        unsafe { Wildcard::new(reader, self.test.mock_ctx.sctx(), 1.0) }
+        // that outlives the returned iterator. field_index is 0 (unused with NoOpChecker).
+        unsafe { Missing::new(reader, self.test.mock_ctx.sctx(), 0, NoOpChecker) }
     }
 }
 
 #[test]
-fn wildcard_read() {
-    let test = WildcardBaseTest::new(100);
+fn missing_read() {
+    let test = MissingBaseTest::new(100);
     let mut it = test.create_iterator();
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
-fn wildcard_skip_to() {
-    let test = WildcardBaseTest::new(10);
+fn missing_skip_to() {
+    let test = MissingBaseTest::new(10);
     let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
 
 #[test]
-fn wildcard_empty_index() {
+fn missing_empty_index() {
     let ii = inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     let mock_ctx = MockContext::new(0, 0);
 
     let reader = ii.reader();
     // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
     // that outlives the iterator.
-    let mut it = unsafe { Wildcard::new(reader, mock_ctx.sctx(), 1.0) };
+    let mut it = unsafe { Missing::new(reader, mock_ctx.sctx(), 0, NoOpChecker) };
 
     // Should immediately be at EOF
     assert!(it.read().expect("read failed").is_none());
@@ -83,54 +83,62 @@ mod not_miri {
     use inverted_index::opaque::OpaqueEncoding;
     use rqe_iterators::RQEValidateStatus;
 
-    struct WildcardRevalidateTest {
+    struct MissingRevalidateTest {
         test: RevalidateTest,
     }
 
-    impl WildcardRevalidateTest {
+    impl MissingRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
             RSIndexResult::virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
                 .frequency(1)
-                .weight(1.0)
+                .weight(0.0)
         }
 
         fn new(n_docs: u64) -> Self {
             Self {
                 test: RevalidateTest::new(
-                    RevalidateIndexType::Wildcard,
+                    RevalidateIndexType::Missing,
                     Box::new(Self::expected_record),
                     n_docs,
                 ),
             }
         }
 
-        fn create_iterator(&self) -> Wildcard<'_, DocIdsOnly> {
-            let ii = DocIdsOnly::from_opaque(self.test.context.wildcard_inverted_index());
+        fn create_iterator(&self) -> Missing<'_, DocIdsOnly, NoOpChecker> {
+            let ii = DocIdsOnly::from_opaque(self.test.context.missing_inverted_index());
+            let field_index = self.test.context.field_spec().index;
             // SAFETY: `self.test.context` provides a valid `RedisSearchCtx` with a valid
-            // `spec` and `existingDocs` that outlive the returned iterator.
-            unsafe { Wildcard::new(ii.reader(), self.test.context.sctx, 1.0) }
+            // `spec` and `missingFieldDict` that outlive the returned iterator.
+            unsafe {
+                Missing::new(
+                    ii.reader(),
+                    self.test.context.sctx,
+                    field_index,
+                    NoOpChecker,
+                )
+            }
         }
     }
 
     #[test]
-    fn wildcard_revalidate_basic() {
-        let test = WildcardRevalidateTest::new(10);
+    fn missing_revalidate_basic() {
+        let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
         test.test.revalidate_basic(&mut it);
     }
 
     #[test]
-    fn wildcard_revalidate_at_eof() {
-        let test = WildcardRevalidateTest::new(10);
+    fn missing_revalidate_at_eof() {
+        let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
         test.test.revalidate_at_eof(&mut it);
     }
 
     #[test]
-    fn wildcard_revalidate_after_index_disappears() {
-        let test = WildcardRevalidateTest::new(10);
+    fn missing_revalidate_after_index_disappears() {
+        let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
 
         // Verify the iterator works normally and read at least one document
@@ -144,48 +152,54 @@ mod not_miri {
             RQEValidateStatus::Ok
         );
 
-        // Simulate existingDocs being garbage collected and recreated by
-        // pointing spec.existingDocs to a different inverted index.
+        // Simulate the missing-field inverted index being garbage collected and
+        // recreated by replacing the dict entry with a new inverted index.
+        // We create the replacement via `Box::into_raw(Box::new(...))` using
+        // `inverted_index::opaque::InvertedIndex`, which is the same type that
+        // `InvertedIndex_Free` (the dict's value destructor) expects.
         let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
             inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
         )));
-        let old_existing_docs;
+        let field_name = test.test.context.field_spec().fieldName;
+
+        // Replace the dict entry. `dictDelete` calls the value destructor
+        // which frees the original inverted index. Then add the new one.
+        // Note: the iterator's reader holds a (now-dangling) pointer to the
+        // original II, but `should_abort` only compares pointers via
+        // `is_index` without dereferencing it, so this is safe.
         unsafe {
-            let spec = test.test.context.spec.as_ptr();
-            old_existing_docs = (*spec).existingDocs;
-            (*spec).existingDocs = new_ii.cast();
+            let dict = (*test.test.context.spec.as_ptr()).missingFieldDict;
+            ffi::RS_dictDelete(dict, field_name as *mut _);
+            let rc = ffi::RS_dictAdd(dict, field_name as *mut _, new_ii as *mut _);
+            assert_eq!(rc, 0, "dictAdd failed");
         }
 
-        // Revalidate should return Aborted because existingDocs no longer
+        // Revalidate should return Aborted because the missing II no longer
         // points to the same index the reader was created from.
         assert_eq!(
             it.revalidate().expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
-        // Restore original existingDocs and free the temporary index for
-        // proper cleanup.
-        unsafe {
-            let spec = test.test.context.spec.as_ptr();
-            (*spec).existingDocs = old_existing_docs;
-            drop(Box::from_raw(new_ii));
-        }
+        // No restore needed: the new II will be freed by `dictRelease` during
+        // `IndexSpec_RemoveFromGlobals` in `TestContext::drop`.
     }
 
     #[test]
-    fn wildcard_revalidate_after_document_deleted() {
-        let test = WildcardRevalidateTest::new(10);
+    fn missing_revalidate_after_document_deleted() {
+        let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
+        let ii = DocIdsOnly::from_mut_opaque(test.test.context.missing_inverted_index());
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }
 
-    /// Test that revalidation returns `Aborted` when `existingDocs` is set to
-    /// NULL, simulating the garbage collector removing all documents.
+    /// Test that revalidation returns `Aborted` when the missing-field inverted
+    /// index is removed from the dict (entry deleted), simulating the garbage
+    /// collector removing all documents.
     #[test]
-    fn wildcard_revalidate_after_existing_docs_nulled() {
-        let test = WildcardRevalidateTest::new(10);
+    fn missing_revalidate_after_dict_entry_removed() {
+        let test = MissingRevalidateTest::new(10);
         let mut it = test.create_iterator();
 
         // Read at least one document so the iterator has a position.
@@ -195,35 +209,34 @@ mod not_miri {
             RQEValidateStatus::Ok
         );
 
-        // Simulate the garbage collector setting existingDocs to NULL after
-        // collecting all documents.
-        let old_existing_docs;
+        // Simulate the garbage collector removing the missing-field index
+        // by deleting the dict entry. `dictDelete` calls the value destructor
+        // which frees the inverted index.
+        let field_name = test.test.context.field_spec().fieldName;
         unsafe {
-            let spec = test.test.context.spec.as_ptr();
-            old_existing_docs = (*spec).existingDocs;
-            (*spec).existingDocs = std::ptr::null_mut();
+            let dict = (*test.test.context.spec.as_ptr()).missingFieldDict;
+            ffi::RS_dictDelete(dict, field_name as *mut _);
         }
 
+        // `should_abort` sees NULL from `dictFetchValue` and returns true.
         assert_eq!(
             it.revalidate().expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
 
-        // Restore for proper cleanup.
-        unsafe {
-            let spec = test.test.context.spec.as_ptr();
-            (*spec).existingDocs = old_existing_docs;
-        }
+        // No restore needed: the entry was properly freed by `dictDelete`.
+        // `TestContext::drop` calls `dictRelease` which is fine with a
+        // missing entry.
     }
 
     /// Test that `reader()` returns a reference to the underlying reader.
     #[test]
-    fn wildcard_reader_accessor() {
-        let test = WildcardRevalidateTest::new(10);
+    fn missing_reader_accessor() {
+        let test = MissingRevalidateTest::new(10);
         let it = test.create_iterator();
 
         let reader = it.reader();
-        let ii = DocIdsOnly::from_opaque(test.test.context.wildcard_inverted_index());
+        let ii = DocIdsOnly::from_opaque(test.test.context.missing_inverted_index());
         assert!(reader.points_to_ii(ii));
     }
 }

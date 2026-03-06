@@ -13,7 +13,7 @@ use std::{
 };
 
 // This alias can be removed once it lands in stable Rust
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 pub type c_size_t = usize;
 
 /// A writer that calls a C function to write data.
