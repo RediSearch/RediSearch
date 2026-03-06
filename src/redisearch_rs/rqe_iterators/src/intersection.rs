@@ -128,9 +128,7 @@ where
     /// When `in_order` is `true`, [`Intersection::new`] also skips sorting, so this
     /// variant is only meaningfully different for `in_order = false`.
     #[must_use]
-    pub fn new_presorted(children: Vec<I>, max_slop: i32, in_order: bool) -> Self {
-        // Normalize negative slop; see [`Intersection::new`] for rationale.
-        let max_slop = if max_slop < 0 { i32::MAX } else { max_slop };
+    pub fn new_presorted(children: Vec<I>, max_slop: Option<i32>, in_order: bool) -> Self {
         let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
             return Self {
                 children,
@@ -176,14 +174,6 @@ where
             self.num_expected = est;
         }
         self.children.push(child);
-    }
-
-    /// Replace the child at `idx` with `new_child`, returning the old child.
-    ///
-    /// Used by `ForEachIntersectionChildMut` to hand ownership of each child to C
-    /// (e.g. for profile wrapping) and then receive the new owner back.
-    pub fn replace_child(&mut self, idx: usize, new_child: I) -> I {
-        std::mem::replace(&mut self.children[idx], new_child)
     }
 
     /// Returns the number of child iterators.

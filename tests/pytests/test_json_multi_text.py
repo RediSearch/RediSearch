@@ -1,5 +1,3 @@
-import pprint
-
 from common import *
 
 from cmath import exp
@@ -518,39 +516,6 @@ def testconfigMultiTextOffsetDeltaSlop0():
     conn.execute_command('JSON.SET', 'doc:1', '$', doc1_content)
     env.cmd('FT.CREATE', 'idx_category_arr_3', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr_3')
-    
-    # Probe consecutive term pairs with increasing SLOP to find the exact span between them.
-    # The first SLOP value that produces a match equals the span (number of positions between terms).
-    # pairs_to_probe = [
-    #     ('mathematics', 'computer'),
-    #     ('computer', 'science'),
-    #     ('science', 'logic'),
-    #     ('logic', 'programming'),
-    #     ('programming', 'database'),
-    #     ('database', 'programming'),
-        
-    #     ('mathematics', 'database'),
-    #     ('science', 'database'),
-    #     ('mathematics', 'science'),
-    # ]
-    # res = env.cmd('FT.EXPLAIN', 'idx_category_arr_3', '@category:(mathematics computer)', 'NOCONTENT', 'SLOP', '0');
-    # print(res)
-    # res = env.cmd('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics computer)', 'NOCONTENT');
-    # print(res)
-    # matched = res[0] > 0
-    # print(f'(mathematics database) 0 -> {"match" if matched else "no match"}')
-
-    # for a, b in pairs_to_probe:
-    #     for slop in range(4):
-    #         res = env.cmd('FT.SEARCH', 'idx_category_arr_3',
-    #                       f'@category:({a} {b})', 'NOCONTENT', 'SLOP', str(slop))
-    #         matched = res[0] > 0
-    #         print(f'({a}, {b}) SLOP {slop} -> {"match" if matched else "no match"}')
-    #     print()
-
-    # res = env.cmd('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '3');
-    # print(res)
-
 
     cond = ConditionalExpected(env, has_json_api_v2)
     cond.call('FT.SEARCH', 'idx_category_arr_3', '@category:(mathematics database)', 'NOCONTENT', 'SLOP', '3') \

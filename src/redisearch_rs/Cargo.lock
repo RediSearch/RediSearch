@@ -1048,7 +1048,6 @@ dependencies = [
  "numeric_range_tree",
  "rqe_iterators",
  "rqe_iterators_interop",
- "tracing",
  "workspace_hack",
 ]
 

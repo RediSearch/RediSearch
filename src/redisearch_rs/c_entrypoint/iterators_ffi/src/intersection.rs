@@ -64,7 +64,9 @@ unsafe fn free_iterator(it: NonNull<QueryIterator>) {
 ///
 /// # Safety
 ///
-/// Every non-null pointer in `slice` must be a valid `QueryIterator`.
+/// 1. Every non-null pointer in `slice` must be a valid, fully-initialised `QueryIterator`.
+/// 2. Each such pointer must be uniquely owned by the caller (no aliasing), so that this
+///    function may call `free_iterator` on the ones it discards.
 unsafe fn classify_children(
     slice: &[*mut QueryIterator],
 ) -> (
@@ -82,12 +84,14 @@ unsafe fn classify_children(
             if unsafe { is_wildcard_iterator(it.as_ref()) } {
                 // Replace last_wildcard; free the evicted one.
                 if let Some(prev) = last_wildcard.replace(it) {
+                    // SAFETY: conditions (1) and (2) — `prev` is valid and uniquely owned.
                     unsafe { free_iterator(prev) };
                 }
             } else {
                 // Non-wildcard: any saved wildcard is now not needed.
                 if all_wildcards {
                     if let Some(wc) = last_wildcard.take() {
+                        // SAFETY: conditions (1) and (2) — `wc` is valid and uniquely owned.
                         unsafe { free_iterator(wc) };
                     }
                     all_wildcards = false;
@@ -98,6 +102,7 @@ unsafe fn classify_children(
             // NULL ≡ empty iterator: still a non-wildcard entry.
             if all_wildcards {
                 if let Some(wc) = last_wildcard.take() {
+                    // SAFETY: conditions (1) and (2) — `wc` is valid and uniquely owned.
                     unsafe { free_iterator(wc) };
                 }
                 all_wildcards = false;
@@ -109,6 +114,7 @@ unsafe fn classify_children(
     if !all_wildcards {
         // There are real children: the saved last_wildcard is not needed.
         if let Some(wc) = last_wildcard.take() {
+            // SAFETY: conditions (1) and (2) — `wc` is valid and uniquely owned.
             unsafe { free_iterator(wc) };
         }
         (kept, None)
@@ -131,18 +137,14 @@ unsafe fn classify_children(
 ///
 /// # Safety
 ///
-/// `it` must be a valid, non-null pointer to a fully-initialised `QueryIterator`.
+/// 1. `it` must be a valid, non-null pointer to a fully-initialised `QueryIterator`.
 unsafe fn iterator_factor(it: NonNull<QueryIterator>) -> f64 {
     // SAFETY: guaranteed by the caller.
     let qi = unsafe { it.as_ref() };
     if qi.type_ == IteratorType_INTERSECT_ITERATOR {
         // SAFETY: `GetIntersectionIteratorNumChildren` is safe for any INTERSECT_ITERATOR.
         let n = unsafe { GetIntersectionIteratorNumChildren(it.as_ptr()) };
-        if n == 0 {
-            1.0
-        } else {
-            1.0 / n as f64
-        }
+        if n == 0 { 1.0 } else { 1.0 / n as f64 }
     } else if qi.type_ == IteratorType_UNION_ITERATOR {
         // SAFETY: A UNION_ITERATOR typed pointer always points to a `UnionIterator` whose
         // `base` field is a `QueryIterator`.  The cast is therefore valid.
@@ -164,7 +166,7 @@ unsafe fn iterator_factor(it: NonNull<QueryIterator>) -> f64 {
 ///
 /// # Safety
 ///
-/// `it` must be a valid, non-null pointer to a fully-initialised `QueryIterator`.
+/// 1. `it` must be a valid, non-null pointer to a fully-initialised `QueryIterator`.
 unsafe fn sort_key(it: NonNull<QueryIterator>) -> f64 {
     // SAFETY: guaranteed by the caller.
     let qi = unsafe { it.as_ref() };
@@ -176,17 +178,129 @@ unsafe fn sort_key(it: NonNull<QueryIterator>) -> f64 {
     num_est * unsafe { iterator_factor(it) }
 }
 
+/// Outcome of [`intersection_iterator_reducer`].
+enum ReducerOutcome {
+    /// Short-circuit: return this pointer to the caller immediately.
+    ///
+    /// The reducer has already freed `its`.
+    Return(*mut QueryIterator),
+    /// Proceed to build a real intersection from these (≥ 2) children.
+    ///
+    /// The caller is responsible for freeing `its` after constructing the iterator.
+    Proceed(Vec<NonNull<QueryIterator>>),
+}
+
+/// Reduce the raw child list before constructing an intersection iterator.
+///
+/// Mirrors the C `IntersectionIteratorReducer` function:
+///
+/// 0. If `num == 0`, return an empty iterator immediately.
+/// 1. Remove wildcard iterators (they cannot further constrain an intersection).
+///    If *all* children were wildcards, return the last one.
+/// 2. If any child is `NULL` or an `EMPTY_ITERATOR`, free the rest and return an empty iterator.
+/// 3. If exactly one non-wildcard child remains, return it directly.
+/// 4. Otherwise signal the caller to proceed with building a real intersection.
+///
+/// When [`ReducerOutcome::Return`] is produced `its` has already been freed.
+/// When [`ReducerOutcome::Proceed`] is produced the caller must free `its`.
+///
+/// # Safety
+///
+/// - When `num > 0`, `its` must be a valid pointer to an array of `num` `QueryIterator*` values.
+/// - Every non-null pointer in `its` must be a valid `QueryIterator` whose callbacks are set.
+/// - `its` (when non-null) must have been allocated with the Redis allocator (`rm_malloc`).
+unsafe fn intersection_iterator_reducer(
+    its: *mut *mut QueryIterator,
+    num: usize,
+) -> ReducerOutcome {
+    // Rule 0 – no children at all.
+    if num == 0 {
+        if !its.is_null() {
+            // SAFETY: `its` is a valid Redis-allocated pointer per the caller's contract.
+            unsafe { free_its_array(its) };
+        }
+        return ReducerOutcome::Return(NewEmptyIterator());
+    }
+
+    // SAFETY: `its` is valid for `num` elements and `num > 0`.
+    let slice: &[*mut QueryIterator] = unsafe { std::slice::from_raw_parts(its, num) };
+
+    // Classify children into wildcards (freed internally) and non-wildcards.
+    // SAFETY: non-null entries in `slice` are valid per the caller's contract.
+    let (kept, last_wildcard) = unsafe { classify_children(slice) };
+
+    // Rule 1 – all children were wildcards: return the preserved last wildcard.
+    if let Some(wc) = last_wildcard {
+        // SAFETY: `its` is a valid Redis-allocated pointer per the caller's contract.
+        unsafe { free_its_array(its) };
+        return ReducerOutcome::Return(wc.as_ptr());
+    }
+
+    // `classify_children` returns `last_wildcard=None` only when `kept` is non-empty
+    // (non-wildcard children were found). Guard defensively in case the slice was empty.
+    if kept.is_empty() {
+        // SAFETY: `its` is a valid Redis-allocated pointer per the caller's contract.
+        unsafe { free_its_array(its) };
+        return ReducerOutcome::Return(NewEmptyIterator());
+    }
+
+    // Rule 2 – scan for a NULL (≡ empty) or EMPTY_ITERATOR child.
+    let mut empty_idx: Option<usize> = None;
+    for (i, opt_it) in kept.iter().enumerate() {
+        match opt_it {
+            None => {
+                empty_idx = Some(i);
+                break;
+            }
+            Some(it) => {
+                // SAFETY: non-null entries are valid per the caller's contract.
+                if unsafe { it.as_ref() }.type_ == IteratorType_EMPTY_ITERATOR {
+                    empty_idx = Some(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    if let Some(idx) = empty_idx {
+        // Free all non-empty children; preserve the empty iterator to return to the caller.
+        let mut empty_it: Option<NonNull<QueryIterator>> = None;
+        for (i, opt_it) in kept.into_iter().enumerate() {
+            if i == idx {
+                empty_it = opt_it; // `None` = NULL slot, `Some` = EMPTY_ITERATOR.
+            } else if let Some(it) = opt_it {
+                // SAFETY: pointers in `kept` are valid per `classify_children`'s contract.
+                unsafe { free_iterator(it) };
+            }
+        }
+        // SAFETY: `its` is a valid Redis-allocated pointer per the caller's contract.
+        unsafe { free_its_array(its) };
+        return ReducerOutcome::Return(match empty_it {
+            Some(it) => it.as_ptr(),
+            None => NewEmptyIterator(),
+        });
+    }
+
+    // All entries are `Some` at this point (no NULLs, no empty iterators).
+    let kept_valid: Vec<NonNull<QueryIterator>> =
+        kept.into_iter().map(|opt| opt.unwrap()).collect();
+
+    // Rule 3 – single child: no point wrapping it in an intersection.
+    if kept_valid.len() == 1 {
+        // SAFETY: `its` is a valid Redis-allocated pointer per the caller's contract.
+        unsafe { free_its_array(its) };
+        return ReducerOutcome::Return(kept_valid[0].as_ptr());
+    }
+
+    // Rule 4 – two or more real children: let the caller build the intersection.
+    ReducerOutcome::Proceed(kept_valid)
+}
+
 /// Create a new intersection iterator.
 ///
 /// Takes ownership of both the `its` array and all child iterators it contains.
-/// Mirrors the C `NewIntersectionIterator` function, including the reducer logic:
-///
-/// - If any child is an empty iterator (or NULL), all others are freed and an empty
-///   iterator is returned.
-/// - Wildcard iterators are removed from the set (they cannot further constrain an
-///   intersection). If *all* children are wildcards, the last wildcard is returned as-is.
-/// - If exactly one non-wildcard child remains after reduction, it is returned directly
-///   without wrapping in an intersection.
+/// Delegates reduction to [`intersection_iterator_reducer`] (mirroring the C
+/// `IntersectionIteratorReducer` helper) before constructing the iterator.
 ///
 /// # Safety
 ///
@@ -202,119 +316,25 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     in_order: bool,
     weight: f64,
 ) -> *mut QueryIterator {
-    // Degenerate case: no children at all.
-    if num == 0 {
-        if !its.is_null() {
-            // SAFETY: caller guarantees `its` is a valid Redis-allocated pointer.
-            unsafe { free_its_array(its) };
-        }
-        return NewEmptyIterator();
-    }
-
-    // SAFETY: caller guarantees `its` is valid for `num` elements.
-    let slice: &[*mut QueryIterator] = unsafe { std::slice::from_raw_parts(its, num) };
-
-    // Classify children into wildcards (freed internally) and kept non-wildcards.
-    // SAFETY: non-null entries in `slice` are valid per safety contract.
-    let (kept, last_wildcard) = unsafe { classify_children(slice) };
-
-    // If all children were wildcards: return the preserved last wildcard.
-    if let Some(wc) = last_wildcard {
-        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
-        unsafe { free_its_array(its) };
-        return wc.as_ptr();
-    }
-
-    // classify_children only returns last_wildcard=None when kept is non-empty (since
-    // all_wildcards=true requires all entries to be wildcards, but kept is only filled
-    // by non-wildcards). If kept is somehow empty with no last_wildcard, return empty.
-    if kept.is_empty() {
-        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
-        unsafe { free_its_array(its) };
-        return NewEmptyIterator();
-    }
-
-    // Check the non-wildcard children for NULL (≡ empty) or EMPTY_ITERATOR type.
-    let mut empty_idx: Option<usize> = None;
-    for (i, opt_it) in kept.iter().enumerate() {
-        match opt_it {
-            None => {
-                empty_idx = Some(i);
-                break;
-            }
-            Some(it) => {
-                // SAFETY: non-null entries are valid per safety contract.
-                if unsafe { it.as_ref() }.type_ == IteratorType_EMPTY_ITERATOR {
-                    empty_idx = Some(i);
-                    break;
-                }
-            }
-        }
-    }
-
-    if let Some(idx) = empty_idx {
-        // Free all non-empty children; return the empty iterator (or create one for NULL).
-        let mut empty_it: Option<NonNull<QueryIterator>> = None;
-        for (i, opt_it) in kept.into_iter().enumerate() {
-            if i == idx {
-                empty_it = opt_it; // May be None (NULL case) or Some(EMPTY_ITERATOR).
-            } else if let Some(it) = opt_it {
-                // SAFETY: pointers in `kept` come from `classify_children`, which only stores
-                // valid, non-null `QueryIterator` pointers per the function's safety contract.
-                unsafe { free_iterator(it) };
-            }
-        }
-        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
-        unsafe { free_its_array(its) };
-        return match empty_it {
-            Some(it) => it.as_ptr(),
-            None => NewEmptyIterator(),
-        };
-    }
-
-    // All entries are Some (no NULLs, no empty iterators) at this point.
-    let mut kept_valid: Vec<NonNull<QueryIterator>> =
-        kept.into_iter().map(|opt| opt.unwrap()).collect();
-
-    // Single-child optimisation: no point in wrapping one iterator.
-    if kept_valid.len() == 1 {
-        // SAFETY: `its` is a valid Redis-allocated pointer per the function's safety contract.
-        unsafe { free_its_array(its) };
-        return kept_valid[0].as_ptr();
-    }
+    // SAFETY: non-null entries in `its` are valid per caller's contract.
+    let mut kept_valid = match unsafe { intersection_iterator_reducer(its, num) } {
+        ReducerOutcome::Return(ptr) => return ptr,
+        ReducerOutcome::Proceed(v) => v,
+    };
 
     // Sort children by the `iteratorFactor` heuristic before wrapping them, mirroring the
     // original C `NewIntersectionIterator` behaviour.  Sorting is skipped when `in_order` is
     // set because the child order is then semantically significant for proximity checks.
     if !in_order {
         kept_valid.sort_by(|&a, &b| {
-            // SAFETY: all pointers in kept_valid are valid and non-null.
+            // SAFETY: `sort_key` condition (1) — all pointers in `kept_valid` are valid
+            // non-null `QueryIterator` pointers, as guaranteed by the caller of this function.
             let ka = unsafe { sort_key(a) };
+            // SAFETY: Same as ka
             let kb = unsafe { sort_key(b) };
             ka.total_cmp(&kb)
         });
     }
-
-    // Debug: log the final (sorted) children that will enter the intersection.
-    for (i, &it) in kept_valid.iter().enumerate() {
-        // SAFETY: all pointers in kept_valid are valid and non-null.
-        let qi = unsafe { it.as_ref() };
-        // SAFETY: NumEstimated is non-null for any well-formed QueryIterator.
-        let num_estimated_fn = unsafe { qi.NumEstimated.unwrap_unchecked() };
-        // SAFETY: `it` is a valid, non-null `QueryIterator`; all pointers in `kept_valid` satisfy this.
-        let num_est = unsafe { num_estimated_fn(it.as_ptr()) };
-        tracing::info!(
-            index = i,
-            type_ = qi.type_,
-            num_estimated = num_est,
-            "intersection child"
-        );
-    }
-    tracing::info!(
-        max_slop = max_slop,
-        in_order = in_order,
-        "NewIntersectionIterator"
-    );
 
     // Build the Rust intersection from the sorted non-wildcard children.
     // Use `new_presorted` so that a second sort is not applied inside the constructor.
@@ -326,6 +346,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
         })
         .collect();
 
+    let max_slop = if max_slop < 0 { None } else { Some(max_slop) };
     let intersection = Intersection::new_presorted(children, max_slop, in_order).weight(weight);
     let wrapper = RQEIteratorWrapper::boxed_new(IteratorType_INTERSECT_ITERATOR, intersection);
 

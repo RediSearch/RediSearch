@@ -64,8 +64,8 @@ TEST_P(IntersectionIteratorCommonTest, Read) {
   for (size_t i = 1; i < num_its; i++) {
     const QueryIterator *prev = GetIntersectionIteratorChild(ii_base, i - 1);
     const QueryIterator *cur = GetIntersectionIteratorChild(ii_base, i);
-    auto prev_est = prev->NumEstimated(const_cast<QueryIterator *>(prev));
-    auto cur_est = cur->NumEstimated(const_cast<QueryIterator *>(cur));
+    auto prev_est = prev->NumEstimated(prev);
+    auto cur_est = cur->NumEstimated(cur);
     EXPECT_LE(prev_est, cur_est) << "Child iterators are not sorted by estimated results";
   }
 

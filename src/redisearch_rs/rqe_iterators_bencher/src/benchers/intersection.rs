@@ -20,8 +20,6 @@ use criterion::{
 };
 use rqe_iterators::{Intersection, RQEIterator, id_list::IdListSorted};
 
-use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
-
 #[derive(Default)]
 pub struct Bencher;
 
@@ -29,8 +27,6 @@ pub struct Bencher;
 const NUM_CHILDREN: usize = 5;
 /// Size of each child iterator's ID list.
 const CHILD_SIZE: u64 = 100_000;
-/// Weight for intersection results.
-const WEIGHT: f64 = 1.0;
 /// Step size for skip_to benchmarks.
 const STEP: u64 = 100;
 
@@ -128,21 +124,6 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C implementation benchmark
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_intersection(&make_ids(), WEIGHT),
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || Intersection::new(ids_to_rust_children(make_ids()), None, false),
@@ -161,21 +142,6 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C implementation benchmark
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_intersection(&make_ids(), WEIGHT),
-                |it| {
-                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || Intersection::new(ids_to_rust_children(make_ids()), None, false),
@@ -216,8 +182,6 @@ pub mod slop_and_order {
     };
     use rqe_iterators_test_utils::MockContext;
 
-    use crate::ffi::{self, InvertedIndex as CInvertedIndex, IteratorStatus_ITERATOR_OK};
-
     const NUM_DOCS: u64 = 100_000;
     const FLAGS: IndexFlags = IndexFlags_Index_StoreFreqs
         | IndexFlags_Index_StoreTermOffsets
@@ -251,19 +215,6 @@ pub mod slop_and_order {
                 1,
             ))
             .unwrap();
-        }
-        (foo, bar)
-    }
-
-    /// Build two C `InvertedIndex` instances.
-    ///
-    /// `foo_pos` and `bar_pos` are the (constant) positions used for every document.
-    fn make_c_indexes(foo_pos: u8, bar_pos: u8) -> (CInvertedIndex, CInvertedIndex) {
-        let foo = CInvertedIndex::new(FLAGS);
-        let bar = CInvertedIndex::new(FLAGS);
-        for doc_id in 1..=NUM_DOCS {
-            foo.write_term_entry(doc_id, 1, 1, None, &[foo_pos]);
-            bar.write_term_entry(doc_id, 1, 1, None, &[bar_pos]);
         }
         (foo, bar)
     }
@@ -352,28 +303,6 @@ pub mod slop_and_order {
             foo_pos: u8,
             bar_pos: u8,
         ) {
-            let (foo_c, bar_c) = make_c_indexes(foo_pos, bar_pos);
-
-            group.bench_function("C", |b| {
-                b.iter_batched_ref(
-                    || {
-                        ffi::QueryIterator::new_intersection_from_term_its(
-                            foo_c.iterator_term(),
-                            bar_c.iterator_term(),
-                            max_slop.unwrap_or(-1),
-                            in_order,
-                        )
-                    },
-                    |it| {
-                        while it.read() == IteratorStatus_ITERATOR_OK {
-                            black_box(it.current());
-                        }
-                        it.free();
-                    },
-                    criterion::BatchSize::SmallInput,
-                );
-            });
-
             let (foo_rust, bar_rust) = make_rust_indexes(foo_pos, bar_pos);
             let mock_ctx = MockContext::new(NUM_DOCS, NUM_DOCS as usize);
 
