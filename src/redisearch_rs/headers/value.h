@@ -262,6 +262,10 @@ struct RsValue *RSValue_NewParsedNumber(const char *value,
  */
 struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 
+struct RsValue *RSValue_NullStatic(void);
+
+struct RsValue *RSValue_NewReference(const struct RsValue *src);
+
 /**
  * Convert the [`RsValue`] to a number. Returns `true` when this value is a number
  * or a numeric string that can be converted and writes the number to `d`. If
@@ -574,6 +578,22 @@ void RSValue_SetConstString(struct RsValue *value, const char *str, uint32_t len
  *    `RSValue_*` function returning an owned [`RsValue`] object.
  */
 void RSValue_DecrRef(const struct RsValue *value);
+
+struct RsValue *RSValue_Dereference(const struct RsValue *value);
+
+struct RsValue *RSValue_DereferenceRefAndTrio(const struct RsValue *value);
+
+void RSValue_Clear(const struct RsValue *value);
+
+struct RsValue *RSValue_IncrRef(const struct RsValue *value);
+
+void RSValue_MakeReference(const struct RsValue *dst, const struct RsValue *src);
+
+void RSValue_MakeOwnReference(const struct RsValue *dst, const struct RsValue *src);
+
+void RSValue_Replace(struct RsValue **dstpp, const struct RsValue *src);
+
+uint16_t RSValue_Refcount(const struct RsValue *value);
 
 /**
  * Returns the type of the given [`RsValue`].
