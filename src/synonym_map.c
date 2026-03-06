@@ -70,10 +70,13 @@ static void TermData_RdbSave(RedisModuleIO* rdb, TermData* t_data) {
 // todo: fix
 static TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
   TermData *t_data = NULL;
-  char* term = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  char* term = NULL;
+  uint64_t ids_len = 0;
+
+  term = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   t_data = TermData_New(rm_strdup(term));
   RedisModule_Free(term);
-  uint64_t ids_len = LoadUnsigned_IOError(rdb, goto cleanup);
+  ids_len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (int i = 0; i < ids_len; ++i) {
     char* groupId = NULL;
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
@@ -239,12 +242,15 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value) {
 }
 
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
-  int ret;
+  int ret = 0;
+  size_t unused = 0;
+  uint64_t smap_kh_size = 0;
+
   SynonymMap* smap = SynonymMap_New(false);
   if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
-    size_t unused = LoadUnsigned_IOError(rdb, goto cleanup);
+    unused = LoadUnsigned_IOError(rdb, goto cleanup);
   }
-  uint64_t smap_kh_size = LoadUnsigned_IOError(rdb, goto cleanup);
+  smap_kh_size = LoadUnsigned_IOError(rdb, goto cleanup);
   for (int i = 0; i < smap_kh_size; ++i) {
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
       uint64_t unudes = LoadUnsigned_IOError(rdb, goto cleanup);

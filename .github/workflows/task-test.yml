@@ -259,6 +259,16 @@ jobs:
           echo "id: $(id)"
           echo "HOME=$h" >> $GITHUB_ENV
 
+      - name: Disable automatic apt updates (self-hosted Linux)
+        if: ${{ needs.get-config.outputs.ec2_image_id && !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Disabling apt auto-update services on self-hosted runner..."
+          sudo systemctl stop apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo pkill -f "apt.systemd.daily" || true
+          sudo pkill -f "unattended-upgrade" || true
+
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
         run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}

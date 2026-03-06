@@ -22,7 +22,7 @@ pub(crate) struct UserString {
 /// Safety:
 /// 1. ptr must be a valid pointer to a C string of length len.
 #[unsafe(export_name = "_RedisModule_CreateString.1")]
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_CreateString(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
     ptr: *const ::std::ffi::c_char,
@@ -40,7 +40,7 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateString(
 /// Safety:
 /// 1. s must be a valid pointer to a RedisModuleString created by this mock implementation.
 /// 2. len must be a valid pointer to a usize.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_StringPtrLen(
     s: *const redis_module::raw::RedisModuleString,
     len: *mut usize,
@@ -59,7 +59,7 @@ pub(crate) unsafe extern "C" fn RedisModule_StringPtrLen(
 /// Safety:
 /// 1. s must be a valid pointer to a RedisModuleString created by this mock
 /// 2. The function must not be called more than once for the same string.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_FreeString(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
     s: *mut redis_module::raw::RedisModuleString,
@@ -72,7 +72,7 @@ pub(crate) unsafe extern "C" fn RedisModule_FreeString(
 ///
 /// # Safety
 /// 1. `s` must be a valid pointer to a NULL-terminated string.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
     if s.is_null() {
         std::ptr::null_mut()
@@ -97,7 +97,7 @@ pub unsafe extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
 }
 
 /// Mock implementation of RedisModule_TrimStringAllocation from redismodule.h for testing purposes.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) const unsafe extern "C" fn RedisModule_TrimStringAllocation(
     _s: *mut redis_module::raw::RedisModuleString,
 ) {
@@ -108,7 +108,7 @@ pub(crate) const unsafe extern "C" fn RedisModule_TrimStringAllocation(
 ///
 /// Safety:
 /// 1. s must be a valid pointer to a RedisModuleString created by this mock
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_HoldString(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
     s: *mut redis_module::raw::RedisModuleString,
@@ -123,7 +123,7 @@ pub(crate) unsafe extern "C" fn RedisModule_HoldString(
 ///
 /// Safety:
 /// 1. fmt must be a valid pointer to a NULL-terminated C string.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_CreateStringPrintf(
     ctx: *mut redis_module::raw::RedisModuleCtx,
     fmt: *const c_char,

@@ -2100,7 +2100,7 @@ impl<T, S: VecCapacity> AsRef<[T]> for IntoIter<T, S> {
 }
 
 impl<T: Clone, S: VecCapacity> Clone for IntoIter<T, S> {
-    #[allow(clippy::into_iter_on_ref)]
+    #[expect(clippy::into_iter_on_ref)]
     fn clone(&self) -> Self {
         // Just create a new `ThinVec` from the remaining elements and IntoIter it
         self.as_slice()

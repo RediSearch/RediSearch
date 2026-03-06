@@ -40,7 +40,6 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 #include "iterators/inverted_index_iterator.h"
-#include "iterators/wildcard_iterator.h"
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
 #include "iterators/optional_iterator.h"

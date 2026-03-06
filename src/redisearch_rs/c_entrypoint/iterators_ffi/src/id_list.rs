@@ -67,7 +67,7 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         // SAFETY: Safe thanks to 1
         unsafe { OwnedSlice::from_c(ids, num as usize) }
     } else {
-        // SAFETY thanks to 2
+        // Guaranteed by safety requirement 2.
         debug_assert_eq!(
             num, 0,
             "The pointer to the array of IDs is null, but the number of IDs is non-zero."

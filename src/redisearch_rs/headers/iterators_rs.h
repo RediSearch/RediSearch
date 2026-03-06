@@ -4,6 +4,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
@@ -36,8 +37,28 @@ typedef struct NumericRangeIteratorsResult {
   /**
    * Number of iterators in the array.
    */
-  uintptr_t len;
+  size_t len;
 } NumericRangeIteratorsResult;
+
+/**
+ * Profile counters collected during query execution.
+ *
+ * This struct is `#[repr(C)]` so that C code can access its fields directly.
+ */
+typedef struct ProfileCounters {
+  /**
+   * Number of `read()` calls made.
+   */
+  size_t read;
+  /**
+   * Number of `skip_to()` calls made.
+   */
+  size_t skip_to;
+  /**
+   * Whether the iterator reached EOF.
+   */
+  bool eof;
+} ProfileCounters;
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,14 +95,15 @@ QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight
 QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
- * Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
+ * Gets the flags of the underlying IndexReader from an inverted index iterator.
  *
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
  * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
- * 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
- * 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+ * 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
+ * 4. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR and INV_IDX_TERM_ITERATOR), its `reader`
+ *    field must be a valid non-NULL pointer to an `IndexReader`.
  *
  * # Returns
  *
@@ -243,11 +265,11 @@ struct NumericRangeIteratorsResult CreateNumericRangeIterators(const NumericRang
  * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
-QueryIterator *NewInvIndIterator_TermQuery_Rs(const InvertedIndex *idx,
-                                              const RedisSearchCtx *sctx,
-                                              FieldMaskOrIndex field_mask_or_index,
-                                              RSQueryTerm *term,
-                                              double weight);
+QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx,
+                                           const RedisSearchCtx *sctx,
+                                           FieldMaskOrIndex field_mask_or_index,
+                                           RSQueryTerm *term,
+                                           double weight);
 
 /**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
@@ -291,7 +313,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx,
  */
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
                                            double *metric_list,
-                                           uintptr_t num,
+                                           size_t num,
                                            enum MetricType type_);
 
 /**
@@ -307,7 +329,7 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
  */
 QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids,
                                               double *metric_list,
-                                              uintptr_t num,
+                                              size_t num,
                                               enum MetricType type_);
 
 /**
@@ -343,6 +365,50 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
 enum MetricType GetMetricType(const QueryIterator *header);
 
 /**
+ * Creates a new not iterator.
+ *
+ * # Safety
+ *
+ * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child` must not be aliased.
+ */
+QueryIterator *NewNotIteratorNonOptimized(QueryIterator *child,
+                                          t_docId max_doc_id,
+                                          double weight,
+                                          timespec timeout,
+                                          bool skip_timeout_checks);
+
+/**
+ * Get the child pointer of the not (non-optimized) iterator or NULL
+ * in case there is no child.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ */
+const QueryIterator *GetNotIteratorNonOptimizedChild(const QueryIterator *header);
+
+/**
+ * Take ownership over the child of the not (non-optimized) iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ */
+QueryIterator *TakeNotIteratorNonOptimizedChild(QueryIterator *header);
+
+/**
+ * Set (or overwrite) the child iterator of the not (non-optimized) iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
+ */
+void SetNotIteratorNonOptimizedChild(QueryIterator *header,
+                                     QueryIterator *child);
+
+/**
  * Create a new non-optimized optional iterator.
  *
  * # Safety
@@ -363,7 +429,8 @@ QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max
 const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
 
 /**
- * Take ownership over the child of the optional (non-optimized) iterator or
+ * Take ownership over the child of the optional (non-optimized) iterator,
+ * or return NULL if there is no child.
  *
  * # Safety
  *
@@ -383,9 +450,114 @@ void SetOptionalNonOptimizedIteratorChild(QueryIterator *header,
                                           QueryIterator *child);
 
 /**
+ * Create a new profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child` must not be aliased.
+ */
+QueryIterator *NewProfileIterator(QueryIterator *child);
+
+/**
+ * Get the child iterator from a profile iterator.
+ *
+ * The returned pointer borrows from the iterator — it is valid as long as
+ * the iterator is alive. The C caller only reads through this pointer.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+const QueryIterator *ProfileIterator_GetChild(const QueryIterator *it);
+
+/**
+ * Get the profile counters from a profile iterator.
+ *
+ * The returned pointer borrows from the iterator — it is valid as long as
+ * the iterator is alive. The C caller only reads through this pointer.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *it);
+
+/**
+ * Get the accumulated wall time in nanoseconds from a profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
+
+/**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
+
+/**
+ * Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).
+ *
+ * # Safety
+ *
+ * `it`, when non-null, must point to a valid [`QueryIterator`].
+ */
+bool IsWildcardIterator(const QueryIterator *it);
+
+/**
+ * Creates a new optimized wildcard iterator.
+ *
+ * This can only be used when the index is configured to index all documents
+ * ([`SchemaRule`](ffi::SchemaRule)`.index_all` is set).
+ *
+ * # Safety
+ *
+ * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`](ffi::RedisSearchCtx)
+ *    that remains valid for the lifetime of the returned iterator.
+ * 2. `sctx.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) that
+ *    remains valid for the lifetime of the returned iterator.
+ * 3. `sctx.spec.rule` must be a non-null pointer to a valid [`SchemaRule`](ffi::SchemaRule) with
+ *    [`index_all`](ffi::SchemaRule::index_all) set to `true`.
+ * 4. `sctx.spec.existingDocs`, when non-null, must point to a valid
+ *    [`InvertedIndex`](ffi::InvertedIndex) with either
+ *    [`DocIdsOnly`](inverted_index::codec::doc_ids_only::DocIdsOnly) or
+ *    [`RawDocIdsOnly`](inverted_index::codec::raw_doc_ids_only::RawDocIdsOnly) encoding.
+ */
+QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double weight);
+
+/**
+ * Creates a new wildcard iterator from a query evaluation context.
+ *
+ * There are three possible code paths:
+ *
+ * 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to the C
+ *    function `SearchDisk_NewWildcardIterator`.
+ * 2. **[`index_all`](ffi::SchemaRule::index_all) optimized** — when [`SchemaRule`](ffi::SchemaRule)`.index_all` is set, delegates to
+ *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`].
+ * 3. **Fallback** — creates a simple [`Wildcard`] iterator that yields all
+ *    document ids up to [`docTable.maxDocId`](ffi::DocTable::maxDocId).
+ *
+ * # Safety
+ *
+ * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`](ffi::QueryEvalCtx)
+ *    that remains valid for the lifetime of the returned iterator.
+ * 2. `q.sctx` must be a non-null pointer to a valid
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for the lifetime
+ *    of the returned iterator.
+ * 3. `q.sctx.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) that
+ *    remains valid for the lifetime of the returned iterator.
+ * 4. `q.sctx.spec.rule`, when non-null, must point to a valid [`SchemaRule`](ffi::SchemaRule).
+ * 5. When [`SchemaRule`](ffi::SchemaRule)`.index_all` is true, the preconditions of
+ *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`] must also hold.
+ * 6. `q.docTable` must be a non-null pointer to a valid [`DocTable`](ffi::DocTable).
+ * 7. `q.sctx.spec.diskSpec`, when non-null, must point to a valid
+ *    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec). `SearchDisk_NewWildcardIterator` must return
+ *    a valid, owning `QueryIterator` pointer with all required callbacks set.
+ */
+QueryIterator *NewWildcardIterator(const QueryEvalCtx *q,
+                                   double weight);
 
 #ifdef __cplusplus
 }  // extern "C"

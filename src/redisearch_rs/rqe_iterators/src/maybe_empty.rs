@@ -33,6 +33,15 @@ where
         Self(MaybeEmptyOption::None(Empty))
     }
 
+    /// Get a ref to child iterator, if any.
+    #[inline(always)]
+    pub const fn as_ref(&self) -> Option<&I> {
+        match &self.0 {
+            MaybeEmptyOption::None(_) => None,
+            MaybeEmptyOption::Some(it) => Some(it),
+        }
+    }
+
     /// Consume the iterator, if there is any, and return if so.
     pub fn take_iterator(&mut self) -> Option<I> {
         if let MaybeEmptyOption::Some(iterator) = std::mem::take(&mut self.0) {

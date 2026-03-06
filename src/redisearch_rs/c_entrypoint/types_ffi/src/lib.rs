@@ -77,7 +77,6 @@ pub extern "C" fn NewUnionResult<'result>(cap: usize, weight: f64) -> *mut RSInd
 /// Allocate a new virtual result with a given weight and field mask. This result should be freed
 /// using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
-#[allow(improper_ctypes_definitions)]
 pub extern "C" fn NewVirtualResult<'result>(
     weight: f64,
     field_mask: t_fieldMask,

@@ -16,7 +16,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// An iterator that yields no results.
 ///
-/// The `Empty` iterator is a sentinel iterator that represents an empty result set.
+/// The [`Empty`] iterator is a sentinel iterator that represents an empty result set.
 #[derive(Default)]
 pub struct Empty;
 

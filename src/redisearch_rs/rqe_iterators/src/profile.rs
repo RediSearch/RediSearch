@@ -20,7 +20,10 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 /// Profile counters collected during query execution.
+///
+/// This struct is `#[repr(C)]` so that C code can access its fields directly.
 #[derive(Debug, Default, Clone)]
+#[repr(C)]
 pub struct ProfileCounters {
     /// Number of `read()` calls made.
     pub read: usize,
@@ -33,7 +36,7 @@ pub struct ProfileCounters {
 /// A wrapper iterator that collects profiling metrics from a child iterator.
 ///
 /// This iterator delegates all operations to its inner child iterator while:
-/// - Tracking the number of `read()` and `skip_to()` calls
+/// - Tracking the number of [`read()`](RQEIterator::read) and [`skip_to()`](RQEIterator::skip_to) calls
 /// - Measuring wall-clock time spent in these operations
 /// - Recording whether EOF was reached
 ///
@@ -58,6 +61,12 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
             wall_time: Duration::ZERO,
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Returns a reference to the child iterator.
+    #[inline]
+    pub const fn child(&self) -> &I {
+        &self.child
     }
 
     /// Returns a reference to the collected profile counters.
@@ -125,5 +134,9 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.child.revalidate()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        self.child.is_wildcard()
     }
 }

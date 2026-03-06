@@ -29,8 +29,6 @@ impl<'tm, Data> From<RangeIter<'tm, Data>> for RangeLendingIter<'tm, Data> {
 //
 // Why do we need a crate? Well: <https://sabrinajewson.org/blog/the-better-alternative-to-lifetime-gats>
 #[gat]
-// The 'tm lifetime parameter is not actually needless.
-#[allow(clippy::needless_lifetimes)]
 impl<'tm, Data> LendingIterator for RangeLendingIter<'tm, Data> {
     type Item<'next>
     where

@@ -19,6 +19,7 @@
 #include "asm_state_machine.h"
 #include "src/coord/rmr/redis_cluster.h"
 #include "cursor.h"
+#include "search_disk.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
@@ -278,6 +279,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
 
   const RedisModuleString *keyStr = RedisModule_CommandFilterArgGet(filter, 1);
   RedisModuleString *copyKeyStr = RedisModule_CreateStringFromString(RSDummyContext, keyStr);
+  int fieldsNum = 0;
 
   RedisModuleKey *k = RedisModule_OpenKey(RSDummyContext, copyKeyStr, REDISMODULE_READ);
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -285,7 +287,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
     goto done;
   }
 
-  int fieldsNum = (numArgs - 2) / cmdFactor;
+  fieldsNum = (numArgs - 2) / cmdFactor;
   hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
 
   for (size_t i = 0; i < fieldsNum; ++i) {
@@ -636,11 +638,12 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   if (CheckVersionForShortRead() == REDISMODULE_OK) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
-	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+    int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
+    RedisModule_SetModuleOptions(ctx, optionsFlags);
     if (redisVersion.majorVersion < 7 || IsEnterprise()) {
-	    RedisModule_Log(ctx, "notice", "Enabled diskless replication");
-	    // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
-	    //  diskless replication, as diskless replication occurs only in 'swapdb' mode.
+      RedisModule_Log(ctx, "notice", "Enabled diskless replication");
+      // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
+      //  diskless replication, as diskless replication occurs only in 'swapdb' mode.
     }
   }
 }

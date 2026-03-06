@@ -38,7 +38,6 @@ pub type MetricSortedByScore<'index> = Metric<'index, false>;
 pub struct Metric<'index, const SORTED_BY_ID: bool> {
     base: IdList<'index, SORTED_BY_ID>,
     metric_data: OwnedSlice<f64>,
-    #[allow(dead_code)]
     type_: MetricType,
     own_key: *mut RLookupKey,
     /// # Invariants
@@ -71,7 +70,9 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
         panic!("Result is not numeric");
     }
 
-    // SAFETY: set the C metrics array
+    // SAFETY: `result` is a valid, mutable reference to an `RSIndexResult`
+    // and `key` is either null or a valid pointer to an `RLookupKey`
+    // (both upheld by the callers in `read` and `skip_to`).
     unsafe { ffi::ResetAndPushMetricData(result as *mut _ as *mut ffi::RSIndexResult, val, key) };
 }
 

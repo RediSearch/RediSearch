@@ -52,7 +52,7 @@ impl TermBaseTest {
             test: BaseTest::new(
                 flags,
                 Box::new(move |doc_id| {
-                    let mut term = RSQueryTerm::new(b"term", 1, 0);
+                    let mut term = RSQueryTerm::new("term", 1, 0);
                     term.set_idf(5.0);
                     term.set_bm25_idf(10.0);
                     // Use doc_id as field_mask so we can test FilterMaskReader
@@ -73,7 +73,7 @@ impl TermBaseTest {
             Term::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                RSQueryTerm::new(b"term", 1, 0),
+                RSQueryTerm::new("term", 1, 0),
                 1.0,
                 NoOpChecker,
             )
@@ -107,10 +107,9 @@ fn term_read() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 /// test skipping from Term iterator
 fn term_skip_to() {
-    let test = TermBaseTest::new(100);
+    let test = TermBaseTest::new(10);
     let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
@@ -124,7 +123,7 @@ fn term_filter() {
         Term::new(
             reader,
             test.test.mock_ctx.sctx(),
-            RSQueryTerm::new(b"term", 1, 0),
+            RSQueryTerm::new("term", 1, 0),
             1.0,
             NoOpChecker,
         )
@@ -154,7 +153,7 @@ mod not_miri {
                 test: ExpirationTest::term(
                     flags,
                     Box::new(move |doc_id| {
-                        let mut term = RSQueryTerm::new(b"term", 1, 0);
+                        let mut term = RSQueryTerm::new("term", 1, 0);
                         term.set_idf(5.0);
                         term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter
@@ -201,7 +200,7 @@ mod not_miri {
                 Term::new(
                     reader,
                     self.test.context.sctx,
-                    RSQueryTerm::new(b"term", 1, 0),
+                    RSQueryTerm::new("term", 1, 0),
                     1.0,
                     checker,
                 )
@@ -224,7 +223,7 @@ mod not_miri {
                 Term::new(
                     reader,
                     self.test.context.sctx,
-                    RSQueryTerm::new(b"term", 1, 0),
+                    RSQueryTerm::new("term", 1, 0),
                     1.0,
                     checker,
                 )
@@ -298,7 +297,7 @@ mod not_miri {
                 test: RevalidateTest::new(
                     RevalidateIndexType::Term,
                     Box::new(move |doc_id| {
-                        let mut term = RSQueryTerm::new(b"term", 1, 0);
+                        let mut term = RSQueryTerm::new("term", 1, 0);
                         term.set_idf(5.0);
                         term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter.
@@ -323,7 +322,7 @@ mod not_miri {
                 Term::new(
                     reader,
                     self.test.context.sctx,
-                    RSQueryTerm::new(b"term", 1, 0),
+                    RSQueryTerm::new("term", 1, 0),
                     1.0,
                     NoOpChecker,
                 )
@@ -399,7 +398,7 @@ mod not_miri {
         // tries to look it up.
         let field_mask = test.test.context.text_field_bit();
         let reader = test.test.context.term_inverted_index().reader(field_mask);
-        let gc_collected_term = RSQueryTerm::new(b"gc_collected", 1, 0);
+        let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
         // SAFETY: reader and sctx are valid pointers from the test context.
         let mut it = unsafe {
             Term::new(

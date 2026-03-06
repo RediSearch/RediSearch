@@ -29,7 +29,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 pub struct Intersection<'index, I> {
     /// Child iterators, sorted by estimated count (smallest first).
     children: Vec<I>,
-    /// Last doc_id successfully found in ALL children (returned by `last_doc_id()`).
+    /// Last doc_id successfully found in ALL children (returned by [`last_doc_id()`](Self::last_doc_id)).
     last_doc_id: t_docId,
     num_expected: usize,
     is_eof: bool,
@@ -130,20 +130,20 @@ where
     /// `&mut self.result` and `&mut self.children` separately), but it doesn't work due
     /// to a fundamental lifetime mismatch:
     ///
-    /// - `push_borrowed` requires `&'index RSIndexResult` - a reference with `'index` lifetime
-    /// - `child.current()` returns `&mut RSIndexResult<'index>` - the *data* has `'index`
+    /// - [`push_borrowed`](RSIndexResult::push_borrowed) requires `&'index RSIndexResult` - a reference with `'index` lifetime
+    /// - [`child.current()`](RQEIterator::current) returns `&mut RSIndexResult<'index>` - the *data* has `'index`
     ///   lifetime, but the *reference* is bounded by `&mut self`
     ///
     /// The compiler cannot verify that children's internal results live for `'index`,
     /// even though we know they reference index data that does. Splitting the borrow
-    /// doesn't help because `current()` still returns a reference bounded by the call.
+    /// doesn't help because [`current()`](RQEIterator::current) still returns a reference bounded by the call.
     ///
     /// # TODO
     ///
     /// Explore removing the unsafe code by using one of the following alternatives (as suggested in the PR):
     ///
     /// - Store owned copies instead of borrowed references (memory/perf tradeoff)
-    /// - Restructure `RSAggregateResult` to not require `'index` on stored references
+    /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
         self.last_doc_id = doc_id;
@@ -156,8 +156,14 @@ where
         for child in &mut self.children {
             if let Some(child_result) = child.current() {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
-                // SAFETY: child_ptr points to child's result containing data with 'index
-                // lifetime. Children are owned by self, so their results remain valid.
+                // SAFETY:
+                // - `child_ptr` was derived from a valid `&mut RSIndexResult`, so it
+                //   is aligned and points to initialized memory.
+                // - The mutable borrow from `child.current()` ends when coerced to a
+                //   raw pointer, so no mutable reference to this data is live.
+                // - The underlying data has `'index` lifetime because children own
+                //   index-backed results; children are owned by `self` and outlive
+                //   this call.
                 let child_ref = unsafe { &*child_ptr };
                 self.result.push_borrowed(child_ref);
             }

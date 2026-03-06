@@ -29,6 +29,7 @@
       "Bash(jj describe:*)",
       "Bash(jj diff:*)",
       "Bash(jj duplicate:*)",
+      "Bash(jj evolog:*)",
       "Bash(jj file annotate:*)",
       "Bash(jj file list:*)",
       "Bash(jj file search:*)",

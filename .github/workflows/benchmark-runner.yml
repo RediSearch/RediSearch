@@ -269,7 +269,7 @@ jobs:
       - benchmark-search-oss-standalone-profiler
       - benchmark-vecsim-oss-standalone-profiler
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
-    if: ${{ failure() && inputs.notify_failure }}
+    if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Notify Failure
@@ -281,3 +281,20 @@ jobs:
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
+
+  notify-msmarco-failure:
+    needs:
+      - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+    if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Notify MSMARCO Benchmark Failure
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "repository": "RediSearch"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}

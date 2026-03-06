@@ -18,7 +18,6 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The [`GeoFilter`] should not be null and a valid instance
-    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
     unsafe fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool;
 }
 

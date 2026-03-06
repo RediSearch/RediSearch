@@ -22,11 +22,9 @@ use numeric_range_tree::NumericRangeTree;
 /// Raw pointers don't participate in borrow tracking, so they're compatible
 /// with the library's reference creation.
 pub struct MockContext {
-    #[allow(dead_code)] // Holds allocation that spec.rule points to
     rule: *mut SchemaRule,
     spec: *mut IndexSpec,
     sctx: *mut RedisSearchCtx,
-    #[allow(dead_code)]
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
 }

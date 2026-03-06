@@ -9,12 +9,11 @@
 
 //! A query term being evaluated at query time.
 //!
-//! This crate defines [`RSQueryTerm`], a `#[repr(C)]` struct that is shared
+//! This crate defines [`RSQueryTerm`], an opaque struct shared
 //! between C and Rust across the FFI boundary. The C-callable lifecycle
 //! functions (`NewQueryTerm`, `Term_Free`) are provided by the `query_term_ffi`
 //! crate.
 
-use std::ffi::c_char;
 use std::fmt;
 
 /// Flags associated with query tokens and terms.
@@ -31,18 +30,10 @@ pub type RSTokenFlags = u32;
 /// [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
 /// [`id`](RSQueryTerm::id) assigned during query parsing.
 ///
-/// # Memory layout
-///
-/// All fields are private and accessed via type-safe methods and FFI functions.
-/// C code accesses fields via FFI accessor functions, not direct struct access.
-/// cbindgen:field-names=[str, len, idf, id, flags, bm25_idf]
+#[derive(PartialEq)]
 pub struct RSQueryTerm {
-    /// The term string, always NULL-terminated.
-    str_: *mut u8,
-    /// The term length in bytes.
-    ///
-    /// It doesn't count the null terminator.
-    len: usize,
+    /// The term string as raw bytes, or `None` if the token had a null string pointer.
+    str_: Option<Box<[u8]>>,
     /// Inverse document frequency of the term in the index.
     ///
     /// See <https://en.wikipedia.org/wiki/Tf%E2%80%93idf>.
@@ -55,38 +46,31 @@ pub struct RSQueryTerm {
     bm25_idf: f64,
 }
 
-impl fmt::Debug for RSQueryTerm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let term_str = if let Some(bytes) = self.as_bytes() {
-            // SAFETY: term strings originate from user queries and are treated
-            // as valid UTF-8 throughout the C codebase.
-            unsafe { std::str::from_utf8_unchecked(bytes) }
-        } else {
-            "<null>"
-        };
-
-        f.debug_struct("RSQueryTerm")
-            .field("str", &term_str)
-            .field("idf", &self.idf)
-            .field("id", &self.id)
-            .field("flags", &self.flags)
-            .field("bm25_idf", &self.bm25_idf)
-            .finish()
-    }
-}
-
 impl RSQueryTerm {
-    /// Create a new [`RSQueryTerm`], copying `s` into a null-terminated,
-    /// Rust-owned allocation (`Box<[u8]>`).
+    /// Create a new [`RSQueryTerm`] from a UTF-8 string slice, copying it into
+    /// a Rust-owned allocation (`Box<[u8]>`).
     ///
     /// The resulting term has `idf = 1.0` and `bm25_idf = 0.0`.
-    pub fn new(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
-        let mut buf = Vec::with_capacity(s.len() + 1);
-        buf.extend_from_slice(s);
-        buf.push(0); // null terminator
+    pub fn new(s: &str, id: i32, flags: RSTokenFlags) -> Box<Self> {
         Box::new(Self {
-            str_: Box::into_raw(buf.into_boxed_slice()).cast(),
-            len: s.len(),
+            str_: Some(s.as_bytes().into()),
+            idf: 1.0,
+            id,
+            flags,
+            bm25_idf: 0.0,
+        })
+    }
+
+    /// Create a new [`RSQueryTerm`] from a raw byte slice, copying it into a
+    /// Rust-owned allocation (`Box<[u8]>`).
+    ///
+    /// Bytes are stored as-is without any UTF-8 validation or conversion.
+    /// This is intended for the FFI path, where the C tokenizer may produce
+    /// byte sequences that are not valid UTF-8 (e.g. after case-folding
+    /// applied to some Unicode codepoints).
+    pub fn new_bytes(s: &[u8], id: i32, flags: RSTokenFlags) -> Box<Self> {
+        Box::new(Self {
+            str_: Some(s.into()),
             idf: 1.0,
             id,
             flags,
@@ -99,8 +83,7 @@ impl RSQueryTerm {
     /// This is used when creating terms from tokens that have null string pointers.
     pub fn new_null_str(id: i32, flags: RSTokenFlags) -> Box<Self> {
         Box::new(Self {
-            str_: std::ptr::null_mut(),
-            len: 0,
+            str_: None,
             idf: 1.0,
             id,
             flags,
@@ -135,75 +118,37 @@ impl RSQueryTerm {
         self.id
     }
 
-    /// Get the term string length in bytes (excluding null terminator).
-    pub const fn len(&self) -> usize {
-        self.len
+    /// Get the term string length in bytes.
+    pub fn len(&self) -> usize {
+        self.str_.as_deref().map_or(0, <[u8]>::len)
     }
 
-    /// Check if the term string is empty (null pointer or zero length).
-    pub const fn is_empty(&self) -> bool {
-        self.str_.is_null() || self.len == 0
+    /// Check if the term string is empty (null or zero length).
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
-    /// Get the raw string pointer (for FFI compatibility).
-    ///
-    /// # Safety
-    ///
-    /// Returned pointer is valid for the lifetime of this term and is null-terminated.
-    pub const fn str_ptr(&self) -> *const c_char {
-        self.str_ as *const c_char
-    }
-
-    /// Get the term as a byte slice, if the string pointer is non-null.
-    ///
-    /// Does NOT assume valid UTF-8.
-    pub const fn as_bytes(&self) -> Option<&[u8]> {
-        if self.str_.is_null() {
-            None
-        } else {
-            // SAFETY: `str_` is valid for `len` bytes when non-null
-            Some(unsafe { std::slice::from_raw_parts(self.str_, self.len) })
-        }
+    /// Get the term as a byte slice, if the string is non-null.
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        self.str_.as_deref()
     }
 }
 
-impl Drop for RSQueryTerm {
-    fn drop(&mut self) {
-        if !self.str_.is_null() {
-            let slice_ptr = std::ptr::slice_from_raw_parts_mut(self.str_, self.len + 1);
-            // SAFETY: `str_` was allocated via `Box::into_raw` on a
-            // `Box<[u8]>` of length `self.len + 1` in `new`.
-            let _ = unsafe { Box::from_raw(slice_ptr) };
-        }
-    }
-}
-
-impl PartialEq for RSQueryTerm {
-    fn eq(&self, other: &Self) -> bool {
-        // Compare string contents, not pointer addresses.
-        let self_str = self.as_bytes().unwrap_or(&[]);
-        let other_str = other.as_bytes().unwrap_or(&[]);
-
-        self_str == other_str
-            && self.idf == other.idf
-            && self.bm25_idf == other.bm25_idf
-            && self.id == other.id
-            && self.flags == other.flags
-    }
-}
-
+// `f64` does not implement `Eq` (NaN != NaN), but IDF values in a query term
+// are never NaN in practice, so the reflexivity requirement holds.
 impl Eq for RSQueryTerm {}
 
-// `RSQueryTerm` contains a raw pointer (`*mut c_char`) which makes it `!Send`
-// and `!Sync` by default. The pointer is an owned allocation that is only ever
-// accessed through `&self` / `&mut self`, so sending across threads is safe.
-//
-// SAFETY: The `str_` pointer is an owned, exclusive allocation (created via
-// `Box<[u8]>` in `RSQueryTerm::new`). No aliasing occurs.
-unsafe impl Send for RSQueryTerm {}
-// SAFETY: Shared references (`&RSQueryTerm`) only read from `str_`. The
-// pointed-to data is never mutated after construction.
-unsafe impl Sync for RSQueryTerm {}
+impl fmt::Debug for RSQueryTerm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RSQueryTerm")
+            .field("str", &self.str_.as_deref().map(String::from_utf8_lossy))
+            .field("idf", &self.idf)
+            .field("id", &self.id)
+            .field("flags", &self.flags)
+            .field("bm25_idf", &self.bm25_idf)
+            .finish()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -211,7 +156,7 @@ mod tests {
 
     #[test]
     fn debug_output() {
-        let term = RSQueryTerm::new(b"hello", 1, 0);
+        let term = RSQueryTerm::new("hello", 1, 0);
         let debug = format!("{term:?}");
         assert!(debug.contains("hello"));
         assert!(debug.contains("RSQueryTerm"));
@@ -221,29 +166,36 @@ mod tests {
     fn debug_null_str() {
         let term = RSQueryTerm::new_null_str(0, 0);
         let debug = format!("{term:?}");
-        assert!(debug.contains("<null>"));
+        assert!(debug.contains("None"));
     }
 
     #[test]
     fn partial_eq_same_content() {
-        let a = RSQueryTerm::new(b"hello", 1, 0);
-        let b = RSQueryTerm::new(b"hello", 1, 0);
-        // Different allocations, same content.
-        assert_ne!(a.str_ptr(), b.str_ptr());
+        let a = RSQueryTerm::new("hello", 1, 0);
+        let b = RSQueryTerm::new("hello", 1, 0);
         assert_eq!(*a, *b);
     }
 
     #[test]
     fn partial_eq_different_content() {
-        let a = RSQueryTerm::new(b"hello", 1, 0);
-        let b = RSQueryTerm::new(b"world", 1, 0);
+        let a = RSQueryTerm::new("hello", 1, 0);
+        let b = RSQueryTerm::new("world", 1, 0);
         assert_ne!(*a, *b);
     }
 
     #[test]
     fn partial_eq_different_id() {
-        let a = RSQueryTerm::new(b"hello", 1, 0);
-        let b = RSQueryTerm::new(b"hello", 2, 0);
+        let a = RSQueryTerm::new("hello", 1, 0);
+        let b = RSQueryTerm::new("hello", 2, 0);
         assert_ne!(*a, *b);
+    }
+
+    #[test]
+    fn new_bytes_accepts_non_utf8() {
+        // 0xFF and 0xFE are not valid UTF-8; new_bytes must not panic and
+        // must store the bytes as-is without any replacement.
+        let term = RSQueryTerm::new_bytes(&[0xFF, 0xFE], 1, 0);
+        assert!(!term.is_empty());
+        assert_eq!(term.as_bytes(), Some(&[0xFF, 0xFEu8][..]));
     }
 }

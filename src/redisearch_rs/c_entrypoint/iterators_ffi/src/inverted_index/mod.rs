@@ -11,18 +11,21 @@ mod numeric;
 mod term;
 mod wildcard;
 
+use inverted_index::IndexReader as _;
 use numeric::NumericIterator;
 use rqe_iterators_interop::RQEIteratorWrapper;
-use wildcard::WildcardIterator;
+pub use term::NewInvIndIterator_TermQuery;
+use term::TermIterator;
 
-/// Gets the flags of the underlying IndexReader from a numeric inverted index iterator.
+/// Gets the flags of the underlying IndexReader from an inverted index iterator.
 ///
 /// # Safety
 ///
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
-/// 3. If `it` iterator type is IteratorType_INV_IDX_WILDCARD_ITERATOR, it has been created using `NewInvIndIterator_WildcardQuery`.
-/// 4. If `it` has a different iterator type, its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
+/// 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
+/// 4. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR and INV_IDX_TERM_ITERATOR), its `reader`
+///    field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
@@ -38,18 +41,27 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
 
     match it_ref.base.type_ {
         ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR => {
-            // SAFETY: the numeric iterator is in Rust.
+            // SAFETY: 2. the numeric iterator is in Rust.
             let wrapper = unsafe {
                 RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast())
             };
             wrapper.inner.flags()
         }
         ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
-            // SAFETY: 3. the wildcard iterator is in Rust.
+            // Wildcard iterators always read from `spec.existingDocs`, which is
+            // created with `Index_DocIdsOnly` flags (see indexer.c). We return the
+            // flags directly instead of casting to a concrete wrapper type, because
+            // the iterator may have been created by either
+            // `NewInvIndIterator_WildcardQuery` (RQEIteratorWrapper<WildcardIterator>)
+            // or `NewWildcardIterator` (RQEIteratorWrapper<Box<dyn RQEIterator>>).
+            ffi::IndexFlags_Index_DocIdsOnly
+        }
+        ffi::IteratorType_INV_IDX_TERM_ITERATOR => {
+            // SAFETY: 3. the term iterator is in Rust.
             let wrapper = unsafe {
-                RQEIteratorWrapper::<WildcardIterator<'static>>::ref_from_header_ptr(it.cast())
+                RQEIteratorWrapper::<TermIterator<'static>>::ref_from_header_ptr(it.cast())
             };
-            wrapper.inner.flags()
+            wrapper.inner.reader().flags()
         }
         _ => {
             // C iterator
@@ -92,6 +104,9 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
         }
         ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
             unimplemented!("Wildcard iterator is tested in Rust which does no use index swapping")
+        }
+        ffi::IteratorType_INV_IDX_TERM_ITERATOR => {
+            panic!("SwapIndex is not meant to be used with term iterators");
         }
         _ => {
             // C iterator

@@ -15,7 +15,7 @@ use std::ffi::{CStr, c_char};
 /// 1. _ctx must be a valid pointer to a [crate::TestContext]
 /// 2. level must be a valid C string.
 /// 2. fmt must be a valid C string.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_Log(
     _ctx: *mut ffi::RedisModuleCtx,
     level: *const c_char,
