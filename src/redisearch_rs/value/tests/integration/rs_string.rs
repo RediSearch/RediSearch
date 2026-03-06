@@ -10,11 +10,6 @@
 use std::ffi::c_char;
 use value::RsString;
 
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
-
 /// Allocate a nul-terminated C string using the mock Redis allocator.
 fn rm_alloc_string(s: &str) -> (*mut c_char, u32) {
     let len = s.len();
