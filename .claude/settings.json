@@ -19,6 +19,7 @@
       "Bash(cargo +nightly miri test *)",
       "Bash(cargo test *)",
       "Bash(find *)",
+      "Bash(fd *)",
       "Bash(git blame *)",
       "Bash(git cat-file *)",
       "Bash(git config get *)",
@@ -32,7 +33,9 @@
       "Bash(git show *)",
       "Bash(git status *)",
       "Bash(grep *)",
+      "Bash(rg *)",
       "Bash(head *)",
+      "Bash(tail *)",
       "Bash(jj cat *)",
       "Bash(jj describe *)",
       "Bash(jj diff *)",
@@ -50,8 +53,8 @@
       "Bash(jj show *)",
       "Bash(jj status *)",
       "Bash(jq *)",
+      "Bash(yq *)",
       "Bash(ls *)",
-      "Bash(rg *)",
       "Bash(wc *)"
     ],
     "deny": []
