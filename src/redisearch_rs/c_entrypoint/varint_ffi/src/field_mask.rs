@@ -24,10 +24,6 @@ pub type FieldMask = ffi::t_fieldMask;
 /// 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer reader.
 #[unsafe(no_mangle)]
-// `improper_ctypes_definitions` would be triggered because of u128 crossing the FFI boundary but
-// that's no longer an issue:
-// https://blog.rust-lang.org/2024/03/30/i128-layout-update/#compatibility
-#[allow(improper_ctypes_definitions)]
 pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask {
     let mut buffer_reader = b.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
@@ -49,10 +45,6 @@ pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> Field
 /// 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer writer.
 #[unsafe(no_mangle)]
-// `improper_ctypes_definitions` would be triggered because of u128 crossing the FFI boundary but
-// that's no longer an issue:
-// https://blog.rust-lang.org/2024/03/30/i128-layout-update/#compatibility
-#[allow(improper_ctypes_definitions)]
 pub extern "C" fn WriteVarintFieldMask(
     value: FieldMask,
     writer: Option<NonNull<BufferWriter>>,
