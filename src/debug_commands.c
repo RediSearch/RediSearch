@@ -90,6 +90,35 @@ void CoordReduceDebugCtx_IncrementReduceCount(void) {
 int CoordReduceDebugCtx_GetReduceCount(void) {
   return atomic_load(&globalCoordReduceDebugCtx.reduceCount);
 }
+
+// Global store results debug context
+static StoreResultsDebugCtx globalStoreResultsDebugCtx = {0};
+
+bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void) {
+  return atomic_load(&globalStoreResultsDebugCtx.pauseBeforeEnabled);
+}
+
+void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled) {
+  atomic_store(&globalStoreResultsDebugCtx.pauseBeforeEnabled, enabled);
+  atomic_store(&globalStoreResultsDebugCtx.pause, false);
+}
+
+bool StoreResultsDebugCtx_IsPauseAfterEnabled(void) {
+  return atomic_load(&globalStoreResultsDebugCtx.pauseAfterEnabled);
+}
+
+void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled) {
+  atomic_store(&globalStoreResultsDebugCtx.pauseAfterEnabled, enabled);
+  atomic_store(&globalStoreResultsDebugCtx.pause, false);
+}
+
+bool StoreResultsDebugCtx_IsPaused(void) {
+  return atomic_load(&globalStoreResultsDebugCtx.pause);
+}
+
+void StoreResultsDebugCtx_SetPause(bool pause) {
+  atomic_store(&globalStoreResultsDebugCtx.pause, pause);
+}
 #endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
@@ -2060,6 +2089,88 @@ DEBUG_COMMAND(getCoordReduceCount) {
 
   return RedisModule_ReplyWithLongLong(ctx, CoordReduceDebugCtx_GetReduceCount());
 }
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_STORE_RESULTS <true/false>
+ * Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+ */
+DEBUG_COMMAND(setPauseBeforeStoreResults) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    StoreResultsDebugCtx_SetPauseBeforeEnabled(true);
+  } else if (!strcasecmp(op, "false")) {
+    StoreResultsDebugCtx_SetPauseBeforeEnabled(false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_STORE_RESULTS'");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_AFTER_STORE_RESULTS <true/false>
+ * Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+ */
+DEBUG_COMMAND(setPauseAfterStoreResults) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    StoreResultsDebugCtx_SetPauseAfterEnabled(true);
+  } else if (!strcasecmp(op, "false")) {
+    StoreResultsDebugCtx_SetPauseAfterEnabled(false);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_STORE_RESULTS'");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_STORE_RESULTS_PAUSED
+ */
+DEBUG_COMMAND(getIsStoreResultsPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return RedisModule_ReplyWithBool(ctx, StoreResultsDebugCtx_IsPaused());
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_STORE_RESULTS_RESUME
+ */
+DEBUG_COMMAND(setStoreResultsResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!StoreResultsDebugCtx_IsPaused()) {
+    return RedisModule_ReplyWithError(ctx, "Store results is not paused");
+  }
+
+  StoreResultsDebugCtx_SetPause(false);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 #endif
 
 /**
@@ -2135,6 +2246,19 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
+  }
+  // Store results pause commands
+  if (!strcmp("SET_PAUSE_BEFORE_STORE_RESULTS", op)) {
+    return setPauseBeforeStoreResults(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_PAUSE_AFTER_STORE_RESULTS", op)) {
+    return setPauseAfterStoreResults(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_STORE_RESULTS_PAUSED", op)) {
+    return getIsStoreResultsPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("SET_STORE_RESULTS_RESUME", op)) {
+    return setStoreResultsResume(ctx, argv + 1, argc - 1);
   }
 #endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");

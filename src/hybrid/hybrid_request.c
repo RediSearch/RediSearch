@@ -234,6 +234,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 
     // Initialize timeout coordination fields
     RequestSyncCtx_Init(&hybridReq->syncCtx);
+    hybridReq->storedReplyState.err = QueryError_Default();
 }
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
@@ -248,20 +249,6 @@ bool HybridRequest_TimedOut(HybridRequest *req) {
 
 void HybridRequest_SetTimedOut(HybridRequest *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
-}
-
-bool HybridRequest_TryClaimReply(HybridRequest *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
-
-void HybridRequest_MarkReplied(HybridRequest *req) {
-  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
-}
-
-uint8_t HybridRequest_GetReplyState(HybridRequest *req) {
-  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
@@ -338,6 +325,19 @@ static void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
+
+    // Clean up storedReplyState unconditionally - errors can be stored via
+    // HREQ_ReplyOrStoreError without setting hasStoredResults, so always clear.
+    if (req->storedReplyState.results) {
+      for (size_t i = 0; i < array_len(req->storedReplyState.results); i++) {
+        SearchResult_Destroy(req->storedReplyState.results[i]);
+        rm_free(req->storedReplyState.results[i]);
+      }
+      array_free(req->storedReplyState.results);
+      req->storedReplyState.results = NULL;
+    }
+    QueryError_ClearError(&req->storedReplyState.err);
+
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
         sdsfree(req->args[ii]);

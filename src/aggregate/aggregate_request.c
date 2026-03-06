@@ -9,6 +9,7 @@
 #include "aggregate.h"
 #include "reducer.h"
 
+#include <cursor.h>
 #include <query.h>
 #include <extension.h>
 #include <result_processor.h>
@@ -1037,6 +1038,7 @@ AREQ *AREQ_New(void) {
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   RequestSyncCtx_Init(&req->syncCtx);
+  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
@@ -1048,19 +1050,7 @@ void AREQ_SetTimedOut(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
-bool AREQ_TryClaimReply(AREQ *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
 
-void AREQ_MarkReplied(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
-}
-
-uint8_t AREQ_GetReplyState(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
-}
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
@@ -1472,6 +1462,25 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
 
 static void AREQ_Free(AREQ *req) {
+  // Free any stored results from reply_callback path that weren't consumed
+  // (e.g., if timeout occurred before QueryReplyCallback ran)
+  if (req->storedReplyState.results) {
+    for (size_t i = 0; i < array_len(req->storedReplyState.results); i++) {
+      SearchResult_Destroy(req->storedReplyState.results[i]);
+      rm_free(req->storedReplyState.results[i]);
+    }
+    array_free(req->storedReplyState.results);
+    req->storedReplyState.results = NULL;
+  }
+  // Free any stored cursor that wasn't handled by QueryReplyCallback
+  // (e.g., if timeout fired before the reply_callback ran)
+  if (req->storedReplyState.cursor) {
+    Cursor_Free(req->storedReplyState.cursor);
+    req->storedReplyState.cursor = NULL;
+  }
+  // Clear stored error state
+  QueryError_ClearError(&req->storedReplyState.err);
+
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
