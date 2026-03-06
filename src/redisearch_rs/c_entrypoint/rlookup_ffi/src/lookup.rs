@@ -53,9 +53,13 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
 
     // Safety: ensured by caller (1.)
     let src = unsafe { RLookup::from_opaque_ptr(src).unwrap() };
+    #[cfg(debug_assertions)]
+    src.assert_valid("RLookup_AddKeysFrom (src)");
 
     // Safety: ensured by caller (2.)
     let dest = unsafe { RLookup::from_opaque_non_null(dest) };
+    #[cfg(debug_assertions)]
+    dest.assert_valid("RLookup_AddKeysFrom (dest)");
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
@@ -77,6 +81,8 @@ pub unsafe extern "C" fn RLookup_DisableOptions(
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_DisableOptions");
 
     let options = RLookupOptions::from_bits(options).unwrap();
 
@@ -98,6 +104,8 @@ pub unsafe extern "C" fn RLookup_EnableOptions(
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_EnableOptions");
 
     let options = RLookupOptions::from_bits(options).unwrap();
 
@@ -123,6 +131,8 @@ pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
 ) -> *const ffi::FieldSpec {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_FindFieldInSpecCache");
 
     // Safety: ensured by caller (2., 3., 4.)
     let name = unsafe { CStr::from_ptr(name) };
@@ -161,6 +171,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_Read");
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
@@ -203,6 +215,8 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_ReadEx");
 
     let name = CStr::from_bytes_with_nul(
         // `name_len` is a value as returned by `strlen` and therefore **does not**
@@ -247,6 +261,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_Write");
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let name = unsafe { CStr::from_ptr(name) };
@@ -288,6 +304,8 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_WriteEx");
 
     let name = CStr::from_bytes_with_nul(
         // `name_len` is a value as returned by `strlen` and therefore **does not**
@@ -335,6 +353,8 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_Load");
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
@@ -384,6 +404,8 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
 ) -> Option<NonNull<RLookupKey<'a>>> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetKey_LoadEx");
 
     // Safety: ensured by caller (2., 3., 4., 5.)
     let field_name = unsafe { CStr::from_ptr(field_name) };
@@ -427,6 +449,8 @@ pub unsafe extern "C" fn RLookup_GetLength(
 ) -> size_t {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetLength");
 
     // Safety: ensured by caller (2.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
@@ -466,6 +490,8 @@ pub unsafe extern "C" fn RLookup_GetLength(
 pub unsafe extern "C" fn RLookup_GetRowLen(lookup: *const OpaqueRLookup) -> u32 {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetRowLen");
 
     lookup.get_row_len()
 }
@@ -473,7 +499,11 @@ pub unsafe extern "C" fn RLookup_GetRowLen(lookup: *const OpaqueRLookup) -> u32 
 /// Returns a newly created [`RLookup`].
 #[unsafe(no_mangle)]
 pub extern "C" fn RLookup_New() -> OpaqueRLookup {
-    RLookup::new().into_opaque()
+    let lookup = RLookup::new();
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_New");
+
+    lookup.into_opaque()
 }
 
 /// Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
@@ -493,6 +523,8 @@ pub unsafe extern "C" fn RLookup_SetCache(
 ) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_SetCache");
 
     let spcache = spcache.map(|spcache| {
         // Safety: ensured by caller (2. & 3.)
@@ -513,6 +545,8 @@ pub unsafe extern "C" fn RLookup_SetCache(
 pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueRLookup) -> bool {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_HasIndexSpecCache");
 
     lookup.has_index_spec_cache()
 }
@@ -529,6 +563,10 @@ pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueRLookup)
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>) {
+    // Safety: ensured by caller (1.,2.)
+    #[cfg(debug_assertions)]
+    unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) }.assert_valid("RLookup_Cleanup");
+
     // Safety: ensured by caller (1.,2.)
     unsafe {
         lookup.unwrap().cast::<RLookup>().drop_in_place();
@@ -568,6 +606,8 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 
     // Safety: ensured by caller (2.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_LoadRuleFields");
 
     // Safety: ensured by caller (3.)
     let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
@@ -598,6 +638,8 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 pub unsafe extern "C" fn RLookup_Iter(lookup: *const OpaqueRLookup) -> ffi::RLookupIterator {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_Iter");
 
     let current = lookup
         .cursor()
@@ -624,6 +666,8 @@ pub unsafe extern "C" fn RLookup_IterMut(
 ) -> ffi::RLookupIteratorMut {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_IterMut");
 
     let current = lookup.cursor_mut().current().map_or(ptr::null_mut(), |c| {
         ptr::from_mut(
@@ -635,6 +679,22 @@ pub unsafe extern "C" fn RLookup_IterMut(
     });
 
     ffi::RLookupIteratorMut { current }
+}
+
+/// Run internal assertions on an [`RLookup`].
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[cfg(debug_assertions)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_AssertValid(lookup: *const OpaqueRLookup) {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+
+    lookup.assert_valid("RLookup_AssertValid");
 }
 
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
