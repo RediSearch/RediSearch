@@ -15,7 +15,7 @@ pub(crate) struct Ctx;
 /// Mock implementation of RedisModule_GetThreadSafeContext from redismodule.h for testing purposes.
 ///
 /// Needs to be freed using [`RedisModule_FreeThreadSafeContext`].
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_GetThreadSafeContext(
     _bc: *mut redis_module::raw::RedisModuleBlockedClient,
 ) -> *mut redis_module::raw::RedisModuleCtx {
@@ -28,7 +28,7 @@ pub(crate) unsafe extern "C" fn RedisModule_GetThreadSafeContext(
 /// Safety:
 /// 1. ctx must be a valid pointer to a RedisModuleCtx created by this mock using [`RedisModule_GetThreadSafeContext`].
 /// 2. The function must not be called more than once for the same context.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_FreeThreadSafeContext(
     ctx: *mut redis_module::raw::RedisModuleCtx,
 ) {
@@ -37,7 +37,7 @@ pub(crate) unsafe extern "C" fn RedisModule_FreeThreadSafeContext(
 }
 
 /// Mock implementation of RedisModule_SubscribeToServerEvent from redismodule.h for testing purposes.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_SubscribeToServerEvent(
     _ctx: *mut redis_module::RedisModuleCtx,
     _event: redis_module::RedisModuleEvent,

@@ -4,6 +4,7 @@
 
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
@@ -36,8 +37,28 @@ typedef struct NumericRangeIteratorsResult {
   /**
    * Number of iterators in the array.
    */
-  uintptr_t len;
+  size_t len;
 } NumericRangeIteratorsResult;
+
+/**
+ * Profile counters collected during query execution.
+ *
+ * This struct is `#[repr(C)]` so that C code can access its fields directly.
+ */
+typedef struct ProfileCounters {
+  /**
+   * Number of `read()` calls made.
+   */
+  size_t read;
+  /**
+   * Number of `skip_to()` calls made.
+   */
+  size_t skip_to;
+  /**
+   * Whether the iterator reached EOF.
+   */
+  bool eof;
+} ProfileCounters;
 
 #ifdef __cplusplus
 extern "C" {
@@ -292,7 +313,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx,
  */
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
                                            double *metric_list,
-                                           uintptr_t num,
+                                           size_t num,
                                            enum MetricType type_);
 
 /**
@@ -308,7 +329,7 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids,
  */
 QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids,
                                               double *metric_list,
-                                              uintptr_t num,
+                                              size_t num,
                                               enum MetricType type_);
 
 /**
@@ -344,6 +365,50 @@ RLookupKey **GetMetricOwnKeyRef(QueryIterator *header);
 enum MetricType GetMetricType(const QueryIterator *header);
 
 /**
+ * Creates a new not iterator.
+ *
+ * # Safety
+ *
+ * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child` must not be aliased.
+ */
+QueryIterator *NewNotIteratorNonOptimized(QueryIterator *child,
+                                          t_docId max_doc_id,
+                                          double weight,
+                                          timespec timeout,
+                                          bool skip_timeout_checks);
+
+/**
+ * Get the child pointer of the not (non-optimized) iterator or NULL
+ * in case there is no child.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ */
+const QueryIterator *GetNotIteratorNonOptimizedChild(const QueryIterator *header);
+
+/**
+ * Take ownership over the child of the not (non-optimized) iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ */
+QueryIterator *TakeNotIteratorNonOptimizedChild(QueryIterator *header);
+
+/**
+ * Set (or overwrite) the child iterator of the not (non-optimized) iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewNotIteratorNonOptimized`].
+ * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
+ */
+void SetNotIteratorNonOptimizedChild(QueryIterator *header,
+                                     QueryIterator *child);
+
+/**
  * Create a new non-optimized optional iterator.
  *
  * # Safety
@@ -364,7 +429,8 @@ QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max
 const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
 
 /**
- * Take ownership over the child of the optional (non-optimized) iterator or
+ * Take ownership over the child of the optional (non-optimized) iterator,
+ * or return NULL if there is no child.
  *
  * # Safety
  *
@@ -382,6 +448,49 @@ QueryIterator *TakeOptionalNonOptimizedIteratorChild(QueryIterator *header);
  */
 void SetOptionalNonOptimizedIteratorChild(QueryIterator *header,
                                           QueryIterator *child);
+
+/**
+ * Create a new profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 2. `child` must not be aliased.
+ */
+QueryIterator *NewProfileIterator(QueryIterator *child);
+
+/**
+ * Get the child iterator from a profile iterator.
+ *
+ * The returned pointer borrows from the iterator — it is valid as long as
+ * the iterator is alive. The C caller only reads through this pointer.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+const QueryIterator *ProfileIterator_GetChild(const QueryIterator *it);
+
+/**
+ * Get the profile counters from a profile iterator.
+ *
+ * The returned pointer borrows from the iterator — it is valid as long as
+ * the iterator is alive. The C caller only reads through this pointer.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *it);
+
+/**
+ * Get the accumulated wall time in nanoseconds from a profile iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+ */
+uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 
 /**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.

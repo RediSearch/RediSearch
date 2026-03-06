@@ -379,7 +379,6 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSumma
 /// # Safety
 /// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
-#[allow(improper_ctypes_definitions)] // `t_fieldMask` is type `u128`
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_fieldMask {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -915,7 +914,6 @@ impl<'index_and_filter> IndexReader<'index_and_filter> {
 ///
 /// # Panics
 /// This function will panic if the provided filter is not compatible with the `InvertedIndex` type.
-#[allow(improper_ctypes_definitions)] // `ctx` might contain `t_fieldMask` which is a `u128` type
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewIndexReader(
     ii: *const InvertedIndex,

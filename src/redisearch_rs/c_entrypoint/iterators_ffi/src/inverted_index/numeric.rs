@@ -230,16 +230,18 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
 
     let reader = ii_ref.reader();
 
-    // Create the expiration checker
-    // Note: The caller guarantees sctx is valid and non-null (see safety contract in new())
-    let expiration_checker = FieldExpirationChecker::new(
-        sctx,
-        FieldFilterContext {
-            field: FieldMaskOrIndex::Index(field_index),
-            predicate: field_ctx.predicate,
-        },
-        reader.flags(),
-    );
+    // SAFETY: The caller guarantees `sctx` points to a valid `RedisSearchCtx`
+    // with a valid `spec`, both remaining valid for the iterator's lifetime.
+    let expiration_checker = unsafe {
+        FieldExpirationChecker::new(
+            sctx,
+            FieldFilterContext {
+                field: FieldMaskOrIndex::Index(field_index),
+                predicate: field_ctx.predicate,
+            },
+            reader.flags(),
+        )
+    };
 
     let iterator = match filter {
         Some(filter) => {

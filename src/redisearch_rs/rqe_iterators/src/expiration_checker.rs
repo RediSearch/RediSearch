@@ -66,15 +66,13 @@ pub struct FieldExpirationChecker {
 impl FieldExpirationChecker {
     /// Creates a new field-level expiration checker.
     ///
-    /// # Safety Requirements
+    /// # Safety
     ///
     /// The caller must ensure that:
-    /// 1. `sctx` is a valid pointer to a `RedisSearchCtx`.
-    /// 2. `sctx.spec` is a valid pointer to an `IndexSpec`.
+    /// 1. `sctx` is a valid pointer to a [`RedisSearchCtx`].
+    /// 2. `sctx.spec` is a valid pointer to an [`IndexSpec`](ffi::IndexSpec).
     /// 3. Both pointers remain valid for the lifetime of this checker.
-    ///
-    /// These requirements are enforced when the checker's methods are called.
-    pub const fn new(
+    pub const unsafe fn new(
         sctx: NonNull<RedisSearchCtx>,
         filter_ctx: FieldFilterContext,
         reader_flags: ffi::IndexFlags,

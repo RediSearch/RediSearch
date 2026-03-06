@@ -70,6 +70,8 @@ multiple_unsafe_ops_per_block = "warn"
 missing_const_for_fn = "warn"
 # These types are specified in clippy.toml.
 disallowed_types = "warn"
+# Use `#[expect]` instead of `#[allow]` so we are warned when they become obsolete.
+allow_attributes = "warn"
 
 [workspace.lints.rustdoc]
 # Our doc comments are designed for engineers who are building RediSearch,
@@ -171,7 +173,7 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "06d55e5c03eeb2c96a60e0d519b9362429312d98"
+rev = "3a0257d2c34856bab38fe673f65ad8719695619d"
 default-features = false
 
 [profile.release]

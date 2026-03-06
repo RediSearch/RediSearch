@@ -153,7 +153,7 @@ TEST_F(AggTest, testGroupBy) {
     SearchResult_SetDocId(res, ++p->counter);
 
     const char *str = p->values[p->counter % p->numvals];
-    RSValue *sval = RSValue_NewConstString(str, strlen(str));
+    RSValue *sval = RSValue_NewBorrowedString(str, strlen(str));
     RSValue *scoreval = RSValue_NewNumber(p->counter);
     RLookup_WriteOwnKey(p->rkvalue, SearchResult_GetRowDataMut(res), sval);
     RLookup_WriteOwnKey(p->rkscore, SearchResult_GetRowDataMut(res), scoreval);
@@ -231,7 +231,7 @@ TEST_F(AggTest, testGroupSplit) {
     char **strs = (char **)&p->values[0];
     RSValue **arr = RSValue_NewArrayBuilder(sz);
     for (uint32_t i = 0; i < sz; i++) {
-      arr[i] = RSValue_NewConstString(strs[i], strlen(strs[i]));
+      arr[i] = RSValue_NewBorrowedString(strs[i], strlen(strs[i]));
     }
     RSValue *array = RSValue_NewArrayFromBuilder(arr, sz);
     RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res), array);

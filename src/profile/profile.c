@@ -8,7 +8,6 @@
 */
 #include "profile.h"
 #include "iterators/iterator_api.h"
-#include "iterators/profile_iterator.h"
 #include "iterators/inverted_index_iterator.h"
 #include "iterators/not_iterator.h"
 #include "iterators/optional_iterator.h"
@@ -373,10 +372,11 @@ void Profile_AddIters(QueryIterator **root) {
 
   // Add profile iterator before child iterators
   switch((*root)->type) {
-    case NOT_ITERATOR: {
-      QueryIterator *child = ((NotIterator *)(*root))->child;
+    case NOT_ITERATOR:
+    case NOT_ITERATOR_OPTIMIZED: {
+      QueryIterator *child = TakeNotIteratorChild(*root);
       Profile_AddIters(&child);
-      ((NotIterator *)(*root))->child = child;
+      SetNotIteratorChild(*root, child);
       break;
     }
     case OPTIONAL_ITERATOR:
@@ -603,9 +603,14 @@ PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,                  "WILDCARD");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListSortedIt,              "ID-LIST-SORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printIdListUnsortedIt,            "ID-LIST-UNSORTED");
 PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,                     "EMPTY");
-PRINT_PROFILE_SINGLE(printNotIt, NotIterator,                   "NOT");
 PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,             "VECTOR");
 PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator,         "OPTIMIZER");
+
+PRINT_PROFILE_FUNC(printNotIt) {
+  // Cast is safe: PrintIteratorChildProfile only reads from the child iterator.
+  PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
+    (QueryIterator *)GetNotIteratorChild(root), "NOT");
+}
 
 PRINT_PROFILE_FUNC(printOptionalIt) {
   PrintIteratorChildProfile(reply, root, counters, cpuTime, depth, limited, config,
@@ -613,9 +618,9 @@ PRINT_PROFILE_FUNC(printOptionalIt) {
 }
 
 PRINT_PROFILE_FUNC(printProfileIt) {
-  const ProfileIterator *pi = (const ProfileIterator *)root;
-  printIteratorProfile(reply, pi->child, &pi->counters,
-    rs_wall_clock_convert_ns_to_ms_d(pi->wallTime), depth, limited, config);
+  printIteratorProfile(reply, ProfileIterator_GetChild(root), ProfileIterator_GetCounters(root),
+    rs_wall_clock_convert_ns_to_ms_d(ProfileIterator_GetWallTimeNs(root)),
+    depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, const ProfileCounters *counters,
@@ -634,7 +639,8 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     case UNION_ITERATOR:                    { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
     // Single value
-    case NOT_ITERATOR:                      { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
+    case NOT_ITERATOR: // fallthrough
+    case NOT_ITERATOR_OPTIMIZED:            { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
     case OPTIONAL_ITERATOR: // fallthrough
     case OPTIONAL_OPTIMIZED_ITERATOR:       { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
