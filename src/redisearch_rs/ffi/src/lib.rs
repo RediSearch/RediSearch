@@ -35,11 +35,14 @@ use std::{cell::UnsafeCell, pin::Pin, ptr};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+mod document_metadata;
+
 /// Access to the RediSearch Module context
 pub mod context;
 
 /// Use the Rust definitions directly
 pub use document::DocumentType;
+pub use document_metadata::DocumentMetadata;
 pub use query_term::{RSQueryTerm, RSTokenFlags};
 
 #[repr(C)]

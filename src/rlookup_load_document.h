@@ -9,6 +9,7 @@
 #ifndef RLOOKUP_LOAD_DOCUMENT_H
 #define RLOOKUP_LOAD_DOCUMENT_H
 #include "rlookup.h"
+#include "sds.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,6 +69,13 @@ int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *optio
 
 int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst,
                            IndexSpec *sp, const char *keyptr, QueryError *status);
+
+// added as entry point for the rust code
+// Required from Rust therefore not an inline method anymore.
+// Internally it handles different lengths encoded in 5,8,16,32 and 64 bit.
+size_t sdslen__(const char* s) {
+  return sdslen((char *)s);
+}
 
 #ifdef __cplusplus
 }
