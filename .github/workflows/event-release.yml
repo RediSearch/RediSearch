@@ -1,4 +1,4 @@
-name: Release a Version
+name: Release an OSS Version
 
 # Added these to use JWT token to connect with AWS
 permissions:
@@ -194,7 +194,6 @@ jobs:
 
           bucket = "redismodules"
           oss_dir = "redisearch-oss"
-          ent_dir = "redisearch"
 
           expected_sha = os.environ["EXPECTED_SHA"]
           expected_short_sha = expected_sha[:7]
@@ -244,9 +243,7 @@ jobs:
 
           ############################### Main Script ###############################
 
-          files = []
-          for dir in [oss_dir, ent_dir]:
-              files.extend(list_snapshots_by_branch(dir))
+          files = list(list_snapshots_by_branch(oss_dir))
 
           group_print(f"{os.environ['SOURCE']} Build Candidates", files)
           if not files:
