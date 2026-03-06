@@ -12,17 +12,30 @@ use crate::util::{num_to_str, str_to_float};
 use std::cmp::Ordering;
 use std::ops::Deref;
 
+/// Errors that can occur when comparing two [`RsValue`]s.
 #[derive(Debug)]
 pub enum CompareError {
+    /// One or both of the compared numbers were NaN, which has no defined ordering.
     NaNNumber,
+    /// A number-to-string comparison was attempted without the string-fallback enabled.
     NoNumberToStringFallback,
+    /// Map values do not support comparison.
     MapComparison,
+    /// The two value variants have no defined comparison (e.g. an array vs. a string).
     IncompatibleTypes,
 }
 
-/// Compare two values.
-/// If `num_to_str_cmp_fallback` is true, falls back to string comparison when number conversion fails.
-/// If `num_to_str_cmp_fallback` is false, returns CompareError::NoNumberToStringFallback when number conversion fails.
+/// Compare two [`RsValue`]s, returning their [`Ordering`].
+///
+/// When a number is compared to a string, the string is first parsed as a
+/// number. If parsing fails, behaviour depends on `num_to_str_cmp_fallback`:
+/// - `true` - the number is formatted as a string and a byte-wise
+///   comparison is performed.
+/// - `false` - returns [`CompareError::NoNumberToStringFallback`].
+///
+/// [`RsValue::Trio`] values are compared by their left element.
+/// [`RsValue::Array`] values are compared lexicographically.
+/// [`RsValue::Map`] values cannot be compared and yield [`CompareError::MapComparison`].
 pub fn compare(
     v1: &RsValue,
     v2: &RsValue,
@@ -74,17 +87,20 @@ pub fn compare(
     }
 }
 
+/// Compare a number to a byte-string.
+///
+/// Tries to parse `slice` as a float first. If that fails and
+/// `num_to_str_cmp_fallback` is enabled, the number is formatted into a
+/// stack buffer via [`num_to_str`] and compared byte-wise.
 fn compare_number_to_string(
     number: f64,
     slice: &[u8],
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
-    // first try to convert the slice to a number for comparison
     if let Some(other_number) = str_to_float(slice) {
         number
             .partial_cmp(&other_number)
             .ok_or(CompareError::NaNNumber)
-    // else only if num_to_str_cmp_fallback is enabled, convert the number to a slice for comparison
     } else if num_to_str_cmp_fallback {
         let mut buf = [0; 32];
         let n = num_to_str(number, &mut buf);
