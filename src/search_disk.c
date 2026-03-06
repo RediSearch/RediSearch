@@ -316,3 +316,8 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.flush(index);
 }
+
+void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, float percentage) {
+  RS_ASSERT(disk && disk_db);
+  disk->basic.updateBufferBudget(ctx, disk_db, percentage);
+}

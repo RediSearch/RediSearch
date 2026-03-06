@@ -418,3 +418,15 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  */
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Update the buffer budget and WBM in response to RAM configuration changes
+ *
+ * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
+ * and updates the WriteBufferManager with the new size. Should be called in response
+ * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
+ *
+ * @param ctx Redis module context
+ * @param percentage Percentage of available memory to request (0.0-100.0)
+ */
+void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, float percentage);

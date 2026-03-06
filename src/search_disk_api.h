@@ -75,6 +75,18 @@ typedef struct BasicDiskAPI {
    * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
    */
   void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
+
+  /**
+   * @brief Update the buffer budget and WBM in response to RAM configuration changes.
+   *
+   * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
+   * and updates the WriteBufferManager with the new size.
+   *
+   * @param ctx Redis module context
+   * @param disk Pointer to the disk context
+   * @param percentage Percentage of available memory to request (0.0-100.0)
+   */
+  void (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, float percentage);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
