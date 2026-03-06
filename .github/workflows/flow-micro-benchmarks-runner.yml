@@ -12,6 +12,21 @@ on:
         type: string
 
 env:
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
   TAGS: | # Make sure there is no trailing comma!
     [
       {"Key": "Name",         "Value": "redisearch-ci-runner"},
@@ -59,7 +74,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false  # We'll fetch submodules separately with retry
+      - name: Fetch submodules with retry
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'git submodule update --init --recursive') }}
       - name: Print runner info
         run: |
           printf "Runner lscpu:\n$(lscpu)\n"
