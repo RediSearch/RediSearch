@@ -1,9 +1,8 @@
 use crate::util::expect_value;
 use query_error::{QueryError, QueryErrorCode};
-use std::mem::ManuallyDrop;
 use std::{cmp::Ordering, ffi::c_int};
+use value::RsValue;
 use value::comparison::{CompareError, compare};
-use value::{RsValue, SharedRsValue};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Cmp(
@@ -56,9 +55,7 @@ pub unsafe extern "C" fn RSValue_Equal(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_BoolTest(value: *const RsValue) -> c_int {
     let value = unsafe { expect_value(value) };
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let value = shared_value.value().fully_dereferenced_ref();
+    let value = value.fully_dereferenced_ref();
 
     let result = match value {
         RsValue::Number(num) => *num != 0.0,
