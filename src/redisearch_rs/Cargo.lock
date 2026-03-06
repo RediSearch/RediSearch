@@ -2769,6 +2769,7 @@ dependencies = [
  "c_ffi_utils",
  "ffi",
  "libc",
+ "query_error",
  "redis-module",
  "redis_mock",
  "thiserror",
