@@ -9,6 +9,7 @@ publish.workspace = true
 c_ffi_utils = { workspace = true }
 ffi.workspace = true
 libc.workspace = true
+query_error.workspace = true
 workspace_hack.workspace = true
 thiserror.workspace = true
 

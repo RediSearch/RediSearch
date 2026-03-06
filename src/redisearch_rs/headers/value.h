@@ -103,6 +103,55 @@ uint32_t RSValue_ArrayLen(const struct RsValue *value);
 struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 
 /**
+ * Compare two [`RsValue`]s, returning `-1`, `0`, or `1`.
+ *
+ * When `status` is null, mixed number/string comparisons fall back to
+ * string-based comparison. When `status` is non-null and string-to-number
+ * conversion fails, a [`QueryError`] is written to `status` and `0` is
+ * returned.
+ *
+ * # Safety
+ *
+ * 1. `v1` and `v2` must be [valid] pointers to [`RsValue`]s.
+ * 2. `status`, when non-null, must be a [valid], writable pointer to a [`QueryError`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int RSValue_Cmp(const struct RsValue *v1, const struct RsValue *v2, QueryError *status);
+
+/**
+ * Test two [`RsValue`]s for equality, returning `1` if equal and `0` otherwise.
+ *
+ * Unlike [`RSValue_Cmp`], the string-fallback is never used: if a string
+ * cannot be parsed as a number, the values are considered not equal.
+ * Comparison errors (NaN, maps, incompatible types) are treated as equal
+ * to preserve the legacy C behaviour.
+ *
+ * # Safety
+ *
+ * 1. `v1` and `v2` must be [valid] pointers to [`RsValue`]s.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int RSValue_Equal(const struct RsValue *v1, const struct RsValue *v2, QueryError *_status);
+
+/**
+ * Test whether an [`RsValue`] is "truthy".
+ *
+ * Returns `1` for non-zero numbers, non-empty strings, and non-empty arrays.
+ * All other variants (including [`RsValue::Null`] and [`RsValue::Map`])
+ * evaluate to `0`. References are followed via
+ * [`RsValue::fully_dereferenced_ref`].
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid] pointer to an [`RsValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int RSValue_BoolTest(const struct RsValue *value);
+
+/**
  * Creates and returns a new **owned** [`RsValue::Undefined`].
  *
  * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
