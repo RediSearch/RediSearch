@@ -10,7 +10,7 @@ impl SdsWriter {
         Self { sds }
     }
 
-    pub fn extract_sds(self) -> sds {
+    pub fn into_sds(self) -> sds {
         self.sds
     }
 }
