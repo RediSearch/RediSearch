@@ -1960,6 +1960,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "triemap_ffi",
  "types_ffi",
  "value",
  "value_ffi",

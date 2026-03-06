@@ -12,6 +12,7 @@
 use redis_module::raw::RedisModule_Free;
 use std::{
     ffi::{c_char, c_int, c_void},
+    ptr::NonNull,
     slice,
 };
 
@@ -35,6 +36,30 @@ pub static mut TRIEMAP_NOTFOUND: *mut ::std::ffi::c_void = c"NOT FOUND".as_ptr()
 
 /// Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
 pub struct TrieMap(trie_rs::TrieMap<*mut c_void>);
+
+impl TrieMap {
+    /// Find the value associated with a key in the trie.
+    ///
+    /// Returns `None` if the key does not exist or if the stored value is
+    /// null. Returns `Some(value)` with a non-null pointer otherwise.
+    pub fn find(&self, key: &[u8]) -> Option<NonNull<c_void>> {
+        self.0.find(key).copied().and_then(NonNull::new)
+    }
+
+    /// Insert a key-value pair into the trie.
+    ///
+    /// Returns the previous value associated with the key if it was present.
+    pub fn insert(&mut self, key: &[u8], value: *mut c_void) -> Option<*mut c_void> {
+        self.0.insert(key, value)
+    }
+
+    /// Remove a key from the trie.
+    ///
+    /// Returns the value associated with the key if it was present.
+    pub fn remove(&mut self, key: &[u8]) -> Option<*mut c_void> {
+        self.0.remove(key)
+    }
+}
 
 /// Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
 ///

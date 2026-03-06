@@ -32,46 +32,6 @@ size_t InvIndIterator_NumEstimated(const QueryIterator *base) {
   return IndexReader_NumEstimated(it->reader);
 }
 
-static ValidateStatus TagCheckAbort(QueryIterator *base) {
-  TagInvIndIterator *it = (TagInvIndIterator *)base;
-  if (!it->base.sctx) {
-    return VALIDATE_OK;
-  }
-  size_t sz;
-  RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
-  size_t len;
-  const char *str = QueryTerm_GetStrAndLen(term, &len);
-  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, str, len, false, &sz);
-  if (idx == TRIEMAP_NOTFOUND || !IndexReader_IsIndex(it->base.reader, idx)) {
-    // The inverted index was collected entirely by GC.
-    // All the documents that were inside were deleted and new ones were added.
-    // We will not continue reading those new results and instead abort reading
-    // for this specific inverted index.
-
-    return VALIDATE_ABORTED;
-  }
-  return VALIDATE_OK;
-}
-
-static ValidateStatus MissingCheckAbort(QueryIterator *base) {
-  // Check if the missing iterator is still valid
-  InvIndIterator *mi = (InvIndIterator *)base;
-  RS_ASSERT(mi->sctx && mi->sctx->spec);
-  RS_ASSERT(mi->sctx->spec->missingFieldDict);
-  RS_ASSERT(mi->sctx->spec->numFields > mi->filterCtx.field.index);
-
-  const HiddenString *fieldName = mi->sctx->spec->fields[mi->filterCtx.field.index].fieldName;
-  const InvertedIndex *missingII = dictFetchValue(mi->sctx->spec->missingFieldDict, fieldName);
-
-  if (!IndexReader_IsIndex(mi->reader, missingII)) {
-    // The inverted index was collected entirely by GC.
-    // All the documents that were inside were deleted and new ones were added.
-    // We will not continue reading those new results and instead abort reading
-    // for this specific inverted index.
-    return VALIDATE_ABORTED;
-  }
-  return VALIDATE_OK;
-}
 
 static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
   // Here we should apply the specifics of Term, Tag and Numeric
@@ -364,43 +324,3 @@ static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, enum IteratorT
   return InitInvIndIterator(it, it_type, idx, res, filterCtx, sctx, decoderCtx, checkAbortFn);
 }
 
-QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
-                                           RSQueryTerm *term, double weight) {
-
-  FieldFilterContext fieldCtx = {
-    .field = fieldMaskOrIndex,
-    .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT,
-  };
-  if (term && sctx) {
-    QueryTerm_SetIDFs(term,
-                      CalculateIDF(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)),
-                      CalculateIDF_BM25(sctx->spec->stats.scoring.numDocuments, InvertedIndex_NumDocs(idx)));
-  }
-
-  RSIndexResult *record = NewTokenRecord(term, weight);
-  record->fieldMask = RS_FIELDMASK_ALL;
-  record->freq = 1;
-
-  IndexDecoderCtx dctx = {.tag = IndexDecoderCtx_FieldMask};
-  if (fieldMaskOrIndex.tag == FieldMaskOrIndex_Mask) {
-    dctx.field_mask = fieldMaskOrIndex.mask;
-  } else {
-    dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
-  }
-
-  TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
-  it->tagIdx = tagIdx;
-  return InitInvIndIterator(&it->base, INV_IDX_TAG_ITERATOR, idx, record, &fieldCtx, sctx, &dctx, TagCheckAbort);
-}
-
-QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {
-  FieldFilterContext fieldCtx = {
-    .field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex},
-    .predicate = FIELD_EXPIRATION_PREDICATE_MISSING, // Missing predicate
-  };
-  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
-  record->freq = 1;
-
-  return NewInvIndIterator(idx, INV_IDX_MISSING_ITERATOR, record, &fieldCtx, sctx, &decoderCtx, MissingCheckAbort);
-}

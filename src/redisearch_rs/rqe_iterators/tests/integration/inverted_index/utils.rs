@@ -445,6 +445,8 @@ pub enum RevalidateIndexType {
     Numeric,
     Term,
     Wildcard,
+    Missing,
+    Tag,
 }
 
 /// Test the revalidation of the iterator.
@@ -478,6 +480,8 @@ impl RevalidateTest {
                 TestContext::term(flags, doc_ids.iter().map(|id| expected_record(*id)), false)
             }
             RevalidateIndexType::Wildcard => TestContext::wildcard(doc_ids.iter().copied()),
+            RevalidateIndexType::Missing => TestContext::missing(doc_ids.iter().copied()),
+            RevalidateIndexType::Tag => TestContext::tag(doc_ids.iter().copied()),
         };
 
         Self {

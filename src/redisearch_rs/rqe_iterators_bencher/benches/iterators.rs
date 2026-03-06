@@ -66,6 +66,16 @@ fn benchmark_inverted_index_wildcard(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_inverted_index_missing(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::MissingBencher::default();
+    bencher.bench(c);
+}
+
+fn benchmark_inverted_index_tag(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::TagBencher::default();
+    bencher.bench(c);
+}
+
 fn benchmark_inverted_index_term(c: &mut Criterion) {
     // Run bench with each decoder producing term results.
     benchers::inverted_index::TermBencher::<Full>::new(
@@ -153,6 +163,8 @@ criterion_group!(
     benchmark_optional,
     benchmark_inverted_index_numeric,
     benchmark_inverted_index_wildcard,
+    benchmark_inverted_index_missing,
+    benchmark_inverted_index_tag,
     benchmark_inverted_index_term,
 );
 
