@@ -95,7 +95,7 @@ impl RsValue {
         }
     }
 
-    pub fn debug_formatter(&self, obfuscate: bool) -> debug::DebugFormatter<'_> {
+    pub const fn debug_formatter(&self, obfuscate: bool) -> debug::DebugFormatter<'_> {
         debug::DebugFormatter {
             value: self,
             obfuscate,
