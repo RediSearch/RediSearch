@@ -2761,6 +2761,7 @@ dependencies = [
  "ffi",
  "fnv",
  "libc",
+ "query_error",
  "redis-module",
  "redis_mock",
  "redisearch_rs",
