@@ -33,7 +33,7 @@ impl UserKey {
 ///
 /// 1. ctx must be a valid pointer to a [crate::TestContext].
 /// 2. keyname must be a valid pointer to a RedisModuleString create by this mock, and thus a pointer to crate::string::UserString.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_OpenKey(
     ctx: *mut redis_module::raw::RedisModuleCtx,
     keyname: *mut redis_module::raw::RedisModuleString,
@@ -56,7 +56,7 @@ pub unsafe extern "C" fn RedisModule_OpenKey(
     // `text_ctx`. An alternative is to use `num_traits` crate, but then we have
     // convert to u32 and back which is unnecessary code bloat, still.
     // See MOD-12173
-    #[allow(clippy::needless_match)]
+    #[expect(clippy::needless_match)]
     let cloned_value = match test_ctx.open_key_type {
         KeyType::Empty => KeyType::Empty,
         KeyType::String => KeyType::String,
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn RedisModule_OpenKey(
 ///
 /// 1. key must be a valid pointer to a RedisModuleKey created by this mock implementation, thus a pointer to [UserKey].
 /// 2. The function must not be called more than once for the same key.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_CloseKey(key: *mut redis_module::raw::RedisModuleKey) {
     // Safety: we own the memory (1) and the caller promised to call this only once (2)
     drop(unsafe { Box::from_raw(key.cast::<UserKey>()) });
@@ -93,7 +93,7 @@ pub unsafe extern "C" fn RedisModule_CloseKey(key: *mut redis_module::raw::Redis
 /// # Safety
 ///
 /// 1. key must be a valid pointer to a RedisModuleKey created by this mock implementation, thus a pointer to [UserKey].
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_KeyType(key: *mut redis_module::raw::RedisModuleKey) -> i32 {
     // Safety: Caller has to ensure 1
     let key = unsafe { &*(key as *mut UserKey) };
