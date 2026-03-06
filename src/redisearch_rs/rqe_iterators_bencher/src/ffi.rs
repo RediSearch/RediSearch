@@ -8,12 +8,12 @@
 */
 
 pub use ffi::{
-    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
     RedisModule_Alloc, RedisModule_Free, ValidateStatus,
 };
-use inverted_index::{RSIndexResult, t_docId};
+use inverted_index::RSIndexResult;
 use query_term::RSQueryTerm;
 use std::{ffi::c_void, ptr};
 
@@ -98,53 +98,6 @@ impl QueryIterator {
                 field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
                 term,
                 1.0,
-            )
-        })
-    }
-
-    /// Creates a new intersection iterator from child ID list iterators.
-    ///
-    /// # Arguments
-    /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
-    /// * `weight` - The weight for the intersection result
-    #[inline(always)]
-    pub fn new_intersection(children_ids: &[Vec<t_docId>], weight: f64) -> Self {
-        let num_children = children_ids.len();
-
-        // Allocate array of child iterator pointers using RedisModule_Alloc
-        let children_ptr = unsafe {
-            RedisModule_Alloc.unwrap()(
-                num_children * std::mem::size_of::<*mut ffi::QueryIterator>(),
-            ) as *mut *mut ffi::QueryIterator
-        };
-
-        for (i, ids) in children_ids.iter().enumerate() {
-            // Allocate and copy IDs using RedisModule_Alloc (required by NewSortedIdListIterator)
-            let ids_ptr = unsafe {
-                RedisModule_Alloc.unwrap()(ids.len() * std::mem::size_of::<t_docId>())
-                    as *mut t_docId
-            };
-            unsafe {
-                std::ptr::copy_nonoverlapping(ids.as_ptr(), ids_ptr, ids.len());
-            }
-
-            // Create child iterator
-            let child = unsafe {
-                iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, ids.len() as u64, 1.0)
-            };
-            unsafe {
-                *children_ptr.add(i) = child;
-            }
-        }
-
-        // Create intersection iterator (takes ownership of children array)
-        Self(unsafe {
-            ffi::NewIntersectionIterator(
-                children_ptr,
-                num_children,
-                -1,    // max_slop: -1 means no slop validation
-                false, // in_order
-                weight,
             )
         })
     }

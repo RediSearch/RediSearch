@@ -95,6 +95,85 @@ QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight
 QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
+ * Create a new intersection iterator.
+ *
+ * Takes ownership of both the `its` array and all child iterators it contains.
+ * Delegates reduction to [`intersection_iterator_reducer`] (mirroring the C
+ * `IntersectionIteratorReducer` helper) before constructing the iterator.
+ *
+ * # Safety
+ *
+ * 1. `its` must be a valid non-null pointer to an array of `num` `QueryIterator*` values,
+ *    allocated with the Redis allocator (`rm_malloc`). Ownership is transferred to this function.
+ * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose callbacks are set.
+ * 3. Null entries in `its` are treated as empty iterators.
+ */
+QueryIterator *NewIntersectionIterator(QueryIterator **its,
+                                       size_t num,
+                                       int32_t max_slop,
+                                       bool in_order,
+                                       double weight);
+
+/**
+ * Returns the number of child iterators held by the intersection iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ */
+size_t GetIntersectionIteratorNumChildren(const QueryIterator *header);
+
+/**
+ * Returns a non-owning raw pointer to the child at `idx`.
+ *
+ * The returned pointer is valid as long as the intersection iterator is alive and no
+ * structural modifications are made (e.g. via [`AddIntersectionIteratorChild`] or
+ * [`ForEachIntersectionChildMut`]).
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 2. `idx` must be less than [`GetIntersectionIteratorNumChildren`]`(header)`.
+ */
+const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, size_t idx);
+
+/**
+ * Append a new child iterator to the intersection.
+ *
+ * Transfers ownership of `child` to the intersection. Updates the estimated result count
+ * if the new child has a lower estimate than the current minimum.
+ *
+ * Mirrors the C `AddIntersectIterator` function from `query_optimizer.c`.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
+ */
+void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
+
+/**
+ * Apply `callback` to each child iterator slot, passing a mutable `QueryIterator**`.
+ *
+ * This is designed for use with `Profile_AddIters`, which replaces each child with a
+ * profile-wrapping iterator in place. The callback receives a pointer to the raw pointer
+ * stored inside each [`CRQEIterator`] child, allowing it to update (replace) that pointer.
+ *
+ * This is safe because [`CRQEIterator`] is `#[repr(transparent)]` over
+ * `NonNull<QueryIterator>`, which has the same memory layout as `*mut QueryIterator`.
+ * The callback's in-place mutation of the slot directly updates the `CRQEIterator`'s
+ * internal pointer, so the intersection will subsequently own (and free) the new iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].
+ * 2. `callback` must be a valid function pointer.
+ * 3. The callback must replace `*slot` with a valid non-null `QueryIterator*` that takes
+ *    ownership of the original iterator (i.e. `NewProfileIterator` semantics).
+ */
+void ForEachIntersectionChildMut(QueryIterator *header, void (*callback)(QueryIterator**));
+
+/**
  * Gets the flags of the underlying IndexReader from an inverted index iterator.
  *
  * # Safety

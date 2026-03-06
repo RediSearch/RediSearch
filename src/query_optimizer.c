@@ -13,6 +13,7 @@
 #include "ext/default.h"
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
+#include "iterators_rs.h"
 
 /********************* Horrific hacks moved from index.c *********************/
 
@@ -71,10 +72,7 @@ void trimUnionIterator(QueryIterator *iter, size_t offset, size_t limit, bool as
 
 void AddIntersectIterator(QueryIterator *parentIter, QueryIterator *childIter) {
   RS_LOG_ASSERT(parentIter->type == INTERSECT_ITERATOR, "add applies to intersect iterators only");
-  IntersectionIterator *ii = (IntersectionIterator *)parentIter;
-  ii->num_its++;
-  ii->its = rm_realloc(ii->its, ii->num_its);
-  ii->its[ii->num_its - 1] = childIter;
+  AddIntersectionIteratorChild(parentIter, childIter);
 }
 
 /********************* End of horrific hacks moved from index.c *********************/
