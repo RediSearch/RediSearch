@@ -4722,7 +4722,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RSGlobalConfig.defaultScorer = NULL;
   }
 
-  SearchDisk_Close();
+  SearchDisk_Close(ctx);
 
   return REDISMODULE_OK;
 }

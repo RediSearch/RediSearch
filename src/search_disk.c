@@ -93,9 +93,9 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   return true;
 }
 
-void SearchDisk_Close() {
+void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
-    disk->basic.close(disk_db);
+    disk->basic.close(ctx, disk_db);
     disk_db = NULL;
   }
 }

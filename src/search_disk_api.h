@@ -47,7 +47,7 @@ typedef struct AsyncReadResult {
 
 typedef struct BasicDiskAPI {
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
-  void (*close)(RedisSearchDisk *disk);
+  void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
   /**
    * @brief Open an index spec
    * @param disk Pointer to the disk
