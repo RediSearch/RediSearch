@@ -512,6 +512,12 @@ void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
+void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
+  SearchDisk_Close(ctx);
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
+}
+
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
 
 bool getHideUserDataFromLogs() {
@@ -571,12 +577,18 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
-
+  bool shutdownEventHandled = false;
   if (getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
+    shutdownEventHandled = true;
+  }
+
+  if (!shutdownEventHandled && SearchDisk_IsEnabled()) {
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownDiskClose);
+
   }
 
   RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");

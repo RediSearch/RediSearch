@@ -93,9 +93,9 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   return true;
 }
 
-void SearchDisk_Close() {
+void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
-    disk->basic.close(disk_db);
+    disk->basic.close(ctx, disk_db);
     disk_db = NULL;
   }
 }
@@ -315,4 +315,9 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.flush(index);
+}
+
+void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
+  RS_ASSERT(disk && disk_db);
+  disk->basic.updateBufferBudget(ctx, disk_db, percentage);
 }
