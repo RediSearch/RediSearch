@@ -45,7 +45,7 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
 /**
  * @brief Close the search disk module
  */
-void SearchDisk_Close();
+void SearchDisk_Close(RedisModuleCtx *ctx);
 
 // Basic API wrappers
 
