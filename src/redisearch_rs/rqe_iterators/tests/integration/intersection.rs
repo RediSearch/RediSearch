@@ -12,8 +12,7 @@
 //! C-Code: These tests are ported from the C++ tests in
 //! `tests/cpptests/test_cpp_iterator_intersection.cpp`.
 //!
-//! C-Code: Tests for `max_slop` and `in_order` are not included in this first
-//! version since those features are not yet implemented in the Rust port.
+//! C-Code: Tests for `max_slop` and `in_order` are in a separate test module.
 
 use ffi::t_docId;
 use rqe_iterators::{
@@ -99,7 +98,7 @@ fn read_test_case(num_children: usize, result_set: &[t_docId]) {
         .min()
         .unwrap_or(0);
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Verify children are sorted by estimated count (optimization check)
     // Note: We can't directly access internal children after construction,
@@ -165,7 +164,7 @@ fn skip_to_all_combinations() {
 #[cfg(not(miri))]
 fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Test skipping to any id between 1 and the last id
     let mut i: t_docId = 1;
@@ -295,7 +294,7 @@ fn rewind_all_combinations() {
 
 fn rewind_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     for i in 0..5 {
         for j in 0..=i {
@@ -344,7 +343,7 @@ fn empty_result_set() {
     let child1 = IdListSorted::new(vec![1, 2, 3]);
     let child2 = IdListSorted::new(vec![4, 5, 6]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Should immediately return EOF since there's no intersection
     assert!(matches!(ii.read(), Ok(None)));
@@ -358,7 +357,7 @@ fn single_element_result_set() {
     let child2 = IdListSorted::new(vec![5, 15, 20]);
     let child3 = IdListSorted::new(vec![3, 5, 25]);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], None, false);
 
     // Only doc 5 is common to all
     let result = ii.read().expect("read failed");
@@ -376,7 +375,7 @@ fn skip_to_exact_match() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Skip to exact match
     let outcome = ii.skip_to(30).expect("skip_to failed");
@@ -395,7 +394,7 @@ fn skip_to_not_found() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Skip to non-existing ID, should land on next existing
     let outcome = ii.skip_to(25).expect("skip_to failed");
@@ -417,7 +416,7 @@ fn skip_to_not_found() {
 #[test]
 fn no_children() {
     let children: Vec<IdListSorted<'static>> = vec![];
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Should immediately return EOF
     assert!(matches!(ii.read(), Ok(None)));
@@ -438,7 +437,7 @@ fn no_children() {
 fn single_child() {
     let doc_ids = vec![10, 20, 30, 40, 50];
     let child = IdListSorted::new(doc_ids.clone());
-    let mut ii = Intersection::new(vec![child]);
+    let mut ii = Intersection::new(vec![child], None, false);
 
     // Should read all documents from the single child
     for &expected_id in &doc_ids {
@@ -465,7 +464,7 @@ fn skip_to_past_eof() {
     let child1 = IdListSorted::new(vec![10, 20, 30]);
     let child2 = IdListSorted::new(vec![10, 20, 30]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Skip past the last document
     assert!(matches!(ii.skip_to(100), Ok(None)));
@@ -491,7 +490,7 @@ fn skip_to_sequential() {
     let child1 = IdListSorted::new(doc_ids.clone());
     let child2 = IdListSorted::new(doc_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Skip to each document in sequence
     for &id in &doc_ids {
@@ -518,7 +517,7 @@ fn interleaved_read_and_skip_to() {
     let child1 = IdListSorted::new(doc_ids.clone());
     let child2 = IdListSorted::new(doc_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -566,7 +565,7 @@ fn many_children() {
         })
         .collect();
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Should find all common documents
     for &expected_id in &doc_ids {
@@ -616,7 +615,7 @@ fn revalidate_ok() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Read a few documents first
     let result = ii.read().expect("read failed").unwrap();
@@ -657,7 +656,7 @@ fn revalidate_aborted() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Read a document first
     let result = ii.read().expect("read failed").unwrap();
@@ -691,7 +690,7 @@ fn revalidate_moved() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -736,7 +735,7 @@ fn revalidate_mixed_results() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -771,7 +770,7 @@ fn revalidate_after_eof() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Advance to EOF
     while ii.read().expect("read failed").is_some() {}
@@ -821,7 +820,7 @@ fn revalidate_some_children_moved_to_eof() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Read first document
     let result = ii.read().expect("read failed").unwrap();
@@ -855,7 +854,7 @@ fn current_after_operations() {
     let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
     let child2 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Before any read, current() returns Some (the result buffer exists),
     // but last_doc_id is 0 since we haven't read anything yet
@@ -912,7 +911,7 @@ fn large_doc_id_gaps() {
     let child1 = IdListSorted::new(sparse_ids.clone());
     let child2 = IdListSorted::new(sparse_ids.clone());
 
-    let mut ii = Intersection::new(vec![child1, child2]);
+    let mut ii = Intersection::new(vec![child1, child2], None, false);
 
     // Read all documents
     for &expected_id in &sparse_ids {
@@ -950,7 +949,7 @@ fn overlapping_children_ids() {
     let child2 = IdListSorted::new(vec![2, 3, 5, 7, 10, 12, 15, 20, 30, 35]);
     let child3 = IdListSorted::new(vec![3, 5, 8, 10, 15, 18, 20, 30, 40]);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], None, false);
 
     // Common to all: 3, 5, 10, 15, 20, 30
     let expected = vec![3, 5, 10, 15, 20, 30];
@@ -987,7 +986,7 @@ fn revalidate_before_read() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Revalidate before any read
     let status = ii.revalidate().expect("revalidate failed");
@@ -1023,7 +1022,7 @@ fn revalidate_move_before_read() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Revalidate before any read - children will move
     let status = ii.revalidate().expect("revalidate failed");
@@ -1049,13 +1048,34 @@ fn num_estimated_is_minimum() {
     let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements (smallest)
     let child3 = IdListSorted::new(vec![1, 2, 3, 4, 5, 6, 7]); // 7 elements
 
-    let ii = Intersection::new(vec![child1, child2, child3]);
+    let ii = Intersection::new(vec![child1, child2, child3], None, false);
 
     // num_estimated should be the minimum (3)
     assert_eq!(
         ii.num_estimated(),
         3,
         "num_estimated should be minimum of children"
+    );
+}
+
+/// Test: `num_estimated` is the minimum of all children even when `in_order=true` prevents sorting.
+///
+/// When `in_order=true`, children are NOT re-sorted by estimated count (their order is
+/// semantically meaningful for positional checks). The minimum must still be computed
+/// explicitly rather than relying on sort order as a side effect.
+#[test]
+fn num_estimated_is_minimum_in_order() {
+    // Deliberately pass the LARGEST child first — proves we don't rely on sort order.
+    let child1 = IdListSorted::new(vec![1, 2, 3, 4, 5]); // 5 elements — first, but NOT minimum
+    let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements — minimum
+    let child3 = IdListSorted::new(vec![1, 2, 3, 4]); // 4 elements
+
+    let ii = Intersection::new(vec![child1, child2, child3], None, true); // in_order=true
+
+    assert_eq!(
+        ii.num_estimated(),
+        3,
+        "num_estimated must be the minimum of all children, even when in_order=true prevents sorting"
     );
 }
 
@@ -1077,7 +1097,7 @@ fn children_sorted_by_estimated() {
     let child2 = IdListSorted::new(small_child);
     let child3 = IdListSorted::new(medium_child);
 
-    let mut ii = Intersection::new(vec![child1, child2, child3]);
+    let mut ii = Intersection::new(vec![child1, child2, child3], None, false);
 
     // The only common document is 500
     let result = ii.read().expect("read failed");
@@ -1135,7 +1155,7 @@ fn revalidate_moved_skip_to_returns_none() {
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(child0), Box::new(child1), Box::new(child2)];
 
-    let mut ii = Intersection::new(children);
+    let mut ii = Intersection::new(children, None, false);
 
     // Read first document (10 is common to all)
     let result = ii.read().expect("read failed").unwrap();
@@ -1162,4 +1182,275 @@ fn revalidate_moved_skip_to_returns_none() {
 
     // Further reads should return EOF
     assert!(matches!(ii.read(), Ok(None)));
+}
+
+// =============================================================================
+// C-Code: Slop and InOrder tests - from IntersectionIteratorTest
+// (Slop, InOrder, SlopAndOrder test cases)
+// =============================================================================
+
+/// Tests for the intersection iterator's `max_slop` and `in_order` proximity constraints.
+///
+/// C-Code: These tests are ported from `IntersectionIteratorTest` in
+/// `tests/cpptests/test_cpp_iterator_intersection.cpp`.
+///
+/// Document setup mirrors the C++ test.
+//
+#[cfg(not(miri))]
+mod slop_and_order {
+    use ffi::{
+        IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, t_docId,
+    };
+    use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
+    use query_term::RSQueryTerm;
+    use rqe_iterators::{
+        NoOpChecker, RQEIterator, SkipToOutcome, intersection::Intersection, inverted_index::Term,
+    };
+    use rqe_iterators_test_utils::MockContext;
+
+    const FLAGS: ffi::IndexFlags = IndexFlags_Index_StoreFreqs
+        | IndexFlags_Index_StoreTermOffsets
+        | IndexFlags_Index_StoreFieldFlags
+        | IndexFlags_Index_StoreByteOffsets;
+
+    fn new_term() -> Box<RSQueryTerm> {
+        RSQueryTerm::new("term", 1, 0)
+    }
+
+    /// Build an `InvertedIndex<Full>` where each entry has a single term position.
+    ///
+    /// `docs` is a slice of `(doc_id, position)` pairs. Positions are encoded as
+    /// single-byte delta-varints (valid for values 1–127).
+    fn make_term_index(docs: &[(t_docId, u8)]) -> InvertedIndex<Full> {
+        let mut ii = InvertedIndex::<Full>::new(FLAGS);
+        for &(doc_id, position) in docs {
+            let pos_byte = [position];
+            let record = RSIndexResult::with_term(
+                None,
+                RSOffsetSlice::from_slice(&pos_byte),
+                doc_id,
+                0xFFFFFFFF,
+                1,
+            );
+            ii.add_record(&record).expect("failed to add record");
+        }
+        ii
+    }
+
+    /// Build the shared foo/bar inverted indexes used by all tests in this module.
+    ///
+    /// All tests operate on the same four-document corpus, akin to the C++ tests:
+    ///
+    /// | doc | foo pos | bar pos | notes                            |
+    /// |-----|---------|---------|----------------------------------|
+    /// |  1  |    1    |    2    | adjacent, foo before bar         |
+    /// |  2  |    1    |    —    | no bar — excluded by intersection|
+    /// |  3  |    2    |    1    | adjacent, bar before foo         |
+    /// |  4  |    1    |    3    | slop 1, foo before bar           |
+    fn make_test_indexes() -> (InvertedIndex<Full>, InvertedIndex<Full>) {
+        let foo_index = make_term_index(&[(1, 1), (2, 1), (3, 2), (4, 1)]);
+        let bar_index = make_term_index(&[(1, 2), (3, 1), (4, 3)]);
+        (foo_index, bar_index)
+    }
+
+    /// Create an intersection of a foo and bar term iterator with given slop/order settings.
+    ///
+    /// Returns (foo_index, bar_index, mock_ctx) — the caller must keep these alive
+    /// for the duration of the test, since the returned `Intersection` borrows from them.
+    macro_rules! make_intersection {
+        ($foo_index:expr, $bar_index:expr, $mock_ctx:expr, $max_slop:expr, $in_order:expr) => {{
+            let foo_reader = $foo_index.reader();
+            let bar_reader = $bar_index.reader();
+            let foo_iter =
+                unsafe { Term::new(foo_reader, $mock_ctx.sctx(), new_term(), 1.0, NoOpChecker) };
+            let bar_iter =
+                unsafe { Term::new(bar_reader, $mock_ctx.sctx(), new_term(), 1.0, NoOpChecker) };
+            let children: Vec<Box<dyn RQEIterator<'_>>> =
+                vec![Box::new(foo_iter), Box::new(bar_iter)];
+            Intersection::new(children, $max_slop, $in_order)
+        }};
+    }
+
+    /// C-Code: Equivalent to C++ `TEST_F(IntersectionIteratorTest, Slop)`
+    ///
+    /// max_slop=0, in_order=false: only documents where foo and bar appear adjacent
+    /// (in any order) are returned.
+    ///
+    /// Expected results: docs 1 and 3.
+    #[test]
+    fn slop() {
+        let (foo_index, bar_index) = make_test_indexes();
+        let mock_ctx = MockContext::new(4, 4);
+
+        let mut ii = make_intersection!(foo_index, bar_index, mock_ctx, Some(0), false);
+
+        // num_estimated = min(foo=4, bar=3) = 3
+        assert_eq!(ii.num_estimated(), 3);
+
+        // Read all results: expected docs 1 and 3
+        let r = ii.read().expect("read failed").expect("expected doc 1");
+        assert_eq!(r.doc_id, 1);
+        assert_eq!(ii.last_doc_id(), 1);
+
+        let r = ii.read().expect("read failed").expect("expected doc 3");
+        assert_eq!(r.doc_id, 3);
+        assert_eq!(ii.last_doc_id(), 3);
+
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must remain at the last *successfully returned* doc (3), not the
+        // non-relevant candidate (4) that was scanned internally before hitting EOF.
+        assert_eq!(ii.last_doc_id(), 3);
+        // Reading after EOF should return EOF again
+        assert!(matches!(ii.read(), Ok(None)));
+
+        // Rewind and test SkipTo
+        ii.rewind();
+        assert_eq!(ii.last_doc_id(), 0);
+        assert!(!ii.at_eof());
+
+        // SkipTo(1) → Found
+        let outcome = ii.skip_to(1).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(r)) if r.doc_id == 1));
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo(2) → NotFound, lands on 3 (doc 2 is not in bar, doc 3 is next valid)
+        let outcome = ii.skip_to(2).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::NotFound(r)) if r.doc_id == 3));
+        assert_eq!(ii.last_doc_id(), 3);
+
+        // SkipTo(4) → EOF (doc 4 is in both but fails slop=0)
+        assert!(matches!(ii.skip_to(4), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must stay at 3, not advance to the non-relevant candidate 4.
+        assert_eq!(ii.last_doc_id(), 3);
+
+        // SkipTo beyond EOF → still EOF
+        assert!(matches!(ii.skip_to(5), Ok(None)));
+        assert!(ii.at_eof());
+    }
+
+    /// C-Code: Equivalent to C++ `TEST_F(IntersectionIteratorTest, InOrder)`
+    ///
+    /// max_slop=None, in_order=true: only documents where foo appears before bar
+    /// (any distance) are returned.
+    ///
+    /// Expected results: docs 1 and 4.
+    #[test]
+    fn in_order() {
+        let (foo_index, bar_index) = make_test_indexes();
+        let mock_ctx = MockContext::new(4, 4);
+
+        let mut ii = make_intersection!(foo_index, bar_index, mock_ctx, None, true);
+
+        assert_eq!(ii.num_estimated(), 3); // min(foo=4, bar=3) = 3
+
+        // Read all results: expected docs 1 and 4
+        let r = ii.read().expect("read failed").expect("expected doc 1");
+        assert_eq!(r.doc_id, 1);
+        assert_eq!(ii.last_doc_id(), 1);
+
+        let r = ii.read().expect("read failed").expect("expected doc 4");
+        assert_eq!(r.doc_id, 4);
+        assert_eq!(ii.last_doc_id(), 4);
+
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+        // Reading after EOF should return EOF again
+        assert!(matches!(ii.read(), Ok(None)));
+
+        // Rewind and test SkipTo
+        ii.rewind();
+        assert_eq!(ii.last_doc_id(), 0);
+        assert!(!ii.at_eof());
+
+        // SkipTo(1) → Found
+        let outcome = ii.skip_to(1).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(r)) if r.doc_id == 1));
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo(2) → NotFound, lands on 4 (doc 2 not in bar, doc 3 fails in_order)
+        let outcome = ii.skip_to(2).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::NotFound(r)) if r.doc_id == 4));
+        assert_eq!(ii.last_doc_id(), 4);
+
+        // SkipTo(5) → EOF
+        assert!(matches!(ii.skip_to(5), Ok(None)));
+        assert!(ii.at_eof());
+
+        // SkipTo beyond EOF → still EOF
+        assert!(matches!(ii.skip_to(6), Ok(None)));
+        assert!(ii.at_eof());
+    }
+
+    /// C-Code: Equivalent to C++ `TEST_F(IntersectionIteratorTest, SlopAndOrder)`
+    ///
+    /// max_slop=0, in_order=true: only documents where foo immediately precedes
+    /// bar (adjacent and in order) are returned.
+    ///
+    /// Expected results: doc 1 only.
+    #[test]
+    fn slop_and_order() {
+        let (foo_index, bar_index) = make_test_indexes();
+        let mock_ctx = MockContext::new(4, 4);
+
+        let mut ii = make_intersection!(foo_index, bar_index, mock_ctx, Some(0), true);
+
+        // num_estimated = min(foo=4, bar=3) = 3
+        assert_eq!(ii.num_estimated(), 3);
+
+        // Read all results: expected doc 1 only
+        let r = ii.read().expect("read failed").expect("expected doc 1");
+        assert_eq!(r.doc_id, 1);
+        assert_eq!(ii.last_doc_id(), 1);
+
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must remain at the last *successfully returned* doc (1), not the
+        // non-relevant candidates (3, 4) scanned internally before hitting EOF.
+        assert_eq!(ii.last_doc_id(), 1);
+        // Reading after EOF should return EOF again
+        assert!(matches!(ii.read(), Ok(None)));
+
+        // Rewind and test SkipTo
+        ii.rewind();
+        assert_eq!(ii.last_doc_id(), 0);
+        assert!(!ii.at_eof());
+
+        // SkipTo(1) → Found
+        let outcome = ii.skip_to(1).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(r)) if r.doc_id == 1));
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo(2) → EOF (no more docs pass slop=0 and in_order)
+        assert!(matches!(ii.skip_to(2), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must stay at 1, not advance to the non-relevant candidates 3 and 4.
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo beyond EOF → still EOF
+        assert!(matches!(ii.skip_to(3), Ok(None)));
+        assert!(ii.at_eof());
+    }
+
+    /// When no doc satisfies the relevancy constraint and the second child runs out of
+    /// docs before the first child does, the iterator must return EOF cleanly.
+    ///
+    /// - foo (first child): doc 1 (pos 3), doc 2 (pos 1)
+    /// - bar (second child): doc 1 (pos 1) only
+    /// - in_order=true (prevents child sorting, so foo stays first): doc 1 fails because
+    ///   bar@1 comes before foo@3; foo then tries doc 2, but bar has no doc ≥ 2 → EOF.
+    #[test]
+    fn relevancy_retry_hits_eof_in_second_consensus() {
+        let foo_index = make_term_index(&[(1, 3), (2, 1)]);
+        let bar_index = make_term_index(&[(1, 1)]);
+        let mock_ctx = MockContext::new(2, 2);
+
+        let mut ii = make_intersection!(foo_index, bar_index, mock_ctx, None, true);
+
+        // No doc satisfies in_order: doc 1 fails (bar@1 < foo@3), doc 2 is only in foo.
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+    }
 }
