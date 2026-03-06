@@ -84,9 +84,9 @@ typedef struct BasicDiskAPI {
    *
    * @param ctx Redis module context
    * @param disk Pointer to the disk context
-   * @param percentage Percentage of available memory to request (0.0-100.0)
+   * @param percentage Percentage of available memory to request (0-100)
    */
-  void (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, float percentage);
+  void (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {

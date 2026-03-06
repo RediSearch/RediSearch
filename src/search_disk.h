@@ -427,6 +427,6 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
  * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
  *
  * @param ctx Redis module context
- * @param percentage Percentage of available memory to request (0.0-100.0)
+ * @param percentage Percentage of available memory to request (0-100)
  */
-void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, float percentage);
+void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
