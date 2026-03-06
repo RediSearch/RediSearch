@@ -12,5 +12,5 @@ pub unsafe extern "C" fn RSValue_DumpSds(value: *const RsValue, sds: sds, obfusc
         Some(value) => write!(writer, "{:?}", value.debug_formatter(obfuscate)).unwrap(),
     }
 
-    writer.extract_sds()
+    writer.into_sds()
 }
