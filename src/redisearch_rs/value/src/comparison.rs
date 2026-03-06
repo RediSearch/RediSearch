@@ -1,4 +1,5 @@
 use crate::RsValue;
+use crate::util::{num_to_str, str_to_float};
 use std::cmp::Ordering;
 use std::ops::Deref;
 
@@ -70,14 +71,14 @@ fn compare_number_to_string(
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
     // first try to convert the slice to a number for comparison
-    if let Some(other_number) = crate::util::str_to_float(slice) {
+    if let Some(other_number) = str_to_float(slice) {
         number
             .partial_cmp(&other_number)
             .ok_or(CompareError::NaNNumber)
     // else only if num_to_str_cmp_fallback is enabled, convert the number to a slice for comparison
     } else if num_to_str_cmp_fallback {
         let mut buf = [0; 32];
-        let n = crate::util::num_to_str(number, &mut buf);
+        let n = num_to_str(number, &mut buf);
         Ok(buf[0..n].cmp(slice))
     } else {
         Err(CompareError::NoNumberToStringFallback)
