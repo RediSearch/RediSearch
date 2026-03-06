@@ -7,14 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Supporting types for [`Numeric`], [`Term`], and [`Wildcard`].
+//! Supporting types for [`Missing`], [`Numeric`], [`Term`], and [`Wildcard`].
 
 mod core;
+mod missing;
 mod numeric;
 mod term;
 mod wildcard;
 
 pub use core::InvIndIterator;
+pub use missing::Missing;
 pub use numeric::Numeric;
 pub use term::Term;
 pub use wildcard::Wildcard;
