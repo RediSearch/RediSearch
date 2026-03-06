@@ -29,10 +29,10 @@ TEST_F(TagIndexTest, testCreate) {
   t_docId d;
   IndexStats stats = {0};
   for (d = 1; d <= N; d++) {
-    TagIndex_Index(idx, &v[0], v.size(), d, &stats);
+    TagIndex_Index(NULL, idx, &v[0], v.size(), d, &stats);
     const size_t sz = stats.invertedSize;
     // make sure repeating push of the same vector doesn't get indexed
-    TagIndex_Index(idx, &v[0], v.size(), d, &stats);
+    TagIndex_Index(NULL, idx, &v[0], v.size(), d, &stats);
     ASSERT_EQ(sz, stats.invertedSize);
   }
 
@@ -54,7 +54,7 @@ TEST_F(TagIndexTest, testCreate) {
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
-  TagIndex_Index(idx, &v2[0], v2.size(), ++d, &stats);
+  TagIndex_Index(NULL, idx, &v2[0], v2.size(), ++d, &stats);
   // A base inverted index is 24 bytes
   // The header of the block vector is 8 bytes
   // An index block is 48 bytes
@@ -89,7 +89,7 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   IndexStats stats = {0};
-  TagIndex_Index(idx, &v[0], v.size(), docId, &stats);
+  TagIndex_Index(NULL, idx, &v[0], v.size(), docId, &stats);
   MockQueryEvalCtx mockQctx(1, 1);
   QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   IteratorStatus rc = it->Read(it);
