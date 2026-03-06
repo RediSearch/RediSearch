@@ -10,7 +10,7 @@
 use std::{f64, ptr::NonNull};
 
 use ffi::t_docId;
-use inverted_index::{NumericReader, RSIndexResult};
+use inverted_index::{NumericReader, RSIndexResult, block_max_score::BlockScorer};
 use numeric_range_tree::NumericRangeTree;
 
 use crate::{
@@ -185,5 +185,14 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
     }
 }

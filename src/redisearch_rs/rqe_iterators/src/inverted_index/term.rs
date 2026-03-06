@@ -10,7 +10,7 @@
 use std::ptr::NonNull;
 
 use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
-use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader};
+use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader, block_max_score::BlockScorer};
 use query_term::RSQueryTerm;
 
 use crate::{
@@ -206,5 +206,14 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
     }
 }

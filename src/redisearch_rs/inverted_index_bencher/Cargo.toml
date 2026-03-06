@@ -20,6 +20,10 @@ harness = false
 name = "garbage_collection"
 harness = false
 
+[[bench]]
+name = "block_max_score"
+harness = false
+
 [dependencies]
 buffer.workspace = true
 criterion.workspace = true
@@ -27,6 +31,7 @@ ffi.workspace = true
 inverted_index.workspace = true
 query_term.workspace = true
 itertools.workspace = true
+rand = { workspace = true, features = ["std_rng"] }
 redis_mock.workspace = true
 workspace_hack.workspace = true
 
