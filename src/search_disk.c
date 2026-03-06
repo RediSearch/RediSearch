@@ -121,9 +121,22 @@ void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *i
   disk->basic.indexSpecRdbSave(rdb, index);
 }
 
-int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
+RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
   RS_ASSERT(disk);
-  return disk->basic.indexSpecRdbLoad(rdb, index);
+  return disk->basic.loadRdbToTempObject(rdb);
+}
+
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(const char *indexName,
+                                                            size_t indexNameLen,
+                                                            DocumentType type,
+                                                            RedisSearchDiskRdbState *rdbState) {
+  RS_ASSERT(disk && disk_db && indexName && rdbState);
+  return disk->basic.openIndexSpecWithRdbState(disk_db, indexName, indexNameLen, type, rdbState);
+}
+
+void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
+  RS_ASSERT(disk);
+  disk->basic.freeRdbState(rdbState);
 }
 
 // Index API wrappers
