@@ -1792,6 +1792,7 @@ dependencies = [
  "toml",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
  "walkdir",
  "workspace_hack",
@@ -2766,12 +2767,17 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 name = "value"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "c_ffi_utils",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
  "thiserror",
+ "value",
  "workspace_hack",
 ]
 
@@ -2783,7 +2789,9 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
  "redis_mock",
  "value",
  "workspace_hack",
