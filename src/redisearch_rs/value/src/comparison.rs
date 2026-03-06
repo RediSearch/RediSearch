@@ -42,6 +42,11 @@ pub fn compare(
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
     match (v1, v2) {
+        (RsValue::Ref(r1), RsValue::Ref(r2)) => {
+            compare(r1.value(), r2.value(), num_to_str_cmp_fallback)
+        }
+        (RsValue::Ref(r1), _) => compare(r1.value(), v2, num_to_str_cmp_fallback),
+        (_, RsValue::Ref(r2)) => compare(v1, r2.value(), num_to_str_cmp_fallback),
         (RsValue::Null, RsValue::Null) => Ok(Ordering::Equal),
         (RsValue::Null, _) => Ok(Ordering::Less),
         (_, RsValue::Null) => Ok(Ordering::Greater),
