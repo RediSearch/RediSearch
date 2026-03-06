@@ -24,12 +24,10 @@ impl<'a> Debug for DebugFormatter<'a> {
         fn fmt_text(f: &mut fmt::Formatter<'_>, text: &[u8], obfuscate: bool) -> fmt::Result {
             if obfuscate {
                 write!(f, "\"{}\"", obfuscate_text(text))
+            } else if let Ok(s) = std::str::from_utf8(text) {
+                write!(f, "\"{s}\"")
             } else {
-                if let Ok(s) = std::str::from_utf8(text) {
-                    write!(f, "\"{s}\"")
-                } else {
-                    f.write_str("<non-utf8-data>")
-                }
+                f.write_str("<non-utf8-data>")
             }
         }
 
