@@ -563,14 +563,13 @@ pub unsafe extern "C" fn RLookup_HasIndexSpecCache(lookup: *const OpaqueRLookup)
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>) {
-    // Safety: ensured by caller (1.,2.)
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
     #[cfg(debug_assertions)]
-    unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) }.assert_valid("RLookup_Cleanup");
+    lookup.assert_valid("RLookup_Cleanup");
 
-    // Safety: ensured by caller (1.,2.)
-    unsafe {
-        lookup.unwrap().cast::<RLookup>().drop_in_place();
-    }
+    // Safety: ensured by caller (2.)
+    unsafe { ptr::drop_in_place(lookup) };
 }
 
 /// Initialize the lookup with fields from a Redis hash.
