@@ -5,9 +5,6 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
-      container:
-        type: string
-        default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
@@ -32,6 +29,7 @@ on:
         default: "oss-standalone"
       allowed_setups:
         type: string
+        default: "oss-standalone"
       benchmark_runner_group_member_id:
         type: number
         default: 1
@@ -41,23 +39,24 @@ on:
 
 jobs:
   benchmark-steps:
-    runs-on: ubuntu-latest
-    container: ${{ inputs.container }}
+    runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Setup specific  # assuming node20 supported
+      - name: Setup specific
         working-directory: .install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-
+        run: ./install_script.sh sudo
       - name: Setup tests dependencies
+        run: ./.install/test_deps/common_installations.sh sudo
+      - name: Print rust and cargo version
         run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-          .install/test_deps/install_rust.sh
-          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          rustc --version
+          cargo --version
 
       - name: Get Redis
         uses: actions/checkout@v4
@@ -67,7 +66,7 @@ jobs:
           path: redis
       - name: Build Redis
         working-directory: redis
-        run: make install
+        run: sudo make install
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
           COORD=${{ inputs.cluster_env }}
@@ -77,16 +76,20 @@ jobs:
         run: |
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
-      - name: Prepare ReJSON Module
-        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
-      # it is best to install terraform last because it may cause issues with env.PATH
       - name: install terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
+      - name: Prepare ReJSON Module
+        env:
+          REJSON_BRANCH: ${{ inputs.rejson_branch }}
+        run: |
+          rustc --version
+          cargo --version
+          ./tests/deps/setup_rejson.sh
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
-        timeout-minutes: 240 # timeout for the step
+        timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
         continue-on-error: true
         env:
@@ -110,7 +113,7 @@ jobs:
               --github_repo ${{ github.event.repository.name }}
               --github_org ${{ github.repository_owner }}
               --module_path ../../${{ inputs.rejson_module_path }}
-              --required-module ReJSON              
+              --required-module ReJSON
               --github_sha ${{ github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
