@@ -79,13 +79,23 @@ static_assert(PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS <= (1 << 7),
 
 static void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code) {
   RS_ASSERT(profileWarnings);
+
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wtautological-constant-out-of-range-compare"
   RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  #pragma GCC diagnostic pop
+
   *profileWarnings |= code;
 }
 
 static bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code) {
   RS_ASSERT(profileWarnings);
+
+  #pragma GCC diagnostic push
+  #pragma GCC diagnostic ignored "-Wtautological-constant-out-of-range-compare"
   RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  #pragma GCC diagnostic pop
+
   return *profileWarnings & code;
 }
 
