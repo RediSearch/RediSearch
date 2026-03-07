@@ -70,6 +70,13 @@ impl<'a> RLookup<'a> {
         }
     }
 
+    /// Asserts as many of the lookup's invariants as possible.
+    #[track_caller]
+    #[cfg(any(debug_assertions, test))]
+    pub fn assert_valid(&self, ctx: &str) {
+        self.keys.assert_valid(ctx);
+    }
+
     /// Set the [`IndexSpecCache`] associated with this [`RLookup`].
     ///
     /// # Panics
