@@ -112,4 +112,8 @@ bool WaitForCondition(Condition condition,
   return true; // Success
 }
 
+// Install a SIGSEGV handler that prints a stack trace to stderr and then
+// re-raises SIGSEGV to preserve normal crash / core-dump behaviour.
+void InstallSegvStackTraceHandler();
+
 }  // namespace RS
