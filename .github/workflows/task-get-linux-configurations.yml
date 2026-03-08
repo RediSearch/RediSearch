@@ -9,11 +9,13 @@ env:
                     'rockylinux:9',
                     'debian:bullseye',
                     'amazonlinux:2',
+                    'amazonlinux:2023',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
                     'rockylinux:9',
+                    'amazonlinux:2023',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
 
 on:
@@ -107,6 +109,16 @@ jobs:
             arm_include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip git"})
+
+          # amazonlinux:2023 needs pre-checkout dependencies
+          if x86_platforms.count('amazonlinux:2023') > 0:
+            x86_include.append({
+              'OS': 'amazonlinux:2023',
+              'pre-deps': "dnf install -y tar gzip git"})
+          if 'amazonlinux:2023' in arm_platforms:
+            arm_include.append({
+              'OS': 'amazonlinux:2023',
+              'pre-deps': "dnf install -y tar gzip git"})
 
           # mariner:2 needs pre-checkout dependencies
           if x86_platforms.count('mcr.microsoft.com/cbl-mariner/base/core:2.0') > 0:

@@ -18,6 +18,7 @@
 #include "phonetic_manager.h"
 #include "redismodule.h"
 #include "debug_commands.h"
+#include "info/global_stats.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -225,6 +226,9 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
+  // Save the number of terms before indexing the current document for metrics
+  size_t prevNumTerms = spec->stats.numTerms;
+
   while (entry != NULL) {
     bool isNew;
     InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
@@ -252,6 +256,9 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       return;
     }
   }
+
+  // Update the number of terms added for metrics
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.numTerms - prevNumTerms);
 }
 
 /** Assigns a document ID to a single document. */

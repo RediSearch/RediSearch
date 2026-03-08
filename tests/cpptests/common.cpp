@@ -75,6 +75,7 @@ std::vector<std::string> RS::search(RSIndex *index, const char *s) {
 }
 
 int main(int argc, char **argv) {
+  RS::InstallSegvStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   ::testing::AddGlobalTestEnvironment(new MyEnvironment());
   return RUN_ALL_TESTS();

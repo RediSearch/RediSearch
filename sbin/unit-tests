@@ -139,7 +139,7 @@ run_cpp_tests() {
         # Run all C++ tests
         LOG_FILE="${LOGS_DIR}/rstest.log"
         echo "Running all C++ tests (log: $LOG_FILE)"
-        { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+        { $CPP_TESTS_DIR/rstest 2>&1 | tee "$LOG_FILE"; test_result=${PIPESTATUS[0]}; (( EXIT_CODE |= $test_result )); } || true
 
         # Parse and display individual test results
         parse_cpp_test_results "$LOG_FILE"
@@ -148,7 +148,7 @@ run_cpp_tests() {
         if [[ -f $CPP_TESTS_DIR/rstest ]]; then
             LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
             echo "Running C++ test: $TEST (log: $LOG_FILE)"
-            { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST 2>&1 | tee "$LOG_FILE"; test_result=${PIPESTATUS[0]}; (( EXIT_CODE |= $test_result )); } || true
 
             # Parse and display results
             parse_cpp_test_results "$LOG_FILE"
