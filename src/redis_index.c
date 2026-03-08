@@ -93,6 +93,20 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
   ctx->flags = RS_CTX_READONLY;
 }
 
+int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
+  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+  int rc = pthread_rwlock_tryrdlock(&ctx->spec->rwlock);
+  if (rc != 0) {
+    // Lock is busy (EBUSY) or other error
+    return REDISMODULE_ERR;
+  }
+  // pause rehashing while we're using the dict for reads only
+  // Assert that the pause value before we pause is valid.
+  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
+  ctx->flags = RS_CTX_READONLY;
+  return REDISMODULE_OK;
+}
+
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->flags == RS_CTX_UNSET);
   pthread_rwlock_wrlock(&ctx->spec->rwlock);

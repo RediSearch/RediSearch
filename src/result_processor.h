@@ -301,9 +301,10 @@ ResultProcessor *RPDepleter_New();
 * Starts the depletion for all the safe depleters in the array, waits until all finished depleting, and returns.
 * @param safeDepleters Array of safe depleter processors
 * @param count Number of safe depleter processors in the array
+* @param status Query error object to populate in case of error
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.

@@ -94,8 +94,38 @@ def query_shards_ft_aggregate_withcursor(env, query, shards, expected):
 
 
 def query_shards_hybrid(env, query, shards, expected):
-    """Enhanced query_shards implementation for FT.HYBRID queries with score order checking"""
-    results = [shard.execute_command(*query) for shard in shards]
+    """Verifies FT.HYBRID works during concurrent writes with try-lock mechanism.
+
+    Handles lock acquisition errors that can occur when FT.HYBRID runs
+    concurrently with write operations (e.g., RESTORE during slot migration).
+    This is expected behavior with the try-lock mechanism that prevents deadlocks.
+
+    Lock errors occur during background depletion when a write operation is
+    holding or waiting for the write lock:
+    - "Failed to acquire index lock for background depletion"
+
+    This is a valid outcome when a writer is waiting for the lock. The test accepts
+    this error as expected behavior and does not treat it as a failure.
+    """
+
+    results = []
+    for shard_idx, shard in enumerate(shards):
+        try:
+            result = shard.execute_command(*query)
+            results.append(result)
+            env.debugPrint(f"Shard {shard_idx}: Query succeeded")
+        except Exception as e:
+            error_str = str(e)
+            # Check for lock acquisition errors
+            if "SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock" in error_str:
+                # This is expected when a writer is waiting for the lock
+                env.debugPrint(f"Shard {shard_idx}: Lock acquisition error (expected during concurrent writes)")
+                # Accept this as a valid outcome - don't add to results, don't fail the test
+                continue
+            else:
+                # Not a lock error - re-raise immediately
+                env.debugPrint(f"Shard {shard_idx}: Non-lock error occurred: {error_str}")
+                raise
 
     # Helper function to extract scores from result (in order)
     def extract_scores(result):
@@ -563,9 +593,7 @@ def test_ft_hybrid_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID')
@@ -608,9 +636,7 @@ def test_ft_hybrid_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
@@ -652,9 +678,7 @@ def test_ft_hybrid_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.HYBRID')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_ft_hybrid_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.HYBRID')
@@ -741,9 +765,7 @@ def test_add_shard_and_migrate_hybrid():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.HYBRID')
 
-#TODO: Enable once MOD-13110 is fixed
-#@skip(cluster=False, min_shards=2)
-@skip
+@skip(cluster=False, min_shards=2)
 def test_add_shard_and_migrate_hybrid_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.HYBRID')
