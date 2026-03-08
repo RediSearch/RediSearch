@@ -1105,10 +1105,11 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
-    // Add back the previous index. this shouldn't fail
+    // Add back the previous index. This shouldn't fail - use INDEXALIAS_NO_LIMIT_CHECK
+    // to bypass the alias limit during rollback to ensure we restore the original state
     if (spOrig) {
       QueryError e2 = QueryError_Default();
-      IndexAlias_Add(alias, Orig_ref, 0, &e2);
+      IndexAlias_Add(alias, Orig_ref, INDEXALIAS_NO_LIMIT_CHECK, &e2);
       QueryError_ClearError(&e2);
     }
     rc = QueryError_ReplyAndClear(ctx, &status);
@@ -1118,6 +1119,37 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   HiddenString_Free(alias, false);
   return rc;
+}
+
+// FT.ALIASLIST <index>
+// Returns all aliases for the given index
+static int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lOpts = {.nameR = argv[1],
+                            .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!checkEnterpriseACL(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  size_t count = array_len(sp->aliases);
+  // Use Set for RESP3 consistency with the documentation and cluster-mode handler
+  RedisModule_ReplyWithSet(ctx, count);
+  for (size_t i = 0; i < count; i++) {
+    size_t len;
+    const char *alias = HiddenString_GetUnsafe(sp->aliases[i], &len);
+    RedisModule_ReplyWithStringBuffer(ctx, alias, len);
+  }
+  return REDISMODULE_OK;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1746,6 +1778,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_ALIASUPDATE,         AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALIASDEL,            AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALIASDEL_IF_EX,      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALIASLIST,           AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, true),
 
     // Suggestion commands key specs should be 1, 1, 1
     DEFINE_COMMAND(RS_SUGADD_CMD,     RSSuggestAddCommand,    "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
@@ -3812,11 +3845,13 @@ static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
 
-int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 3) {
+// Helper for commands that use uniqueStringsReducer to merge results from shards.
+// Used by FT.TAGVALS and FT.ALIASLIST.
+static int UniqueStringsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                       int min_argc) {
+  if (argc < min_argc) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
-    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -3831,11 +3866,18 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
   MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
   return REDISMODULE_OK;
+}
+
+int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return UniqueStringsCommandHandler(ctx, argv, argc, 3);
+}
+
+int AliasListCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return UniqueStringsCommandHandler(ctx, argv, argc, 2);
 }
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -4641,6 +4683,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", SetFtSpellcheckInfo,         SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
     DEFINE_COMMAND("FT.HYBRID",     SafeCmd(DistHybridCommand),        "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.CURSOR",     NULL,                              "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.ALIASLIST",  SafeCmd(AliasListCommandHandler),  "readonly", SetFtAliaslistInfo,          SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
   };
   if (CreateSearchCommands(ctx, readCommands, sizeof(readCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
