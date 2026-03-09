@@ -101,6 +101,7 @@ pub enum QueryErrorCode {
     JsonTypeBad,
     ClusterNoResponses,
     FlexSearchNocontentOrReturn0Required,
+    FlexSearchLoadUnsupported,
 }
 
 impl Debug for QueryErrorCode {
@@ -472,6 +473,11 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED ",
                 default_msg: c"NOCONTENT or RETURN 0 must be provided for disk indexes",
                 default_full_msg: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED NOCONTENT or RETURN 0 must be provided for disk indexes",
+            },
+            Self::FlexSearchLoadUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED ",
+                default_msg: c"LOAD is not supported for disk indexes",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED LOAD is not supported for disk indexes",
             },
         }
     }

@@ -365,7 +365,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
  * This function extracts the aggregate-specific parsing logic that was previously
  * part of AREQ_Compile, allowing it to be reused for merge plans in hybrid queries.
  */
-int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, QueryError *status);
+int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.

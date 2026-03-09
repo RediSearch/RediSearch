@@ -266,3 +266,14 @@ def test_flex_search_allows_nocontent_withscores(env):
     env.assertEqual(res[0], 1)
     env.assertEqual(res[1], 'doc:1')
     env.assertGreater(float(res[2]), 0.0)
+
+
+@skip(cluster=True)
+def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LOAD', '1', '@t') \
+        .error().contains('LOAD is not supported for disk indexes')
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '0', 'LOAD', '1', '@t') \
+        .error().contains('LOAD is not supported for disk indexes')

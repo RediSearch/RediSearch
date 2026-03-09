@@ -987,8 +987,12 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   ArgsCursor loadfields = {0};
+  if (isDiskIndex) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
+    return REDISMODULE_ERR;
+  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -1070,7 +1074,7 @@ uint8_t AREQ_GetReplyState(AREQ *req) {
   return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
 }
 
-int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
+int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
     int rv = handleCommonArgs(papCtx, ac, status);
     if (rv == ARG_HANDLED) {
@@ -1092,7 +1096,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -1176,7 +1180,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
     .keySpaceVersion = &req->keySpaceVersion,
     .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
-  if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
+  if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 
