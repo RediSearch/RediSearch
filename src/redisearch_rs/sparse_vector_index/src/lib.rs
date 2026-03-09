@@ -62,7 +62,7 @@ const RS_FIELDMASK_ALL: t_fieldMask = !0;
 ///
 /// Each posting list is an [`EntriesTrackingIndex`] with [`Numeric`] encoding,
 /// storing `(doc_id, weight)` pairs. This structure is analogous to how
-/// [`TagIndex`] maps tag values to InvertedIndex instances, but uses a
+/// `TagIndex` maps tag values to InvertedIndex instances, but uses a
 /// HashMap for O(1) dimension lookup instead of a Trie.
 ///
 /// # Similarity Metrics
