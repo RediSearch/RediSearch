@@ -358,14 +358,14 @@ AREQ *AREQ_New(void);
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..
  */
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status);
+int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status);
 
 /**
  * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
  * This function extracts the aggregate-specific parsing logic that was previously
  * part of AREQ_Compile, allowing it to be reused for merge plans in hybrid queries.
  */
-int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, QueryError *status);
+int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.
