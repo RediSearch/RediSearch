@@ -81,15 +81,21 @@ static void topologyFailureCB(uv_timer_t *timer) {
 }
 
 static void topologyTimerCB(uv_timer_t *timer) {
+  static int checkCount = 0;
+  checkCount++;
   if (MR_CheckTopologyConnections(true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     loop_th_ready = true;
-    RedisModule_Log(RSDummyContext, "verbose", "All nodes connected");
+    RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: topologyTimerCB: All nodes connected after %d checks, setting loop_th_ready=true", checkCount);
+    checkCount = 0;
     uv_timer_stop(&topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&topologyFailureTimer);    // stop failure timer (as we are connected)
     triggerPendingQueues();
   } else {
-    RedisModule_Log(RSDummyContext, "verbose", "Waiting for all nodes to connect");
+    // Log every 1000 checks (~1 second) to avoid log spam
+    if (checkCount % 1000 == 1) {
+      RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: topologyTimerCB: Waiting for nodes (check #%d), loop_th_ready=%d", checkCount, loop_th_ready);
+    }
   }
 }
 
@@ -241,16 +247,22 @@ void RQ_Done(MRWorkQueue *q) {
 }
 
 static void rqAsyncCb(uv_async_t *async) {
+  RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqAsyncCb: ENTERED, loop_th_ready=%d", loop_th_ready);
   if (!loop_th_ready) {
+    RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqAsyncCb: DEFERRED - loop_th_ready=false");
     array_ensure_append_1(pendingQueues, async); // try again later
     return;
   }
   MRWorkQueue *q = async->data;
   struct queueItem *req;
+  int processed = 0;
   while (NULL != (req = rqPop(q))) {
+    processed++;
+    RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqAsyncCb: executing job #%d", processed);
     req->cb(req->privdata);
     rm_free(req);
   }
+  RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqAsyncCb: EXITING, processed %d jobs", processed);
 }
 
 MRWorkQueue *RQ_New(int maxPending) {
