@@ -92,7 +92,7 @@ impl<'a> RLookup<'a> {
         self.options |= options;
     }
 
-    pub fn are_options_enabled(&mut self, options: RLookupOptions) -> bool {
+    pub fn are_options_enabled(&self, options: RLookupOptions) -> bool {
         self.options.contains(options)
     }
 
