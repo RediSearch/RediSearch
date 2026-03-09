@@ -689,7 +689,7 @@ pub unsafe extern "C" fn RLookup_IterMut(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[cfg(debug_assertions)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_AssertValid(lookup: *const OpaqueRLookup) {
+pub unsafe extern "C" fn __RLookup_AssertValid(lookup: *const OpaqueRLookup) {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
 

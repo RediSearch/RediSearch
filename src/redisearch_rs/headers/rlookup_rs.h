@@ -642,7 +642,7 @@ RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_AssertValid(const struct RLookup *lookup);
+void __RLookup_AssertValid(const struct RLookup *lookup);
 
 /**
  * Returns a newly created [`RLookupRow`].
