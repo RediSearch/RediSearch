@@ -83,6 +83,8 @@ size_t RLookupKey_GetNameLen(const RLookupKey* key);
  */
 uint32_t RLookupKey_GetFlags(const RLookupKey* key);
 
+bool RLookupKey_IsTombstone(const RLookupKey* key);
+
 typedef struct RLookup {
   /** DO NOT ACCESS DIRECTLY. USE RLookup_Iter or RLookup_IterMut INSTEAD! */
   RLookupKey *_head;
@@ -374,8 +376,12 @@ void RLookupRow_WriteByNameOwned(RLookup *lookup, const char *name, size_t len, 
  * @return the value if found, NULL otherwise.
  */
 static inline RSValue *RLookupRow_Get(const RLookupKey *key, const RLookupRow *row) {
-
   RSValue *ret = NULL;
+
+  if (!key || RLookupKey_IsTombstone(key)) {
+      return ret;
+  }
+
   if (row->dyn && array_len(row->dyn) > RLookupKey_GetDstIdx(key)) {
     ret = row->dyn[RLookupKey_GetDstIdx(key)];
   }

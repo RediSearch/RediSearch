@@ -151,10 +151,11 @@ setup_clang_sanitizer() {
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 	if [[ $SAN == addr || $SAN == address ]]; then
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=0"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1"
+		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1"
 		# :use_tls=0
-
+		# pprint(ASAN_OPTIONS)
+	    # exit 1
 	fi
 }
 
