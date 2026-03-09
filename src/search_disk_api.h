@@ -46,7 +46,13 @@ typedef struct AsyncReadResult {
 } AsyncReadResult;
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
+  /**
+   * @brief Open the disk storage context
+   * @param ctx Redis module context
+   * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @return Pointer to the disk context, or NULL on error
+   */
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
   /**
    * @brief Open an index spec

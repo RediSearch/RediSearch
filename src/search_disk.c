@@ -51,7 +51,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  disk_db = disk->basic.open(ctx);
+  // Pass the disk buffer percentage from config
+  disk_db = disk->basic.open(ctx, RSGlobalConfig.diskBufferPercentage);
 
   return disk_db != NULL;
 }

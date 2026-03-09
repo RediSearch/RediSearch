@@ -1241,6 +1241,33 @@ int get_on_oom(const char *name, void *privdata){
   return *((RSOomPolicy *)privdata);
 }
 
+// DISK_BUFFER_PERCENTAGE
+CONFIG_SETTER(setDiskBufferPercentage) {
+  // This config is only valid when disk mode is enabled
+  if (!SearchDisk_IsEnabled()) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_OPTION,
+      "DISK_BUFFER_PERCENTAGE is only valid when disk mode is enabled");
+    return REDISMODULE_ERR;
+  }
+  uint8_t newPercentage;
+  int acrc = AC_GetU8(ac, &newPercentage, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newPercentage > 100) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "DISK_BUFFER_PERCENTAGE must be between 1 and 100");
+    return REDISMODULE_ERR;
+  }
+  config->diskBufferPercentage = newPercentage;
+  // If disk is already initialized, update the buffer budget
+  SearchDisk_UpdateBufferBudget(RSDummyContext, (int)newPercentage);
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getDiskBufferPercentage) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->diskBufferPercentage);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1596,6 +1623,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Simulate working under Flex conditions. This is used for testing only.",
          .setValue = setDebugSimulateInFlex,
          .getValue = getDebugSimulateInFlex},
+        {.name = "DISK_BUFFER_PERCENTAGE",
+         .helpText = "Percentage of available memory to use for disk write buffer (1-100)",
+         .setValue = setDiskBufferPercentage,
+         .getValue = getDiskBufferPercentage},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
