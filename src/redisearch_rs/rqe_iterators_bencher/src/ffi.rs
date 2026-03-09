@@ -17,27 +17,6 @@ use inverted_index::{RSIndexResult, t_docId};
 use query_term::RSQueryTerm;
 use std::{ffi::c_void, ptr};
 
-// Direct C benchmark functions that eliminate FFI overhead
-// by implementing the benchmark loop entirely in C
-unsafe extern "C" {
-    /// Benchmark optional iterator read operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_optional_read_direct_c(
-        max_id: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-
-    /// Benchmark optional iterator skip_to operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_optional_skip_to_direct_c(
-        max_id: u64,
-        step: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-}
-
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
 pub struct QueryIterator(*mut ffi::QueryIterator);
@@ -284,41 +263,6 @@ fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
     unsafe {
         RedisModule_Free.unwrap()(ctx as *mut c_void);
     };
-}
-
-/// Direct C benchmark results
-#[derive(Debug, Clone)]
-pub struct DirectBenchmarkResult {
-    pub iterations: u64,
-    pub time_ns: u64,
-}
-
-impl QueryIterator {
-    /// Run direct C benchmark for optional read operations
-    pub fn benchmark_optional_read_direct(max_id: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_optional_read_direct_c(max_id, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-
-    /// Run direct C benchmark for optional skip_to operations
-    pub fn benchmark_optional_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_optional_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
 }
 
 /// Simple wrapper around the C InvertedIndex.
