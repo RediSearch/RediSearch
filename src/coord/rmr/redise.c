@@ -142,6 +142,8 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   dict *shards = dictCreate(&staticRIDtoShard, NULL);
   MRClusterTopology *topo = NULL;
   RLShard *sh = NULL;
+  dictIterator *iter = NULL;
+  dictEntry *de = NULL;
 
   // Parse shards. We have to free the collected shards if we encounter an error
   for (uint32_t i = 0; i < numRanges; i++) {
@@ -292,8 +294,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   // 1. All shards in the dict are valid
   // 2. We can identify my shard by myID
   topo = MR_NewTopology(dictSize(shards));
-  dictIterator *iter = dictGetIterator(shards);
-  dictEntry *de;
+  iter = dictGetIterator(shards);
   while ((de = dictNext(iter)) != NULL) {
     RLShard *sh = dictGetVal(de);
     // Only add master shards with slots

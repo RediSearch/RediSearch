@@ -533,9 +533,9 @@ void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status);
 // Calls IndexSpec_Parse after wrapping name with a hidden string
-StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status);
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
@@ -642,8 +642,8 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp);
+IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);

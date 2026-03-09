@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "rlookup_load_document.h"
 
 #include <math.h>
 #include <ctype.h>
@@ -98,6 +99,15 @@ static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisM
 
 // Forward declaration for disk validation
 inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
+
+/**
+ * Checks if SST persistence is enabled for the given RDB context.
+ */
+bool CheckRdbSstPersistence(RedisModuleCtx *ctx, const char* prefix) {
+  const bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
+  RedisModule_Log(ctx, "notice", "%s, SST persistence: %s", prefix, useSst ? "true" : "false");
+  return useSst;
+}
 
 //---------------------------------------------------------------------------------------------
 
@@ -310,7 +320,7 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  return IndexSpec_Parse(name, args, argc, status);
+  return IndexSpec_Parse(ctx, name, args, argc, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1697,7 +1707,7 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
@@ -1782,12 +1792,13 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   // Store on disk if we're on Flex.
   // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
   // is available when parsing vector fields (for populating diskCtx).
+  // For new indexes (FT.CREATE), we don't delete before open since there's nothing to delete.
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, name, len, spec->rule->type, false);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -1834,9 +1845,9 @@ failure:  // on failure free the spec fields array and return an error
   return INVALID_STRONG_REF;
 }
 
-StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
-  return IndexSpec_Parse(hidden, argv, argc, status);
+  return IndexSpec_Parse(ctx, hidden, argv, argc, status);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
@@ -2008,7 +2019,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
 
-  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
+  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
 
   // Free spec struct
   rm_free(spec);
@@ -2792,6 +2803,9 @@ if (scanner->isDebug) { \
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
+  size_t counter = 0;
+  RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
+
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
@@ -2804,9 +2818,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
-
-  size_t counter = 0;
-  RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (globalDebugCtx.debugMode) {
     // If we are in debug mode, we need to use the debug scanner function
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
@@ -3182,7 +3193,7 @@ void Indexes_ScanAndReindex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // Save the name plus the null terminator
   HiddenString_SaveToRdb(sp->specName, rdb);
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
@@ -3213,48 +3224,57 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
     RedisModule_SaveUnsigned(rdb, 0);
   }
 
+  const bool storeDiskRdbData = contextFlags & REDISMODULE_CTX_FLAGS_SST_RDB;
   // Disk index
   // Check if we are using SST files with this RDB. If so, we save the disk-related
   // RAM-based data-structures to the RDB.
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
-  if (sp->diskSpec && useSst) {
+  if (sp->diskSpec && storeDiskRdbData) {
     // If we're saving from the main process (not a fork), we need to acquire
     // the read lock to ensure consistent access to the data structures.
     // In a forked child process, the memory is a snapshot so no lock is needed.
-    bool inFork = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_IS_CHILD;
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-    if (!inFork) {
+    const bool inMainProcess = !(contextFlags & REDISMODULE_CTX_FLAGS_IS_CHILD);
+    if (inMainProcess) {
       RedisSearchCtx_LockSpecRead(&sctx);
     }
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
-    if (!inFork) {
+    if (inMainProcess) {
       RedisSearchCtx_UnlockSpec(&sctx);
     }
   }
 }
 
-IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
-  char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
-  size_t len = strlen(rawName);
-  HiddenString* specName = NewHiddenString(rawName, len, true);
+IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
+  char *rawName = NULL;
+  size_t len = 0;
+  HiddenString* specName = NULL;
+  IndexSpec *sp = NULL;
+  StrongRef spec_ref = {0};
+  IndexFlags flags = 0;
+  int16_t numFields = 0;
+  size_t narr = 0;
+
+  rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
+  len = strlen(rawName);
+  specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
+  sp = rm_calloc(1, sizeof(IndexSpec));
+  spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
   // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
-  IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
+  flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
-  int16_t numFields = LoadUnsigned_IOError(rdb, goto cleanup);
+  numFields = LoadUnsigned_IOError(rdb, goto cleanup);
 
   initializeIndexSpec(sp, specName, flags, numFields);
 
@@ -3306,7 +3326,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
 
   sp->timeout = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  size_t narr = LoadUnsigned_IOError(rdb, goto cleanup);
+  narr = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t ii = 0; ii < narr; ++ii) {
     QueryError _status;
     char *s = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
@@ -3320,27 +3340,24 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   }
 
   // Open the index on disk only if we are on Flex, and this is not a duplicate.
+  // If SST persistence was NOT used, delete existing disk data before opening
+  // since there's no SST data to restore from (stale data must be cleared).
   if (isSpecOnDisk(sp) && !sp->isDuplicate) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, !useSst);
     IndexSpec_PopulateVectorDiskParams(sp);
     if (!sp->diskSpec) {
       goto cleanup;
     }
   }
 
-  // Check if we are using SST files with this RDB.
-  // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
-  // assume it was not set in when the RDB was saved as well.
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-
   // Load the disk-related index data if we are on disk and the save flow used
   // sst-files, even if this is a duplicate.
   // In the case of a duplicate, `sp->diskSpec=NULL` thus handled appropriately
   // On the disk side (RDB is depleted, without updating index fields).
-  bool useSst = IS_SST_RDB_IN_PROCESS(ctx);
   if (encver >= INDEX_DISK_VERSION && isSpecOnDisk(sp) && useSst) {
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
@@ -3400,9 +3417,9 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
   return REDISMODULE_OK;
 }
 
-static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, QueryError *status) {
+static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   // Load the index spec using the new function
-  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, status);
+  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
   return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
@@ -3511,7 +3528,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type);
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+    // Legacy RDB does not have SST persistence, so always delete before opening.
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
     // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
     // data in this version of RDB (encver).
     if (!sp->diskSpec) {
@@ -3541,19 +3560,21 @@ void IndexSpec_LegacyRdbSave(RedisModuleIO *rdb, void *value) {
 }
 
 int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
+  const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load");
+  size_t nIndexes = 0;
+  QueryError status = QueryError_Default();
 
   if (encver < INDEX_MIN_COMPAT_VERSION) {
     return REDISMODULE_ERR;
   }
 
-  size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
-  QueryError status = QueryError_Default();
+  nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   if (!SearchDisk_CheckLimitNumberOfIndexes(nIndexes)) {
     RedisModule_LogIOError(rdb, "warning", "Too many indexes for flex. Having %zu indexes, but flex only supports %d.", nIndexes, FLEX_MAX_INDEX_COUNT);
     return REDISMODULE_ERR;
   }
   for (size_t i = 0; i < nIndexes; ++i) {
-    if (IndexSpec_CreateFromRdb(rdb, encver, &status) != REDISMODULE_OK) {
+    if (IndexSpec_CreateFromRdb(rdb, encver, useSst, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
@@ -3571,6 +3592,8 @@ cleanup:
 }
 
 void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  const int contextFlags = RedisModule_GetContextFlags(ctx);
 
   RedisModule_SaveUnsigned(rdb, dictSize(specDict_g));
 
@@ -3579,7 +3602,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    IndexSpec_RdbSave(rdb, sp);
+    IndexSpec_RdbSave(rdb, sp, contextFlags);
   }
 
   dictReleaseIterator(iter);
@@ -3592,6 +3615,7 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
 }
 
 void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
+  const bool useSst = CheckRdbSstPersistence(RedisModule_GetContextFromIO(rdb), "RDB Load Logic");
   if (encver < INDEX_VECSIM_SVS_VAMANA_VERSION) {
     // Legacy index, loaded in order to upgrade from an old version
     return IndexSpec_LegacyRdbLoad(rdb, encver);
@@ -3600,7 +3624,7 @@ void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
     // Even though we don't actually load or save the index spec in the key space, this implementation is useful
     // because it allows us to serialize and deserialize the index spec in a clean way.
     QueryError status = QueryError_Default();
-    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, &status);
+    IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
     if (!sp) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
       QueryError_ClearError(&status);
@@ -3672,7 +3696,9 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
 }
 
 static void IndexSpec_RdbSave_Wrapper(RedisModuleIO *rdb, void *value) {
-  IndexSpec_RdbSave(rdb, value);
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+  const int contextFlags = RedisModule_GetContextFlags(ctx);
+  IndexSpec_RdbSave(rdb, value, contextFlags);
 }
 
 int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
@@ -3805,7 +3831,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
+        // ctx is NULL because we don't create the index here
+        VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
         if(!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, id);
       }
@@ -3927,7 +3954,9 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       }
 
       // load document only if required
-      if (!r) r = EvalCtx_Create();
+      if (!r) {
+        r = EvalCtx_Create(EVAL_MODE_INDEX);
+      }
 
       RedisSearchCtx sctx = { .redisCtx = ctx };
       QueryError status = QueryError_Default();
@@ -3939,9 +3968,10 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
           specOp->op = SpecOp_Del;
         }
       }
-      QueryError_ClearError(r->ee.err);
-      // Clean up the row and lookup between iterations (indexes)
+      // Clean up state between iterations (indexes)
+      QueryError_ClearError(&r->status);
       RLookup_Cleanup(&r->lk);
+      r->lk = RLookup_New();
       RLookupRow_Reset(&r->row);
     }
 

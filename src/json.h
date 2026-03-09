@@ -47,6 +47,8 @@ void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
+int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
+
 /* Creates a Redis Module String from JSONType string, int, double, bool */
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len, FieldSpec *fs,
                            struct DocumentField *df, RedisModuleCtx *ctx, QueryError *status);

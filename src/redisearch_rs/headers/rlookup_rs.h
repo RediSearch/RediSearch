@@ -17,6 +17,10 @@ typedef uint32_t RLookupOptions;
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
+// Forward declarations of iterator types
+typedef struct RLookupIterator RLookupIterator;
+typedef struct RLookupIteratorMut RLookupIteratorMut;
+
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))

@@ -832,6 +832,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
                             QueryError *status) {
   // Just a list of functions..
   PLN_Reducer *gr = array_ensure_tail(&gstp->reducers, PLN_Reducer);
+  const char *alias = NULL;
 
   gr->name = name;
   int rv = AC_GetVarArgs(ac, &gr->args);
@@ -840,7 +841,6 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     goto error;
   }
 
-  const char *alias = NULL;
   // See if there is an alias
   if (AC_AdvanceIfMatch(ac, "AS")) {
     rv = AC_GetString(ac, &alias, NULL, 0);
@@ -1156,13 +1156,14 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
+  ParseAggPlanContext papCtx;
   if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  ParseAggPlanContext papCtx = {
+  papCtx = (ParseAggPlanContext){
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->reqConfig,

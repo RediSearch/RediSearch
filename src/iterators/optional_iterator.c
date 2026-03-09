@@ -10,7 +10,6 @@
 #include "optional_iterator.h"
 #include "iterator_api.h"
 #include "types_rs.h"
-#include "wildcard_iterator.h"
 #include "iterators_rs.h"
 
 typedef struct {

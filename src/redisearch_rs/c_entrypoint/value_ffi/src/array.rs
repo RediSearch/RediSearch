@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::{mem::MaybeUninit, ptr};
+
 use crate::util::expect_value;
 use value::{Array, RsValue, shared::SharedRsValue};
 
@@ -20,9 +22,13 @@ use value::{Array, RsValue, shared::SharedRsValue};
 /// 1. The caller must eventually pass the returned pointer to [`RSValue_NewArrayFromBuilder`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut RsValue {
-    let array: Vec<*mut RsValue> = vec![std::ptr::null_mut(); len as usize];
+    let array = Box::new_zeroed_slice(len as usize);
 
-    Box::into_raw(array.into_boxed_slice()) as *mut _
+    // Safety: we zero-initialized the slice above. It is therefore correctly initialized with
+    // null pointers are required.
+    let array = unsafe { Box::<[MaybeUninit<*mut RsValue>]>::assume_init(array) };
+
+    Box::into_raw(array).cast::<*mut RsValue>()
 }
 
 /// Creates a heap-allocated array [`RsValue`] from existing values.
@@ -41,7 +47,8 @@ pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
     len: u32,
 ) -> *mut RsValue {
     // Safety: ensured by caller (1.)
-    let array = unsafe { Vec::from_raw_parts(values, len as usize, len as usize) };
+    let array: Box<[*mut RsValue]> =
+        unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(values, len as usize)) };
 
     let array = array
         .into_iter()
@@ -51,7 +58,7 @@ pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
 
     let value = RsValue::Array(Array::new(array));
     let shared = SharedRsValue::new(value);
-    shared.into_raw() as *mut _
+    shared.into_raw().cast_mut()
 }
 
 /// Returns the number of elements in an array [`RsValue`].
@@ -94,7 +101,7 @@ pub unsafe extern "C" fn RSValue_ArrayItem(value: *const RsValue, index: u32) ->
     if let RsValue::Array(array) = value {
         // Compatibility: C does an RS_ASSERT on index out of bounds
         let shared = &array[index as usize];
-        shared.as_ptr() as *mut _
+        shared.as_ptr().cast_mut()
     } else {
         // Compatibility: C does an RS_ASSERT on incorrect type
         panic!("Expected 'Array' type, got '{}'", value.variant_name())

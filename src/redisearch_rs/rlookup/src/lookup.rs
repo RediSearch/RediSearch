@@ -10,9 +10,8 @@
 mod key;
 mod key_list;
 
-use crate::RLookupRow;
 use crate::{
-    IndexSpec,
+    IndexSpec, RLookupRow,
     bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
 };
 use enumflags2::{BitFlags, bitflags};

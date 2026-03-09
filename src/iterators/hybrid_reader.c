@@ -10,7 +10,7 @@
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
-#include "wildcard_iterator.h"
+#include "iterators_rs.h"
 #include "query.h"
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
