@@ -41,7 +41,7 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
     return 1;
   }
 
-  RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
+  RSValue *val = RLookupRow_Get(fvx->retprop, srcrow);
   if (!val) val = RSValue_NullStatic();
   fvx->value = RSValue_IncrRef(val);
   return 1;
@@ -49,10 +49,10 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   fvCtx *fvx = ctx;
-  RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
+  RSValue *val = RLookupRow_Get(fvx->retprop, srcrow);
   if (!val) val = RSValue_NullStatic();
 
-  RSValue *curSortval = RLookup_GetItem(fvx->sortprop, srcrow);
+  RSValue *curSortval = RLookupRow_Get(fvx->sortprop, srcrow);
   if (!curSortval) curSortval = RSValue_NullStatic();
 
   if (!fvx->sortval) {

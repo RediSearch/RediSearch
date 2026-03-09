@@ -9,13 +9,19 @@
 
 #include "search_disk.h"
 #include "config.h"
-#include "index_result/query_term/query_term.h"
+#include "spec.h"
+#include "trie/trie_type.h"
+#include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
 static bool asyncIOEnabled = true;
+
+// Throttle callbacks for vector disk tiered indexes
+static int VecSim_EnableThrottle(void);
+static int VecSim_DisableThrottle(void);
 
 // Weak default implementations for when disk API is not available
 __attribute__((weak))
@@ -41,9 +47,50 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   }
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
-  disk_db = disk->basic.open(ctx);
+  // Set throttle callbacks for vector disk tiered indexes
+  RS_ASSERT(disk->basic.setThrottleCallbacks);
+  disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
+
+  disk_db = disk->basic.open();
 
   return disk_db != NULL;
+}
+
+// Callback for BigModuleRegister - returns total disk usage across all indexes
+static size_t getDiskUsageCallback(void) {
+  size_t total = 0;
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      total += SearchDisk_GetDiskUsage(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+  return total;
+}
+
+bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
+  if (!RedisModule_BigModuleRegister) {
+    RedisModule_Log(ctx, "notice", "BigModuleRegister not available");
+    return false;
+  }
+
+  RedisModuleBigCallbacksV1 callbacks = {
+    .version = REDISMODULE_BIG_CALLBACKS_VERSION,
+    .getDiskUsage = getDiskUsageCallback,
+  };
+
+  if (RedisModule_BigModuleRegister(ctx, &callbacks) != REDISMODULE_OK) {
+    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks");
+    return false;
+  }
+
+  RedisModule_Log(ctx, "notice", "Registered BigModule disk usage callback");
+  return true;
 }
 
 void SearchDisk_Close() {
@@ -54,9 +101,9 @@ void SearchDisk_Close() {
 }
 
 // Basic API wrappers
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type) {
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen) {
     RS_ASSERT(disk_db);
-    return disk->basic.openIndexSpec(disk_db, indexName, indexNameLen, type);
+    return disk->basic.openIndexSpec(ctx, disk_db, indexName, indexNameLen, type, deleteBeforeOpen);
 }
 
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
@@ -64,9 +111,9 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
+void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk_db && index);
-    disk->basic.closeIndexSpec(disk_db, index);
+    disk->basic.closeIndexSpec(ctx, disk_db, index);
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
@@ -80,26 +127,37 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 }
 
 // Index API wrappers
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq) {
     RS_ASSERT(disk && index);
-    return disk->index.indexDocument(index, term, termLen, docId, fieldMask, freq);
+    return disk->index.indexTerm(index, term, termLen, docId, fieldMask, freq);
+}
+
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && index);
+    return disk->index.indexTags(ctx, index, values, numValues, docId, fieldIndex);
 }
 
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf) {
     RS_ASSERT(disk && index && tok);
     RSQueryTerm *term = NewQueryTerm(tok, tokenId);
-    term->idf = idf;
-    term->bm25_idf = bm25_idf;
-    QueryIterator *it = disk->index.newTermIterator(index, term, fieldMask, weight);
-    if (!it) {
-        Term_Free(term);
-    }
-    return it;
+    QueryTerm_SetIDFs(term, idf, bm25_idf);
+    // Ownership of `term` is transferred to Rust, which handles cleanup on all paths
+    return disk->index.newTermIterator(index, term, fieldMask, weight);
+}
+
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight) {
+    RS_ASSERT(disk && index && tok);
+    return disk->index.newTagIterator(index, tok, fieldIndex, weight);
 }
 
 QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
     RS_ASSERT(disk && index);
     return disk->index.newWildcardIterator(index, weight);
+}
+
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *spec) {
+    RS_ASSERT(disk && index && spec);
+    return disk->index.runGC(index, spec);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl) {
@@ -207,10 +265,10 @@ bool SearchDisk_IsEnabledForValidation() {
 }
 
 // Vector API wrappers
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params) {
-    RS_ASSERT(disk && index && params);
+void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params) {
+    RS_ASSERT(disk && ctx && index && params);
     RS_ASSERT(disk->vector.createVectorIndex);
-    return disk->vector.createVectorIndex(index, params);
+    return disk->vector.createVectorIndex(ctx, index, params);
 }
 
 void SearchDisk_FreeVectorIndex(void *vecIndex) {
@@ -221,6 +279,24 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
+// Throttle callback wrappers for VecSim
+static int VecSim_EnableThrottle(void) {
+  RS_ASSERT(RedisModule_EnablePostponeClients);
+  return RedisModule_EnablePostponeClients();  // Always returns OK
+}
+
+static int VecSim_DisableThrottle(void) {
+  RS_ASSERT(RedisModule_DisablePostponeClients);
+  int ret = RedisModule_DisablePostponeClients();
+  if (ret == REDISMODULE_ERR) {
+      // This indicates a bug: disable called without matching enable
+      RedisModule_Log(RSDummyContext, "warning",
+          "VecSim_DisableThrottle: no matching enable call");
+  }
+
+  return ret;
+}
+
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && disk_db && index);
   return disk->metrics.collectIndexMetrics(disk_db, index);
@@ -229,4 +305,14 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   RS_ASSERT(disk && disk_db && ctx);
   disk->metrics.outputInfoMetrics(disk_db, ctx);
+}
+
+uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->index.getDiskUsage(index);
+}
+
+void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.flush(index);
 }

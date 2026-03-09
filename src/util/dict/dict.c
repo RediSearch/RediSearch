@@ -58,7 +58,7 @@
 #include "dict.h"
 #include "redismodule.h"
 #include <assert.h>
-#include "../rmalloc.h"
+#include "rmalloc.h"
 #include "obfuscation/hidden.h"
 
 uint64_t stringsHashFunction(const void *key){

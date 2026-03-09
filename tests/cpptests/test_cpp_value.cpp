@@ -31,18 +31,18 @@ TEST_F(ValueTest, testBasic) {
   v = RSValue_NewString(str2, strlen(str2));
   ASSERT_EQ(RSValueType_String, RSValue_Type(v));
   uint32_t v_str_len;
-  char *v_str = RSValue_String_Get(v, &v_str_len);
+  const char *v_str = RSValue_String_Get(v, &v_str_len);
   ASSERT_EQ(strlen(str), v_str_len);
   ASSERT_EQ(0, strcmp(str, v_str));
   RSValue_DecrRef(v);
 }
 
 TEST_F(ValueTest, testArray) {
-  RSValue **array = RSValue_AllocateArray(3);
-  array[0] = RSValue_NewConstString("foo", strlen("foo"));
-  array[1] = RSValue_NewConstString("bar", strlen("bar"));
-  array[2] = RSValue_NewConstString("baz", strlen("baz"));
-  RSValue *arr = RSValue_NewArray(array, 3);
+  RSValue **array = RSValue_NewArrayBuilder(3);
+  array[0] = RSValue_NewBorrowedString("foo", strlen("foo"));
+  array[1] = RSValue_NewBorrowedString("bar", strlen("bar"));
+  array[2] = RSValue_NewBorrowedString("baz", strlen("baz"));
+  RSValue *arr = RSValue_NewArrayFromBuilder(array, 3);
 
   ASSERT_EQ(3, RSValue_ArrayLen(arr));
   ASSERT_EQ(RSValueType_String, RSValue_Type(RSValue_ArrayItem(arr, 0)));
@@ -58,13 +58,9 @@ TEST_F(ValueTest, testArray) {
 }
 
 static std::string toString(RSValue *v) {
-  RSValue *tmp = RSValue_NewUndefined();
-  RSValue_ToString(tmp, v);
-  size_t n = 0;
-  const char *s = RSValue_StringPtrLen(tmp, &n);
-  std::string ret(s, n);
-  RSValue_DecrRef(tmp);
-  return ret;
+  char buf[32];
+  size_t n = RSValue_NumToString(v, buf, sizeof(buf));
+  return std::string(buf, n);
 }
 
 TEST_F(ValueTest, testNumericFormat) {

@@ -8,7 +8,6 @@
 */
 
 #include "union_iterator.h"
-#include "wildcard_iterator.h"
 #include "iterators_rs.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
@@ -61,8 +60,8 @@ void UI_SyncIterList(UnionIterator *ui) {
   }
 }
 
-static size_t UI_NumEstimated(QueryIterator *base) {
-  UnionIterator *ui = (UnionIterator *)base;
+static size_t UI_NumEstimated(const QueryIterator *base) {
+  const UnionIterator *ui = (const UnionIterator *)base;
   size_t estimation = 0;
   for (size_t i = 0; i < ui->num_orig; ++i) {
     estimation += ui->its_orig[i]->NumEstimated(ui->its_orig[i]);

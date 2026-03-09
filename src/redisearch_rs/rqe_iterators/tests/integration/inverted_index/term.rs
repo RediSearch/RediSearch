@@ -7,34 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use approx::assert_abs_diff_eq;
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
     t_docId, t_fieldMask,
 };
 use field::FieldMaskOrIndex;
-use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetVector, full::Full};
-use rqe_iterators::{NoOpChecker, inverted_index::Term};
+use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice, full::Full};
+use query_term::RSQueryTerm;
+use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Term};
 
-use crate::{
-    ffi::query_term::QueryTermBuilder,
-    inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest},
-};
+use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
-// # Safety
-// The returned RSIndexResult contains raw pointers to `term` and `offsets`.
-// These pointers are valid for 'static because the data is moved into the closure
-// in test constructors and lives for the entire duration of the test. The raw pointers
-// are only used within the test's lifetime, making this safe despite the 'static claim.
 fn expected_record(
     doc_id: t_docId,
     field_mask: t_fieldMask,
-    term: *mut ffi::RSQueryTerm,
-    offsets: &[u8],
+    term: Box<query_term::RSQueryTerm>,
+    offsets: &'static [u8],
 ) -> RSIndexResult<'static> {
-    RSIndexResult::term_with_term_ptr(
+    RSIndexResult::with_term(
         term,
-        RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+        RSOffsetSlice::from_slice(offsets),
         doc_id,
         field_mask,
         (doc_id / 2) as u32 + 1,
@@ -52,24 +46,17 @@ impl TermBaseTest {
             | IndexFlags_Index_StoreFieldFlags
             | IndexFlags_Index_StoreByteOffsets;
 
-        const TEST_STR: &str = "term";
-
-        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        const OFFSETS: &'static [u8] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
         Self {
             test: BaseTest::new(
                 flags,
                 Box::new(move |doc_id| {
-                    let term = QueryTermBuilder {
-                        token: TEST_STR,
-                        idf: 5.0,
-                        id: 1,
-                        flags: 0,
-                        bm25_idf: 10.0,
-                    }
-                    .allocate();
+                    let mut term = RSQueryTerm::new("term", 1, 0);
+                    term.set_idf(5.0);
+                    term.set_bm25_idf(10.0);
                     // Use doc_id as field_mask so we can test FilterMaskReader
-                    expected_record(doc_id, doc_id as t_fieldMask, term, &offsets)
+                    expected_record(doc_id, doc_id as t_fieldMask, term, OFFSETS)
                 }),
                 n_docs,
             ),
@@ -82,7 +69,15 @@ impl TermBaseTest {
     {
         let reader = self.test.ii.reader();
 
-        Term::new(reader, NoOpChecker)
+        unsafe {
+            Term::new(
+                reader,
+                self.test.mock_ctx.sctx(),
+                RSQueryTerm::new("term", 1, 0),
+                1.0,
+                NoOpChecker,
+            )
+        }
     }
 }
 
@@ -91,13 +86,30 @@ impl TermBaseTest {
 fn term_read() {
     let test = TermBaseTest::new(100);
     let mut it = test.create_iterator();
+
+    // Read the first record and verify the term, weight, and IDF are correct.
+    let record = it.read().unwrap().expect("expected at least one record");
+    assert_eq!(record.weight, 1.0);
+    let term = record
+        .as_term()
+        .expect("expected term record")
+        .query_term()
+        .expect("expected query term");
+
+    // IDF is computed by Term::new() from MockContext's numDocuments (0) and unique_docs (101).
+    // calculate_idf(0, 101) = floor(log2(1 + 1/101)) = floor(~0.014) = 0.0
+    assert_eq!(term.idf(), 0.0);
+    // calculate_idf_bm25(0, 101) — total_docs clamped to term_docs (101).
+    assert_abs_diff_eq!(term.bm25_idf(), 0.004914014802429163);
+
+    it.rewind();
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
 /// test skipping from Term iterator
 fn term_skip_to() {
-    let test = TermBaseTest::new(100);
+    let test = TermBaseTest::new(10);
     let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
@@ -107,7 +119,15 @@ fn term_skip_to() {
 fn term_filter() {
     let test = TermBaseTest::new(10);
     let reader = FilterMaskReader::new(1, test.test.ii.reader());
-    let mut it = Term::new(reader, NoOpChecker);
+    let mut it = unsafe {
+        Term::new(
+            reader,
+            test.test.mock_ctx.sctx(),
+            RSQueryTerm::new("term", 1, 0),
+            1.0,
+            NoOpChecker,
+        )
+    };
     // results have their doc id as field mask so we filter by odd ids
     let docs_ids = test.test.docs_ids_iter().filter(|id| id % 2 == 1);
     test.test.read(&mut it, docs_ids);
@@ -125,28 +145,21 @@ mod not_miri {
 
     impl TermExpirationTest {
         fn with_flags(flags: ffi::IndexFlags, n_docs: u64, multi: bool) -> Self {
-            const TEST_STR: &str = "term";
-
             // Offsets are delta-varint-encoded when written via ForwardIndexEntry.
             // Writing values 0, 1, 2, 3... results in stored deltas 0, 1, 1, 1...
-            let offsets = vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+            const OFFSETS: &'static [u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
             Self {
                 test: ExpirationTest::term(
                     flags,
                     Box::new(move |doc_id| {
-                        let term = QueryTermBuilder {
-                            token: TEST_STR,
-                            idf: 5.0,
-                            id: 1,
-                            flags: 0,
-                            bm25_idf: 10.0,
-                        }
-                        .allocate();
+                        let mut term = RSQueryTerm::new("term", 1, 0);
+                        term.set_idf(5.0);
+                        term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter
                         // and expiration is actually tested (not just field mask filtering).
                         // Use u32::MAX for non-wide tests to avoid overflow in the encoder.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, term, &offsets)
+                        expected_record(doc_id, u32::MAX as t_fieldMask, term, OFFSETS)
                     }),
                     n_docs,
                     multi,
@@ -183,7 +196,15 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            Term::new(reader, checker)
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new("term", 1, 0),
+                    1.0,
+                    checker,
+                )
+            }
         }
 
         fn create_iterator_wide(
@@ -198,7 +219,15 @@ mod not_miri {
             let field_mask = self.test.text_field_bit();
             let reader = self.test.term_inverted_index_wide().reader(field_mask);
             let checker = self.test.create_mock_checker();
-            Term::new(reader, checker)
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new("term", 1, 0),
+                    1.0,
+                    checker,
+                )
+            }
         }
 
         fn mark_even_ids_expired(&mut self) {
@@ -260,26 +289,19 @@ mod not_miri {
 
     impl TermRevalidateTest {
         fn new(n_docs: u64) -> Self {
-            const TEST_STR: &str = "term";
-
             // Offsets are delta-varint-encoded when written via ForwardIndexEntry.
             // Writing values 0, 1, 2, 3... results in stored deltas 0, 1, 1, 1...
-            let offsets = vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+            const OFFSETS: &'static [u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
             Self {
                 test: RevalidateTest::new(
                     RevalidateIndexType::Term,
                     Box::new(move |doc_id| {
-                        let term = QueryTermBuilder {
-                            token: TEST_STR,
-                            idf: 5.0,
-                            id: 1,
-                            flags: 0,
-                            bm25_idf: 10.0,
-                        }
-                        .allocate();
+                        let mut term = RSQueryTerm::new("term", 1, 0);
+                        term.set_idf(5.0);
+                        term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, term, &offsets)
+                        expected_record(doc_id, u32::MAX as t_fieldMask, term, OFFSETS)
                     }),
                     n_docs,
                 ),
@@ -296,7 +318,15 @@ mod not_miri {
         > {
             let field_mask = self.test.context.text_field_bit();
             let reader = self.test.context.term_inverted_index().reader(field_mask);
-            Term::new(reader, NoOpChecker)
+            unsafe {
+                Term::new(
+                    reader,
+                    self.test.context.sctx,
+                    RSQueryTerm::new("term", 1, 0),
+                    1.0,
+                    NoOpChecker,
+                )
+            }
         }
     }
 
@@ -330,14 +360,78 @@ mod not_miri {
             RQEValidateStatus::Ok
         );
 
-        // TODO: test once check_abort() is implemented
+        // Simulate the term's inverted index being garbage collected and
+        // replaced by swapping the reader's stored index pointer to a
+        // different (dummy) index. Redis_OpenInvertedIndex will still
+        // return the original, so the pointer comparison will fail.
+        let flags = test.test.context.term_inverted_index().flags();
+        let dummy = Box::leak(Box::new(inverted_index::InvertedIndex::<
+            inverted_index::full::Full,
+        >::new(flags)));
+        let mut dummy_ref: &inverted_index::InvertedIndex<inverted_index::full::Full> = dummy;
+
+        it.swap_index(&mut dummy_ref);
+
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Aborted
+        );
+
+        // Swap back and free the dummy for proper cleanup.
+        it.swap_index(&mut dummy_ref);
+        // SAFETY: `dummy_ref` now points back to the leaked dummy allocation.
+        drop(unsafe {
+            Box::from_raw(
+                dummy_ref as *const _
+                    as *mut inverted_index::InvertedIndex<inverted_index::full::Full>,
+            )
+        });
     }
 
     #[test]
-    #[ignore] //TODO
+    fn term_revalidate_after_index_gc_collected() {
+        let test = TermRevalidateTest::new(10);
+
+        // Build the iterator with a query term that does not exist in keysDict.
+        // This simulates the GC having collected the entire inverted index for
+        // that term: Redis_OpenInvertedIndex will return null when should_abort
+        // tries to look it up.
+        let field_mask = test.test.context.text_field_bit();
+        let reader = test.test.context.term_inverted_index().reader(field_mask);
+        let gc_collected_term = RSQueryTerm::new("gc_collected", 1, 0);
+        // SAFETY: reader and sctx are valid pointers from the test context.
+        let mut it = unsafe {
+            Term::new(
+                reader,
+                test.test.context.sctx,
+                gc_collected_term,
+                1.0,
+                NoOpChecker,
+            )
+        };
+
+        // The reader still works because it reads from the actual inverted
+        // index — only the query term stored in the result differs.
+        assert!(it.read().expect("failed to read").is_some());
+
+        // Revalidation calls should_abort which looks up "gc_collected" in
+        // keysDict. The term is not there so Redis_OpenInvertedIndex returns
+        // null, triggering the abort path.
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Aborted
+        );
+    }
+
+    #[test]
     fn term_revalidate_after_document_deleted() {
-        // TODO: Implement once FieldMaskTrackingIndex exposes mutable access to inner index
-        // for document deletion in tests.
-        todo!()
+        let test = TermRevalidateTest::new(10);
+        let mut it = test.create_iterator();
+        let ii = {
+            use inverted_index::{full::Full, opaque::OpaqueEncoding};
+            Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+        };
+
+        test.test.revalidate_after_document_deleted(&mut it, ii);
     }
 }

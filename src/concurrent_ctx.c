@@ -48,6 +48,7 @@ typedef struct ConcurrentCmdCtx {
   int options;
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
+  size_t numShards;                   // Number of shards in the cluster (captured from main thread)
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -82,7 +83,9 @@ static void threadHandleCommand(void *p) {
 
   RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
 
-  RedisModule_UnblockClient(ctx->bc, NULL);
+  void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
+
+  RedisModule_UnblockClient(ctx->bc, privdata);
   rm_free(ctx->argv);
   rm_free(p);
 }
@@ -99,15 +102,32 @@ rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(ConcurrentCmdCtx *cctx) {
   return cctx->coordStartTime;
 }
 
+size_t ConcurrentCmdCtx_GetNumShards(const ConcurrentCmdCtx *cctx) {
+  return cctx->numShards;
+}
+
+RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(ConcurrentCmdCtx *cctx) {
+  return cctx->bc;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
-  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  // If timeoutMS is not 0, timeout callback must be set
+  RS_ASSERT(handlerCtx->bcCtx.timeoutMS == 0 || handlerCtx->bcCtx.callback != NULL);
+
+  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, handlerCtx->bcCtx.callback, handlerCtx->bcCtx.free_privdata, handlerCtx->bcCtx.timeoutMS);
+
+  if (handlerCtx->bcCtx.privdata) {
+    RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);
+  }
+
   cmdCtx->argc = argc;
   cmdCtx->spec_ref = handlerCtx->spec_ref;
   cmdCtx->coordStartTime = handlerCtx->coordStartTime;
+  cmdCtx->numShards = handlerCtx->numShards;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;

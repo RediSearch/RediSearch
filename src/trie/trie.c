@@ -840,6 +840,12 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     }
   }
 
+  int beginEqIdx = -1;
+  int endEqIdx = -1;
+  int beginIdx = 0;
+  int endIdx = -1;
+  rsbHelper h = {0};
+
   TrieNode **arr = __trieNode_children(n);
   size_t arrlen = n->numChildren;
   if (!arrlen) {
@@ -849,9 +855,6 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
 
   // Find the minimum range here..
   // Use binary search to find the beginning and end ranges:
-  rsbHelper h;
-
-  int beginEqIdx = -1;
   if (nmin > 0) {
     // searching for node that matches the prefix of our min value
     h.r = min;
@@ -859,7 +862,6 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     beginEqIdx = rsb_eq(arr, arrlen, sizeof(*arr), &h, rsbComparePrefix);
   }
 
-  int endEqIdx = -1;
   if (nmax > 0) {
     // searching for node that matches the prefix of our max value
     h.r = max;
@@ -906,7 +908,6 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     rangeIterate(child, nextMin, nNextMin, NULL, -1, r);
   }
 
-  int beginIdx = 0;
   if (nmin > 0) {
     // search for the first element which are greater then our min value
     h.r = min;
@@ -914,7 +915,7 @@ static void rangeIterate(TrieNode *n, const rune *min, int nmin, const rune *max
     beginIdx = rsb_gt(arr, arrlen, sizeof(*arr), &h, rsbCompareExact);
   }
 
-  int endIdx = nmax ? arrlen - 1 : -1;
+  endIdx = nmax ? arrlen - 1 : -1;
   if (nmax > 0) {
     // search for the first element which are less then our max value
     h.r = max;
@@ -990,7 +991,8 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
 
 // Contains iteration.
 void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefix, bool suffix,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout) {
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                              bool skipTimeoutChecks) {
   // exact match - should not be used. change to assert
   if (!prefix && !suffix) {
     TrieNode *node = TrieNode_Get(n, (rune *)str, nstr, true, NULL);
@@ -1000,11 +1002,12 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
     return;
   }
 
+  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
       .timeout = timeout ? *timeout : (struct timespec){0},
-      .timeoutCounter = 0,
+      .timeoutCounter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
@@ -1145,12 +1148,14 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
 }
 
 void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
-                              TrieRangeCallback callback, void *ctx, struct timespec *timeout) {
+                              TrieRangeCallback callback, void *ctx, struct timespec *timeout,
+                              bool skipTimeoutChecks) {
+  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
       .timeout = timeout ? *timeout : (struct timespec){0},
-      .timeoutCounter = 0,
+      .timeoutCounter = skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0,
       .origStr = str,
       .lenOrigStr = nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),

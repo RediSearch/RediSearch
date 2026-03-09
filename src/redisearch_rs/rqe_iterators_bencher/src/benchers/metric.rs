@@ -54,7 +54,6 @@ impl Bencher {
 
     pub fn bench(&self, c: &mut Criterion) {
         self.read_dense(c);
-        self.read_sparse(c);
         self.skip_to_dense(c);
         self.skip_to_sparse(c);
     }
@@ -62,12 +61,6 @@ impl Bencher {
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Metric - Read Dense");
         self.rust_read_dense(&mut group);
-        group.finish();
-    }
-
-    fn read_sparse(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Metric - Read Sparse");
-        self.rust_read_sparse(&mut group);
         group.finish();
     }
 
@@ -99,23 +92,6 @@ impl Bencher {
             );
         });
     }
-    fn rust_read_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("Rust", |b| {
-            b.iter_batched_ref(
-                || {
-                    let BenchInput { ids, metric_data } = sparse_input();
-                    MetricSortedById::new(ids, metric_data)
-                },
-                |it| {
-                    while let Ok(Some(current)) = it.read() {
-                        black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
     fn rust_skip_to_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
             let step = 100;

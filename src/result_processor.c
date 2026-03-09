@@ -14,6 +14,7 @@
 #include "ext/default.h"
 #include "result_processor_rs.h"
 #include "rlookup.h"
+#include "rlookup_load_document.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
@@ -203,9 +204,22 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
 /**
  * Handle initial spec lock and iterator revalidation.
  * Returns true if we should goto validate_current (VALIDATE_MOVED case).
+ *
+ * * For disk indexes, we skip the lock acquisition because:
+ * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
+ *    during QAST_Iterate() which already runs under the read-lock.
+ * 2. Disk iterators capture an implicit snapshot at creation time, ensuring
+ *    consistency for disk reads without needing to hold the lock.
+ * 3. This avoids blocking the main thread during disk IO operations.
  */
 static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
+  // For disk indexes, return immediately, since we don't need to acquire the
+  // lock, nor to revalidate the iterators.
+  if (sctx->spec->diskSpec) {
+    return false;
+  }
+
   QueryIterator *it = self->iterator;
 
   if (sctx->flags != RS_CTX_UNSET) {
@@ -213,6 +227,7 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   }
 
   RedisSearchCtx_LockSpecRead(sctx);
+
   ValidateStatus rc = it->Revalidate(it);
 
   if (rc == VALIDATE_ABORTED) {
@@ -232,7 +247,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RedisSearchCtx *sctx = self->sctx;
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
-    // Handle spec lock and revalidation
+  // Handle spec lock and revalidation
   bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
 
   // Always update it after revalidation as iterator may have been replaced
@@ -254,7 +269,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
         RS_ASSERT(rc == ITERATOR_OK);
       }
     }
-    
+
     // validate current result only once
     needToValidateCurrent = false;
 
@@ -282,7 +297,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // Handle spec lock and revalidation
   // no need store the return value since validate current result is not needed for async disk path
   handleSpecLockAndRevalidate(self);
-  
+
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
 
@@ -357,6 +372,8 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
+  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
+  ret->timeoutLimiter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
 
   // Initialize async read state
   IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
@@ -693,8 +710,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   }
 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
-    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
+    const RSValue *v1 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
+    const RSValue *v2 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
@@ -913,7 +930,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
   } else {
     self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
-    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALL_LOADED); // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
   }
 
   self->lk = lk;
@@ -1195,6 +1212,7 @@ static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   if (RS_RESULT_OK == rc) {
     RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
     size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
+    RS_ASSERT(keyLen <= UINT32_MAX);
     RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
   }
   return rc;
@@ -1514,7 +1532,7 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
-  RSValue *distanceValue = RLookup_GetItem(self->scoreKey, SearchResult_GetRowData(r));
+  RSValue *distanceValue = RLookupRow_Get(self->scoreKey, SearchResult_GetRowData(r));
   if (distanceValue) {
     double originalScore = 0.0;
     if (RSValue_ToNumber(distanceValue, &originalScore)) {
@@ -1706,8 +1724,8 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock depletionStart;
   rs_wall_clock_init(&depletionStart);
 
-  // Check if timeout was exceeded before starting execution
-  if (TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
+  // Check if timeout was exceeded before starting execution (respecting skipTimeoutChecks flag)
+  if (self->depletingThreadCtx->time.skipTimeoutChecks || TimedOut(&self->depletingThreadCtx->time.timeout) == NOT_TIMED_OUT) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
     // No need to do actual work, but still update the lock counter to be in sync
@@ -1819,8 +1837,8 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
   if (self->first_call) {
     self->first_call = false;
 
-    // Check timeout before attempting to start thread
-    if (TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
+    // Check timeout before attempting to start thread (respecting skipTimeoutChecks flag)
+    if (!self->nextThreadCtx->time.skipTimeoutChecks && TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
       base->Next = RPSafeDepleter_Next_Yield;
       self->last_rc = RS_RESULT_TIMEDOUT;
       return base->Next(base, r);
@@ -2015,7 +2033,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  */
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
-  RLookupRow translated = {0};
+  RLookupRow translated = RLookupRow_New();
   RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
       self->lookupCtx->sourceLookups[upstreamIndex], &translated,
       self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
@@ -2027,7 +2045,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
-    RSValue *docKeyValue = RLookup_GetItem(self->docKey, SearchResult_GetRowData(r));
+    RSValue *docKeyValue = RLookupRow_Get(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }
@@ -2216,7 +2234,9 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   ret->sctx = sctx;
-  ret->timeoutCounter = 0;
+  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
+  RS_ASSERT(sctx);
+  ret->timeoutCounter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
   RS_ASSERT(numUpstreams > 0);
   ret->numUpstreams = numUpstreams;
 
@@ -2576,11 +2596,13 @@ typedef struct {
 static void RPDepleter_Deplete(RPDepleter *self) {
   RPStatus rc;
   SearchResult *r = rm_calloc(1, sizeof(*r));
+  *r = SearchResult_New();
 
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
+    *r = SearchResult_New();
     self->depleted_results++;
   }
 

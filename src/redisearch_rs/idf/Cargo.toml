@@ -1,0 +1,16 @@
+[package]
+name = "idf"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+workspace_hack.workspace = true
+
+[dev-dependencies]
+approx.workspace = true
+rstest.workspace = true
+
+[lints]
+workspace = true

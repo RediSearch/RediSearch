@@ -370,6 +370,33 @@ def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
 
+def allShards_set_info_on_zero_indexes(env, enabled: bool):
+    """
+    Enable/disable INFO MODULES full output when there are zero indexes.
+
+    In cluster mode, applies to all OSS shards. In standalone mode, applies to the single node.
+    Asserts success (all replies are OK).
+    """
+    val = 'yes' if enabled else 'no'
+    if env.isCluster():
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+        return
+    res = env.cmd('CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+    env.assertEqual(res, 'OK')
+    return
+
+def shard_set_info_on_zero_indexes(env, enabled: bool):
+    """
+    Enable/disable INFO MODULES full output when there are zero indexes on the current node.
+
+    Uses `getConnectionByEnv(env)` so callers don't need to pass a shard id.
+    """
+    val = 'yes' if enabled else 'no'
+    conn = getConnectionByEnv(env)
+    res = conn.execute_command('CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+    env.assertEqual(res, 'OK')
+    return res
+
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
@@ -462,6 +489,12 @@ MAX_DIALECT = 0
 def set_max_dialect(env):
     global MAX_DIALECT
     if MAX_DIALECT == 0:
+        # Ensure INFO MODULES is not in minimal suppression mode when there are zero indexes.
+        # This keeps dialect discovery simple and consistent across tests.
+        # We only query INFO MODULES on the current connection, so it's enough to set this locally
+        # (no need to broadcast to all shards).
+        shard_set_info_on_zero_indexes(env, True)
+
         info = env.cmd('INFO', 'MODULES')
         prefix = 'search_dialect_'
         MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])

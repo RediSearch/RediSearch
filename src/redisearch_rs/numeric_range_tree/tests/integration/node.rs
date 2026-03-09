@@ -11,7 +11,7 @@
 
 use numeric_range_tree::NumericRangeNode;
 
-use super::helpers::{SPLIT_TRIGGER, build_tree};
+use numeric_range_tree::test_utils::{SPLIT_TRIGGER, build_tree};
 
 #[test]
 fn test_new_leaf() {

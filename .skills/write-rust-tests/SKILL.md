@@ -1,6 +1,6 @@
 ---
 name: write-rust-tests
-description: Write Rust tests to verify correctness of Rust code.
+description: Write Rust tests to verify correctness of Rust code. Use this when you want to write Rust tests.
 ---
 
 # Write Rust Tests

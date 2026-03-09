@@ -17,10 +17,24 @@
 #include "coord/special_case_ctx.h"
 #include "config.h"
 #include "vector_index.h"
+#include "query_error.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Validate a SHARD_K_RATIO value string.
+ *
+ * Parses the string as a double and validates it's within the valid range:
+ * (MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO] (exclusive min, inclusive max)
+ *
+ * @param value The string value to parse and validate
+ * @param ratio Output parameter for the parsed ratio value
+ * @param status QueryError to populate on failure
+ * @return true on success, false on failure (with status populated)
+ */
+bool validateShardKRatio(const char *value, double *ratio, QueryError *status);
 
 /**
  * Calculate effective K value for shard window ratio optimization.
@@ -74,6 +88,19 @@ static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t 
 
  */
 void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK, VectorQuery *vq);
+
+/**
+ * Modify VSIM KNN K value in a built command.
+ *
+ * This function replaces the K value argument at the specified index with
+ * the calculated effective K value for shard distribution.
+ *
+ * @param cmd The MRCommand to modify
+ * @param kArgIndex Index of the K value argument in cmd (as returned by MRCommand_appendVsim)
+ * @param effectiveK The calculated effective K value for shards
+ * @param originalK The original K value from the VectorQuery
+ */
+void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK, size_t originalK);
 
 #ifdef __cplusplus
 }

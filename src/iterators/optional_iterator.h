@@ -16,16 +16,14 @@
 extern "C" {
 #endif
 
-typedef struct {
-  QueryIterator base;     // base index iterator
-  QueryIterator *child;   // child index iterator
-  QueryIterator *wcii;    // wildcard child iterator, used for optimization
-  RSIndexResult *virt;
-  t_docId maxDocId;
-  double weight;
-} OptionalIterator;
-
 QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight);
+
+QueryIterator const *GetOptionalIteratorChild(const QueryIterator *const it);
+void SetOptionalIteratorChild(QueryIterator *it, QueryIterator* child);
+QueryIterator *TakeOptionalIteratorChild(QueryIterator *it);
+
+QueryIterator const *GetOptionalOptimizedIteratorWildcard(QueryIterator *const it);
+void SetOptionalOptimizedIteratorWildcard(QueryIterator *it, QueryIterator* newWcii);
 
 #ifdef __cplusplus
 }

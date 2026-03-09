@@ -46,7 +46,7 @@ struct RSValue {
     } _arrval;
 
     // map value
-    RSValueMap _mapval;
+    RSValueMapBuilder _mapval;
 
     // trio value
     struct {
@@ -134,6 +134,13 @@ RSValue *RSValue_Dereference(const RSValue *v) {
   return (RSValue *)v;
 }
 
+RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v) {
+  if (!v) return NULL;
+  if (v->_t == RSValueType_Reference) return RSValue_DereferenceRefAndTrio(v->_ref);
+  if (v->_t == RSValueType_Trio) return RSValue_DereferenceRefAndTrio(RSValue_Trio_GetLeft(v));
+  return (RSValue *)v;
+}
+
 void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
@@ -167,7 +174,7 @@ inline void RSValue_SetNumber(RSValue *v, double n) {
   v->_numval = n;
 }
 
-inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
+inline void RSValue_SetString(RSValue *v, char *str, uint32_t len) {
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = str;
@@ -175,7 +182,7 @@ inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
 }
 
 
-inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
+inline void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len) {
   v->_t = RSValueType_String;
   v->_strval.len = len;
   v->_strval.str = (char *)str;
@@ -216,7 +223,7 @@ RSValue *RSValue_NewString(char *str, uint32_t len) {
 }
 
 /* Same as RSValue_NewString but for const strings */
-RSValue *RSValue_NewConstString(const char *str, uint32_t len) {
+RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
   v->_strval.str = (char *) str;
   v->_strval.len = len;
@@ -236,12 +243,13 @@ RSValue *RSValue_NullStatic() {
   return &RS_NULL;
 }
 
-RSValue *RSValue_NewCopiedString(const char *s, size_t n) {
+RSValue *RSValue_NewCopiedString(const char *s, uint32_t len) {
   RSValue *v = RSValue_NewWithType(RSValueType_String);
-  char *cp = rm_malloc(n + 1);
-  cp[n] = 0;
-  memcpy(cp, s, n);
-  RSValue_SetString(v, cp, n);
+  size_t alloc_size = (size_t)len;
+  char *cp = rm_malloc(alloc_size + 1);
+  cp[alloc_size] = 0;
+  memcpy(cp, s, alloc_size);
+  RSValue_SetString(v, cp, len);
   return v;
 }
 
@@ -270,27 +278,24 @@ RSValue *RSValue_NewNumberFromInt64(int64_t dd) {
   return v;
 }
 
-RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
+RSValue *RSValue_NewArrayFromBuilder(RSValue **vals, uint32_t len) {
   RSValue *arr = RSValue_NewWithType(RSValueType_Array);
   arr->_arrval.vals = vals;
   arr->_arrval.len = len;
   return arr;
 }
 
-RSValueMap RSValueMap_AllocUninit(uint32_t len) {
-  RSValueMapEntry *entries =
-    (len > 0) ? (RSValueMapEntry*) rm_malloc(len * sizeof(RSValueMapEntry)) : NULL;
-  RSValueMap map = {
-    .len = len,
-    .entries = entries,
-  };
-
+RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len) {
+  RSValueMapBuilder *map = rm_malloc(sizeof(RSValueMapBuilder));
+  map->len = len;
+  map->entries = (len > 0) ? (RSValueMapBuilderEntry*) rm_malloc(len * sizeof(RSValueMapBuilderEntry)) : NULL;
   return map;
 }
 
-RSValue *RSValue_NewMap(RSValueMap map) {
+RSValue *RSValue_NewMapFromBuilder(RSValueMapBuilder *map) {
   RSValue *v = RSValue_NewWithType(RSValueType_Map);
-  v->_mapval = map;
+  v->_mapval = *map;
+  rm_free(map);
   return v;
 }
 
@@ -352,7 +357,7 @@ double RSValue_Number_Get(const RSValue *v) {
 }
 
 // String getters/setters
-char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
+const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
   RS_ASSERT(v && v->_t == RSValueType_String);
   if(lenp) {
     *lenp = v->_strval.len;
@@ -408,7 +413,7 @@ void RSValue_Map_GetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue
   *val = map->_mapval.entries[i].value;
 }
 
-void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value) {
+void RSValue_MapBuilderSetEntry(RSValueMapBuilder *map, size_t i, RSValue *key, RSValue *value) {
   RS_ASSERT(i < map->len);
   map->entries[i].key = key;
   map->entries[i].value = value;
@@ -488,43 +493,11 @@ uint16_t RSValue_Refcount(const RSValue *v) {
 // Other Functions (utility, comparison, conversion, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
-void RSValue_ToString(RSValue *dst, RSValue *v) {
-  switch (v->_t) {
-    case RSValueType_String:
-      RSValue_MakeReference(dst, v);
-      break;
-    case RSValueType_RedisString: {
-      size_t sz;
-      const char *str = RedisModule_StringPtrLen(v->_rstrval, &sz);
-      RSValue_SetConstString(dst, str, sz);
-      break;
-    }
-    case RSValueType_Number: {
-      char tmpbuf[128];
-      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
-      char *buf = rm_strdup(tmpbuf);
-      RSValue_SetString(dst, buf, len);
-      break;
-    }
-    case RSValueType_Reference:
-      return RSValue_ToString(dst, v->_ref);
-
-    case RSValueType_Trio:
-      return RSValue_ToString(dst, RSValue_Trio_GetLeft(v));
-
-    case RSValueType_Null:
-    default:
-      return RSValue_SetConstString(dst, "", 0);
-  }
-}
-
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
-into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
-not. If possible, we put the actual value into the double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d) {
-  if (RSValue_IsNull(v)) return 0;
+into a number. Return true if the value is a number or a numeric string and can be converted, or
+false if not. If possible, we put the actual value into the double pointer */
+bool RSValue_ToNumber(const RSValue *v, double *d) {
+  if (RSValue_IsNull(v)) return false;
   v = RSValue_Dereference(v);
 
   const char *p = NULL;
@@ -533,7 +506,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     // for numerics - just set the value and return
     case RSValueType_Number:
       *d = v->_numval;
-      return 1;
+      return true;
 
     case RSValueType_String:
       // C strings - take the ptr and len
@@ -553,7 +526,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     case RSValueType_Map:
     case RSValueType_Undef:
     default:
-      return 0;
+      return false;
   }
   // If we have a string - try to parse it
   if (p) {
@@ -562,13 +535,13 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     *d = fast_float_strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
-      return 0;
+      return false;
     }
 
-    return 1;
+    return true;
   }
 
-  return 0;
+  return false;
 }
 
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
@@ -642,7 +615,7 @@ static inline bool convert_to_number(const RSValue *v, RSValue *vn, QueryError *
     if (!qerr) return false;
 
     const char *s = RSValue_StringPtrLen(v, NULL);
-    QueryError_SetWithUserDataFmt(qerr, QUERY_ERROR_CODE_NOT_NUMERIC, "Error converting string", " '%s' to number", s);
+    QueryError_SetWithUserDataFmt(qerr, QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID, "Error converting string", " '%s' to number", s);
     return false;
   }
 
@@ -705,7 +678,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
   }
 }
 
-RSValue **RSValue_AllocateArray(uint32_t len) {
+RSValue **RSValue_NewArrayBuilder(uint32_t len) {
   return (RSValue **)rm_malloc(len * sizeof(RSValue *));
 }
 
@@ -854,7 +827,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       if (obfuscate) {
         return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
-        char buf[128];
+        char buf[32];
         size_t len = RSValue_NumToString(v, buf, sizeof(buf));
         return sdscatlen(s, buf, len);
       }

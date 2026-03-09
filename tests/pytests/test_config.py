@@ -2,7 +2,7 @@ from RLTest import Env
 from includes import *
 from common import *
 
-not_modifiable = 'Not modifiable at runtime'
+not_modifiable = 'SEARCH_OPTION_BAD Not modifiable at runtime'
 default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
 def _test_config_str(arg_name, arg_value, ret_value=None):
@@ -37,10 +37,10 @@ def testConfig(env):
 @skip(cluster=True)
 def testConfigErrors(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
-    env.expect(config_cmd(), 'no_such_command', 'idx').equal(f'unknown subcommand \'no_such_command\'. Try {config_cmd()} HELP.')
-    env.expect(config_cmd(), 'idx').error().contains('unknown subcommand \'idx\'')
+    env.expect(config_cmd(), 'no_such_command', 'idx').error().contains("unknown subcommand 'no_such_command'")
+    env.expect(config_cmd(), 'idx').error().contains("unknown subcommand 'idx'")
     env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', 3) \
-        .equal('Max depth for range cannot be higher than max depth for balance')
+        .contains('Max depth for range cannot be higher than max depth for balance')
     env.expect(config_cmd(), 'set', 'MINSTEMLEN', 1).error()\
         .contains('Minimum stem length cannot be lower than')
     env.expect(config_cmd(), 'set', 'WORKERS', 1_000_000).error()\
@@ -94,6 +94,7 @@ def testGetConfigOptions(env):
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
     check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('BG_INDEX_SLEEP_DURATION_US')
     check_config('ON_OOM')
     check_config('_MIN_TRIM_DELAY_MS')
     check_config('_MAX_TRIM_DELAY_MS')
@@ -101,24 +102,24 @@ def testGetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
-    env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'EXTLOAD', 1).equal(not_modifiable)
-    env.expect(config_cmd(), 'set', 'NOGC', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'EXTLOAD', 1).error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'NOGC', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'DEFAULT_SCORER', 'BM25STD').equal('OK')
-    env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).equal(not_modifiable) # deprecated
-    env.expect(config_cmd(), 'set', 'MT_MODE', 1).equal(not_modifiable) # deprecated
-    env.expect(config_cmd(), 'set', 'FRISOINI', 1).equal(not_modifiable)
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).equal('Invalid ON_TIMEOUT value')
+    env.expect(config_cmd(), 'set', 'WORKER_THREADS', 1).error().contains(not_modifiable) # deprecated
+    env.expect(config_cmd(), 'set', 'MT_MODE', 1).error().contains(not_modifiable) # deprecated
+    env.expect(config_cmd(), 'set', 'FRISOINI', 1).error().contains(not_modifiable)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).error().contains('Invalid ON_TIMEOUT value')
     env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'GC_POLICY', 1).equal(not_modifiable)
+    env.expect(config_cmd(), 'set', 'GC_POLICY', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
@@ -128,18 +129,20 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 5).equal('OK')
+    env.expect(config_cmd(), 'set', 'ON_OOM', 1).error().contains('Invalid ON_OOM value')
     env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 1000).equal('OK')
     env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 8000).equal('OK')
     env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', 300).equal('OK')
 
+
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
-    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').equal(not_modifiable)
-    env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
-    env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').error().contains('Not modifiable at runtime')
+    env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
@@ -150,14 +153,17 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
+    # Test BG_INDEX_SLEEP_DURATION_US validation (max 999999 due to usleep POSIX limit, min 1)
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 0).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', 'BG_INDEX_SLEEP_DURATION_US', 1000000).contains('BG_INDEX_SLEEP_DURATION_US must be between 1 and 999999')
     # Test _MIN_TRIM_DELAY_MS validation
-    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', '_MIN_TRIM_DELAY_MS', -1).contains('Value is outside acceptable bounds')
     # Test _MAX_TRIM_DELAY_MS validation
-    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', '_MAX_TRIM_DELAY_MS', -1).contains('Value is outside acceptable bounds')
     # Test _TRIMMING_STATE_CHECK_DELAY_MS validation
-    env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', 'str').equal('Could not convert argument to expected type')
+    env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
@@ -241,6 +247,7 @@ def testInitConfig():
     _test_config_num('_BG_INDEX_MEM_PCT_THR', 100)
     _test_config_num('BM25STD_TANH_FACTOR', 4)
     _test_config_num('_BG_INDEX_OOM_PAUSE_TIME', 0)
+    _test_config_num('BG_INDEX_SLEEP_DURATION_US', 5)
 
 
 # True/False arguments
@@ -561,6 +568,7 @@ numericConfigs = [
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
     ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
     ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
+    ('search-bg-index-sleep-duration-us', 'BG_INDEX_SLEEP_DURATION_US', 1, 1, 999999, False, False),
     ('search-_trimming-state-check-delay-ms', '_TRIMMING_STATE_CHECK_DELAY_MS', 100, 1, UINT32_MAX, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
@@ -1370,6 +1378,13 @@ booleanConfigs = [
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
 ]
 
+# CONFIG-only boolean parameters (no corresponding FT.CONFIG parameter / module argument)
+# These should be validated via CONFIG GET/SET only.
+configOnlyBooleanConfigs = [
+    # configName, defaultValue
+    ('search-_info-on-zero-indexes', 'no'),
+]
+
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeBooleanParams():
     env = Env(noDefaultModuleArgs=True)
@@ -1415,6 +1430,29 @@ def testConfigAPIRunTimeBooleanParams():
             _testImmutableBooleanConfig(env, configName, ftConfigName, defaultValue)
         else:
             _testBooleanConfig(env, configName, ftConfigName, defaultValue)
+
+@skip(redis_less_than='7.9.227')
+def testConfigAPIConfigOnlyBooleanParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    if env.isCluster():
+        conn = env.getOSSMasterNodesConnectionList()[0]
+        cmd = conn.execute_command
+    else:
+        cmd = env.cmd
+
+    for configName, defaultValue in configOnlyBooleanConfigs:
+        # Default value
+        env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, defaultValue])
+
+        # Toggle ON/OFF
+        for val in ['yes', 'no']:
+            env.assertEqual(cmd('CONFIG', 'SET', configName, val), 'OK')
+            env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, val])
+
+        # Invalid values should fail
+        env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
+            .contains('CONFIG SET failed')
 
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexBooleanParams():

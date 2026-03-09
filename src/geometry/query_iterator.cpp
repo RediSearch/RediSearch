@@ -35,7 +35,7 @@ IteratorStatus CPPQueryIterator::read_single() noexcept {
 }
 
 IteratorStatus CPPQueryIterator::read() noexcept {
-  uint32_t timeoutCounter = 0;
+  uint32_t timeoutCounter = initTimeoutCounter_;
   IteratorStatus rc = ITERATOR_OK;
   do {
     if (TimedOut_WithCounter(&sctx_->time.timeout, &timeoutCounter)) {
@@ -99,7 +99,7 @@ void QIter_Free(QueryIterator *self) {
   std::allocator_traits<alloc_type>::destroy(alloc, qi);
   std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
-std::size_t QIter_NumEstimated(QueryIterator *ctx) {
+std::size_t QIter_NumEstimated(const QueryIterator *ctx) {
   return reinterpret_cast<CPPQueryIterator const *>(ctx)->len();
 }
 void QIter_Rewind(QueryIterator *ctx) {

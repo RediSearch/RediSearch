@@ -1,6 +1,6 @@
 ---
 name: analyze-rust-ffi-crate-surface
-description: Determine which parts of the C codebase use Rust-defined C symbols.
+description: Determine which parts of the C codebase use Rust-defined C symbols. Use this when you want to understand which C code files may be impacted by changes to a Rust FFI crate.
 ---
 
 # Analyze Rust FFI Crate Surface

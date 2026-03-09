@@ -1,6 +1,6 @@
 ---
 name: run-rust-benchmarks
-description: Run Rust benchmarks and compare performance with the C implementation
+description: Run Rust benchmarks and compare performance with the C implementation. Use this when you work on migrating C code to Rust and want to ensure performance is not regressed.
 ---
 
 # Rust Benchmarks Skill
@@ -24,7 +24,8 @@ Arguments provided: `$ARGUMENTS`
      ```bash
      cd src/redisearch_rs && cargo bench -p <crate_name> <bench_name>
      ```
-2. Once the benchmarks are complete, generate a summary comparing the average run times between the Rust and C implementations.
+2. **Run benchmarks only once.** If the output is too large or truncated, extract the timing data from the saved output file rather than re-running the benchmarks.
+3. Once the benchmarks are complete, generate a summary comparing the average run times between the Rust and C implementations.
 
 ## Common Benchmark Commands
 

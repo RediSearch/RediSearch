@@ -194,13 +194,16 @@ impl NumericRangeTree {
 
                 // Balance the node if the tree structure changed, and update depth.
                 if rv.changed {
-                    let new_depth = Self::balance_node(nodes, node_idx, &mut rv);
+                    let br = Self::balance_node(nodes, node_idx);
+                    rv.size_delta += br.size_delta;
+                    rv.num_records_delta += br.num_records_delta;
+                    rv.num_ranges_delta += br.num_ranges_delta;
                     if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx] {
-                        internal.max_depth = new_depth;
+                        internal.max_depth = br.new_depth;
                     }
 
                     // Check if we're too high up to retain this node's range
-                    if new_depth > max_depth_range as u32 {
+                    if br.new_depth > max_depth_range as u32 {
                         Self::remove_range(nodes, node_idx, &mut rv);
                     }
                 }
@@ -216,7 +219,7 @@ impl NumericRangeTree {
                 // If this leaf was emptied (e.g. by the GC) and is about to be re-populated,
                 // update the empty_leaves counter.
                 if leaf.range.num_docs() == 0 {
-                    *empty_leaves = empty_leaves.saturating_sub(1);
+                    *empty_leaves = empty_leaves.checked_sub(1).expect("Underflow!");
                 }
 
                 let size = leaf.range.add(doc_id, value);
@@ -379,8 +382,9 @@ impl NumericRangeTree {
     /// [`Self::MAXIMUM_DEPTH_IMBALANCE`]. Unlike standard AVL trees, we don't perform
     /// double rotations—the simpler approach is sufficient for our use case.
     ///
-    /// Returns the new `max_depth` for the node at `node_idx`. The caller is
-    /// responsible for updating the node's `max_depth` field.
+    /// Returns a [`BalanceResult`] describing the new depth and any changes
+    /// caused by the rotation. The caller is responsible for updating the
+    /// node's `max_depth` field and applying the relevant delta fields.
     ///
     /// # Rotation Strategy
     ///
@@ -391,13 +395,12 @@ impl NumericRangeTree {
     ///   and the old root becomes the right child of the new root.
     ///   See [`InternalNode::rotate_right`](crate::InternalNode::rotate_right).
     #[must_use]
-    pub(super) fn balance_node(
-        nodes: &mut NodeArena,
-        node_idx: NodeIndex,
-        rv: &mut AddResult,
-    ) -> u32 {
+    pub(super) fn balance_node(nodes: &mut NodeArena, node_idx: NodeIndex) -> BalanceResult {
         let NumericRangeNode::Internal(internal) = &nodes[node_idx] else {
-            return nodes[node_idx].max_depth();
+            return BalanceResult {
+                new_depth: nodes[node_idx].max_depth(),
+                ..Default::default()
+            };
         };
         let left_depth = nodes[internal.left_index()].max_depth();
         let right_depth = nodes[internal.right_index()].max_depth();
@@ -407,7 +410,15 @@ impl NumericRangeTree {
         } else if left_depth > right_depth + Self::MAXIMUM_DEPTH_IMBALANCE {
             InternalNode::rotate_right(nodes, node_idx)
         } else {
-            return left_depth.max(right_depth) + 1;
+            return BalanceResult {
+                new_depth: left_depth.max(right_depth) + 1,
+                ..Default::default()
+            };
+        };
+
+        let mut result = BalanceResult {
+            new_depth: nodes[node_idx].max_depth(),
+            ..Default::default()
         };
 
         // If a rotation dropped ranges, update stats.
@@ -416,13 +427,29 @@ impl NumericRangeTree {
                 let Some(range) = range else {
                     continue;
                 };
-                rv.size_delta -= range.memory_usage() as i64;
-                rv.num_records_delta -= range.num_entries() as i32;
-                rv.num_ranges_delta -= 1;
+                result.size_delta -= range.memory_usage() as i64;
+                result.num_records_delta -= range.num_entries() as i32;
+                result.num_ranges_delta -= 1;
             }
         }
 
-        // Return the correct depth. After rotation, read from node (set by rotate).
-        nodes[node_idx].max_depth()
+        result
     }
+}
+
+/// Result of a [`NumericRangeTree::balance_node`] operation.
+///
+/// Captures the new depth and any delta changes caused by a rotation
+/// (e.g. dropped ranges). Callers apply the relevant fields to their
+/// own result type ([`AddResult`] or [`TrimEmptyLeavesResult`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct BalanceResult {
+    /// The new `max_depth` for the balanced node.
+    pub new_depth: u32,
+    /// Change in inverted index memory from dropped ranges.
+    pub size_delta: i64,
+    /// Change in record count from dropped ranges.
+    pub num_records_delta: i32,
+    /// Change in range count from dropped ranges.
+    pub num_ranges_delta: i32,
 }

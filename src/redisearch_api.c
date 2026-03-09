@@ -606,6 +606,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     options.language = sp->rule->lang_default;
   }
 
+  const char *defaultScorer = NULL;
+  ExtScoringFunctionCtx* scoreCtx = NULL;
+
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
   it->sctx = SEARCH_CTX_STATIC(NULL, sp);
 
@@ -629,9 +632,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  defaultScorer = RSGlobalConfig.defaultScorer;
   RS_LOG_ASSERT(defaultScorer, "No default scorer");
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
+  scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
@@ -865,6 +868,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
 
+  // Report fork when any GC is present
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
     info->score = sp->rule->score_default;
@@ -897,12 +901,11 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->indexingFailures = sp->stats.indexError.error_count;
 
   if (sp->gc) {
-    // LLAPI always uses ForkGC
-    ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
-
-    info->totalCollected = gcStats.totalCollected;
-    info->numCycles = gcStats.numCycles;
-    info->totalMSRun = gcStats.totalMSRun;
+    InfoGCStats gcStats;
+    GCContext_GetStats(sp->gc, &gcStats);
+    info->totalCollected = (size_t)(gcStats.totalCollectedBytes >= 0 ? gcStats.totalCollectedBytes : 0);
+    info->numCycles = gcStats.totalCycles;
+    info->totalMSRun = (long long)gcStats.totalTime;
     info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
 

@@ -46,10 +46,26 @@ typedef struct AsyncReadResult {
 } AsyncReadResult;
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
+  RedisSearchDisk *(*open)(void);
   void (*close)(RedisSearchDisk *disk);
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type);
-  void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  /**
+   * @brief Open an index spec
+   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
+   * @param disk Pointer to the disk
+   * @param indexName Name of the index
+   * @param indexNameLen Length of the index name
+   * @param type Document type
+   * @param deleteBeforeOpen If true, delete any existing data before opening
+   * @return Pointer to the index spec, or NULL on error
+   */
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
+  /**
+   * @brief Close an index spec
+   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
+   * @param disk Pointer to the disk context (for cleanup of index metrics)
+   * @param index Pointer to the index spec
+   */
+  void (*closeIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
@@ -59,6 +75,13 @@ typedef struct BasicDiskAPI {
    * @return true if async I/O operations are available, false otherwise
    */
   bool (*isAsyncIOSupported)(RedisSearchDisk *disk);
+
+  /**
+   * @brief Set throttle callbacks for vector disk tiered indexes to pause/resume CMD_DENYOOM commands.
+   * @param enable Callback to pause CMD_DENYOOM commands (wraps RedisModule_EnablePostponeClients)
+   * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
+   */
+  void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -70,9 +93,10 @@ typedef struct IndexDiskAPI {
   void (*markToBeDeleted)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Indexes a document in the disk database
+   * @brief Indexes a term for fulltext search
    *
-   * Adds a document to the inverted index for the specified index name and term.
+   * Adds a document to the inverted index for the specified term.
+   * Used for fulltext field indexing.
    *
    * @param index Pointer to the index
    * @param term Term to associate the document with
@@ -82,7 +106,26 @@ typedef struct IndexDiskAPI {
    * @param freq Frequency of the term in the document
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+
+  /**
+   * @brief Indexes multiple tag values for a document
+   *
+   * Adds a document to the inverted index for each specified tag value.
+   * Used for tag field indexing. Creates a new column family if this is the
+   * first time indexing this tag field, and registers it with Redis BigModule.
+   *
+   * @param ctx Redis module context for BigModule APIs (used to register new CFs)
+   * @param index Pointer to the index
+   * @param values Array of tag values to associate the document with.
+   *               NOTE: The array may contain NULL entries (e.g., from tokenization).
+   *               Implementations must check for NULL before dereferencing each entry.
+   * @param numValues Number of tag values in the array
+   * @param docId Document ID to index
+   * @param fieldIndex Field index for the tag field
+   * @return true if the write was successful, false otherwise
+   */
+  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -107,12 +150,54 @@ typedef struct IndexDiskAPI {
   QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, RSQueryTerm* term, t_fieldMask fieldMask, double weight);
 
   /**
+   * @brief Creates a new iterator for a tag index
+   *
+   * @param index Pointer to the index
+   * @param tok Pointer to the token (contains tag string and length)
+   * @param fieldIndex Field index for the tag field
+   * @param weight Weight for the iterator (used in scoring)
+   * @return Pointer to the created iterator, or NULL if creation failed
+   */
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight);
+
+  /**
    * @brief Returns the number of documents in the index
    *
    * @param index Pointer to the index
    * @return Number of documents in the index
    */
   QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index, double weight);
+
+  /**
+   * @brief Run a GC compaction cycle on the disk index.
+   *
+   * Synchronously runs a full compaction on the inverted index column family,
+   * removing entries for deleted documents. Also applies the compaction delta
+   * to update in-memory structures via FFI calls to the provided C IndexSpec.
+   *
+   * @param index Pointer to the disk index
+   * @param user_data Opaque pointer to the C IndexSpec (used for FFI callbacks)
+   *
+   * @return Number of deletedIDs removed from the disk index
+   */
+  size_t (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
+
+  /**
+   * @brief Get the total disk usage for this index.
+   *
+   * @param index Pointer to the disk index
+   * @return Total disk usage in bytes
+   */
+  uint64_t (*getDiskUsage)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Flush all to disk
+   *
+   * Forces all memory to be flushed to disk
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*flush)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -248,11 +333,12 @@ typedef struct VectorDiskAPI {
    * The returned handle is a VecSimIndex* that can be used with all standard
    * VecSimIndex_* functions (AddVector, TopKQuery, etc.) due to polymorphism.
    *
+   * @param ctx Redis module context for BigModule APIs
    * @param index Pointer to the index spec (provides storage context)
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
+  void* (*createVectorIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
 
   /**
    * @brief Frees a disk-based vector index.

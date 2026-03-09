@@ -8,7 +8,7 @@
 */
 #pragma once
 #include <stddef.h>
-#include "fork_gc.h"
+#include "gc.h"
 #include "rs_wall_clock.h"
 #include "search_disk_api.h"
 

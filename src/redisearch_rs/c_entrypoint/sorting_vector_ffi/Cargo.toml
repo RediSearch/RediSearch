@@ -5,6 +5,10 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[lib]
+test = false
+bench = false
+
 [dependencies]
 ffi.workspace = true
 libc.workspace = true

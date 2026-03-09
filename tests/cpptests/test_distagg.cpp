@@ -75,14 +75,14 @@ static void testAverage() {
 
   AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
 
-  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
+  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   rc = AREQ_BuildPipeline(r, &status);
-  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
+  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 
 /**
@@ -128,7 +128,7 @@ static void testCountDistinct() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
@@ -166,7 +166,7 @@ static void testSplit() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 
 int main(int, char **) {

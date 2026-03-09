@@ -1,6 +1,6 @@
 ---
 name: build
-description: Compile the project to verify changes build successfully
+description: Compile the project to verify changes build successfully. Use this to verify your changes build properly together with the complete project and dependencies, and make sure to use it before running end to end tests.
 ---
 
 # Build Skill

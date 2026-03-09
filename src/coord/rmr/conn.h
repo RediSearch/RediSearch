@@ -9,6 +9,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "hiredis/hiredis.h"
 #include "hiredis/hiredis_ssl.h"
 #include "hiredis/async.h"
@@ -110,3 +114,7 @@ void MRConnManager_Free(MRConnManager *m);
 * Stop all the connections in the manager.
 */
 void MRConnManager_Stop(MRConnManager *mgr);
+
+#ifdef __cplusplus
+}
+#endif

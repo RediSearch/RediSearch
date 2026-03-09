@@ -73,7 +73,8 @@ jobs:
               ('azurelinux:3', 'aarch64'),
               ('alpine:3.22', 'x86_64'),
               ('alpine:3.22', 'aarch64'),
-              ('macos', 'aarch64'),
+              ('macos-15', 'aarch64'),
+              ('macos-26', 'aarch64'),
               ('intel', 'x86_64'),  # Self-hosted EC2 runner
           ]
 

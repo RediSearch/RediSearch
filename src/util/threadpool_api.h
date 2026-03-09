@@ -8,7 +8,7 @@
 */
 
 #pragma once
-#include "deps/thpool/thpool.h"
+#include "thpool/thpool.h"
 #include "references.h"
 
 typedef void (*ThreadPoolAPI_CB)(void *);

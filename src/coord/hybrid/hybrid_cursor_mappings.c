@@ -9,8 +9,8 @@
 
 #include "hybrid_cursor_mappings.h"
 #include "redismodule.h"
-#include "../../rmalloc.h"
-#include "../../../deps/rmutil/rm_assert.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 #include "query_error.h"
 #include <string.h>
 #include "info/global_stats.h"
@@ -36,7 +36,9 @@ static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply
     const char *errorMessage = MRReply_String(rep, NULL);
     QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);
     QueryError error = QueryError_Default();
-    QueryError_SetError(&error, errCode, errorMessage);
+    // Shard reply already contains the prefixed error string — set directly.
+    QueryError_SetCode(&error, errCode);
+    QueryError_SetDetail(&error, errorMessage);
     ctx->errors = array_ensure_append_1(ctx->errors, error);
 }
 

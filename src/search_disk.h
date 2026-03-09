@@ -32,6 +32,17 @@ extern RedisSearchDisk *disk_db;
 bool SearchDisk_Initialize(RedisModuleCtx *ctx);
 
 /**
+ * @brief Register BigModule callbacks for disk usage reporting
+ *
+ * Registers a getDiskUsage callback with Redis that iterates over all
+ * disk-based indexes and returns the total disk usage.
+ *
+ * @param ctx Redis module context
+ * @return true if registration succeeded, false otherwise
+ */
+bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
+
+/**
  * @brief Close the search disk module
  */
 void SearchDisk_Close();
@@ -40,12 +51,15 @@ void SearchDisk_Close();
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
+ * @param ctx Redis module context for BigModule APIs (may be NULL)
  * @param indexName Name of the index to open
  * @param indexNameLen Length of the index name
  * @param type Document type
+ * @param deleteBeforeOpen If true, delete any existing data before opening (used when loading
+ *        without SST persistence to ensure stale data is cleared)
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -56,10 +70,10 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
  *
+ * @param ctx Redis module context for BigModule APIs (may be NULL)
  * @param index Pointer to the index to close
  */
-void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
-// Note: Internally calls disk->basic.closeIndexSpec(disk_db, index) to allow metrics cleanup
+void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
@@ -83,7 +97,7 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
 // Index API wrappers
 
 /**
- * @brief Index a document in the disk database
+ * @brief Index a term for fulltext search
  *
  * @param index Pointer to the index
  * @param term Term to associate the document with
@@ -93,7 +107,19 @@ int SearchDisk_IndexSpecRdbLoad(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *in
  * @param freq Frequency of the term in the document
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq);
+
+/**
+ * @brief Index multiple tag values for a document
+ *
+ * @param index Pointer to the index
+ * @param values Array of tag values to associate the document with
+ * @param numValues Number of tag values in the array
+ * @param docId Document ID to index
+ * @param fieldIndex Field index for the tag field
+ * @return true if successful, false otherwise
+ */
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -105,6 +131,19 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
  * @param id Optional pointer to receive the deleted document ID (can be NULL)
  */
 void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
+
+/**
+ * @brief Run a GC compaction cycle on the disk index
+ *
+ * Synchronously runs a full compaction on the inverted index column family,
+ * removing entries for deleted documents. Applies the compaction delta to
+ * update in-memory structures via FFI calls to the provided C IndexSpec.
+ *
+ * @param index Pointer to the disk index
+ * @param c_index_spec Pointer to the C IndexSpec (for FFI callbacks to update memory structures)
+ * @return Number of deleted document IDs removed from the disk index
+ */
+size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, IndexSpec *c_index_spec);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -123,6 +162,20 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
  * @return Pointer to the IndexIterator, or NULL on error
  */
 QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, RSToken *tok, int tokenId, t_fieldMask fieldMask, double weight, double idf, double bm25_idf);
+
+/**
+ * @brief Create a tag IndexIterator for a specific tag value
+ *
+ * This function creates a tag IndexIterator that wraps the disk API and can be used
+ * in RediSearch query execution pipelines.
+ *
+ * @param index Pointer to the index
+ * @param tok Pointer to the token (contains tag value string)
+ * @param fieldIndex Field index for the tag field
+ * @param weight Weight for the term (used in scoring)
+ * @return Pointer to the IndexIterator, or NULL on error
+ */
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RSToken *tok, t_fieldIndex fieldIndex, double weight);
 
 /**
  * @brief Create an IndexIterator for all the existing documents
@@ -311,11 +364,12 @@ bool SearchDisk_IsEnabledForValidation();
  * is a VecSimIndex* that can be used with all standard VecSimIndex_*
  * functions (AddVector, TopKQuery, etc.) due to polymorphism.
  *
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index spec
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
+void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
 
 /**
  * @brief Free a disk-based vector index
@@ -346,3 +400,23 @@ uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
  * @param ctx Redis module info context
  */
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
+
+/**
+ * @brief Get the total disk usage for a disk index
+ *
+ * Returns the sum of live SST file sizes across all column families.
+ *
+ * @param index Pointer to the disk index spec
+ * @return Total disk usage in bytes
+ */
+uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Flush all memtables to disk (SST files)
+ *
+ * Forces all in-memory data to be written to SST files on disk.
+ * Useful for testing to ensure disk usage metrics are accurate.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);

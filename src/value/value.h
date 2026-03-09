@@ -56,23 +56,23 @@ typedef enum {
 } RSStringType;
 
 /**
- * Represents a key-value pair entry in an RSValueMap.
+ * Represents a key-value pair entry in an RSValueMapBuilder.
  * Both key and value are RSValue pointers that are owned by the map.
  */
-typedef struct RSValueMapEntry {
+typedef struct RSValueMapBuilderEntry {
   struct RSValue *key;
   struct RSValue *value;
-} RSValueMapEntry;
+} RSValueMapBuilderEntry;
 
 #pragma pack(4)
 /**
  * Represents a map (dictionary/hash table) of RSValue key-value pairs.
  * The map owns all keys and values and will free them when the map is freed.
  */
-typedef struct RSValueMap {
+typedef struct RSValueMapBuilder {
   uint32_t len;
-  RSValueMapEntry *entries;
-} RSValueMap;
+  RSValueMapBuilderEntry *entries;
+} RSValueMapBuilder;
 
 // Variant value union
 typedef struct RSValue RSValue;
@@ -114,7 +114,7 @@ RSValue *RSValue_NewString(char *str, uint32_t len);
  * @param len The length of the string
  * @return A pointer to a heap-allocated RSValue wrapping a constant C string
  */
-RSValue *RSValue_NewConstString(const char *str, uint32_t len);
+RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated RSValue which takes a reference to the Redis string.
@@ -140,7 +140,7 @@ RSValue *RSValue_NullStatic();
  * @param dst The length of the string to copy
  * @return A pointer to a heap-allocated RSValue owning the copied string
  */
-RSValue *RSValue_NewCopiedString(const char *s, size_t dst);
+RSValue *RSValue_NewCopiedString(const char *s, uint32_t dst);
 
 /**
  * Creates a heap-allocated RSValue by parsing a string as a number.
@@ -172,25 +172,23 @@ RSValue *RSValue_NewNumberFromInt64(int64_t ii);
  * @param len Number of values
  * @return A pointer to a heap-allocated RSValue of type RSValueType_Array
  */
-RSValue *RSValue_NewArray(RSValue **vals, uint32_t len);
+RSValue *RSValue_NewArrayFromBuilder(RSValue **vals, uint32_t len);
 
 /**
- * Creates an RSValueMap structure with heap-allocated space for entries.
- * The map entries are uninitialized and must be set using RSValueMap_SetEntry.
- * Note: This returns a struct by value, not a pointer, but the struct
- * points to the heap allocation.
+ * Creates a heap-allocated RSValueMapBuilder structure with space for entries.
+ * The map entries are uninitialized and must be set using RSValue_MapBuilderSetEntry.
  * @param len The number of entries to allocate space for
- * @return An RSValueMap struct with heap-allocated but uninitialized entries
+ * @return A pointer to a heap-allocated RSValueMapBuilder with uninitialized entries
  */
-RSValueMap RSValueMap_AllocUninit(uint32_t len);
+RSValueMapBuilder *RSValue_NewMapBuilder(uint32_t len);
 
 /**
- * Creates a heap-allocated RSValue of type RSValueType_Map from an RSValueMap.
- * Takes ownership of the map structure and all its entries.
- * @param map The RSValueMap to wrap (ownership is transferred)
+ * Creates a heap-allocated RSValue of type RSValueType_Map from an RSValueMapBuilder.
+ * Takes ownership of the map structure and all its entries. Frees the RSValueMapBuilder pointer.
+ * @param map The RSValueMapBuilder pointer to wrap (ownership is transferred, pointer is freed)
  * @return A pointer to a heap-allocated RSValue of type RSValueType_Map
  */
-RSValue *RSValue_NewMap(RSValueMap map);
+RSValue *RSValue_NewMapFromBuilder(RSValueMapBuilder *map);
 
 /**
  * Creates a heap-allocated RSValue Trio from three RSValues.
@@ -283,8 +281,8 @@ double RSValue_Number_Get(const RSValue *v);
 void RSValue_SetNumber(RSValue *v, double n);
 
 // String getters/setters
-void RSValue_SetString(RSValue *v, char *str, size_t len);
-void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
+void RSValue_SetString(RSValue *v, char *str, uint32_t len);
+void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len);
 
 /**
  * Get the string value and length from an RSValue.
@@ -293,7 +291,7 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
  * @param lenp Output parameter for the string length. Only used if not NULL
  * @return Pointer to the string data
  */
-char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
+const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
 
 /**
  * Get the RedisModuleString from an RSValue.
@@ -340,7 +338,7 @@ void RSValue_Map_GetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue
  * @param key The key RSValue (ownership is transferred to the map)
  * @param value The value RSValue (ownership is transferred to the map)
  */
-void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value);
+void RSValue_MapBuilderSetEntry(RSValueMapBuilder *map, size_t i, RSValue *key, RSValue *value);
 
 // Trio getters
 /**
@@ -370,6 +368,9 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v);
 // Reference getters/setters
 /* Return the value itself or its referred value */
 RSValue *RSValue_Dereference(const RSValue *v);
+
+/* Dereference through References and Trios to get to the leaf value */
+RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v);
 
 /**
  * Clears the underlying storage of the value, and makes it
@@ -408,27 +409,18 @@ uint16_t RSValue_Refcount(const RSValue *v);
 // Other Functions (utility, memory management, comparison, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
-void RSValue_ToString(RSValue *dst, RSValue *v);
-
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into the double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d);
+bool RSValue_ToNumber(const RSValue *v, double *d);
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval);
 
-// Combines PtrLen with ToString to convert any RSValue into a string buffer.
-// Returns NULL if buf is required, but is too small
-const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
-                                        size_t buflen);
-
 /**
- * Helper function to allocate memory before passing it to RSValue_NewArray
+ * Helper function to allocate memory before passing it to RSValue_NewArrayFromBuilder
  */
-RSValue **RSValue_AllocateArray(uint32_t len);
+RSValue **RSValue_NewArrayBuilder(uint32_t len);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);

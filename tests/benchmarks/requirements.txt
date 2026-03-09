@@ -2,3 +2,4 @@ redisbench_admin==0.12.9
 numpy>=2.0.0
 pandas
 requests
+setuptools<75.0.0  # Required for pkg_resources compatibility with redisbench-admin

@@ -15,6 +15,7 @@
 #include "src/info/indexes_info.h"
 #include "src/config.h"
 #include "src/numeric_index.h"
+#include "numeric_range_tree.h"
 
 #include <set>
 #include <string>
@@ -1382,7 +1383,7 @@ TEST_F(LLApiTest, testInfoSize) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
+  size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.
@@ -1399,15 +1400,15 @@ TEST_F(LLApiTest, testInfoSize) {
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 463 + additional_overhead + get_trie_entry_extra_overhead(2));
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
   EXPECT_EQ(RediSearch_MemUsage(index), 320 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 234 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records
@@ -1444,7 +1445,7 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
+  size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.
@@ -1461,15 +1462,15 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 545 + additional_overhead + get_trie_entry_extra_overhead(2));
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
   EXPECT_EQ(RediSearch_MemUsage(index), 401 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 315 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records

@@ -36,6 +36,8 @@ typedef struct {
   struct timespec current;
   // when the query should timeout - monotonic raw clock, unrelated to real clock
   struct timespec timeout;
+  // Flag to skip timeout checks (used in background thread mode with FAIL policy)
+  bool skipTimeoutChecks;
 } SearchTime;
 
 /** Context passed to all redis related search handling functions. */
@@ -62,7 +64,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .key_ = NULL,
                           .spec = sp,
-                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }},
+                          .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false},
                           .flags = RS_CTX_UNSET,};
   return sctx;
 }

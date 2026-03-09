@@ -39,11 +39,14 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
     RSQueryTerm *terms[maxTerms];
     size_t n = IndexResult_GetMatchedTerms(SearchResult_GetIndexResult(ctx->res), terms, maxTerms);
     if (n) {
-      RSValue **arr = RSValue_AllocateArray(n);
+      RSValue **arr = RSValue_NewArrayBuilder(n);
       for (size_t i = 0; i < n; i++) {
-        arr[i] = RSValue_NewConstString(terms[i]->str, terms[i]->len);
+        size_t len;
+        const char *str = QueryTerm_GetStrAndLen(terms[i], &len);
+        RS_ASSERT(len <= UINT32_MAX);
+        arr[i] = RSValue_NewBorrowedString(str, len);
       }
-      RSValue *v = RSValue_NewArray(arr, n);
+      RSValue *v = RSValue_NewArrayFromBuilder(arr, n);
       RSValue_MakeOwnReference(result, v);
       return EXPR_EVAL_OK;
     }
@@ -64,6 +67,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
     np[i] = func(p[i]);                                  \
   }                                                      \
   np[sz] = '\0';                                         \
+  RS_ASSERT(sz <= UINT32_MAX);                           \
   RSValue_SetConstString(result, np, sz);                \
   return EXPR_EVAL_OK
 
@@ -107,6 +111,7 @@ static int stringfunc_substr(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   }
 
   char *dup = ExprEval_Strndup(ctx, &str[offset], len);
+  RS_ASSERT(len <= UINT32_MAX);
   RSValue_SetConstString(result, dup, len);
   return EXPR_EVAL_OK;
 }
@@ -127,7 +132,30 @@ int func_to_number(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) 
 }
 
 int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  RSValue_ToString(result, argv[0]);
+  // Dereference through References and Trios to get to the leaf value.
+  RSValue *v = RSValue_DereferenceRefAndTrio(argv[0]);
+
+  switch (RSValue_Type(v)) {
+    case RSValueType_String:
+      RSValue_MakeReference(result, v);
+      break;
+    case RSValueType_RedisString: {
+      size_t sz;
+      const char *str = RSValue_StringPtrLen(v, &sz);
+      RSValue_SetConstString(result, str, sz);
+      break;
+    }
+    case RSValueType_Number: {
+      char tmpbuf[32];
+      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
+      char *buf = rm_strdup(tmpbuf);
+      RSValue_SetString(result, buf, len);
+      break;
+    }
+    default:
+      RSValue_SetConstString(result, "", 0);
+      break;
+  }
   return EXPR_EVAL_OK;
 }
 
@@ -165,6 +193,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   size_t fmtsz = 0;
   const char *fmt = RSValue_StringPtrLen(argv[0], &fmtsz);
   const char *last = fmt, *end = fmt + fmtsz;
+  size_t len = 0;
 
   size_t out_cap = fmtsz;
   char *out = rm_malloc(fmtsz);
@@ -182,7 +211,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
     }
 
     // Detected a format string. Write from 'last' up to 'fmt'
-    size_t len = (fmt + ii) - last;
+    len = (fmt + ii) - last;
     append_to_string(&out, &out_tail, &out_cap, last, len);
     last = fmt + ii + 2;
 
@@ -198,28 +227,20 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
       goto error;
     }
 
-    RSValue *arg = RSValue_Dereference(argv[argix++]);
+    RSValue *arg = RSValue_DereferenceRefAndTrio(argv[argix++]);
     if (type == 's') {
       if (arg == RSValue_NullStatic()) {
         // write null value
         append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         continue;
-      } else if (!RSValue_IsString(arg)) {
-
-        RSValue *strval = RSValue_NewUndefined();
-        RSValue_ToString(strval, arg);
-        size_t sz;
-        const char *str = RSValue_StringPtrLen(strval, &sz);
-        if (!str) {
-          append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
-        } else {
-          append_to_string(&out, &out_tail, &out_cap, str, sz);
-        }
-        RSValue_DecrRef(strval);
-      } else {
+      } else if (RSValue_IsString(arg)) {
         size_t sz;
         const char *str = RSValue_StringPtrLen(arg, &sz);
         append_to_string(&out, &out_tail, &out_cap, str, sz);
+      } else if (RSValue_IsNumber(arg)) {
+        char tmpbuf[32];
+        size_t len = RSValue_NumToString(arg, tmpbuf, sizeof(tmpbuf));
+        append_to_string(&out, &out_tail, &out_cap, tmpbuf, len);
       }
     } else {
       QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown format specifier passed");
@@ -233,7 +254,9 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   append_to_string(&out, &out_tail, &out_cap, "\0", 1);
 
   // Don't count the null terminator
-  RSValue_SetString(result, out, out_tail - out - 1);
+  len = out_tail - out - 1;
+  RS_ASSERT(len <= UINT32_MAX);
+  RSValue_SetString(result, out, len);
   return EXPR_EVAL_OK;
 
 error:
@@ -285,6 +308,7 @@ static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue 
       // trim the strip set
       char *s = str_trim(tok, sl, strp, &outlen);
       if (outlen) {
+        RS_ASSERT(outlen <= UINT32_MAX);
         tmp[l++] = RSValue_NewCopiedString(s, outlen);
       }
     }
@@ -295,10 +319,10 @@ static int stringfunc_split(ExprEval *ctx, RSValue **argv, size_t argc, RSValue 
     tok = next + 1;
   }
 
-  RSValue **vals = RSValue_AllocateArray(l);
+  RSValue **vals = RSValue_NewArrayBuilder(l);
   memcpy(vals, tmp, l * sizeof(*vals));
 
-  RSValue *ret = RSValue_NewArray(vals, l);
+  RSValue *ret = RSValue_NewArrayFromBuilder(vals, l);
   RSValue_MakeOwnReference(result, ret);
   return EXPR_EVAL_OK;
 }

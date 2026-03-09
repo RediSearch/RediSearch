@@ -139,7 +139,7 @@ static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
   // vectorFieldName is not owned (points to parser tokens), so don't free it
 
   if (vnStep->distanceFieldAlias) {
-    rm_free(vnStep->distanceFieldAlias);
+    rm_free((void *)vnStep->distanceFieldAlias);
   }
   rm_free(vnStep);
 

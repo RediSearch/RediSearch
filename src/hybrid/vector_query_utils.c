@@ -8,7 +8,7 @@
 */
 
 #include "vector_query_utils.h"
-#include "../rmalloc.h"
+#include "rmalloc.h"
 #include "../util/arr.h"
 #include "../vector_index.h"
 

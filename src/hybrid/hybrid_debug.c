@@ -215,7 +215,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
-    HybridRequest_Free(hreq);
+    HybridRequest_DecrRef(hreq);
     return NULL;
   }
 
@@ -231,7 +231,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
-    HybridRequest_Free(hreq);
+    HybridRequest_DecrRef(hreq);
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline");
     return NULL;
   }
@@ -249,7 +249,7 @@ static void HybridRequest_Debug_Free(HybridRequest_Debug *debug_req) {
   }
 
   if (debug_req->hreq) {
-    HybridRequest_Free(debug_req->hreq);
+    HybridRequest_DecrRef(debug_req->hreq);
   }
 
   rm_free(debug_req);
@@ -266,7 +266,7 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 

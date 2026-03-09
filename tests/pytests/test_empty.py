@@ -36,7 +36,7 @@ def TestEmptyNonIndexed():
         for query in ['@tag:""', "@tag:''", '@tag:("")', "@tag:('')"]:
             env.expect(
                 'FT.SEARCH', 'idx', query
-            ).error().equal('Expected a TEXT field at offset 0 near tag')
+            ).error().equal('SEARCH_SYNTAX Expected a TEXT field at offset 0 near tag')
 
     env.flush()
 

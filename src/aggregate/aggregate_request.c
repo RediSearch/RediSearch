@@ -823,6 +823,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
                             QueryError *status) {
   // Just a list of functions..
   PLN_Reducer *gr = array_ensure_tail(&gstp->reducers, PLN_Reducer);
+  const char *alias = NULL;
 
   gr->name = name;
   int rv = AC_GetVarArgs(ac, &gr->args);
@@ -831,7 +832,6 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     goto error;
   }
 
-  const char *alias = NULL;
   // See if there is an alias
   if (AC_AdvanceIfMatch(ac, "AS")) {
     rv = AC_GetString(ac, &alias, NULL, 0);
@@ -1036,7 +1036,30 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
+  RequestSyncCtx_Init(&req->syncCtx);
   return req;
+}
+
+bool AREQ_TimedOut(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
+}
+
+void AREQ_SetTimedOut(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+}
+
+bool AREQ_TryClaimReply(AREQ *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+void AREQ_MarkReplied(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
+}
+
+uint8_t AREQ_GetReplyState(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
@@ -1091,6 +1114,17 @@ static bool IsNeededDepleter(AREQ *req) {
   return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
 }
 
+// This function should only be called from the main thread (calling RunInThread() is not thread safe)
+// AREQ execution flags are not set when this function is called currently
+static bool shouldCheckInPipelineTimeout(AREQ *req) {
+  // We should check for timeout in pipeline only if timeout is > 0
+  // and when the policy is RETURN or the policy is FAIL, without workers.
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
+          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+
+}
+
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
@@ -1113,13 +1147,14 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
+  ParseAggPlanContext papCtx;
   if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
     goto error;
   }
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  ParseAggPlanContext papCtx = {
+  papCtx = (ParseAggPlanContext){
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->reqConfig,
@@ -1149,6 +1184,9 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
     }
   }
+
+  // Check if we should check for timeout in pipeline
+  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(req));
 
   return REDISMODULE_OK;
 
@@ -1433,7 +1471,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 }
 
 
-void AREQ_Free(AREQ *req) {
+static void AREQ_Free(AREQ *req) {
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
@@ -1514,7 +1552,16 @@ void AREQ_Free(AREQ *req) {
   rm_free(req);
 }
 
+AREQ *AREQ_IncrRef(AREQ *req) {
+  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
+  return req;
+}
 
+void AREQ_DecrRef(AREQ *req) {
+  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
+    AREQ_Free(req);
+  }
+}
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);

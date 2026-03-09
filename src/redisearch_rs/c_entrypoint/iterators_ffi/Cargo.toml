@@ -21,10 +21,12 @@ bench = false
 
 [dependencies]
 ffi.workspace = true
+libc.workspace = true
 field.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }
-rqe_iterators = { workspace = true, features = ["disable_sort_checks_in_idlist"] }
+numeric_range_tree.workspace = true
+rqe_iterators.workspace = true
 rqe_iterators_interop.workspace = true
 workspace_hack.workspace = true
 

@@ -9,7 +9,7 @@
 #pragma once
 
 #include "value.h"
-#include "sorting_vector_rs.h"
+#include "sorting_vector.h"
 
 #ifdef __cplusplus
 extern "C" {

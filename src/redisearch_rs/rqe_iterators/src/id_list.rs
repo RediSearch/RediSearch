@@ -26,10 +26,10 @@ pub struct IdList<'index, const SORTED: bool> {
     /// The list of document IDs to iterate over.
     /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
     ids: OwnedSlice<t_docId>,
-    /// The current position of the iterator (a.k.a the next document ID to return by `read`).
+    /// The current position of the iterator (a.k.a the next document ID to return by [`read`](RQEIterator::read)).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
-    /// A reusable result object to avoid allocations on each `read` call.
+    /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RSIndexResult<'index>,
 }
 
@@ -45,7 +45,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
     /// Get the current iterator offset—i.e. its position in the list of IDs.
     ///
-    /// This is used by [`MetricIterator`](crate::metric::MetricIterator) to iterate over the corresponding list
+    /// This is used by [`Metric`](crate::metric::Metric) to iterate over the corresponding list
     /// of metric data in lockstep.
     #[inline(always)]
     pub(super) const fn offset(&self) -> usize {
@@ -57,7 +57,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     pub fn with_result(ids: impl Into<OwnedSlice<t_docId>>, result: RSIndexResult<'index>) -> Self {
         let ids = ids.into();
 
-        if SORTED && !cfg!(feature = "disable_sort_checks_in_idlist") {
+        if SORTED {
             debug_assert!(
                 ids.is_sorted_by(|a, b| a < b),
                 "IDs must be sorted and unique"
@@ -101,7 +101,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// Returns `Some(false)` if there is no document with the given ID in the list.
     /// Returns `None` if the iterator has been advanced past the end of the ID list.
     pub(super) fn _skip_to(&mut self, target_id: t_docId) -> Option<bool> {
-        if !SORTED && !cfg!(feature = "disable_sort_checks_in_idlist") {
+        if !SORTED {
             panic!("Can't skip when working with unsorted document ids");
         }
 

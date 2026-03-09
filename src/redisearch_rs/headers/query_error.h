@@ -37,6 +37,16 @@
 #define QUERY_ASM_INACCURATE_RESULTS "Query execution exceeded maximum delay for RediSearch to delay key trimming. Results may be incomplete due to Atomic Slot Migration."
 
 
+/**
+ * Error codes for query execution failures.
+ *
+ * **IMPORTANT**: Variants must be contiguous starting from `Ok = 0` with no explicit
+ * discriminants (except for `Ok`). The `query_error_code_max_value()` function and
+ * C/C++ test iteration logic rely on this assumption. The test
+ * `error_code_full_msg_equals_prefix_plus_default_msg` validates this by iterating
+ * all codes and will panic if gaps are introduced.
+ *
+ */
 enum QueryErrorCode
 #ifdef __cplusplus
   : uint8_t
@@ -77,7 +87,6 @@ enum QueryErrorCode
   QUERY_ERROR_CODE_GEO_FORMAT,
   QUERY_ERROR_CODE_NO_DISTRIBUTE,
   QUERY_ERROR_CODE_UNSUPP_TYPE,
-  QUERY_ERROR_CODE_NOT_NUMERIC,
   QUERY_ERROR_CODE_TIMED_OUT,
   QUERY_ERROR_CODE_NO_PARAM,
   QUERY_ERROR_CODE_DUP_PARAM,
@@ -89,7 +98,6 @@ enum QueryErrorCode
   QUERY_ERROR_CODE_NON_RANGE,
   QUERY_ERROR_CODE_MISSING,
   QUERY_ERROR_CODE_MISMATCH,
-  QUERY_ERROR_CODE_UNKNOWN_INDEX,
   QUERY_ERROR_CODE_DROPPED_BACKGROUND,
   QUERY_ERROR_CODE_ALIAS_CONFLICT,
   QUERY_ERROR_CODE_INDEX_BG_OOM_FAIL,
@@ -102,6 +110,13 @@ enum QueryErrorCode
   QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
   QUERY_ERROR_CODE_DISK_CREATION,
   QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT,
+  QUERY_ERROR_CODE_VECTOR_BLOB_SIZE_MISMATCH,
+  QUERY_ERROR_CODE_VECTOR_LEN_BAD,
+  QUERY_ERROR_CODE_NUMERIC_VALUE_INVALID,
+  QUERY_ERROR_CODE_ARG_UNRECOGNIZED,
+  QUERY_ERROR_CODE_GEO_COORDINATES_INVALID,
+  QUERY_ERROR_CODE_JSON_TYPE_BAD,
+  QUERY_ERROR_CODE_CLUSTER_NO_RESPONSES,
 };
 #ifndef __cplusplus
 typedef uint8_t QueryErrorCode;
@@ -167,7 +182,7 @@ bool QueryError_IsOk(const struct QueryError *query_error);
 bool QueryError_HasError(const struct QueryError *query_error);
 
 /**
- * Returns a human-readable string representing the provided [`QueryErrorCode`].
+ * Returns the full default error string for a [`QueryErrorCode`] (prefix + message).
  *
  * This function should always return without a panic for any value provided.
  * It is unique among the `QueryError_*` API as the only function which allows
@@ -176,11 +191,43 @@ bool QueryError_HasError(const struct QueryError *query_error);
 const char *QueryError_Strerror(uint8_t maybe_code);
 
 /**
+ * Returns only the error prefix string for a [`QueryErrorCode`] (e.g. `"SEARCH_TIMEOUT: "`).
+ *
+ * Returns an empty string for `Ok` and `"Unknown status code"` for invalid codes.
+ */
+const char *QueryError_StrerrorPrefix(uint8_t maybe_code);
+
+/**
+ * Returns only the default message for a [`QueryErrorCode`] (without the prefix).
+ *
+ * Returns `"Unknown status code"` for invalid codes.
+ */
+const char *QueryError_StrerrorDefaultMessage(uint8_t maybe_code);
+
+/**
+ * Returns a human-readable string representing the provided [`QueryWarningCode`].
+ *
+ * This function should always return without a panic for any value provided.
+ * It is unique among the `QueryWarning_*` API as the only function which allows
+ * an invalid [`QueryWarningCode`] to be provided.
+ */
+const char *QueryWarning_Strwarning(uint8_t maybe_code);
+
+/**
+ * Returns the maximum valid numeric value for [`QueryErrorCode`].
+ *
+ * This is intended for C/C++ tests/tools that want to iterate over all codes without
+ * hardcoding the current "last" variant.
+ */
+uint8_t QueryError_CodeMaxValue(void);
+
+/**
  * Returns a [`QueryErrorCode`] given an error message.
  *
- * This only supports the query error codes [`QueryErrorCode::TimedOut`] and
- * [`QueryErrorCode::OutOfMemory`]. If another message is provided,
- * [`QueryErrorCode::Generic`] is returned.
+ * This only supports the query error codes [`QueryErrorCode::TimedOut`],
+ * [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
+ * If another message is provided, [`QueryErrorCode::Generic`] is returned.
+ *
  *
  * # Safety
  *
@@ -190,6 +237,11 @@ QueryErrorCode QueryError_GetCodeFromMessage(const char *message);
 
 /**
  * Sets the [`QueryErrorCode`] and error message for a [`QueryError`].
+ *
+ * The public message is stored as-is (for obfuscated display).
+ * The private message is stored with the error code prefix prepended
+ * (e.g. `"SEARCH_TIMEOUT: "` + message), so that Redis error stats
+ * can track errors by their unique prefix.
  *
  * This does not mutate `query_error` if it already has an error set.
  *

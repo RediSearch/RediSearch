@@ -104,9 +104,11 @@ def testPoneticOnNumbers(env):
 
 def testIssue1313(env):
     env.expect('FT.CREATE test ON HASH SCHEMA topic2 TEXT NOINDEX topic TEXT PHONETIC dm:en').ok()
+    waitForIndex(env, 'test')
     env.expect('FT.SEARCH', 'test', '@topic:(tmp)=>{$phonetic:true}').equal([0])
 
     env.expect('FT.CREATE test1 ON HASH SCHEMA topic TEXT PHONETIC dm:en topic2 TEXT NOINDEX').ok()
+    waitForIndex(env, 'test1')
     env.expect('FT.SEARCH', 'test1', '@topic:(tmp)=>{$phonetic: true}').equal([0])
 
 def testIssue3836(env):

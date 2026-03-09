@@ -35,6 +35,5 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   // Verify the merge pipeline is initialized
   ASSERT_TRUE(hybridReq->tailPipeline->ap.steps.next != nullptr);
   // Clean up
-  HybridRequest_Free(hybridReq);
+  HybridRequest_DecrRef(hybridReq);
 }
-

@@ -5,10 +5,20 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[lib]
+test = false
+bench = false
+
 [dependencies]
 result_processor.workspace = true
 ffi.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+# Crate required to invoke C symbols
+result_processor_ffi = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../redisearch_rs" }
+redis_mock.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true
@@ -16,3 +26,6 @@ build_utils = { path = "../../build_utils" }
 
 [lints]
 workspace = true
+
+[features]
+unittest = []

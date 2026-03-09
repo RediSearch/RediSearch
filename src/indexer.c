@@ -102,7 +102,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     if (spec->diskSpec) {
-      if (SearchDisk_IndexDocument(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq)) {
+      if (SearchDisk_IndexTerm(spec->diskSpec, entry->term, entry->len, aCtx->doc->docId, entry->fieldMask, entry->freq)) {
         IndexSpec_AddTerm(spec, entry->term, entry->len);
       }
     } else {
@@ -152,7 +152,8 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            VecSimIndex *vecsim = openVectorIndex(&spec->fields[i], DONT_CREATE_INDEX);
+            // ctx is NULL because we don't create the index here
+            VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
             if(!vecsim)
               continue;
             VecSimIndex_DeleteVector(vecsim, dmd->id);

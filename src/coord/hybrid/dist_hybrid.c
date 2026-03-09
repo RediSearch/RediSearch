@@ -21,6 +21,9 @@
 #include "info/global_stats.h"
 #include "profile/profile.h"
 #include "dist_profile.h"
+#include "shard_window_ratio.h"
+#include "config.h"
+#include "coord/coord_request_ctx.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -111,14 +114,26 @@ static int MRCommand_appendVsimFilter(MRCommand *xcmd, RedisModuleString **argv,
 
 /**
  * Appends all VSIM-related arguments to MR command.
- * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER if present.
+ * This includes VSIM keyword, field, vector, KNN/RANGE method, and VSIM FILTER
+ * if present.
+ *
+ * SHARD_K_RATIO is only valid for KNN queries, but this is validated during
+ * parsing - no validation is done here.
  *
  * @param xcmd - destination MR command to append arguments to
  * @param argv - source command arguments array
  * @param argc - total argument count
  * @param vsimOffset - offset where VSIM keyword appears
+ * @param kArgIndex - output parameter for the index of the K value argument in
+ *        the built command (set to -1 if no KNN K argument found). Can be NULL.
  */
-static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int argc, int vsimOffset) {
+static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
+                                 int argc, int vsimOffset, int *kArgIndex) {
+  RS_LOG_ASSERT(kArgIndex, "kArgIndex must not be NULL");
+
+  // Initialize output parameter
+  *kArgIndex = -1;
+
   // Add VSIM keyword and field
   MRCommand_AppendRstr(xcmd, argv[vsimOffset]);     // VSIM
   MRCommand_AppendRstr(xcmd, argv[vsimOffset + 1]); // field
@@ -148,9 +163,27 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
     if (vectorMethodOffset < argc - 2) {
       RedisModule_StringToLongLong(argv[vectorMethodOffset + 1], &methodNargs);
 
-      // Append method name, argument count, and all method arguments
-      for (int i = 0; i < methodNargs + 2; ++i) {
-        MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+      // Append method name (KNN/RANGE) and argument count
+      MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset]);     // KNN or RANGE
+      MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + 1]); // argument count
+
+      // Append method arguments
+      // Format for KNN: KNN <count> K <value> [EF_RUNTIME <value>]...
+      for (int i = 2; i < methodNargs + 2; ++i) {
+        size_t argLen;
+        const char *argStr = RedisModule_StringPtrLen(argv[vectorMethodOffset + i], &argLen);
+        bool kFound = (argLen == 1 && strncasecmp(argStr, "K", 1) == 0);
+
+        if (*kArgIndex == -1 && kFound && i + 1 < methodNargs + 2) {
+          // Found K keyword - append it and record position of the K value
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);  // K keyword
+          ++i;  // Move to K value
+          *kArgIndex = xcmd->num;  // Record position where K value will be appended
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);  // K value
+        } else {
+          // Regular argument - append as-is
+          MRCommand_AppendRstr(xcmd, argv[vectorMethodOffset + i]);
+        }
       }
     }
   }
@@ -193,7 +226,8 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv, int 
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, HybridPipelineParams *hybridParams) {
+                            IndexSpec *sp, const VectorQuery *vq,
+                            size_t numShards) {
   int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
@@ -216,7 +250,17 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 
   // Add all VSIM-related arguments (VSIM, field, vector, methods, filter)
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
-  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset);
+  int kArgIndex = -1;
+  MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, &kArgIndex);
+
+  // Calculate and apply effective K for KNN queries if SHARD_K_RATIO is set
+  if (vq && vq->type == VECSIM_QT_KNN) {
+    double shardWindowRatio = vq->knn.shardWindowRatio;
+    if (shardWindowRatio < MAX_SHARD_WINDOW_RATIO && numShards > 1) {
+      size_t effectiveK = calculateEffectiveK(vq->knn.k, shardWindowRatio, numShards);
+      modifyVsimKNN(xcmd, kArgIndex, effectiveK, vq->knn.k);
+    }
+  }
 
   int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
   combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
@@ -526,8 +570,15 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
-static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
-        RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
+static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
+  // We should check for timeout in pipeline if policy is return and timeout > 0
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
+}
+
+static int HybridRequest_prepareForExecution(HybridRequest *hreq,
+        RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
+        size_t numShards, QueryError *status) {
 
     hreq->tailPipeline->qctx.err = status;
     hreq->profile = printDistHybridProfile;
@@ -561,6 +612,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+
+    // Set skip timeout
+    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
 
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
@@ -598,7 +652,15 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized, sp, &hybridParams);
+    // Get the VectorQuery from the vector request's AST for SHARD_K_RATIO
+    // optimization
+    // Note: parsedVectorData is only set on shards, not on coordinator
+    // The coordinator has the VectorQuery in the AST after parsing
+    const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
+    const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
+                      ? vectorRequest->ast.root->vn.vq : NULL;
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
+                                 sp, vq, numShards);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -650,7 +712,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
 
     // Get the command from the RPNet (it was set during prepareForExecution)
     MRCommand *cmd = &searchRPNet->cmd;
-    int numShards = GetNumShards_UnSafe();
+    int numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
     cmd->coordStartTime = hreq->profileClocks.coordStartTime;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
@@ -694,7 +756,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-        HybridRequest_Free(hreq);
+        HybridRequest_DecrRef(hreq);
     }
     return REDISMODULE_OK;
 }
@@ -704,33 +766,65 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     HybridRequest *hreq, RedisModule_Reply *reply,
     QueryError *status) {
 
-    RS_ASSERT(QueryError_HasError(status));
+    // Try to claim reply ownership. If we get it, we can safely write to the reply.
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+
+    if (!QueryError_HasError(status)) {
+      // No error - just cleanup
+      // This can happen if during request creation we realized the query timed out
+      goto cleanup;
+    }
+
+    // Check that we can claim the reply. If not, the timeout callback owns the reply and we should not write to it.
+    // If we can't claim the reply, we should just clear the error and return.
+    // If hreq is NULL, we don't have a request to claim. This can happen if the cleanup was called before the request was created.
+    if (hreq && !CoordRequestCtx_TryClaimReply(reqCtx)) {
+        // Timeout callback owns reply - just clear the error
+        QueryError_ClearError(status);
+        goto cleanup;
+    }
 
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
     QueryError_ReplyAndClear(ctx, status);
+    CoordRequestCtx_MarkReplied(reqCtx);
+
+    cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
-        IndexSpecRef_Release(*strong_ref);
+      IndexSpecRef_Release(*strong_ref);
     }
     if (hreq) {
-        HybridRequest_Free(hreq);
+      HybridRequest_DecrRef(hreq);
     }
+
     RedisModule_EndReply(reply);
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
+
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+
+    // Lock before creating request to prevent race with timeout callback
+    CoordRequestCtx_LockSetRequest(reqCtx);
+    if(CoordRequestCtx_TimedOut(reqCtx)) {
+      // Query timed out before request creation - unlock and return
+      CoordRequestCtx_UnlockSetRequest(reqCtx);
+      return;
+    }
+
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    QueryError status = {0};
+    QueryError status = QueryError_Default();
 
     // CMD, index, expr, args...
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
     if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
+        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
         DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
         return;
     }
 
@@ -740,15 +834,32 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (!sp) {
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
         return;
     }
 
+
+    // Check if already timed out
+    if (CoordRequestCtx_TimedOut(reqCtx)) {
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
+        SearchCtx_Free(sctx);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
+    }
+
+    // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+    CoordRequestCtx_SetRequest(reqCtx, hreq);
 
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+
+    // Get numShards captured from main thread for thread-safe access
+    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }
@@ -761,4 +872,55 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
+}
+
+// Timeout callback for Coordinator HybridRequest execution
+// Called on the main thread when the blocking client times out (FAIL policy only).
+int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    // This shouldn't happen but handle gracefully
+    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
+
+  // Lock to coordinate with request creation in the background thread.
+  // If the request was not yet created, it won't be - background thread will see the timeout flag.
+  // If the request was already created, we can safely try to claim reply ownership.
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
+  // Signal timeout to the background thread
+  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+
+  if(!CoordRequestCtx_HasRequest(CoordReqCtx)) {
+    // Request not created yet
+    // In this case no need to claim reply ownership - just reply with timeout error
+    // Background thread will notice the timeout and abort execution.
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    CoordRequestCtx_MarkReplied(CoordReqCtx);
+    CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+    return REDISMODULE_OK;
+  }
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  if (CoordRequestCtx_TryClaimReply(CoordReqCtx)) {
+    // We claimed it - reply with timeout error
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    CoordRequestCtx_MarkReplied(CoordReqCtx);
+  } else {
+    // Background thread owns reply - wait for it to finish if still in progress
+    while (CoordRequestCtx_GetReplyState(CoordReqCtx) == ReplyState_Replying) {
+      // Busy wait until background thread transitions to REPLIED
+    }
+  }
+
+  return REDISMODULE_OK;
 }

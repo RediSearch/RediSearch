@@ -52,7 +52,7 @@ static const char *on_oom_vals[3] = {
 };
 
 
-typedef enum { GCPolicy_Fork = 0 } GCPolicy;
+typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 const char *OomPolicy_ToString(RSOomPolicy);
@@ -67,25 +67,26 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:
       return "fork";
-    default:          // LCOV_EXCL_LINE cannot be reached
-      return "huh?";  // LCOV_EXCL_LINE cannot be reached
+    case GCPolicy_Disk: // LCOV_EXCL_LINE cannot be reached
+    default:            // LCOV_EXCL_LINE cannot be reached
+      return "huh?";    // LCOV_EXCL_LINE cannot be reached
   }
 }
+
 typedef struct {
   size_t forkGcRunIntervalSec;
   size_t forkGcCleanThreshold;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
-} forkGcConfig;
+} GCSettings;
 
 typedef struct {
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
   bool enableGC;
   size_t gcScanSize;
   GCPolicy gcPolicy;
-
-  forkGcConfig forkGc;
+  GCSettings gcSettings;
 } GCConfig;
 
 // Configuration parameters related to aggregate request.
@@ -184,6 +185,11 @@ typedef struct {
   bool prioritizeIntersectUnionChildren;
     // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
   unsigned int indexerYieldEveryOpsWhileLoading;
+  // Sleep duration in microseconds during background indexing. We sleep periodically
+  // (every `numBGIndexingIterationsBeforeSleep` iterations) to allow the main thread
+  // to acquire the GIL and process commands.
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+  uint32_t bgIndexingSleepDurationMicroseconds;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
@@ -201,6 +207,9 @@ typedef struct {
   uint32_t maxTrimDelayMS;
   // Delay between trimming state checks (in milliseconds)
   uint32_t trimmingStateCheckDelayMS;
+  // If false, suppress emitting RediSearch INFO metrics when there are no indexes.
+  // (We still emit the "version" section, and we never suppress crash-report info.)
+  bool infoEmitOnZeroIndexes;
   // Simulate working under Flex conditions. This is used for testing only.
   bool simulateInFlex;
 } RSConfig;
@@ -299,6 +308,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+#define DEFAULT_DISK_GC_RUN_INTERVAL 300
+#define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
@@ -327,6 +338,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_BG_INDEX_SLEEP_DURATION_US 1
 #define DEFAULT_SHARD_WINDOW_RATIO 1.0
 #define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
 #define MAX_SHARD_WINDOW_RATIO 1.0
@@ -355,10 +367,10 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
-    .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
-    .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                          \
-    .gcConfigParams.forkGc.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
-    .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
+    .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
+    .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
@@ -368,7 +380,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
-    .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                \
+    .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
     .freeResourcesThread = true,                                               \
     .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
     .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \
@@ -380,12 +392,14 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
-    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,\
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
     .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
-    .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                    \
-    .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
-    .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,            \
+    .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                  \
+    .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
+    .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
+    .infoEmitOnZeroIndexes = false,                                            \
     .simulateInFlex = false,           \
   }
 

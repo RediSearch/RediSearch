@@ -17,13 +17,14 @@ use rqe_iterators::{
     NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index::Numeric,
 };
 
-use crate::inverted_index::utils::{BaseTest, MockContext};
+use crate::inverted_index::utils::BaseTest;
+use rqe_iterators_test_utils::MockContext;
 
 /// Builder for creating a Numeric iterator with optional parameters.
 #[allow(dead_code)]
 struct NumericBuilder<'index, R, E = NoOpChecker> {
     reader: R,
-    range_tree: Option<NonNull<ffi::NumericRangeTree>>,
+    range_tree: Option<NonNull<numeric_range_tree::NumericRangeTree>>,
     range_min: Option<f64>,
     range_max: Option<f64>,
     expiration_checker: E,
@@ -61,7 +62,7 @@ where
     E: rqe_iterators::ExpirationChecker,
 {
     /// Set the numeric range tree.
-    fn range_tree(mut self, range_tree: NonNull<ffi::NumericRangeTree>) -> Self {
+    fn range_tree(mut self, range_tree: NonNull<numeric_range_tree::NumericRangeTree>) -> Self {
         self.range_tree = Some(range_tree);
         self
     }
@@ -95,13 +96,18 @@ where
 
     /// Build the Numeric iterator.
     fn build(self) -> Numeric<'index, R, E> {
-        Numeric::new(
-            self.reader,
-            self.expiration_checker,
-            self.range_tree,
-            self.range_min,
-            self.range_max,
-        )
+        let tree = self.range_tree.map(|t| unsafe { t.as_ref() });
+        // SAFETY: `range_tree`, when provided, is a valid pointer to a
+        // `NumericRangeTree` that outlives the returned iterator.
+        unsafe {
+            Numeric::new(
+                self.reader,
+                self.expiration_checker,
+                tree,
+                self.range_min,
+                self.range_max,
+            )
+        }
     }
 }
 
@@ -159,10 +165,9 @@ fn numeric_read() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 /// test skipping from Numeric iterator
 fn numeric_skip_to() {
-    let test = NumericBaseTest::new(100);
+    let test = NumericBaseTest::new(10);
     let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
@@ -403,6 +408,7 @@ mod not_miri {
     use crate::inverted_index::utils::{
         ExpirationTest, MockExpirationChecker, RevalidateIndexType, RevalidateTest,
     };
+    use numeric_range_tree::NumericIndexReader;
     use rqe_iterators::RQEValidateStatus;
 
     struct NumericExpirationTest {
@@ -421,23 +427,21 @@ mod not_miri {
             }
         }
 
-        fn create_iterator(
-            &self,
-        ) -> Numeric<
-            '_,
-            inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>,
-            MockExpirationChecker,
-        > {
+        fn create_iterator(&self) -> Numeric<'_, NumericIndexReader<'_>, MockExpirationChecker> {
             let reader = self.test.numeric_inverted_index().reader();
             let checker = self.test.create_mock_checker();
 
-            Numeric::new(
-                reader,
-                checker,
-                Some(self.test.context.numeric_range_tree()),
-                None,
-                None,
-            )
+            // SAFETY: `numeric_range_tree()` returns a valid pointer that
+            // outlives the returned iterator.
+            unsafe {
+                Numeric::new(
+                    reader,
+                    checker,
+                    Some(self.test.context.numeric_range_tree_ref()),
+                    None,
+                    None,
+                )
+            }
         }
 
         fn test_read_expiration(&mut self) {
@@ -577,10 +581,10 @@ mod not_miri {
     fn numeric_revalidate_needs_revalidation_before_reads() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = test.test.context.numeric_inverted_index().as_numeric();
+        let ii = test.test.context.numeric_inverted_index();
 
         // Trigger GC on the index so needs_revalidation() returns true.
-        test.test.remove_document(ii, 1);
+        test.test.remove_document_numeric(ii, 1);
 
         // Revalidate before any reads. last_doc_id is 0, so even though
         // needs_revalidation is true, we should get Ok.
@@ -614,14 +618,8 @@ mod not_miri {
             }
         }
 
-        fn create_iterator(
-            &self,
-        ) -> Numeric<
-            '_,
-            inverted_index::IndexReaderCore<'_, inverted_index::numeric::Numeric>,
-            NoOpChecker,
-        > {
-            let ii = self.test.context.numeric_inverted_index().as_numeric();
+        fn create_iterator(&self) -> Numeric<'_, NumericIndexReader<'_>, NoOpChecker> {
+            let ii = self.test.context.numeric_inverted_index();
             let context = &self.test.context;
 
             NumericBuilder::new(ii.reader())
@@ -664,33 +662,28 @@ mod not_miri {
         // manipulating the revision ID. check_abort() compares the stored
         // revision ID with the current one from the NumericRangeTree.
         let context = &test.test.context;
-        let mut rt = context.numeric_range_tree();
         // Simulate the range tree being modified by incrementing its revision ID
         // This simulates a scenario where the tree was modified (e.g., node split, removal)
         // while the iterator was suspended.
-        unsafe {
-            let rt = rt.as_mut();
-            rt.revisionId += 1;
+        {
+            let rt = context.numeric_range_tree_mut();
+            rt.increment_revision();
         }
+
         // Now Revalidate should return Aborted because the revision IDs don't match
         assert_eq!(
             it.revalidate().expect("revalidate failed"),
             RQEValidateStatus::Aborted
         );
-
-        // Restore the original revision ID for proper cleanup
-        unsafe {
-            let rt = rt.as_mut();
-            rt.revisionId -= 1;
-        }
     }
 
     #[test]
     fn numeric_revalidate_after_document_deleted() {
         let test = NumericRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = test.test.context.numeric_inverted_index().as_numeric();
+        let ii = test.test.context.numeric_inverted_index();
 
-        test.test.revalidate_after_document_deleted(&mut it, ii);
+        test.test
+            .revalidate_numeric_after_document_deleted(&mut it, ii);
     }
 }

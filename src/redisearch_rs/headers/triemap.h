@@ -8,6 +8,11 @@
 #include <stdlib.h>
 #include <time.h>
 #include "thin_vec.h"
+/**
+ * Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
+ */
+typedef struct TrieMap TrieMap;
+
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -18,11 +23,6 @@ typedef enum tm_iter_mode {
   TM_SUFFIX_MODE = 2,
   TM_WILDCARD_MODE = 3,
 } tm_iter_mode;
-
-/**
- * Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
- */
-typedef struct TrieMap TrieMap;
 
 /**
  * Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`] or
@@ -84,7 +84,7 @@ extern void *TRIEMAP_NOTFOUND;
  *
  * To free the trie, use [`TrieMap_Free`].
  */
-struct TrieMap *NewTrieMap(void);
+TrieMap *NewTrieMap(void);
 
 /**
  * Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
@@ -106,7 +106,7 @@ struct TrieMap *NewTrieMap(void);
  *  - The Redis allocator must be initialized before calling this function,
  *    and `RedisModule_Free` must not get mutated while running this function.
  */
-int TrieMap_Add(struct TrieMap *t,
+int TrieMap_Add(TrieMap *t,
                 const char *str,
                 tm_len_t len,
                 void *value,
@@ -133,7 +133,7 @@ int TrieMap_Add(struct TrieMap *t,
  * - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
  *   and the pointer must not be dereferenced.
  */
-void *TrieMap_Find(struct TrieMap *t, const char *str, tm_len_t len);
+void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len);
 
 /**
  * Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -148,7 +148,7 @@ void *TrieMap_Find(struct TrieMap *t, const char *str, tm_len_t len);
  * - `len` can be 0. If so, `str` is regarded as an empty string.
  * - if `func` is not NULL, it must be a valid function pointer of the type [`freeCB`].
  */
-int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
+int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /**
  * Free the trie's root and all its children recursively. If freeCB is given, we
@@ -160,7 +160,7 @@ int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func
  * - The Redis allocator must be initialized before calling this function,
  *   and `RedisModule_Free` must not get mutated while running this function.
  */
-void TrieMap_Free(struct TrieMap *t, freeCB func);
+void TrieMap_Free(TrieMap *t, freeCB func);
 
 /**
  * Determines the amount of memory used by the trie in bytes.
@@ -169,7 +169,7 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
  * The following invariants must be upheld when calling this function:
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
-uintptr_t TrieMap_MemUsage(struct TrieMap *t);
+uintptr_t TrieMap_MemUsage(TrieMap *t);
 
 /**
  * The number of unique keys stored in the provided triemap.
@@ -179,7 +179,7 @@ uintptr_t TrieMap_MemUsage(struct TrieMap *t);
  * The following invariants must be upheld when calling this function:
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
-uintptr_t TrieMap_NUniqueKeys(struct TrieMap *t);
+uintptr_t TrieMap_NUniqueKeys(TrieMap *t);
 
 /**
  * The number of nodes stored in the provided triemap.
@@ -191,7 +191,7 @@ uintptr_t TrieMap_NUniqueKeys(struct TrieMap *t);
  * The following invariants must be upheld when calling this function:
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
-uintptr_t TrieMap_NNodes(struct TrieMap *t);
+uintptr_t TrieMap_NNodes(TrieMap *t);
 
 /**
  * Find nodes that have a given prefix. Results are placed in an array.
@@ -207,7 +207,7 @@ uintptr_t TrieMap_NNodes(struct TrieMap *t);
  *
  * [`NewTrieMap`]: crate::NewTrieMap
  */
-TrieMapResultBuf TrieMap_FindPrefixes(struct TrieMap *t, const char *str, tm_len_t len);
+TrieMapResultBuf TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len);
 
 /**
  * Free the [`TrieMapResultBuf`] and its contents.
@@ -258,7 +258,7 @@ uintptr_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `t` must not be freed while the iterator lives.
  */
-struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
+struct TrieMapIterator *TrieMap_Iterate(TrieMap *t);
 
 /**
  * Iterate over the trie entries that match the given predicate.
@@ -280,7 +280,7 @@ struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
  * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
  *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
  */
-struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t,
+struct TrieMapIterator *TrieMap_IterateWithFilter(TrieMap *t,
                                                   const char *prefix,
                                                   tm_len_t prefix_len,
                                                   enum tm_iter_mode iter_mode);
@@ -350,7 +350,7 @@ int TrieMapIterator_Next(struct TrieMapIterator *it,
  *
  * [`NewTrieMap`]: crate::NewTrieMap
  */
-void TrieMap_IterateRange(struct TrieMap *trie,
+void TrieMap_IterateRange(TrieMap *trie,
                           const char *min,
                           int minlen,
                           bool includeMin,

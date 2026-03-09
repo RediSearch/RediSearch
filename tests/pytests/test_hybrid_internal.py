@@ -449,7 +449,7 @@ def test_hybrid_internal_error_cases(env):
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'nonexistent', 'SEARCH', '@description:running',
                'VSIM', '@embedding', '$BLOB', '_SLOTS_INFO', generate_slots(range(0, 0)), 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
-               '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME).error().contains('No such index nonexistent')
+               '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME).error().contains('SEARCH_INDEX_NOT_FOUND Index not found: nonexistent')
 
     # Test with invalid vector field using direct vector specification
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',

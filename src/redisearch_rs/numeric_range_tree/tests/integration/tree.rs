@@ -12,7 +12,7 @@
 use numeric_range_tree::NumericRangeTree;
 use rstest::rstest;
 
-use super::helpers::{SPLIT_TRIGGER, build_tree, walk_with_depth};
+use numeric_range_tree::test_utils::{SPLIT_TRIGGER, build_tree, walk_with_depth};
 
 #[test]
 fn test_new_tree() {

@@ -565,10 +565,10 @@ def testUnsupportedNesting(env):
     or_exp = nest_exp('mod', 'a', False, nest_level)
     # env.debugPrint(and_exp, force=TEST_DEBUG)
     # env.debugPrint(or_exp, force=TEST_DEBUG)
-    env.expect('ft.search', 'idx', and_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
-    env.expect('ft.search', 'idx', and_exp, 'DIALECT', 2).error().contains('Parser stack overflow.')
-    env.expect('ft.search', 'idx', or_exp, 'DIALECT', 1).error().contains('Syntax error at offset')
-    env.expect('ft.search', 'idx', or_exp, 'DIALECT', 2).error().contains('Parser stack overflow.')
+    env.expect('ft.search', 'idx', and_exp, 'DIALECT', 1).error().contains('SEARCH_SYNTAX Syntax error at offset')
+    env.expect('ft.search', 'idx', and_exp, 'DIALECT', 2).error().contains('SEARCH_SYNTAX Parser stack overflow')
+    env.expect('ft.search', 'idx', or_exp, 'DIALECT', 1).error().contains('SEARCH_SYNTAX Syntax error at offset')
+    env.expect('ft.search', 'idx', or_exp, 'DIALECT', 2).error().contains('SEARCH_SYNTAX Parser stack overflow')
 
 def testSupportedNesting_v1():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')

@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 c_ffi_utils = { workspace = true }
 ffi.workspace = true
+libc.workspace = true
 workspace_hack.workspace = true
 thiserror.workspace = true
 
@@ -26,12 +27,10 @@ default-features = false
 workspace = true
 default-features = true
 
-
 [lints]
 workspace = true
 
 [features]
-test_utils = []
 # Enables temporary `RSValueFFI` type.
 # Needs to be disabled
 # in case bindings are being generated for types

@@ -12,7 +12,7 @@
 #[cfg(not(miri))]
 mod debug;
 mod find;
-mod helpers;
+mod gc;
 mod iter;
 mod node;
 mod properties;

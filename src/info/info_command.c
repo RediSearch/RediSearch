@@ -21,6 +21,7 @@
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
+#include "query_error.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -167,7 +168,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(fs, DONT_CREATE_INDEX);
+      // Cast is safe: OpenGeometryIndex only mutates fs when create_if_missing is true.
+      const GeometryIndex *idx = OpenGeometryIndex((FieldSpec *)fs, DONT_CREATE_INDEX);
       if (idx) {
         const GeometryApi *api = GeometryApi_Get(idx);
         geom_idx_sz += api->report(idx);
@@ -343,7 +345,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   CurrentThread_SetIndexSpec(sp->own_ref);
   const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));

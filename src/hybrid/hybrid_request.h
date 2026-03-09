@@ -1,4 +1,5 @@
 #pragma once
+
 #include "aggregate/aggregate.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
@@ -36,7 +37,46 @@ typedef struct HybridRequest {
     ProfileClocks profileClocks;
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
+
+    // Synchronization context for timeout handling
+    RequestSyncCtx syncCtx;
+
+    // Flag to indicate whether to skip timeout checks using clock checks
+    bool skipTimeoutChecks;
 } HybridRequest;
+
+// Timeout helper functions for HybridRequest (mirrors AREQ pattern)
+bool HybridRequest_TimedOut(HybridRequest *req);
+void HybridRequest_SetTimedOut(HybridRequest *req);
+
+static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
+  return !req->skipTimeoutChecks;
+}
+
+static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool skipTimeoutChecks) {
+  req->skipTimeoutChecks = skipTimeoutChecks;
+  // Propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  if (req->sctx) {
+    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+  }
+  // Propagate to all AREQ subqueries
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      AREQ_SetSkipTimeoutChecks(req->requests[i], skipTimeoutChecks);
+    }
+  }
+}
+
+// Reply state management functions for coordinating replies between main and background threads
+// Try to claim reply ownership. Returns true if claimed (state was NOT_REPLIED),
+// false if already claimed or replied (state was REPLYING or REPLIED).
+bool HybridRequest_TryClaimReply(HybridRequest *req);
+
+// Mark reply as complete. Must only be called after successfully claiming reply.
+void HybridRequest_MarkReplied(HybridRequest *req);
+
+// Get current reply state (for checking/waiting in timeout callback)
+uint8_t HybridRequest_GetReplyState(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
@@ -59,6 +99,17 @@ typedef struct blockedClientHybridCtx {
  * @param nrequests Number of requests in the array
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+
+/**
+ * Initialize an already-allocated (zeroed) HybridRequest.
+ * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ *
+ * @param hybridReq Pointer to zeroed HybridRequest to initialize
+ * @param sctx The search context for the hybrid request
+ * @param requests Array of AREQ pointers, the hybrid request takes ownership
+ * @param nrequests Number of requests in the array
+ */
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
 
 /*
 * We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
@@ -135,7 +186,19 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  */
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
 
-void HybridRequest_Free(HybridRequest *req);
+/**
+ * Increment the reference count of the HybridRequest.
+ * @param req the request to increment
+ * @return the request (for chaining)
+ */
+HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
+
+/**
+ * Decrement the reference count of the HybridRequest.
+ * If the reference count reaches 0, the request is freed.
+ * @param req the request to decrement
+ */
+void HybridRequest_DecrRef(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

@@ -41,7 +41,9 @@ enum IteratorType {
   UNION_ITERATOR,
   INTERSECT_ITERATOR,
   NOT_ITERATOR,
+  NOT_ITERATOR_OPTIMIZED,
   OPTIONAL_ITERATOR,
+  OPTIONAL_OPTIMIZED_ITERATOR,
   WILDCARD_ITERATOR,
   EMPTY_ITERATOR,
   ID_LIST_SORTED_ITERATOR,
@@ -70,7 +72,7 @@ typedef struct QueryIterator {
   RSIndexResult *current;
 
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */
-  size_t (*NumEstimated)(struct QueryIterator *self);
+  size_t (*NumEstimated)(const struct QueryIterator *self);
 
   /** Read the next entry from the iterator.
    *  On a successful read, the iterator must:

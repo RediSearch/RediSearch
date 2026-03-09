@@ -79,7 +79,7 @@ static void Cursor_FreeInternal(Cursor *cur) {
     StrongRef_Release(cur->hybrid_ref);
     cur->execState = NULL;
   } else if (cur->execState) {
-    AREQ_Free(cur->execState);
+    AREQ_DecrRef(cur->execState);
     cur->execState = NULL;
   }
   // if There's a spec associated with the cursor
@@ -227,13 +227,17 @@ void CursorList_MarkASMInaccuracy() {
 
 Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned interval,
                         QueryError *status) {
+  Cursor *cur = NULL;
+  IndexSpec *spec = NULL;
+  int dummy = 0;
+  khiter_t iter = 0;
+
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  Cursor *cur = NULL;
 
   // If the cursor should be associated with a spec,
   // we assume that global_spec_ref points to a valid spec, else the function returns NULL.
-  IndexSpec *spec = StrongRef_Get(global_spec_ref);
+  spec = StrongRef_Get(global_spec_ref);
   // If we are in a coordinator ctx, the spec is NULL
   if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
@@ -256,8 +260,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
     spec->activeCursors++;
   }
 
-  int dummy;
-  khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
+  iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
   kh_value(cl->lookup, iter) = cur;
 
 done:

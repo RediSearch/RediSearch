@@ -14,6 +14,7 @@
 #include "concurrent_ctx.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
+#define DECR_BY(x,y) __atomic_sub_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define INCR(x) INCR_BY(x, 1)
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 
@@ -122,8 +123,12 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   return stats;
 }
 
-void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd) {
-    INCR_BY(RSGlobalStats.totalStats.logically_deleted, toAdd);
+void IndexsGlobalStats_IncreaseLogicallyDeleted(int64_t toAdd) {
+  INCR_BY(RSGlobalStats.totalStats.logically_deleted, toAdd);
+}
+
+void IndexsGlobalStats_DecreaseLogicallyDeleted(int64_t toSubtract) {
+  DECR_BY(RSGlobalStats.totalStats.logically_deleted, toSubtract);
 }
 
 size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
@@ -143,6 +148,7 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode code, int toAdd, bool coo
       INCR_BY(queries_errors->syntax, toAdd);
       break;
     case QUERY_ERROR_CODE_PARSE_ARGS:
+    case QUERY_ERROR_CODE_ARG_UNRECOGNIZED:
       INCR_BY(queries_errors->arguments, toAdd);
       break;
     case QUERY_ERROR_CODE_TIMED_OUT:

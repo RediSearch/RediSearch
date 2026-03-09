@@ -21,6 +21,8 @@
 #include "spec.h"
 #include "param.h"
 #include "rmalloc.h"
+#include "config.h"
+#include "shard_window_ratio.h"
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
@@ -111,13 +113,41 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     }
 
     // Unknown argument that's not VSIM - this is an error
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in SEARCH", cur);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
   }
   if (searchOpts->scoreAlias) {
     AREQ_AddRequestFlags(sreq, QEXEC_F_SEND_SCORES_AS_FIELD);
   }
 
+  return REDISMODULE_OK;
+}
+
+static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
+                                  QueryError *status) {
+  // VSIM @vectorfield vector KNN <nargs> ... SHARD_K_RATIO <ratio>
+  //                                          ^
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for SHARD_K_RATIO");
+    return REDISMODULE_ERR;
+  }
+
+  const char *ratioStr;
+  size_t ratioStrLen;
+  ratioStr = AC_GetStringNC(ac, &ratioStrLen);
+  double shardKRatio;
+  if (!validateShardKRatio(ratioStr, &shardKRatio, status)) {
+    return REDISMODULE_ERR;
+  }
+
+  // Add as QueryAttribute (will be applied to VectorQuery via QueryNode_ApplyAttributes)
+  QueryAttribute attr = {
+    .name = SHARD_K_RATIO_ATTR,
+    .namelen = strlen(SHARD_K_RATIO_ATTR),
+    .value = rm_strndup(ratioStr, ratioStrLen),
+    .vallen = ratioStrLen
+  };
+  pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
   return REDISMODULE_OK;
 }
 
@@ -139,6 +169,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -179,10 +210,20 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
+    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      if (hasShardKRatio) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
+        return REDISMODULE_ERR;
+      }
+      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+      hasShardKRatio = true;
+
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in KNN", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in KNN", current);
       return REDISMODULE_ERR;
     }
   }
@@ -255,7 +296,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in RANGE", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in RANGE", current);
       return REDISMODULE_ERR;
     }
   }
@@ -452,8 +493,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
-  // Check for optional YIELD_SCORE_AS clause
-  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+  // Check for optional YIELD_SCORE_AS detecting duplicate arguments
+  while (!AC_IsAtEnd(ac) && AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
     if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -484,6 +525,7 @@ final:
     case VECSIM_QT_KNN:
       vq->knn.vector = (void*)vectorParam;
       vq->knn.vecLen = vectorParamLen;
+      vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;
@@ -750,6 +792,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
+  // Declare variables used after goto statements to avoid "jump skips variable initialization" errors
+  const char *vectorScoreFieldAlias = NULL;
+  PLN_VectorNormalizerStep *vnStep = NULL;
+  PLN_ArrangeStep *arrangeStep = NULL;
+  size_t prefixCount = 0;
+  AggregationPipelineParams params;
+  HybridParseContext hybridParseCtx;
+
   if (!parseSubqueriesCount(ac, status)) {
     goto error;
   }
@@ -762,7 +812,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
-  HybridParseContext hybridParseCtx = {
+  hybridParseCtx = (HybridParseContext){
       .status = status,
       .specifiedArgs = 0,
       .hybridScoringCtx = hybridParams->scoringCtx,
@@ -801,7 +851,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
-  const char *vectorScoreFieldAlias = NULL;
   if (vectorRequest->parsedVectorData->vectorScoreFieldAlias != NULL) {
     vectorScoreFieldAlias = vectorRequest->parsedVectorData->vectorScoreFieldAlias;
     vectorRequest->parsedVectorData->vectorScoreFieldAlias = NULL;
@@ -813,7 +862,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
   }
   // Store the key string so it could fetch the distance from the RlookupRow
-  PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
+  vnStep = PLNVectorNormalizerStep_New(
     vectorRequest->parsedVectorData->fieldName,
     vectorScoreFieldAlias
   );
@@ -831,8 +880,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     mergeSearchopts.params = NULL;
   }
 
-  const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
-  if (hadArgumentBesidesCombine) {
+  if ((hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
@@ -843,7 +891,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
   // So it is important this is done before we add the load step to the subqueries plan
-  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
   if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
     arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
   } else {
@@ -862,8 +910,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
-  const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
+  prefixCount = array_len(*hybridParseCtx.prefixes);
   if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
@@ -882,7 +929,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
 
   // thread safe context
-  const AggregationPipelineParams params = {
+  params = (AggregationPipelineParams){
       .common =
           {
               .sctx = sctx,  // should be a separate context?

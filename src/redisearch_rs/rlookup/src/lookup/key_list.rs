@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RLookup, RLookupKey, RLookupKeyFlags};
+use crate::{RLookupKey, RLookupKeyFlags};
 use std::{ffi::CStr, pin::Pin, ptr::NonNull};
 
 #[cfg(any(debug_assertions, test))]
@@ -21,23 +21,18 @@ pub struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys. Overridden keys created through [`CursorMut::override_current`] increase
+    // of lookup keys. Overridden keys created through `CursorMut::override_current` increase
     // the number of actually allocated keys without increasing the conceptual rowlen.
     pub(crate) rowlen: u32,
 }
 
-/// A cursor over an [`crate::RLookup`]'s key list usable as [`Iterator`]
-///
-/// This types `Iterator` implementation skips all hidden keys, i.e. the keys
-/// with hidden flags, also including keys that been overridden.
-///
-/// If you need to obtain the hidden keys use [`Cursor::move_next`].
+/// A cursor over an [`RLookup`][crate::RLookup]'s key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over an [`crate::RLookup`]s key list with editing operations.
+/// A cursor over an [`RLookup`][crate::RLookup]'s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -65,7 +60,7 @@ impl<'a> KeyList<'a> {
         'a: 'b,
     {
         #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push before");
+        self.assert_valid("KeyList::push (before)");
 
         key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
 
@@ -98,7 +93,7 @@ impl<'a> KeyList<'a> {
         self.rowlen += 1;
 
         #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::push after");
+        self.assert_valid("KeyList::push (after)");
 
         // Safety: we have allocated the memory above, this pointer is safe to dereference.
         let key = unsafe { ptr.as_mut() };
@@ -107,13 +102,7 @@ impl<'a> KeyList<'a> {
         unsafe { Pin::new_unchecked(key) }
     }
 
-    /// Returns a [`Cursor`] starting at the first element.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over this list.
-    /// The returned Cursor's `Iterator` implementation skips hidden keys, i.e. the keys that have
-    /// been overridden.
-    ///
-    /// If you need to obtain the hidden keys use [`Cursor::move_next`].
+    /// Return a cursor over an [`RLookup`]'s key list.
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front");
@@ -124,9 +113,7 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    /// Returns a [`CursorMut`] starting at the first element.
-    ///
-    /// The [`CursorMut`] type can be used as Iterator over this list. In addition, it may be used to manipulate the list.
+    /// Return a cursor over an [`RLookup`]'s key list with editing operations.
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front_mut");
@@ -181,22 +168,22 @@ impl<'a> KeyList<'a> {
         let Some(head) = self.head else {
             assert!(
                 self.tail.is_none(),
-                "{ctx}if the linked list's head is null, the tail must also be null"
+                "{ctx} - if the linked list's head is null, the tail must also be null"
             );
             assert_eq!(
                 self.rowlen, 0,
-                "{ctx}if a linked list's head is null, its length must be 0"
+                "{ctx} - if a linked list's head is null, its length must be 0"
             );
             return;
         };
 
         assert_ne!(
             self.rowlen, 0,
-            "{ctx}if a linked list's head is not null, its length must be greater than 0"
+            "{ctx} - if a linked list's head is not null, its length must be greater than 0"
         );
         assert_ne!(
             self.tail, None,
-            "{ctx}if the linked list has a head, it must also have a tail"
+            "{ctx} - if the linked list has a head, it must also have a tail"
         );
 
         let tail = self.tail.unwrap();
@@ -211,12 +198,12 @@ impl<'a> KeyList<'a> {
             assert_eq!(
                 NonNull::from(&head.next),
                 NonNull::from(&tail.next),
-                "{ctx}if the head and tail nodes are the same, their links must be the same"
+                "{ctx} - if the head and tail nodes are the same, their links must be the same"
             );
             assert_eq!(
                 head.next(),
                 None,
-                "{ctx}if the linked list has only one node, it must not be linked"
+                "{ctx} - if the linked list has only one node, it must not be linked"
             );
             return;
         }
@@ -234,7 +221,7 @@ impl<'a> KeyList<'a> {
 
         assert!(
             self.rowlen <= actual_len,
-            "{ctx}linked list's rowlen was greater than its actual length"
+            "{ctx} - linked list's rowlen was greater than its actual length"
         );
     }
 }
@@ -343,16 +330,11 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         let new = {
             let (name, path) = old.as_mut().make_tombstone();
             let mut key = if let Some(path) = path {
-                RLookupKey::new_with_path(&RLookup::new(), name, path, flags)
+                RLookupKey::new_with_path(name, path, flags)
             } else {
-                RLookupKey::new(&RLookup::new(), name, flags)
+                RLookupKey::new(name, flags)
             };
             key.dstidx = old.dstidx;
-
-            #[cfg(debug_assertions)]
-            {
-                key.rlookup_id = old.rlookup_id();
-            }
 
             key
         };
@@ -390,20 +372,18 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::RLookup;
     use crate::RLookupKeyFlag;
     use enumflags2::make_bitflags;
 
     // assert that the linked list is produced and linked correctly
     #[test]
     fn keylist_push_consistency() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_push_consistency after insertions");
@@ -421,17 +401,14 @@ mod tests {
     // Assert the Cursor::move_next method DOES NOT skip keys marked hidden
     #[test]
     fn keylist_cursor_move_next() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
-        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"baz",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
@@ -450,17 +427,14 @@ mod tests {
     // Assert the CursorMut::move_next method DOES NOT skip keys marked hidden
     #[test]
     fn keylist_cursor_mut_move_next() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
-        keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"baz",
             make_bitflags!(RLookupKeyFlag::Hidden),
         ));
@@ -478,13 +452,12 @@ mod tests {
 
     #[test]
     fn keylist_find() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find after insertions");
@@ -500,13 +473,12 @@ mod tests {
 
     #[test]
     fn keylist_find_mut() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(&rlookup, c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(&rlookup, c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find_mut after insertions");
@@ -528,11 +500,9 @@ mod tests {
 
     #[test]
     fn keylist_override_key_find() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
@@ -560,11 +530,9 @@ mod tests {
 
     #[test]
     fn keylist_override_key_iterate() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
@@ -584,17 +552,14 @@ mod tests {
 
     #[test]
     fn keylist_override_key_tail_handling() {
-        let rlookup = RLookup::new();
         let mut keylist = KeyList::new();
 
         // push two keys, so we can override one without altering the tail and another one to override it.
         keylist.push(RLookupKey::new(
-            &rlookup,
             c"foo",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
         let secoond = keylist.push(RLookupKey::new(
-            &rlookup,
             c"bar",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));

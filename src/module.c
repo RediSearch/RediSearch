@@ -47,6 +47,7 @@
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
+#include "query_error.h"
 #include "coord/rmr/rmr.h"
 #include "shard_window_ratio.h"
 
@@ -56,7 +57,7 @@
 #include "coord/rmr/redise.h"
 #include "coord/config.h"
 #include "coord/debug_commands.h"
-#include "libuv/include/uv.h"
+#include "uv.h"
 #include "profile/profile.h"
 #include "profile/options.h"
 #include "coord/dist_profile.h"
@@ -72,6 +73,8 @@
 #include "search_disk.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "coord/coord_request_ctx.h"
+#include "coord/hybrid/dist_hybrid.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
 #include "aggregate/reply_empty.h"
@@ -91,7 +94,7 @@
     StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);                                                    \
     IndexSpec *sp = StrongRef_Get(spec_ref);                                                                \
     if (!sp) {                                                                                              \
-      return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);                           \
+      return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idxName); \
     }                                                                                                       \
     if (!ACLUserMayAccessIndex(ctx, sp)) {                                                                  \
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                                                   \
@@ -234,7 +237,8 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
@@ -272,7 +276,8 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!ACLUserMayAccessIndex(ctx, sctx->spec)) {
@@ -322,15 +327,22 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
   QueryError status = QueryError_Default();
-  size_t len;
+  size_t len = 0;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
   const char **includeDict = NULL, **excludeDict = NULL;
   RSSearchOptions opts = {0};
   QueryAST qast = {0};
+  int distanceArgPos = 0;
+  long long distance = DEFAULT_LEV_DISTANCE;
+  int nextPos = 0;
+  bool fullScoreInfo = false;
+  SpellCheckCtx scCtx;
+
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
@@ -341,8 +353,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   includeDict = array_new(const char *, DICT_INITIAL_SIZE);
   excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
 
-  int distanceArgPos = 0;
-  long long distance = DEFAULT_LEV_DISTANCE;
   if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))) {
     if (distanceArgPos + 1 >= argc) {
       RedisModule_ReplyWithError(ctx, "DISTANCE arg is given but no DISTANCE comes after");
@@ -357,7 +367,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }  // LCOV_EXCL_LINE
 
-  int nextPos = 0;
   while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
     if (nextPos + 2 >= argc) {
       RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
@@ -378,16 +387,15 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   SET_DIALECT(sctx->spec->used_dialects, dialect);
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
 
-  bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
     fullScoreInfo = true;
   }
 
-  SpellCheckCtx scCtx = {.sctx = sctx,
-                         .includeDict = includeDict,
-                         .excludeDict = excludeDict,
-                         .distance = distance,
-                         .fullScoreInfo = fullScoreInfo};
+  scCtx = (SpellCheckCtx){.sctx = sctx,
+                          .includeDict = includeDict,
+                          .excludeDict = excludeDict,
+                          .distance = distance,
+                          .fullScoreInfo = fullScoreInfo};
 
   SpellCheck_Reply(&scCtx, &qast);
 
@@ -470,7 +478,8 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (sp == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   // Validate ACL permission to the index
@@ -499,10 +508,16 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+static inline void ReplyWithQueryErrorNoDetail(RedisModuleCtx *ctx, QueryErrorCode code,
+  const char *message) {
+  QueryError status = QueryError_Default();
+  QueryError_SetError(&status, code, message);
+  (void)QueryError_ReplyAndClear(ctx, &status);
+}
+
 /* FT.TAGVALS {idx} {field}
  * Return all the values of a tag field.
  * There is no sorting or paging, so be careful with high-cradinality tag fields */
-
 int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // at least one field, and number of field/text args must be even
   if (argc != 3) {
@@ -511,24 +526,27 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisSearchCtx *sctx = NewSearchCtx(ctx, argv[1], true);
   if (sctx == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  size_t len;
+  size_t len = 0;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, field, len);
+  TagIndex *idx = NULL;
+
   if (!fs) {
-    RedisModule_ReplyWithError(ctx, "No such field");
+    ReplyWithQueryErrorNoDetail(ctx, QUERY_ERROR_CODE_BAD_ATTR, "No such field");
     goto cleanup;
   }
   if (!FIELD_IS(fs, INDEXFLD_T_TAG)) {
-    RedisModule_ReplyWithError(ctx, "Not a tag field");
+    ReplyWithQueryErrorNoDetail(ctx, QUERY_ERROR_CODE_BAD_ATTR, "Not a tag field");
     goto cleanup;
   }
 
-  TagIndex *idx = TagIndex_Open(fs, DONT_CREATE_INDEX);
+  idx = TagIndex_Open(fs);
   if (!idx) {
     RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
@@ -646,7 +664,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef global_ref = IndexSpec_LoadUnsafe(spec_name);
   IndexSpec *sp = StrongRef_Get(global_ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown Index name");
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), spec_name);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -664,7 +682,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
     } else {
-      return RedisModule_ReplyWithError(ctx, "Unknown argument");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
     }
   }
 
@@ -760,7 +778,8 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -816,7 +835,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef ref = IndexSpec_LoadUnsafe(idx);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   // Verify ACL keys permission
@@ -872,7 +891,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   StrongRef ref = IndexSpec_LoadUnsafe(ixname);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), ixname);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -1200,8 +1219,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 3,
-    .patchVersion = 200,
+    .minorVersion = 4,
+    .patchVersion = 0,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
@@ -1664,9 +1683,12 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
       RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
       return REDISMODULE_ERR;
     }
-    // Disable GC when running in Flex mode
-    RSGlobalConfig.gcConfigParams.enableGC = false;
-    RedisModule_Log(ctx, "notice", "GC disabled (Flex mode)");
+
+    // Register BigModule callbacks for disk usage reporting
+    if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
+      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
+      return REDISMODULE_ERR;
+    }
 
     if (RSGlobalConfig.numWorkerThreads == 0) {
       RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
@@ -1852,6 +1874,11 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
   }
 
+  char *s = NULL;
+  tm_len_t sl = 0;
+  void *p = NULL;
+  TrieMapIterator *it = NULL;
+
   // if there are no values - either reply with an empty set or an error
   if (TrieMap_NUniqueKeys(dict) == 0) {
 
@@ -1860,17 +1887,14 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       RedisModule_Reply_Set(reply);
       RedisModule_Reply_SetEnd(reply);
     } else {
-      RedisModule_ReplyWithError(ctx, err ? (const char *)err : "Could not perform query");
+      RedisModule_ReplyWithError(ctx, err ? MRReply_String(err, NULL) : "Could not perform query");
     }
     goto cleanup;
   }
 
   // Iterate the dict and reply with all values
   RedisModule_Reply_Set(reply);
-    char *s;
-    tm_len_t sl;
-    void *p;
-    TrieMapIterator *it = TrieMap_Iterate(dict);
+    it = TrieMap_Iterate(dict);
     while (TrieMapIterator_Next(it, &s, &sl, &p)) {
       RedisModule_Reply_StringBuffer(reply, s, sl);
     }
@@ -1947,15 +1971,14 @@ int mergeArraysReducer(struct MRCtx *mc, int count, MRReply **replies) {
 int allOKReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool isIntegerReply = false, isDoubleReply = false;
+  long long integerReply = 0;
+  double doubleReply = 0;
 
   if (count == 0) {
     RedisModule_Reply_Error(reply, "Could not distribute command");
     goto end;
   }
-
-  bool isIntegerReply = false, isDoubleReply = false;
-  long long integerReply = 0;
-  double doubleReply = 0;
   for (int i = 0; i < count; i++) {
     if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
       MR_ReplyWithMRReply(reply, replies[i]);
@@ -3056,7 +3079,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     } else if (req->timedOut) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
       RedisModule_Reply_Array(reply);
-        RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
       RedisModule_Reply_ArrayEnd(reply);
     } else {
       RedisModule_Reply_EmptyArray(reply);
@@ -3251,6 +3274,10 @@ bool should_return_error(QueryErrorCode errCode) {
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, bool fromTimeout) {
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  searchRequestCtx *req = NULL;
+  searchReducerCtx *rCtx = NULL;
+  int profile = 0;
+  size_t num = 0;
 
   // Try to claim the REDUCING state - if timeout callback already claimed it,
   // skip reduction but still call UnblockClient to trigger free_privdata.
@@ -3261,9 +3288,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
     goto unblock_client;
   }
 
-  searchRequestCtx *req = MRCtx_GetPrivData(mc);
+  req = MRCtx_GetPrivData(mc);
 
-  searchReducerCtx *rCtx = rm_calloc(1, sizeof(searchReducerCtx));
+  rCtx = rm_calloc(1, sizeof(searchReducerCtx));
 
   // Save the rctx in the request so it can be used in reply_callback of unblock client
   req->rctx = rCtx;
@@ -3273,7 +3300,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   rCtx->mc = mc;  // Store MRCtx reference for debug pause timeout check
 #endif
 
-  int profile = req->profileArgs > 0;
+  profile = req->profileArgs > 0;
 
   // got no replies
   if (!fromTimeout && (count == 0 || req->limit < 0)) {
@@ -3291,7 +3318,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
       const char *errStr = MRReply_String(curr_rep, NULL);
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
       if (should_return_error(errCode)) {
-        QueryError_SetError(MRCtx_GetStatus(mc), errCode, errStr);
+        // Shard reply already contains the prefixed error string — set directly.
+        QueryError_SetCode(MRCtx_GetStatus(mc), errCode);
+        QueryError_SetDetail(MRCtx_GetStatus(mc), errStr);
         goto unblock_client;
       }
     }
@@ -3301,7 +3330,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
 
   // Init results heap.
-  size_t num = req->requestedResultsCount;
+  num = req->requestedResultsCount;
   rCtx->pq = rm_malloc(heap_sizeof(num));
   heap_init(rCtx->pq, cmp_results, req, num);
 
@@ -3591,7 +3620,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
 
@@ -3609,10 +3638,11 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref)
-  };
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
+  handlerCtx.coordStartTime = coordInitialTime;
+  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3620,6 +3650,14 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                       struct ConcurrentCmdCtx *cmdCtx);
+
+// Forward declaration for initQueryTimeout (defined later in file)
+static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
+
+static void DistHybridFreePrivData(RedisModuleCtx *ctx, void *privdata) {
+  UNUSED(ctx);
+  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
+}
 
 int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Capture start time for coordinator dispatch time tracking
@@ -3652,7 +3690,7 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
-    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   // Check ACL permissions
@@ -3666,10 +3704,31 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {
-    .coordStartTime = coordInitialTime,
-    .spec_ref = StrongRef_Demote(spec_ref)
-  };
+  // Parse timeout from command args
+  size_t queryTimeoutMS;
+  QueryError status = QueryError_Default();
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
+    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
+
+
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
+  handlerCtx.coordStartTime = coordInitialTime;
+  handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
+
+  handlerCtx.bcCtx.privdata = reqCtx;
+  handlerCtx.bcCtx.free_privdata = DistHybridFreePrivData;
+
+  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+    handlerCtx.bcCtx.callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+  }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
@@ -3691,7 +3750,9 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentSearchHandlerCtx handlerCtx = {0};
+  ConcurrentSearchHandlerCtx handlerCtx;
+  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
+
   handlerCtx.spec_ref = (WeakRef){0};
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -4002,10 +4063,17 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
       return REDISMODULE_OK;
     }
 
+    if (MRCtx_GetNumReplied(mrctx) == 0) {
+      // Can happen in a topology error
+      RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
+      return REDISMODULE_OK;
+    }
+
     searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
 
     searchReducerCtx *rCtx = req->rctx;
-
+    // If NumReplied > 0 we expect ReducerCtx to be initialized
+    RS_ASSERT(rCtx)
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -4063,7 +4131,7 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   MRCtx_Free(mrctx);
 }
 
-typedef RedisModuleCmdFunc BlockedClientTimeoutCB ;
+typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
 typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata);
 
 // Initialize query timeout from command args or global config.
@@ -4219,7 +4287,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
@@ -4281,7 +4349,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Set MRCtx as privdata for the blocked client
   RedisModule_BlockClientSetPrivateData(bc, mrctx);
 
-  SearchCmdCtx* sCmdCtx = rm_malloc(sizeof(*sCmdCtx));
+  SearchCmdCtx* sCmdCtx = rm_calloc(1, sizeof(*sCmdCtx));
   sCmdCtx->handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   sCmdCtx->handlerCtx.coordStartTime = coordInitialTime;
   sCmdCtx->handlerCtx.isProfile = isProfile;

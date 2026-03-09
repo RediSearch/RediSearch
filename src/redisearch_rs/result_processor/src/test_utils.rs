@@ -73,27 +73,6 @@ impl ResultProcessor for ResultRP {
     }
 }
 
-/// A mock result processor of a fixed type, that just calls it's upstream's `next`.
-pub struct MockResultProcessor<const TYPE: ffi::ResultProcessorType>;
-
-impl<const RP_TYPE: ffi::ResultProcessorType> MockResultProcessor<RP_TYPE> {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProcessor<RP_TYPE> {
-    const TYPE: ffi::ResultProcessorType = RP_TYPE;
-
-    fn next(&mut self, mut cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
-        let Some(mut upstream) = cx.upstream() else {
-            return Ok(None);
-        };
-
-        upstream.next(res)
-    }
-}
-
 /// A mock implementation of the "result processor chain" part of the `QueryIterator`
 ///
 /// It acts as an owning collection of linked result processors.
@@ -212,23 +191,3 @@ impl Drop for Chain {
         }
     }
 }
-
-/// Mock implementation of `DMD_Free` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
-    unreachable!()
-}
-
-/// Mock implementation of `SEDestroy` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
-    unreachable!()
-}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset(_row: *mut ffi::RLookupRow) {}
-
-/// Mock implementation of `RLookupRow_Wipe` for tests
-#[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe(_row: *mut ffi::RLookupRow) {}

@@ -327,6 +327,8 @@ def test_dialect_info():
   # Run with DEFAULT_DIALECT 1 to ensure clean dialect stats for this test
   env = Env(moduleArgs='DEFAULT_DIALECT 1')
   conn = getConnectionByEnv(env)
+  # This test calls INFO MODULES even after FLUSHDB (zero indexes). Ensure dialect stats are emitted.
+  allShards_set_info_on_zero_indexes(env, True)
 
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')
