@@ -93,13 +93,16 @@ where
         let delta = if sparse { SPARSE_DELTA } else { 1 };
         for doc_id in 1..INDEX_SIZE {
             let actual_doc_id = doc_id * delta;
-            let record = RSIndexResult::with_term(
-                None,
-                RSOffsetSlice::from_slice(&self.offsets),
-                actual_doc_id,
-                1,
-                1,
-            );
+            let record = RSIndexResult {
+                doc_id: actual_doc_id,
+                field_mask: 1,
+                freq: 1,
+                data: inverted_index::RSResultData::Term(inverted_index::RSTermRecord::Borrowed {
+                    term: None,
+                    offsets: RSOffsetSlice::from_slice(&self.offsets),
+                }),
+                ..Default::default()
+            };
             ii.add_record(&record).expect("failed to add record");
         }
         ii

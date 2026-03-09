@@ -120,13 +120,13 @@ pub unsafe extern "C" fn NewTokenRecord<'result>(
     term: *mut RSQueryTerm,
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
-    let term = if term.is_null() {
-        None
+    let result = if term.is_null() {
+        RSIndexResult::term().frequency(0).weight(weight)
     } else {
         // SAFETY: caller guarantees `term` was created via `NewQueryTerm`.
-        unsafe { Some(Box::from_raw(term)) }
+        let term = unsafe { Box::from_raw(term) };
+        RSIndexResult::with_term(term, RSOffsetSlice::empty(), 0, 0, 0).weight(weight)
     };
-    let result = RSIndexResult::with_term(term, RSOffsetSlice::empty(), 0, 0, 0).weight(weight);
     Box::into_raw(Box::new(result))
 }
 
