@@ -10,7 +10,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::RSIndexResult;
+use inverted_index::{RSIndexResult, RSOffsetSlice, RSResultData, RSTermRecord};
 use rqe_iterators::RQEIterator;
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
@@ -50,6 +50,12 @@ use rqe_iterators::RQEIterator;
 pub struct Mock<'index, const N: usize> {
     result: RSIndexResult<'index>,
     doc_ids: [t_docId; N],
+    /// One term position per document, or `None` for a virtual (non-term) result.
+    ///
+    /// Each value must be in the range `1..=127`: values in that range are their own
+    /// single-byte LEB128 varint encoding, so the byte can be passed directly to
+    /// [`RSOffsetSlice::from_slice`] without a separate encoding step.
+    positions: Option<[u8; N]>,
     next_index: usize,
     data: MockData,
 }
@@ -238,8 +244,23 @@ impl<'index, const N: usize> Mock<'index, N> {
                 .weight(1.)
                 .field_mask(RS_FIELDMASK_ALL),
             doc_ids,
+            positions: None,
             next_index: 0,
             data: MockData::new(),
+        }
+    }
+
+    /// Like [`Mock::new`], but each document carries a term position (valid range `1..=127`).
+    /// The result produced for each document will be a `Term` record instead of a virtual one,
+    #[expect(unused)]
+    pub fn new_with_positions(doc_ids: [t_docId; N], positions: [u8; N]) -> Self {
+        debug_assert!(
+            positions.iter().all(|&p| (1..=127).contains(&p)),
+            "positions must be in 1..=127 (single-byte varint range)"
+        );
+        Self {
+            positions: Some(positions),
+            ..Self::new(doc_ids)
         }
     }
 
@@ -251,6 +272,18 @@ impl<'index, const N: usize> Mock<'index, N> {
     /// to the iterator and to other handles that were cloned from it.
     pub fn data(&self) -> MockData {
         MockData(self.data.0.clone())
+    }
+
+    /// Return the term data for the document at `index`, or `None` for virtual results.
+    fn position_data_for_index(&self, index: usize) -> Option<RSResultData<'index>> {
+        self.positions.map(|positions| {
+            let pos_byte = [positions[index]];
+            let owned_offsets = RSOffsetSlice::from_slice(&pos_byte).to_owned();
+            RSResultData::Term(RSTermRecord::Owned {
+                term: None,
+                offsets: owned_offsets,
+            })
+        })
     }
 }
 
@@ -274,6 +307,9 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         }
 
         self.result.doc_id = self.doc_ids[self.next_index];
+        if let Some(data) = self.position_data_for_index(self.next_index) {
+            self.result.data = data;
+        }
         self.next_index += 1;
 
         data.delay_if_index_limit_reached(self.result.doc_id);
@@ -323,11 +359,13 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn revalidate(
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let mut data = self.data.0.borrow_mut();
+        let revalidate_result = {
+            let mut data = self.data.0.borrow_mut();
+            data.validation_count += 1;
+            data.revalidate_result
+        };
 
-        data.validation_count += 1;
-
-        Ok(match data.revalidate_result {
+        Ok(match revalidate_result {
             MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
             MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
             MockRevalidateResult::Move => {
@@ -335,6 +373,9 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
                     current: (self.next_index < N).then(|| {
                         // Simulate a move by incrementing nextIndex
                         self.result.doc_id = self.doc_ids[self.next_index];
+                        if let Some(data) = self.position_data_for_index(self.next_index) {
+                            self.result.data = data;
+                        }
                         self.next_index += 1;
                         &mut self.result
                     }),
