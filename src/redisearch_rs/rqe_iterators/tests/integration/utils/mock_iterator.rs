@@ -240,9 +240,10 @@ impl<'index, const N: usize> Mock<'index, N> {
     pub fn new(doc_ids: [t_docId; N]) -> Self {
         debug_assert!(doc_ids.is_sorted(), "Mock Iterator API assumes sorted list");
         Self {
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .weight(1.)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
             doc_ids,
             positions: None,
             next_index: 0,

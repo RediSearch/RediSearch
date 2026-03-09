@@ -15,9 +15,9 @@ use query_term::RSQueryTerm;
 
 #[test]
 fn pushing_to_aggregate_result() {
-    let num_first = RSIndexResult::numeric(10.0).doc_id(2);
-    let num_second = RSIndexResult::numeric(100.0).doc_id(3);
-    let virt_first = RSIndexResult::virt().doc_id(4);
+    let num_first = RSIndexResult::build_numeric(10.0).doc_id(2).build();
+    let num_second = RSIndexResult::build_numeric(100.0).doc_id(3).build();
+    let virt_first = RSIndexResult::build_virt().doc_id(4).build();
 
     let mut agg = RSAggregateResult::borrowed_with_capacity(2);
 
@@ -31,15 +31,24 @@ fn pushing_to_aggregate_result() {
         "type mask should be ORed"
     );
 
-    assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
+    assert_eq!(
+        agg.get(0),
+        Some(&RSIndexResult::build_numeric(10.0).doc_id(2).build())
+    );
     assert_eq!(agg.get(1), None, "This record does not exist yet");
 
     agg.push_borrowed(&num_second);
 
     assert_eq!(agg.kind_mask(), RSResultKind::Numeric);
 
-    assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
-    assert_eq!(agg.get(1), Some(&RSIndexResult::numeric(100.0).doc_id(3)));
+    assert_eq!(
+        agg.get(0),
+        Some(&RSIndexResult::build_numeric(10.0).doc_id(2).build())
+    );
+    assert_eq!(
+        agg.get(1),
+        Some(&RSIndexResult::build_numeric(100.0).doc_id(3).build())
+    );
     assert_eq!(agg.get(2), None, "This record does not exist yet");
 
     agg.push_borrowed(&virt_first);
@@ -50,18 +59,34 @@ fn pushing_to_aggregate_result() {
         "types should be combined"
     );
 
-    assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
-    assert_eq!(agg.get(1), Some(&RSIndexResult::numeric(100.0).doc_id(3)));
-    assert_eq!(agg.get(2), Some(&RSIndexResult::virt().doc_id(4)));
+    assert_eq!(
+        agg.get(0),
+        Some(&RSIndexResult::build_numeric(10.0).doc_id(2).build())
+    );
+    assert_eq!(
+        agg.get(1),
+        Some(&RSIndexResult::build_numeric(100.0).doc_id(3).build())
+    );
+    assert_eq!(
+        agg.get(2),
+        Some(&RSIndexResult::build_virt().doc_id(4).build())
+    );
     assert_eq!(agg.get(3), None, "This record does not exist yet");
 }
 
 #[test]
 fn pushing_to_index_result() {
-    let result_virt = RSIndexResult::virt().doc_id(2).frequency(3).field_mask(4);
-    let result_with_frequency = RSIndexResult::numeric(5.0).doc_id(2).frequency(7);
+    let result_virt = RSIndexResult::build_virt()
+        .doc_id(2)
+        .frequency(3)
+        .field_mask(4)
+        .build();
+    let result_with_frequency = RSIndexResult::build_numeric(5.0)
+        .doc_id(2)
+        .frequency(7)
+        .build();
 
-    let mut ir = RSIndexResult::union(1).doc_id(1).weight(1.0);
+    let mut ir = RSIndexResult::build_union(1).doc_id(1).weight(1.0).build();
 
     assert_eq!(ir.doc_id, 1);
     assert_eq!(ir.kind(), RSResultKind::Union);
@@ -77,7 +102,13 @@ fn pushing_to_index_result() {
     assert_eq!(ir.field_mask, 4, "field mask should be ORed");
     assert_eq!(
         ir.get(0),
-        Some(&RSIndexResult::virt().doc_id(2).frequency(3).field_mask(4))
+        Some(
+            &RSIndexResult::build_virt()
+                .doc_id(2)
+                .frequency(3)
+                .field_mask(4)
+                .build()
+        )
     );
 
     ir.push_borrowed(&result_with_frequency);
@@ -90,8 +121,11 @@ fn pushing_to_index_result() {
 
 #[test]
 fn to_owned_an_aggregate_index_result() {
-    let num_rec = RSIndexResult::numeric(5.0).doc_id(10);
-    let mut ir = RSIndexResult::intersect(5).doc_id(10).weight(3.0);
+    let num_rec = RSIndexResult::build_numeric(5.0).doc_id(10).build();
+    let mut ir = RSIndexResult::build_intersect(5)
+        .doc_id(10)
+        .weight(3.0)
+        .build();
 
     ir.push_borrowed(&num_rec);
 
@@ -139,7 +173,7 @@ fn to_owned_an_aggregate_index_result() {
 
 #[test]
 fn to_owned_a_numeric_index_result() {
-    let ir = RSIndexResult::numeric(8.0).doc_id(3);
+    let ir = RSIndexResult::build_numeric(8.0).doc_id(3).build();
     let mut ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
@@ -162,7 +196,11 @@ fn to_owned_a_numeric_index_result() {
 
 #[test]
 fn to_owned_a_virtual_index_result() {
-    let ir = RSIndexResult::virt().doc_id(8).field_mask(4).weight(2.0);
+    let ir = RSIndexResult::build_virt()
+        .doc_id(8)
+        .field_mask(4)
+        .weight(2.0)
+        .build();
     let ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
@@ -183,7 +221,12 @@ fn to_owned_a_term_index_result() {
     let offsets: [u8; 1] = [0];
     let offsets = RSOffsetSlice::from_slice(&offsets);
 
-    let ir = RSIndexResult::with_term(term, offsets, 7, 1, 1);
+    let ir = RSIndexResult::build_term()
+        .borrowed_record(Some(term), offsets)
+        .doc_id(7)
+        .field_mask(1)
+        .frequency(1)
+        .build();
     let mut ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);

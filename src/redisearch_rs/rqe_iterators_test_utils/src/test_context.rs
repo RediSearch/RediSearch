@@ -322,7 +322,7 @@ impl TestContext {
 
         // Populate with virtual records for each document ID
         for doc_id in doc_ids {
-            let record = RSIndexResult::virt().doc_id(doc_id);
+            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
@@ -386,7 +386,7 @@ impl TestContext {
 
         // Populate with virtual records for each document ID
         for doc_id in doc_ids {
-            let record = RSIndexResult::virt().doc_id(doc_id);
+            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
@@ -475,7 +475,7 @@ impl TestContext {
         // pointer is actually a Rust opaque InvertedIndex despite the C type.
         let ii_opaque: *mut inverted_index::opaque::InvertedIndex = ii_ptr.cast();
         for doc_id in doc_ids {
-            let record = RSIndexResult::virt().doc_id(doc_id);
+            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii_opaque is a valid pointer created via TagIndex_OpenIndex
             // which delegates to NewInvertedIndex_Ex (Rust FFI).
             unsafe {

@@ -26,13 +26,12 @@ fn expected_record(
     term: Box<query_term::RSQueryTerm>,
     offsets: &'static [u8],
 ) -> RSIndexResult<'static> {
-    RSIndexResult::with_term(
-        term,
-        RSOffsetSlice::from_slice(offsets),
-        doc_id,
-        field_mask,
-        (doc_id / 2) as u32 + 1,
-    )
+    RSIndexResult::build_term()
+        .borrowed_record(Some(term), RSOffsetSlice::from_slice(offsets))
+        .doc_id(doc_id)
+        .field_mask(field_mask)
+        .frequency((doc_id / 2) as u32 + 1)
+        .build()
 }
 
 struct TermBaseTest {

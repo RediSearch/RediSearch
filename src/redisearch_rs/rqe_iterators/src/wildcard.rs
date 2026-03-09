@@ -32,13 +32,14 @@ pub struct Wildcard<'index> {
 }
 
 impl Wildcard<'_> {
-    pub const fn new(top_id: t_docId, weight: f64) -> Self {
+    pub fn new(top_id: t_docId, weight: f64) -> Self {
         Wildcard {
             top_id,
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .frequency(1)
                 .weight(weight)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
         }
     }
 }

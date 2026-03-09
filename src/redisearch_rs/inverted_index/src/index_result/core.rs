@@ -16,9 +16,244 @@ use query_term::RSQueryTerm;
 
 use super::aggregate::RSAggregateResult;
 use super::kind::RSResultKind;
-use super::offsets::RSOffsetSlice;
+use super::offsets::{RSOffsetSlice, RSOffsetVector};
 use super::result_data::RSResultData;
 use super::term_record::RSTermRecord;
+
+/// Builder for creating [`RSIndexResult`] instances.
+///
+/// Constructed via `RSIndexResult::build_*` methods. For the
+/// [`RSResultKind::Term`] kind, [`RSIndexResult::build_term`] returns a
+/// specialized [`RSTermResultBuilder`] with additional setters for
+/// term-specific fields.
+pub struct RSIndexResultBuilder<'index> {
+    doc_id: t_docId,
+    field_mask: t_fieldMask,
+    freq: u32,
+    data: RSResultData<'index>,
+    weight: f64,
+}
+
+/// Specialized builder for creating [`RSIndexResult`] instances of the
+/// [`RSResultKind::Term`] kind.
+///
+/// Created via [`RSIndexResult::build_term`]. Use [`Self::borrowed_record`]
+/// or [`Self::owned_record`] to set the term record data before calling
+/// [`Self::build`].
+pub struct RSTermResultBuilder<'index> {
+    doc_id: t_docId,
+    field_mask: t_fieldMask,
+    freq: u32,
+    weight: f64,
+    record: TermBuilderRecord<'index>,
+}
+
+/// Internal enum holding the term record data for the builder.
+enum TermBuilderRecord<'index> {
+    Borrowed {
+        term: Option<Box<RSQueryTerm>>,
+        offsets: RSOffsetSlice<'index>,
+    },
+    Owned {
+        term: Option<&'index RSQueryTerm>,
+        offsets: RSOffsetVector,
+    },
+}
+
+impl<'index> RSIndexResultBuilder<'index> {
+    /// Set the document ID of this record
+    pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
+        self.doc_id = doc_id;
+        self
+    }
+
+    /// Set the field mask of this record
+    pub const fn field_mask(mut self, field_mask: FieldMask) -> Self {
+        self.field_mask = field_mask;
+        self
+    }
+
+    /// Set the weight of this record
+    pub const fn weight(mut self, weight: f64) -> Self {
+        self.weight = weight;
+        self
+    }
+
+    /// Set the frequency of this record
+    pub const fn frequency(mut self, frequency: u32) -> Self {
+        self.freq = frequency;
+        self
+    }
+
+    /// Create a builder for a virtual index result
+    const fn virt() -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: 0,
+            freq: 0,
+            data: RSResultData::Virtual,
+            weight: 0.0,
+        }
+    }
+
+    /// Create a builder for a numeric index result with the given number
+    const fn numeric(num: f64) -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: RS_FIELDMASK_ALL,
+            freq: 1,
+            data: RSResultData::Numeric(num),
+            weight: 1.0,
+        }
+    }
+
+    /// Create a builder for a metric index result
+    const fn metric() -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: RS_FIELDMASK_ALL,
+            freq: 0,
+            data: RSResultData::Metric(0f64),
+            weight: 1.0,
+        }
+    }
+
+    /// Create a builder for an intersection index result with the given capacity
+    fn intersect(cap: usize) -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: 0,
+            freq: 0,
+            data: RSResultData::Intersection(RSAggregateResult::borrowed_with_capacity(cap)),
+            weight: 0.0,
+        }
+    }
+
+    /// Create a builder for a union index result with the given capacity
+    fn union(cap: usize) -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: 0,
+            freq: 0,
+            data: RSResultData::Union(RSAggregateResult::borrowed_with_capacity(cap)),
+            weight: 0.0,
+        }
+    }
+
+    /// Create a builder for a hybrid metric index result
+    fn hybrid_metric() -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: 0,
+            freq: 0,
+            data: RSResultData::HybridMetric(RSAggregateResult::owned_with_capacity(2)),
+            weight: 1.0,
+        }
+    }
+
+    /// Build the final [`RSIndexResult`]
+    #[inline]
+    pub fn build(self) -> RSIndexResult<'index> {
+        RSIndexResult {
+            doc_id: self.doc_id,
+            dmd: ptr::null(),
+            field_mask: self.field_mask,
+            freq: self.freq,
+            data: self.data,
+            metrics: ptr::null_mut(),
+            weight: self.weight,
+        }
+    }
+}
+
+impl<'index> RSTermResultBuilder<'index> {
+    /// Create a new term result builder
+    const fn new() -> Self {
+        Self {
+            doc_id: 0,
+            field_mask: 0,
+            freq: 1,
+            weight: 0.0,
+            record: TermBuilderRecord::Borrowed {
+                term: None,
+                offsets: RSOffsetSlice::empty(),
+            },
+        }
+    }
+
+    /// Set the document ID of this record
+    pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
+        self.doc_id = doc_id;
+        self
+    }
+
+    /// Set the field mask of this record
+    pub const fn field_mask(mut self, field_mask: FieldMask) -> Self {
+        self.field_mask = field_mask;
+        self
+    }
+
+    /// Set the weight of this record
+    pub const fn weight(mut self, weight: f64) -> Self {
+        self.weight = weight;
+        self
+    }
+
+    /// Set the frequency of this record
+    pub const fn frequency(mut self, frequency: u32) -> Self {
+        self.freq = frequency;
+        self
+    }
+
+    /// Set the term record data with borrowed offsets and an optional query term.
+    ///
+    /// Produces an [`RSTermRecord::Borrowed`] variant.
+    #[inline]
+    pub fn borrowed_record(
+        mut self,
+        term: Option<Box<RSQueryTerm>>,
+        offsets: RSOffsetSlice<'index>,
+    ) -> Self {
+        self.record = TermBuilderRecord::Borrowed { term, offsets };
+        self
+    }
+
+    /// Set the term record data with owned offsets and an optional borrowed query term.
+    ///
+    /// Produces an [`RSTermRecord::Owned`] variant. Use this when the offset
+    /// data does not live long enough to be borrowed by the result.
+    #[inline]
+    pub fn owned_record(
+        mut self,
+        term: Option<&'index RSQueryTerm>,
+        offsets: RSOffsetVector,
+    ) -> Self {
+        self.record = TermBuilderRecord::Owned { term, offsets };
+        self
+    }
+
+    /// Build the final [`RSIndexResult`]
+    #[inline]
+    pub fn build(self) -> RSIndexResult<'index> {
+        let data = match self.record {
+            TermBuilderRecord::Borrowed { term, offsets } => {
+                RSResultData::Term(RSTermRecord::Borrowed { term, offsets })
+            }
+            TermBuilderRecord::Owned { term, offsets } => {
+                RSResultData::Term(RSTermRecord::Owned { term, offsets })
+            }
+        };
+        RSIndexResult {
+            doc_id: self.doc_id,
+            dmd: ptr::null(),
+            field_mask: self.field_mask,
+            freq: self.freq,
+            data,
+            metrics: ptr::null_mut(),
+            weight: self.weight,
+        }
+    }
+}
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
@@ -85,124 +320,44 @@ pub struct RSIndexResult<'index> {
 
 impl Default for RSIndexResult<'_> {
     fn default() -> Self {
-        Self::virt()
+        Self::build_virt().build()
     }
 }
 
 impl<'index> RSIndexResult<'index> {
-    /// Create a new virtual index result
-    pub const fn virt() -> Self {
-        Self {
-            doc_id: 0,
-            dmd: ptr::null(),
-            field_mask: 0,
-            freq: 0,
-            data: RSResultData::Virtual,
-            metrics: ptr::null_mut(),
-            weight: 0.0,
-        }
+    /// Create a builder for a virtual index result
+    pub const fn build_virt() -> RSIndexResultBuilder<'index> {
+        RSIndexResultBuilder::virt()
     }
 
-    /// Create a new numeric index result with the given number
-    pub fn numeric(num: f64) -> Self {
-        Self {
-            field_mask: RS_FIELDMASK_ALL,
-            freq: 1,
-            data: RSResultData::Numeric(num),
-            weight: 1.0,
-            ..Default::default()
-        }
+    /// Create a builder for a numeric index result with the given number
+    pub const fn build_numeric(num: f64) -> RSIndexResultBuilder<'index> {
+        RSIndexResultBuilder::numeric(num)
     }
 
-    /// Create a new metric index result
-    pub fn metric() -> Self {
-        Self {
-            field_mask: RS_FIELDMASK_ALL,
-            data: RSResultData::Metric(0f64),
-            weight: 1.0,
-            ..Default::default()
-        }
+    /// Create a builder for a metric index result
+    pub const fn build_metric() -> RSIndexResultBuilder<'index> {
+        RSIndexResultBuilder::metric()
     }
 
-    /// Create a new intersection index result with the given capacity
-    pub fn intersect(cap: usize) -> Self {
-        Self {
-            data: RSResultData::Intersection(RSAggregateResult::borrowed_with_capacity(cap)),
-            ..Default::default()
-        }
+    /// Create a builder for an intersection index result with the given capacity
+    pub fn build_intersect(cap: usize) -> RSIndexResultBuilder<'index> {
+        RSIndexResultBuilder::intersect(cap)
     }
 
-    /// Create a new union index result with the given capacity
-    pub fn union(cap: usize) -> Self {
-        Self {
-            data: RSResultData::Union(RSAggregateResult::borrowed_with_capacity(cap)),
-            ..Default::default()
-        }
+    /// Create a builder for a union index result with the given capacity
+    pub fn build_union(cap: usize) -> RSIndexResultBuilder<'index> {
+        RSIndexResultBuilder::union(cap)
     }
 
-    /// Create a new hybrid metric index result
-    pub fn hybrid_metric() -> Self {
-        Self {
-            data: RSResultData::HybridMetric(RSAggregateResult::owned_with_capacity(2)),
-            weight: 1.0,
-            ..Default::default()
-        }
+    /// Create a builder for a hybrid metric index result
+    pub fn build_hybrid_metric() -> RSIndexResultBuilder<'index> {
+        RSIndexResultBuilder::hybrid_metric()
     }
 
-    /// Create a new term index result with a `None` term.
-    pub fn term() -> Self {
-        Self {
-            data: RSResultData::Term(RSTermRecord::new()),
-            freq: 1,
-            ..Default::default()
-        }
-    }
-
-    /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
-    pub const fn with_term(
-        term: Box<RSQueryTerm>,
-        offsets: RSOffsetSlice<'index>,
-        doc_id: t_docId,
-        field_mask: t_fieldMask,
-        freq: u32,
-    ) -> RSIndexResult<'index> {
-        Self {
-            data: RSResultData::Term(RSTermRecord::with_term(term, offsets)),
-            doc_id,
-            field_mask,
-            freq,
-            dmd: std::ptr::null(),
-            metrics: std::ptr::null_mut(),
-            weight: 0.0,
-        }
-    }
-
-    /// Set the document ID of this record
-    pub const fn doc_id(mut self, doc_id: t_docId) -> Self {
-        self.doc_id = doc_id;
-
-        self
-    }
-
-    /// Set the field mask of this record
-    pub const fn field_mask(mut self, field_mask: FieldMask) -> Self {
-        self.field_mask = field_mask;
-
-        self
-    }
-
-    /// Set the weight of this record
-    pub const fn weight(mut self, weight: f64) -> Self {
-        self.weight = weight;
-
-        self
-    }
-
-    /// Set the frequency of this record
-    pub const fn frequency(mut self, frequency: u32) -> Self {
-        self.freq = frequency;
-
-        self
+    /// Create a specialized builder for a term index result
+    pub const fn build_term() -> RSTermResultBuilder<'index> {
+        RSTermResultBuilder::new()
     }
 
     /// Get the kind of this index result
