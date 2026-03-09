@@ -326,17 +326,8 @@ static void HybridRequest_Free(HybridRequest *req) {
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
 
-    // Clean up storedReplyState unconditionally - errors can be stored via
-    // HREQ_ReplyOrStoreError without setting hasStoredResults, so always clear.
-    if (req->storedReplyState.results) {
-      for (size_t i = 0; i < array_len(req->storedReplyState.results); i++) {
-        SearchResult_Destroy(req->storedReplyState.results[i]);
-        rm_free(req->storedReplyState.results[i]);
-      }
-      array_free(req->storedReplyState.results);
-      req->storedReplyState.results = NULL;
-    }
-    QueryError_ClearError(&req->storedReplyState.err);
+    // Clean up storedReplyState
+    ChunkReplyState_Destroy(&req->storedReplyState);
 
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {

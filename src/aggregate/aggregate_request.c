@@ -1460,26 +1460,33 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+void ChunkReplyState_Destroy(ChunkReplyState *state) {
+  // Free any stored results that weren't consumed
+  // (e.g., if timeout occurred before reply_callback ran)
+  if (state->results) {
+    for (size_t i = 0; i < array_len(state->results); i++) {
+      SearchResult_Destroy(state->results[i]);
+      rm_free(state->results[i]);
+    }
+    array_free(state->results);
+    state->results = NULL;
+  }
+
+  // Timeout edge case: cursor wasn't handled by reply_callback.
+  // See ChunkReplyState ownership model in aggregate.h for full explanation.
+  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  if (state->cursor) {
+    state->cursor->execState = NULL;
+    Cursor_Free(state->cursor);
+    state->cursor = NULL;
+  }
+
+  // Clear stored error state
+  QueryError_ClearError(&state->err);
+}
 
 static void AREQ_Free(AREQ *req) {
-  // Free any stored results from reply_callback path that weren't consumed
-  // (e.g., if timeout occurred before QueryReplyCallback ran)
-  if (req->storedReplyState.results) {
-    for (size_t i = 0; i < array_len(req->storedReplyState.results); i++) {
-      SearchResult_Destroy(req->storedReplyState.results[i]);
-      rm_free(req->storedReplyState.results[i]);
-    }
-    array_free(req->storedReplyState.results);
-    req->storedReplyState.results = NULL;
-  }
-  // Free any stored cursor that wasn't handled by QueryReplyCallback
-  // (e.g., if timeout fired before the reply_callback ran)
-  if (req->storedReplyState.cursor) {
-    Cursor_Free(req->storedReplyState.cursor);
-    req->storedReplyState.cursor = NULL;
-  }
-  // Clear stored error state
-  QueryError_ClearError(&req->storedReplyState.err);
+  ChunkReplyState_Destroy(&req->storedReplyState);
 
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator

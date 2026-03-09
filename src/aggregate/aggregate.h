@@ -50,6 +50,23 @@ typedef struct {
  * State needed for reply serialization in reply_callback path.
  * When using FAIL policy with workers, the background thread stores results here,
  * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ *
+ * ## Cursor ↔ AREQ Ownership Model
+ *
+ * **Cursor owns AREQ** (not vice versa):
+ * - cursor->execState points to the AREQ
+ * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState) to release the reference
+ *
+ * **AREQ does NOT own Cursor**:
+ * - The `cursor` field below is a NON-OWNING handle, not a reference-counted ownership.
+ * - It exists solely so QueryReplyCallback knows which cursor to pause/free after
+ *   finishSendChunk completes.
+ * - In normal flow, QueryReplyCallback calls Cursor_Free/Cursor_Pause and clears this field.
+ *
+ * **Timeout edge case**:
+ * - If timeout fires before QueryReplyCallback runs, AREQ_Free must clean up the cursor.
+ * - But Cursor_FreeInternal would call AREQ_DecrRef on the already-freed AREQ.
+ * - Fix: AREQ_Free clears cursor->execState = NULL before calling Cursor_Free.
  */
 typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
@@ -58,9 +75,21 @@ typedef struct {
   bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
   QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
   cachedVars cv;           // Cached lookup variables for result serialization
-  struct Cursor *cursor;   // Cursor handle for reply_callback to pause/free after finishSendChunk
+  /**
+   * NON-OWNING cursor handle for reply_callback path.
+   * See ownership model above. This is set in runCursor() when useReplyCallback is true,
+   * and cleared by QueryReplyCallback after it handles cursor pause/free.
+   * If timeout fires first, ChunkReplyState_Destroy cleans this up.
+   */
+  struct Cursor *cursor;
   size_t limit;            // Original limit passed to sendChunk (for RESP2 resultsLen calculation)
 } ChunkReplyState;
+
+/**
+ * Clean up all resources held by a ChunkReplyState.
+ * Handles the cursor ownership edge case (see struct documentation above).
+ */
+void ChunkReplyState_Destroy(ChunkReplyState *state);
 
 typedef struct Grouper Grouper;
 struct QOptimizer;
@@ -226,8 +255,7 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRI
 
 /**
  * Common synchronization context for request types (AREQ, HybridRequest).
- * - For AREQ: Only timedOut and refcount are used. AREQ uses reply_callback pattern.
- * - For HybridRequest: All fields are used (timedOut, replyState, refcount).
+ * This context is used for timeout handling and synchronization between the main thread and the background thread.
  */
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
@@ -331,12 +359,12 @@ typedef struct AREQ {
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
 
+  bool useReplyCallback;
+
   // State for reply_callback path (FAIL policy with workers)
   // Background thread stores results here, then calls UnblockClient.
   // The reply_callback reads from here to build the reply on the main thread.
   ChunkReplyState storedReplyState;
-
-  bool useReplyCallback;
 } AREQ;
 
 /**
