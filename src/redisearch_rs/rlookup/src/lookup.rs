@@ -663,7 +663,6 @@ mod tests {
 
         // Let's create a cache with one field spec
         let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_field_name(key_name)
             .with_sort_idx(12)
             .with_options(make_bitflags!(FieldSpecOption::{
                 Sortable | Unf
@@ -696,7 +695,6 @@ mod tests {
 
         // Let's create a cache with one field spec
         let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_field_name(key_name)
             .with_sort_idx(12)
             .with_options(make_bitflags!(FieldSpecOption::{
                 Sortable | Unf
