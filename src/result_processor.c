@@ -886,7 +886,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
 
   int ret;
-  if (RLookup_IsOptionEnabled(self->lk, RLOOKUP_OPT_ALLLOADED)) {
+  if (RLookup_AreOptionsEnabled(self->lk, RLOOKUP_OPT_ALLLOADED)) {
       ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
   } else {
       ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);

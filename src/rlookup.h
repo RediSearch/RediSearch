@@ -165,7 +165,7 @@ static inline void RLookup_DisableOptions(RLookup* rlookup, uint32_t options) {
     rlookup->_options &= ~options;
 }
 
-static inline bool RLookup_IsOptionEnabled(RLookup* rlookup, uint32_t options) {
+static inline bool RLookup_AreOptionsEnabled(RLookup* rlookup, uint32_t options) {
     return rlookup->_options & options;
 }
 
