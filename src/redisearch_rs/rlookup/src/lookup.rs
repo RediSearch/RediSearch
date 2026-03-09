@@ -351,7 +351,7 @@ impl<'a> RLookup<'a> {
         let key = if let Some(fs) = self
             .index_spec_cache
             .as_ref()
-            .and_then(|spcache| spcache.find_field(&name))
+            .and_then(|spcache| spcache.find_field(field_name))
         {
             let key = cursor.into_current().unwrap();
             key.update_from_field_spec(fs);
