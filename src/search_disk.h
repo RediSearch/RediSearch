@@ -51,6 +51,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx);
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
+ * @param ctx Redis module context for BigModule APIs (may be NULL)
  * @param indexName Name of the index to open
  * @param indexNameLen Length of the index name
  * @param type Document type
@@ -58,7 +59,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx);
  *        without SST persistence to ensure stale data is cleared)
  * @return Pointer to the index, or NULL if it does not exist
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
 
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
@@ -69,10 +70,10 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
  *
+ * @param ctx Redis module context for BigModule APIs (may be NULL)
  * @param index Pointer to the index to close
  */
-void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
-// Note: Internally calls disk->basic.closeIndexSpec(disk_db, index) to allow metrics cleanup
+void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
@@ -118,7 +119,7 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
  * @param fieldIndex Field index for the tag field
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTags(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
  * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -363,11 +364,12 @@ bool SearchDisk_IsEnabledForValidation();
  * is a VecSimIndex* that can be used with all standard VecSimIndex_*
  * functions (AddVector, TopKQuery, etc.) due to polymorphism.
  *
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index spec
  * @param params Vector index parameters
  * @return VecSimIndex* handle, or NULL on error
  */
-void* SearchDisk_CreateVectorIndex(RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
+void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params);
 
 /**
  * @brief Free a disk-based vector index

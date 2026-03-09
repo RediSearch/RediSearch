@@ -212,12 +212,12 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 }
 
 /* Index a vector of pre-processed tags for a docId */
-bool TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats) {
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats) {
   if (!values) return true;
 
   if (idx->diskSpec) {
     // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel
-    if (!SearchDisk_IndexTags(idx->diskSpec, values, n, docId, idx->fieldIndex)) {
+    if (!SearchDisk_IndexTags(ctx, idx->diskSpec, values, n, docId, idx->fieldIndex)) {
       return false;
     }
 

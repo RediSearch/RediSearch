@@ -21,8 +21,7 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
     const char *p = RSValue_StringPtrLen(val, &len);
     rv = parseGeo(p, len, &geo[0], &geo[1], status);
   } else if (RSValue_IsNumber(val)) {
-    double dbl;
-    RSValue_ToNumber(val, &dbl);
+    double dbl = RSValue_Number_Get(val);
     if (decodeGeo(dbl, geo) == 0) {
       rv = REDISMODULE_ERR;
     }
