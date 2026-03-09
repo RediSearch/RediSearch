@@ -363,13 +363,20 @@ impl InvertedIndex {
         term: Option<Box<RSQueryTerm>>,
         offsets: &[u8],
     ) {
-        let record = RSIndexResult::with_term(
-            term,
-            inverted_index::RSOffsetSlice::from_slice(offsets),
-            doc_id,
-            field_mask as u128,
-            freq,
-        );
+        let offsets = inverted_index::RSOffsetSlice::from_slice(offsets);
+        let record = match term {
+            Some(term) => RSIndexResult::with_term(term, offsets, doc_id, field_mask as u128, freq),
+            None => RSIndexResult {
+                doc_id,
+                field_mask: field_mask as u128,
+                freq,
+                data: inverted_index::RSResultData::Term(inverted_index::RSTermRecord::Borrowed {
+                    term: None,
+                    offsets,
+                }),
+                ..Default::default()
+            },
+        };
         unsafe {
             inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                 self.ii.cast(),

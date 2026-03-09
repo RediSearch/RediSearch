@@ -160,7 +160,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub const fn with_term(
-        term: Option<Box<RSQueryTerm>>,
+        term: Box<RSQueryTerm>,
         offsets: RSOffsetSlice<'index>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
