@@ -369,6 +369,9 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v);
 /* Return the value itself or its referred value */
 RSValue *RSValue_Dereference(const RSValue *v);
 
+/* Dereference through References and Trios to get to the leaf value */
+RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v);
+
 /**
  * Clears the underlying storage of the value, and makes it
  * be a reference to the NULL value
@@ -406,22 +409,13 @@ uint16_t RSValue_Refcount(const RSValue *v);
 // Other Functions (utility, memory management, comparison, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
-void RSValue_ToString(RSValue *dst, RSValue *v);
-
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into the double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d);
+bool RSValue_ToNumber(const RSValue *v, double *d);
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval);
-
-// Combines PtrLen with ToString to convert any RSValue into a string buffer.
-// Returns NULL if buf is required, but is too small
-const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
-                                        size_t buflen);
 
 /**
  * Helper function to allocate memory before passing it to RSValue_NewArrayFromBuilder
