@@ -33,8 +33,7 @@ pub type tm_len_t = u16;
 #[used]
 pub static mut TRIEMAP_NOTFOUND: *mut ::std::ffi::c_void = c"NOT FOUND".as_ptr() as *mut _;
 
-/// Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
-pub struct TrieMap(trie_rs::TrieMap<*mut c_void>);
+pub use trie_rs::opaque::TrieMap;
 
 /// Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
 ///
