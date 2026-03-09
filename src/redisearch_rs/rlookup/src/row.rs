@@ -209,7 +209,7 @@ impl<'a> RLookupRow<'a> {
             //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
             self.sorting_vector()?
                 .get(key.svidx as usize)
-                .filter(|v| !v.is_null_static())
+                .filter(|v| v.get_type() != ffi::RSValueType_RSValueType_Null)
         } else {
             None
         }

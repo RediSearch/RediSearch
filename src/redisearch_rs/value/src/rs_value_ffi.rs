@@ -79,26 +79,6 @@ impl RSValueFFI {
         RSValueFFI(NonNull::new(val).expect("RSValue_NullStatic returned a null pointer"))
     }
 
-    /// Returns `true` if this value is the global null sentinel (`RSValue_NullStatic()`).
-    ///
-    /// Sorting vector slots that were never written are initialised to the null sentinel.
-    /// Callers that read from a sorting vector must use this check to distinguish
-    /// "field absent" (null sentinel) from "field present with a real value", mirroring
-    /// the C guard:
-    ///
-    /// ```c
-    /// if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;
-    /// ```
-    ///
-    /// Using a raw-pointer comparison avoids touching the reference count of the
-    /// global static, which must not be decremented through a temporary `RSValueFFI`.
-    pub fn is_null_static(&self) -> bool {
-        // SAFETY: RSValue_NullStatic() returns a pointer to a process-lifetime global;
-        // it never allocates and the pointer is always valid.
-        let null_ptr = unsafe { ffi::RSValue_NullStatic() };
-        self.as_ptr() == null_ptr
-    }
-
     pub fn new_num(num: f64) -> Self {
         // Safety: RSValue_FromDouble expects a valid double value.
         let num = unsafe { ffi::RSValue_NewNumber(num) };
