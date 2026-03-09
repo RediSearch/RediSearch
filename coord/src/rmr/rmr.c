@@ -649,7 +649,11 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     .it = ret,
   };
 
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MR_Iterate: created new iterator, chan=%p, pushing iterStartCb to queue",
+                   (void*)ret->ctx.chan);
   RQ_Push(rq_g, iterStartCb, ret);
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MR_Iterate: iterStartCb pushed to queue for chan=%p",
+                   (void*)ret->ctx.chan);
   return ret;
 }
 

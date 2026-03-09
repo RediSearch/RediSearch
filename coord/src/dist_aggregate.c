@@ -245,13 +245,17 @@ static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
+    RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: getNextReply: calling MR_ManuallyTriggerNextIfNeeded, forCursor=1");
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       // No more replies
+      RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: getNextReply: MR_ManuallyTriggerNextIfNeeded returned false, no more replies");
       RPNet_resetCurrent(nc);
       return 0;
     }
   }
+  RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: getNextReply: calling MRIterator_Next (will block on channel)");
   MRReply *root = MRIterator_Next(nc->it);
+  RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: getNextReply: MRIterator_Next returned, root=%p", (void*)root);
   if (root == NULL) {
     // No more replies
     RPNet_resetCurrent(nc);
@@ -457,11 +461,14 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
+  RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rpnetNext_Start: creating new iterator via MR_Iterate");
   MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
   if (!it) {
+    RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rpnetNext_Start: MR_Iterate returned NULL, error");
     return RS_RESULT_ERROR;
   }
 
+  RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rpnetNext_Start: iterator created it=%p, calling rpnetNext", (void*)it);
   nc->it = it;
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);

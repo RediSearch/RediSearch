@@ -180,8 +180,13 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
     q->head = q->tail = item;
   }
   q->sz++;
+  size_t queueSize = q->sz;
+  int pending = q->pending;
+  int maxPending = q->maxPending;
 
   uv_mutex_unlock(&q->lock);
+  RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: RQ_Push: queued job, queueSize=%zu, pending=%d, maxPending=%d, loop_th_ready=%d",
+                   queueSize, pending, maxPending, loop_th_ready);
   uv_async_send(&q->async);
 }
 
@@ -193,7 +198,12 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
     return NULL;
   }
   if (q->pending >= q->maxPending) {
+    size_t queueSize = q->sz;
+    int pending = q->pending;
+    int maxPending = q->maxPending;
     uv_mutex_unlock(&q->lock);
+    RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqPop: BLOCKED - pending(%d) >= maxPending(%d), queueSize=%zu",
+                     pending, maxPending, queueSize);
     // If the queue is full we need to wake up the drain callback
     uv_async_send(&q->async);
 
