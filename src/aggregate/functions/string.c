@@ -132,7 +132,30 @@ int func_to_number(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) 
 }
 
 int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
-  RSValue_ToString(result, argv[0]);
+  // Dereference through References and Trios to get to the leaf value.
+  RSValue *v = RSValue_DereferenceRefAndTrio(argv[0]);
+
+  switch (RSValue_Type(v)) {
+    case RSValueType_String:
+      RSValue_MakeReference(result, v);
+      break;
+    case RSValueType_RedisString: {
+      size_t sz;
+      const char *str = RSValue_StringPtrLen(v, &sz);
+      RSValue_SetConstString(result, str, sz);
+      break;
+    }
+    case RSValueType_Number: {
+      char tmpbuf[32];
+      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
+      char *buf = rm_strdup(tmpbuf);
+      RSValue_SetString(result, buf, len);
+      break;
+    }
+    default:
+      RSValue_SetConstString(result, "", 0);
+      break;
+  }
   return EXPR_EVAL_OK;
 }
 
@@ -204,28 +227,20 @@ static int stringfunc_format(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
       goto error;
     }
 
-    RSValue *arg = RSValue_Dereference(argv[argix++]);
+    RSValue *arg = RSValue_DereferenceRefAndTrio(argv[argix++]);
     if (type == 's') {
       if (arg == RSValue_NullStatic()) {
         // write null value
         append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
         continue;
-      } else if (!RSValue_IsString(arg)) {
-
-        RSValue *strval = RSValue_NewUndefined();
-        RSValue_ToString(strval, arg);
-        size_t sz;
-        const char *str = RSValue_StringPtrLen(strval, &sz);
-        if (!str) {
-          append_to_string(&out, &out_tail, &out_cap, "(null)", 6);
-        } else {
-          append_to_string(&out, &out_tail, &out_cap, str, sz);
-        }
-        RSValue_DecrRef(strval);
-      } else {
+      } else if (RSValue_IsString(arg)) {
         size_t sz;
         const char *str = RSValue_StringPtrLen(arg, &sz);
         append_to_string(&out, &out_tail, &out_cap, str, sz);
+      } else if (RSValue_IsNumber(arg)) {
+        char tmpbuf[32];
+        size_t len = RSValue_NumToString(arg, tmpbuf, sizeof(tmpbuf));
+        append_to_string(&out, &out_tail, &out_cap, tmpbuf, len);
       }
     } else {
       QueryError_SetError(ctx->err, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown format specifier passed");

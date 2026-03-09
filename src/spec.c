@@ -320,7 +320,7 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
     args[i] = RedisModule_StringPtrLen(argv[i], NULL);
   }
 
-  return IndexSpec_Parse(name, args, argc, status);
+  return IndexSpec_Parse(ctx, name, args, argc, status);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -1707,7 +1707,7 @@ void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status,
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
-StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
@@ -1798,7 +1798,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-    spec->diskSpec = SearchDisk_OpenIndex(name, len, spec->rule->type, false);
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, name, len, spec->rule->type, false);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
@@ -1845,9 +1845,9 @@ failure:  // on failure free the spec fields array and return an error
   return INVALID_STRONG_REF;
 }
 
-StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status) {
+StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
   HiddenString *hidden = NewHiddenString(name, strlen(name), true);
-  return IndexSpec_Parse(hidden, argv, argc, status);
+  return IndexSpec_Parse(ctx, hidden, argv, argc, status);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
@@ -2019,7 +2019,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
 
-  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
+  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
 
   // Free spec struct
   rm_free(spec);
@@ -3270,6 +3270,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   char *rawName = NULL;
   size_t len = 0;
   HiddenString* specName = NULL;
+  RedisModuleCtx* ctx = RedisModule_GetContextFromIO(rdb);
 
   rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   len = strlen(rawName);
@@ -3384,7 +3385,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       diskRdbState = NULL; // Ownership transferred
     } else {
       // No RDB state (non-SST flow), just open the index normally
-      sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, false);
+      sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
     }
 
     IndexSpec_PopulateVectorDiskParams(sp);
@@ -3559,9 +3560,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     // Legacy RDB does not have SST persistence, so always delete before opening.
-    sp->diskSpec = SearchDisk_OpenIndex(name, len, sp->rule->type, false);
-    // We do not call `RDB load for disk` since there cannot be disk-related
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
+    // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
     // data in this version of RDB (encver).
     if (!sp->diskSpec) {
       RedisModule_LogIOError(rdb, "warning","Could not open disk index");
@@ -3573,13 +3575,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   // Start GC after diskSpec is available so the disk GC callback can use it immediately.
-  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
-  Cursors_initSpec(sp);
-
-  dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
-
   return spec_ref.rm;
 }
 
@@ -3860,7 +3857,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        VecSimIndex *vecsim = openVectorIndex(spec->fields + i, DONT_CREATE_INDEX);
+        // ctx is NULL because we don't create the index here
+        VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
         if(!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, id);
       }

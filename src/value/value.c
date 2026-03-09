@@ -134,6 +134,13 @@ RSValue *RSValue_Dereference(const RSValue *v) {
   return (RSValue *)v;
 }
 
+RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v) {
+  if (!v) return NULL;
+  if (v->_t == RSValueType_Reference) return RSValue_DereferenceRefAndTrio(v->_ref);
+  if (v->_t == RSValueType_Trio) return RSValue_DereferenceRefAndTrio(RSValue_Trio_GetLeft(v));
+  return (RSValue *)v;
+}
+
 void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
@@ -486,44 +493,11 @@ uint16_t RSValue_Refcount(const RSValue *v) {
 // Other Functions (utility, comparison, conversion, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
-void RSValue_ToString(RSValue *dst, RSValue *v) {
-  switch (v->_t) {
-    case RSValueType_String:
-      RSValue_MakeReference(dst, v);
-      break;
-    case RSValueType_RedisString: {
-      size_t sz;
-      const char *str = RedisModule_StringPtrLen(v->_rstrval, &sz);
-      RS_ASSERT(sz <= UINT32_MAX);
-      RSValue_SetConstString(dst, str, sz);
-      break;
-    }
-    case RSValueType_Number: {
-      char tmpbuf[128];
-      size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
-      char *buf = rm_strdup(tmpbuf);
-      RSValue_SetString(dst, buf, len);
-      break;
-    }
-    case RSValueType_Reference:
-      return RSValue_ToString(dst, v->_ref);
-
-    case RSValueType_Trio:
-      return RSValue_ToString(dst, RSValue_Trio_GetLeft(v));
-
-    case RSValueType_Null:
-    default:
-      return RSValue_SetConstString(dst, "", 0);
-  }
-}
-
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
-into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
-not. If possible, we put the actual value into the double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d) {
-  if (RSValue_IsNull(v)) return 0;
+into a number. Return true if the value is a number or a numeric string and can be converted, or
+false if not. If possible, we put the actual value into the double pointer */
+bool RSValue_ToNumber(const RSValue *v, double *d) {
+  if (RSValue_IsNull(v)) return false;
   v = RSValue_Dereference(v);
 
   const char *p = NULL;
@@ -532,7 +506,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     // for numerics - just set the value and return
     case RSValueType_Number:
       *d = v->_numval;
-      return 1;
+      return true;
 
     case RSValueType_String:
       // C strings - take the ptr and len
@@ -552,7 +526,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     case RSValueType_Map:
     case RSValueType_Undef:
     default:
-      return 0;
+      return false;
   }
   // If we have a string - try to parse it
   if (p) {
@@ -561,13 +535,13 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
     *d = fast_float_strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
-      return 0;
+      return false;
     }
 
-    return 1;
+    return true;
   }
 
-  return 0;
+  return false;
 }
 
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
@@ -853,7 +827,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       if (obfuscate) {
         return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
-        char buf[128];
+        char buf[32];
         size_t len = RSValue_NumToString(v, buf, sizeof(buf));
         return sdscatlen(s, buf, len);
       }
