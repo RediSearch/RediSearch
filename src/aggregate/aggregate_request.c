@@ -753,8 +753,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   // Currently we don't support loading fields from disk indexes
   // We require the NOCONTENT flag to be set or a RETURN 0 clause to be specified
   if (isDiskIndex && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                        "NOCONTENT or RETURN 0 must be provided for disk indexes");
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
     return REDISMODULE_ERR;
   }
 

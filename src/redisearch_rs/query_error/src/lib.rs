@@ -100,6 +100,7 @@ pub enum QueryErrorCode {
     GeoCoordinatesInvalid,
     JsonTypeBad,
     ClusterNoResponses,
+    FlexSearchNocontentOrReturn0Required,
 }
 
 impl Debug for QueryErrorCode {
@@ -466,6 +467,11 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_CLUSTER_NO_RESPONSES ",
                 default_msg: c"no responses received",
                 default_full_msg: c"SEARCH_CLUSTER_NO_RESPONSES no responses received",
+            },
+            Self::FlexSearchNocontentOrReturn0Required => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED ",
+                default_msg: c"NOCONTENT or RETURN 0 must be provided for disk indexes",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED NOCONTENT or RETURN 0 must be provided for disk indexes",
             },
         }
     }
