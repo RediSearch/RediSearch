@@ -1,8 +1,9 @@
 [profile.default]
-slow-timeout = { period = "2s", terminate-after = 8 }
 fail-fast = false
+slow-timeout = { period = "2s", terminate-after = 8 }
+leak-timeout = { period = "250ms", result = "fail" }
 
 [profile.default-miri]
+fail-fast = false
 # `miri` is a _lot_ slower.
 slow-timeout = { period = "10s", terminate-after = 4 }
-fail-fast = false
