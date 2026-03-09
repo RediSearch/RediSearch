@@ -71,7 +71,7 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "repository": ${{ github.repository }}",
+              "repository": "${{ github.repository }}",
               "header": "❌ CI Report Generation Failed - ${{ steps.date.outputs.date }}",
               "error": "The collect_nightly_results.py script failed. Check workflow logs for details."
             }
