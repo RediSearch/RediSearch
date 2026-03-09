@@ -548,6 +548,7 @@ void iterStartCb(void *p) {
   it->ctx.inProcess = len; // Initially all commands are in process
 
   RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: iterStartCb: starting iterator with %zu shards, pending=%d, inProcess=%d, itRefCount=%d, chan=%p",
+                   len, it->ctx.pending, it->ctx.inProcess, it->ctx.itRefCount, (void*)it->ctx.chan);
 
   it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
@@ -596,6 +597,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   if (channelSize > channelThreshold) {
     // We have more replies to process
     RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MR_ManuallyTriggerNextIfNeeded: channelSize=%zu > threshold=%zu, processing replies",
+                     channelSize, channelThreshold);
     return true;
   }
   // We have <= channelThreshold replies to process, so if there are pending commands we want to trigger them.
