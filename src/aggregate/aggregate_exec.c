@@ -1628,6 +1628,8 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
   }
 
   if (req) {
+    // Cursor reads don't use reply_callback, so clear the flag.
+    req->useReplyCallback = false;
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     runCursor(reply, cursor, count);
     RedisModule_EndReply(reply);

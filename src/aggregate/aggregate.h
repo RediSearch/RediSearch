@@ -51,22 +51,17 @@ typedef struct {
  * When using FAIL policy with workers, the background thread stores results here,
  * then calls UnblockClient. The reply_callback reads from here to build the reply.
  *
- * ## Cursor ↔ AREQ Ownership Model
+ * ## Cursor ↔ AREQ Ownership
  *
  * **Cursor owns AREQ** (not vice versa):
  * - cursor->execState points to the AREQ
- * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState) to release the reference
+ * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState)
  *
  * **AREQ does NOT own Cursor**:
- * - The `cursor` field below is a NON-OWNING handle, not a reference-counted ownership.
+ * - The `cursor` field below is a NON-OWNING handle.
  * - It exists solely so QueryReplyCallback knows which cursor to pause/free after
  *   finishSendChunk completes.
  * - In normal flow, QueryReplyCallback calls Cursor_Free/Cursor_Pause and clears this field.
- *
- * **Timeout edge case**:
- * - If timeout fires before QueryReplyCallback runs, AREQ_Free must clean up the cursor.
- * - But Cursor_FreeInternal would call AREQ_DecrRef on the already-freed AREQ.
- * - Fix: AREQ_Free clears cursor->execState = NULL before calling Cursor_Free.
  */
 typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)

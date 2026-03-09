@@ -454,6 +454,37 @@ class TestCoordinatorTimeout:
         # Restore previous policy
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
+    def test_no_timeout_cursor(self):
+        """
+        Test that FAIL policy doesn't break cursor reads when there is no timeout.
+        This verifies that useReplyCallback is properly cleared for cursor reads,
+        since cursor reads use BlockCursorClient which has no reply_callback.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Run FT.AGGREGATE with cursor, small chunk size to force multiple reads
+        chunk_size = 10
+        res, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                  'WITHCURSOR', 'COUNT', str(chunk_size))
+
+        # First chunk should have results
+        env.assertGreater(len(res), 0, message="Expected results in first chunk")
+        env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID for pagination")
+
+        # Read all remaining chunks
+        total_results = res['total_results']
+        while cursor_id != 0:
+            res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
+            total_results += res['total_results']
+
+        env.assertEqual(total_results, self.n_docs,
+                        message=f"Expected {self.n_docs} total results across all cursor reads")
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
     def test_shard_timeout_fail(self):
         """Test shard timeout with FAIL policy."""
         env = self.env
@@ -1130,3 +1161,76 @@ class TestShardTimeout:
     def test_fail_timeout_after_store_aggregate(self):
         """Test timeout occurring after storing results for FT.AGGREGATE in standalone."""
         self._test_fail_timeout_after_store_impl(['FT.AGGREGATE', 'idx', '*'])
+
+    def test_no_timeout_cursor(self):
+        """
+        Test that FAIL policy doesn't break cursor reads when there is no timeout.
+        This verifies that useReplyCallback is properly cleared for cursor reads,
+        since cursor reads use BlockCursorClient which has no reply_callback.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Run FT.AGGREGATE with cursor, small chunk size to force multiple reads
+        chunk_size = 10
+        res, cursor_id = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                                  'WITHCURSOR', 'COUNT', str(chunk_size))
+
+        # First chunk should have results
+        env.assertGreater(len(res), 0, message="Expected results in first chunk")
+        env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID for pagination")
+
+        # Read all remaining chunks
+        total_results = res['total_results']
+        while cursor_id != 0:
+            res, cursor_id = env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id)
+            total_results += res['total_results']
+
+        env.assertEqual(total_results, self.n_docs,
+                        message=f"Expected {self.n_docs} total results across all cursor reads")
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_cursor_read_after_initial_timeout(self):
+        """
+        Test FT.AGGREGATE WITHCURSOR when the initial request times out,
+        then attempting to read from the cursor after timeout.
+
+        This verifies that after a timeout on the initial cursor request
+        in standalone mode, proper cleanup occurs and subsequent cursor
+        reads handle the state correctly.
+        """
+        env = self.env
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+
+        # Pause worker thread pool
+        env.expect(debug_cmd(), 'WORKERS', 'pause').ok()
+
+        # Run FT.AGGREGATE with cursor in a thread
+        t_query = threading.Thread(
+            target=run_cmd_expect_timeout,
+            args=(env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                        'WITHCURSOR', 'COUNT', '10']),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+
+        # Unblock the client to simulate timeout
+        env.expect('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT').equal(1)
+
+        wait_for_client_unblocked(env, blocked_client_id)
+
+        t_query.join(timeout=10)
+        env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+        # Resume worker threads and drain
+        env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+        env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
