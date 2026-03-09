@@ -126,12 +126,13 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb) {
   return disk->basic.loadRdbToTempObject(rdb);
 }
 
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(const char *indexName,
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
+                                                            const char *indexName,
                                                             size_t indexNameLen,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState) {
   RS_ASSERT(disk && disk_db && indexName && rdbState);
-  return disk->basic.openIndexSpecWithRdbState(disk_db, indexName, indexNameLen, type, rdbState);
+  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, indexNameLen, type, rdbState);
 }
 
 void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {

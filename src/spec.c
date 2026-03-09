@@ -3381,7 +3381,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
     if (diskRdbState) {
       // Use the new API that applies the RDB state during index opening
-      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(name, len, sp->rule->type, diskRdbState);
+      sp->diskSpec = SearchDisk_OpenIndexWithRdbState(ctx, name, len, sp->rule->type, diskRdbState);
       diskRdbState = NULL; // Ownership transferred
     } else {
       // No RDB state (non-SST flow), just open the index normally

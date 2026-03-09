@@ -108,7 +108,8 @@ typedef struct BasicDiskAPI {
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
    * @return Pointer to the created IndexSpec, or NULL on error
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisSearchDisk *disk,
+  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
+                                                          RedisSearchDisk *disk,
                                                           const char *indexName,
                                                           size_t indexNameLen,
                                                           DocumentType type,

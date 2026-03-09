@@ -37,7 +37,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx);
  * Registers a getDiskUsage callback with Redis that iterates over all
  * disk-based indexes and returns the total disk usage.
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if registration succeeded, false otherwise
  */
 bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
@@ -51,7 +51,7 @@ void SearchDisk_Close();
 
 /**
  * @brief Open an index, **Important** must be called once and only once for every index
- * @param ctx Redis module context for BigModule APIs (may be NULL)
+ * @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index to open
  * @param indexNameLen Length of the index name
  * @param type Document type
@@ -70,7 +70,7 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
  *
- * @param ctx Redis module context for BigModule APIs (may be NULL)
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index to close
  */
 void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
@@ -102,13 +102,15 @@ RedisSearchDiskRdbState* SearchDisk_LoadRdbToTempObject(RedisModuleIO *rdb);
  * Called after SST files are ready (e.g., after FULL_REPLICATION_FINISHED event).
  * Takes ownership of rdbState - it will be consumed and freed.
  *
+* @param ctx Redis module context for BigModule APIs
  * @param indexName Name of the index
  * @param indexNameLen Length of the index name
  * @param type Document type for this index
  * @param rdbState Temporary RDB state from SearchDisk_LoadRdbToTempObject (will be consumed)
  * @return Pointer to the created IndexSpec, or NULL on error
  */
-RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(const char *indexName,
+RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
+                                                            const char *indexName,
                                                             size_t indexNameLen,
                                                             DocumentType type,
                                                             RedisSearchDiskRdbState *rdbState);
@@ -140,6 +142,7 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
 /**
  * @brief Index multiple tag values for a document
  *
+ * @param ctx Redis module context for BigModule APIs
  * @param index Pointer to the index
  * @param values Array of tag values to associate the document with
  * @param numValues Number of tag values in the array
@@ -361,7 +364,7 @@ bool SearchDisk_GetAsyncIOEnabled();
 /**
  * @brief Check if the search disk module is enabled from configuration
  *
- * @param ctx Redis module context
+ * @param ctx Redis module context for BigModule APIs
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
@@ -369,7 +372,6 @@ bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx);
 /**
  * @brief Check if the search disk module is enabled
  *
- * @param ctx Redis module context
  * @return true if enabled, false otherwise
  */
 bool SearchDisk_IsEnabled();
