@@ -104,6 +104,29 @@ pub unsafe extern "C" fn RLookup_EnableOptions(
     lookup.enable_options(options);
 }
 
+/// Returns whether the given set of `RLookup` options are enabled.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+/// 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_AreOptionsEnabled(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    options: u32,
+) -> bool {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_AreOptionsEnabled");
+
+    let options = RLookupOptions::from_bits(options).unwrap();
+
+    lookup.are_options_enabled(options)
+}
+
 /// Find a field in the index spec cache of the lookup.
 ///
 /// # Safety

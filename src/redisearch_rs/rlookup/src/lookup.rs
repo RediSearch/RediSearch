@@ -92,6 +92,10 @@ impl<'a> RLookup<'a> {
         self.options |= options;
     }
 
+    pub fn are_options_enabled(&mut self, options: RLookupOptions) -> bool {
+        self.options.contains(options)
+    }
+
     pub const fn has_index_spec_cache(&self) -> bool {
         self.index_spec_cache.is_some()
     }

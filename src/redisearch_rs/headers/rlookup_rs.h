@@ -321,6 +321,18 @@ void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
 void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
 
 /**
+ * Returns whether the given set of `RLookup` options are enabled.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookup_AreOptionsEnabled(struct RLookup *lookup, uint32_t options);
+
+/**
  * Find a field in the index spec cache of the lookup.
  *
  * # Safety
