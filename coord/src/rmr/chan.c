@@ -65,6 +65,8 @@ void MRChannel_Push(MRChannel *chan, void *ptr) {
     chan->head = chan->tail = item;
   }
   chan->size++;
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRChannel_Push: pushed item, new size=%zu, wait=%d, chan=%p",
+                   chan->size, chan->wait, (void*)chan);
   pthread_cond_broadcast(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
@@ -86,8 +88,12 @@ void *MRChannel_UnsafeForcePop(MRChannel *chan) {
 
 void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRChannel_Pop: entering, size=%zu, wait=%d, chan=%p",
+                   chan->size, chan->wait, (void*)chan);
   while (!chan->size) {
     if (!chan->wait) {
+      RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRChannel_Pop: unblocked (wait=false), returning NULL, chan=%p",
+                       (void*)chan);
       chan->wait = true;  // reset the flag
       pthread_mutex_unlock(&chan->lock);
       return NULL;
@@ -100,6 +106,8 @@ void *MRChannel_Pop(MRChannel *chan) {
   // empty queue...
   if (!chan->head) chan->tail = NULL;
   chan->size--;
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRChannel_Pop: popped item, new size=%zu, chan=%p",
+                   chan->size, (void*)chan);
   pthread_mutex_unlock(&chan->lock);
   // discard the item (TODO: recycle items)
   void *ret = item->ptr;
@@ -109,6 +117,8 @@ void *MRChannel_Pop(MRChannel *chan) {
 
 void MRChannel_Unblock(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRChannel_Unblock: setting wait=false, size=%zu, chan=%p",
+                   chan->size, (void*)chan);
   chan->wait = false;
   // unblock any waiting readers
   pthread_cond_signal(&chan->cond);

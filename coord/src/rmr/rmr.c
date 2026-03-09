@@ -469,7 +469,11 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
 // to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
   short inProcess = __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRIteratorCallback_ProcessDone: decremented inProcess to %d, pending=%d, itRefCount=%d, chan=%p",
+                   inProcess, ctx->it->ctx.pending, ctx->it->ctx.itRefCount, (void*)ctx->it->ctx.chan);
   if (!inProcess) {
+    RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRIteratorCallback_ProcessDone: inProcess==0, calling Unblock and Release, chan=%p",
+                     (void*)ctx->it->ctx.chan);
     MRChannel_Unblock(ctx->it->ctx.chan);
     RS_DEBUG_LOG("MRIteratorCallback_ProcessDone: calling MRIterator_Release");
     MRIterator_Release(ctx->it);
@@ -530,6 +534,8 @@ MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
 }
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRIteratorCallback_AddReply: pushing reply, inProcess=%d, pending=%d, chan=%p",
+                   ctx->it->ctx.inProcess, ctx->it->ctx.pending, (void*)ctx->it->ctx.chan);
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
 
@@ -540,6 +546,8 @@ void iterStartCb(void *p) {
   it->len = len;
   it->ctx.pending = len;
   it->ctx.inProcess = len; // Initially all commands are in process
+
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: iterStartCb: starting iterator with %zu shards, pending=%d, inProcess=%d, itRefCount=%d, chan=%p",
 
   it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
@@ -554,9 +562,11 @@ void iterStartCb(void *p) {
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+      RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: iterStartCb: SendCommand failed for shard %zu, calling Done", i);
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: iterStartCb: finished dispatching commands to %zu shards", len);
 }
 
 void iterManualNextCb(void *p) {
@@ -576,18 +586,23 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   // regardless of the number of replies we have in the channel.
   // Since we push the triggering job to a single-threaded queue (currently), we can modify the logic here
   // to trigger the next batch when we have no commands in process and no more than channelThreshold replies to process.
-  if (MRIteratorCallback_GetNumInProcess(it)) {
+  short numInProcess = MRIteratorCallback_GetNumInProcess(it);
+  if (numInProcess) {
     // We have more replies to wait for
+    RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MR_ManuallyTriggerNextIfNeeded: still have %d in process, waiting", numInProcess);
     return true;
   }
   size_t channelSize = MRChannel_Size(it->ctx.chan);
   if (channelSize > channelThreshold) {
     // We have more replies to process
+    RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MR_ManuallyTriggerNextIfNeeded: channelSize=%zu > threshold=%zu, processing replies",
     return true;
   }
   // We have <= channelThreshold replies to process, so if there are pending commands we want to trigger them.
   if (it->ctx.pending) {
     // We have more commands to send
+    RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MR_ManuallyTriggerNextIfNeeded: triggering next batch, setting inProcess=%d (was 0), pending=%d",
+                     it->ctx.pending, it->ctx.pending);
     it->ctx.inProcess = it->ctx.pending;
     // All reader have marked that they are done with the current command batch (decreased inProcess)
     // However, they may still hold the iterator reference.
@@ -599,6 +614,8 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   }
   // We have no pending commands and no more than channelThreshold replies to process.
   // If we have more replies we will process them, otherwise we are done.
+  RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MR_ManuallyTriggerNextIfNeeded: no more pending, channelSize=%zu, returning %s",
+                   channelSize, channelSize > 0 ? "true" : "false");
   return channelSize > 0;
 }
 
@@ -660,11 +677,16 @@ void MRIterator_Release(MRIterator *it) {
   int8_t refcount = MRIterator_DecreaseRefCount(it);
   REFCOUNT_DECR_MSG("MRIterator_Release", refcount);
   RS_ASSERT(refcount >= 0);
-  if (refcount > 0) return;
+  if (refcount > 0) {
+    RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRIterator_Release: refcount=%d > 0, returning early", refcount);
+    return;
+  }
 
   // Both reader and writers are done with the iterator. No writer is in process.
   if (it->ctx.pending) {
     // If we have pending (not depleted) shards, trigger `FT.CURSOR DEL` on them
+    RedisModule_Log(NULL, "warning", "DEADLOCK_DEBUG: MRIterator_Release: refcount==0, pending=%d, setting inProcess=%d for DEL",
+                     it->ctx.pending, it->ctx.pending);
     it->ctx.inProcess = it->ctx.pending;
     // Change the root command to DEL for each pending shard
     for (size_t i = 0; i < it->len; i++) {
