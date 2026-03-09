@@ -3459,6 +3459,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
+  RS_LOG_ASSERT(!SearchDisk_IsEnabled(), "Legacy indexes are not supported on disk");
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
@@ -3556,25 +3557,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  if (SearchDisk_IsEnabled()) {
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-    // Legacy RDB does not have SST persistence, so always delete before opening.
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
-    // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
-    // data in this version of RDB (encver).
-    if (!sp->diskSpec) {
-      RedisModule_LogIOError(rdb, "warning","Could not open disk index");
-      StrongRef_Release(spec_ref);
-      return NULL;
-    }
-    // Populate diskCtx for vector fields now that diskSpec is available
-    IndexSpec_PopulateVectorDiskParams(sp);
-  }
-
   // Start GC after diskSpec is available so the disk GC callback can use it immediately.
+  IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
+  Cursors_initSpec(sp);
+
+  dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
   return spec_ref.rm;
