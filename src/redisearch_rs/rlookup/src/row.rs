@@ -203,7 +203,13 @@ impl<'a> RLookupRow<'a> {
 
         // If not found in dynamic values, check the sorting vector if the SvSrc flag is set
         if key.flags.contains(RLookupKeyFlag::SvSrc) {
-            self.sorting_vector()?.get(key.svidx as usize)
+            // Sorting vector slots that were never written hold the null sentinel.
+            // Filter it out so callers see `None` for absent fields, mirroring the C
+            // guard in `RLookupRow_Get`:
+            //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
+            self.sorting_vector()?
+                .get(key.svidx as usize)
+                .filter(|v| !v.is_null_static())
         } else {
             None
         }
