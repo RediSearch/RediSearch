@@ -32,16 +32,16 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
     /// the last document ID read by the iterator.
     last_doc_id: t_docId,
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RSIndexResult<'index>,
+    pub(super) result: RSIndexResult<'index>,
 
     /// The expiration checker used to determine if documents are expired.
     expiration_checker: E,
 
-    /// The implementation of the `read` method.
+    /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
-    /// iterator construction saving to re-do the checks each time read() is called.
+    /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
     read_impl: fn(&mut Self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>,
-    /// The implementation of the `skip_to` method.
+    /// The implementation of the [`skip_to`](RQEIterator::skip_to) method.
     skip_to_impl:
         fn(&mut Self, t_docId) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>,
 }

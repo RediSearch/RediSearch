@@ -106,7 +106,7 @@ pub extern "C" fn NewNumericRangeTree(compress_floats: bool) -> *mut NumericRang
 /// - `t` must point to a valid [`NumericRangeTree`] obtained from
 ///   [`NewNumericRangeTree`] and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericRangeTree_Add(
+pub unsafe extern "C" fn _NumericRangeTree_Add(
     t: *mut NumericRangeTree,
     doc_id: t_docId,
     value: f64,

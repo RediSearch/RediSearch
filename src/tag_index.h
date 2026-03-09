@@ -136,8 +136,9 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
 
 /* Index a vector of pre-processed tags for a docId.
  * Updates stats->invertedSize (memory mode) and stats->numRecords on success.
- * Returns true on success, false on failure (disk mode only). */
-bool TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats);
+ * Returns true on success, false on failure (disk mode only).
+ * @param ctx RedisModuleCtx pointer */
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
@@ -151,12 +152,16 @@ QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSe
                                                     const char *tag, size_t len, void *ptr,
                                                     double weight, t_fieldIndex fieldIndex);
 
-/* Open the tag index
+/* Open the tag index, returning NULL if it doesn't exist.
  * @param spec Field spec for the tag field
- * @param create_if_missing Whether to create the index if it doesn't exist
+ */
+TagIndex *TagIndex_Open(const FieldSpec *spec);
+
+/* Open the tag index, creating it if it doesn't exist.
+ * @param spec Field spec for the tag field
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
  */
-TagIndex *TagIndex_Open(FieldSpec *spec, bool create_if_missing, RedisSearchDiskIndexSpec *diskSpec);
+TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.
@@ -173,7 +178,7 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
 * Calculates the overhead used by the TrieMaps of the TAG field named `name`, in
 * IndexSpec `sp`.
 */
-size_t TagIndex_GetOverhead(FieldSpec *fs);
+size_t TagIndex_GetOverhead(const FieldSpec *fs);
 
 #ifdef __cplusplus
 }

@@ -261,7 +261,7 @@ def testDebugDump(env):
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps([-1, 2, 3]))
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps([-2, -1, 2]))
 
-    env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
+    env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 1, 1, 2, 2, 2]])
     env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal([
         'numRanges', 1, 'numLeaves', 1, 'numEntries', 6, 'lastDocId', 2, 'revisionId', 0,
         'emptyLeaves', 0, 'RootMaxDepth', 0,'MemoryUsage', ANY

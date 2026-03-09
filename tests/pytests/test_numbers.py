@@ -111,7 +111,7 @@ def testCompressionConfig(env):
 def testRangeParentsConfig(env):
     elements = 1000
 
-    result = [['numRanges', 5], ['numRanges', 7]]
+    result = [['numRanges', 4], ['numRanges', 6]]
     for test in range(2):
         # check number of ranges
         env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
@@ -178,7 +178,7 @@ def testEmptyNumericLeakCenter(env):
         for j in range(docs):
             x = j + i * docs
             conn.execute_command('HSET', f'doc{j % 100 + 100}', 'n', format(x))
-        res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
+        res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
         env.assertEqual(res[0], docs / 100 + 100)
 
     num_summery_before = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
@@ -186,7 +186,7 @@ def testEmptyNumericLeakCenter(env):
     num_summery_after = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     env.assertGreater(num_summery_before[1], num_summery_after[1])
 
-    res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf + inf]', 'NOCONTENT')
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], docs / 100 + 100)
 
 

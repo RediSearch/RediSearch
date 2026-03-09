@@ -124,7 +124,7 @@ def testNumericCompleteGCAndRepopulation(env):
 
 @skip(cluster=True)
 def testNumericMergesTrees(env):
-    """Test to check the numeric index trees merges when half or more of all the trees are empty"""
+    """Test to check the numeric index trees merges nodes when half or more of all the nodes are empty"""
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
     waitForIndex(env, 'idx')
@@ -136,31 +136,36 @@ def testNumericMergesTrees(env):
 
     # Verify initial state
     res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
-    env.assertEqual(len(res), 4)
-    env.assertEqual(res[3], [int(i) for i in range(1, 8)])
-    env.assertEqual(res[2], [int(i) for i in range(8, 34)])
+    env.assertEqual(len(res), 3)
+    # Values in each node of the tree
+    env.assertEqual(res[0], [int(i) for i in range(44, 256)])
+    env.assertEqual(res[1], [int(i) for i in range(9, 44)])
+    env.assertEqual(res[2], [int(i) for i in range(1, 9)])
 
-    # Phase 2: Make the last bucket empty
-    for i in range(0, 7):
+    # Phase 2: Empty the last node
+    for i in range(0, 8):
         env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
 
     forceInvokeGC(env, 'idx')
 
-    # Verify last bucket is empty
+    # Verify last node is empty, but still present
+    # The tree isn't (yet) sparse enough to trigger a compaction
     res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
-    env.assertEqual(len(res), 4)
-    env.assertEqual(res[3], [])
-    env.assertEqual(res[2], [int(i) for i in range(8, 34)])
+    env.assertEqual(len(res), 3)
+    env.assertEqual(res[0], [int(i) for i in range(44, 256)])
+    env.assertEqual(res[1], [int(i) for i in range(9, 44)])
+    env.assertEqual(res[2], [])
 
-    # Phase 3: Make the second last bucket empty to trigger merge
-    for i in range(7, 33):
+    # Phase 3: Make the second-to-last node empty to trigger a merge
+    for i in range(8, 43):
         env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
 
     forceInvokeGC(env, 'idx')
 
-    # Verify index is merged
+    # Verify nodes were merged
     res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'id')
-    env.assertEqual(len(res), 2)
+    env.assertEqual(len(res), 1)
+    env.assertEqual(res[0], [int(i) for i in range(44, 256)])
 
 @skip(cluster=True)
 def testGeoGCIntensive(env:Env):

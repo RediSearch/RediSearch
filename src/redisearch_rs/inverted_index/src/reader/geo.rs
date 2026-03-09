@@ -18,7 +18,6 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The [`GeoFilter`] should not be null and a valid instance
-    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
     unsafe fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool;
 }
 
@@ -168,7 +167,7 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 
     /// Check if this reader is reading from the given index
     pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
-        self.inner.is_index(index)
+        self.inner.points_to_ii(index)
     }
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C

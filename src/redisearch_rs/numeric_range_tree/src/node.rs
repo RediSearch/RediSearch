@@ -339,7 +339,21 @@ impl NumericRangeNode {
     /// Get a mutable reference to the range, if present.
     ///
     /// Always `Some` for leaf nodes, optional for internal nodes.
+    #[cfg(not(feature = "test-utils"))]
     pub(crate) const fn range_mut(&mut self) -> Option<&mut NumericRange> {
+        match self {
+            Self::Leaf(leaf) => Some(&mut leaf.range),
+            Self::Internal(internal) => internal.range.as_mut(),
+        }
+    }
+
+    /// Get a mutable reference to the range, if present.
+    ///
+    /// Always `Some` for leaf nodes, optional for internal nodes.
+    // TODO: Used by `rqe_iterators_test_utils/src/test_context.rs` for testing purposes.
+    //   Make it private again after we don't need it anymore as a workaround.
+    #[cfg(feature = "test-utils")]
+    pub const fn range_mut(&mut self) -> Option<&mut NumericRange> {
         match self {
             Self::Leaf(leaf) => Some(&mut leaf.range),
             Self::Internal(internal) => internal.range.as_mut(),

@@ -326,6 +326,9 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
   getJSONElementFunc getElement;
   RedisJSON element;
 
+  unsigned char step = 0;
+  size_t count = 0;
+
   VecSimParams *params = &fs->vectorOpts.vecSimParams;
   if (params->algo == VecSimAlgo_TIERED) {
     params = params->algoParams.tieredParams.primaryIndexParams;
@@ -351,17 +354,17 @@ switch (params->algo) {
     default: goto fail;
   }
 
+  step = VecSimType_sizeof(type);
+
   if (!multi)
     goto fail;
 
   getElement = VecSimGetJSONCallback(type);
-  unsigned char step = VecSimType_sizeof(type);
 
   if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
     goto fail;
   }
   df->blobSize = fs->vectorOpts.expBlobSize;
-  size_t count = 0;
 
   while ((element = JSONIterable_Next(itr))) {
     JSONType jsonType = japi->getType(element);
@@ -615,6 +618,186 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
   }
 
   return rv;
+}
+
+static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
+  size_t len;
+  char *str;
+  const char *constStr;
+  RedisModuleString *rstr;
+  long long ll;
+  double dd;
+  int i;
+
+  // Currently `getJSON` cannot fail here also the other japi APIs below
+  switch (japi->getType(json)) {
+    case JSONType_String:
+      japi->getString(json, &constStr, &len);
+      str = rm_strndup(constStr, len);
+      return RSValue_NewString(str, len);
+    case JSONType_Int:
+      japi->getInt(json, &ll);
+      return RSValue_NewNumberFromInt64(ll);
+    case JSONType_Double:
+      japi->getDouble(json, &dd);
+      return RSValue_NewNumber(dd);
+    case JSONType_Bool:
+      japi->getBoolean(json, &i);
+      return RSValue_NewNumberFromInt64(i);
+    case JSONType_Array:
+    case JSONType_Object:
+      japi->getJSON(json, ctx, &rstr);
+      return RSValue_NewRedisString(rstr);
+    case JSONType_Null:
+      return RSValue_NullStatic();
+    case JSONType__EOF:
+      break;
+  }
+  RS_ABORT("Cannot get here");
+  return NULL;
+}
+
+// {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
+static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
+
+  RSValue *ret;
+  size_t len;
+  JSONType type = japi->getType(json);
+  if (type == JSONType_Object) {
+    // Object
+    japi->getLen(json, &len);
+    RSValue **pairs = NULL;
+    if (len) {
+      JSONKeyValuesIterator iter = japi->getKeyValues(json);
+      RedisModuleString *keyName;
+      size_t i = 0;
+      RedisJSON value;
+      RedisJSONPtr value_ptr = japi->allocJson();
+
+      RSValueMapBuilder *map = RSValue_NewMapBuilder(len);
+      for (; (japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK); ++i) {
+        value = *value_ptr;
+        RSValue_MapBuilderSetEntry(map, i, RSValue_NewRedisString(keyName),
+          jsonValToValueExpanded(ctx, value));
+      }
+      japi->freeJson(value_ptr);
+      value_ptr = NULL;
+      japi->freeKeyValuesIter(iter);
+      RS_ASSERT(i == len);
+
+      ret = RSValue_NewMapFromBuilder(map);
+    } else {
+      ret = RSValue_NewMapFromBuilder(RSValue_NewMapBuilder(0));
+    }
+  } else if (type == JSONType_Array) {
+    // Array
+    japi->getLen(json, &len);
+    if (len) {
+      RSValue **arr = RSValue_NewArrayBuilder(len);
+      RedisJSONPtr value_ptr = japi->allocJson();
+      for (size_t i = 0; i < len; ++i) {
+        japi->getAt(json, i, value_ptr);
+        RedisJSON value = *value_ptr;
+        arr[i] = jsonValToValueExpanded(ctx, value);
+      }
+      japi->freeJson(value_ptr);
+      ret = RSValue_NewArrayFromBuilder(arr, len);
+    } else {
+      // Empty array
+      RSValue **arr = RSValue_NewArrayBuilder(0);
+      ret = RSValue_NewArrayFromBuilder(arr, 0);
+    }
+  } else {
+    // Scalar
+    ret = jsonValToValue(ctx, json);
+  }
+  return ret;
+}
+
+// Return an array of expanded values from an iterator.
+// The iterator is being reset and is not being freed.
+// Required japi_ver >= 4
+static RSValue* jsonIterToValueExpanded(RedisModuleCtx *ctx, JSONResultsIterator iter) {
+  RSValue *ret;
+  RSValue **arr;
+  size_t len = japi->len(iter);
+  if (len) {
+    japi->resetIter(iter);
+    RedisJSON json;
+    RSValue **arr = RSValue_NewArrayBuilder(len);
+    for (size_t i = 0; (json = japi->next(iter)); ++i) {
+      arr[i] = jsonValToValueExpanded(ctx, json);
+    }
+    ret = RSValue_NewArrayFromBuilder(arr, len);
+  } else {
+    // Empty array
+    RSValue **arr = RSValue_NewArrayBuilder(0);
+    ret = RSValue_NewArrayFromBuilder(arr, 0);
+  }
+  return ret;
+}
+
+// Get the value from an iterator and free the iterator
+// Return REDISMODULE_OK, and set rsv to the value, if value exists
+// Return REDISMODULE_ERR otherwise
+//
+// Multi value is supported with apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST
+int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv) {
+
+  int res = REDISMODULE_ERR;
+  RedisModuleString *serialized = NULL;
+  size_t len = 0;
+
+  if (apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST) {
+    // Preserve single value behavior for backward compatibility
+    RedisJSON json = japi->next(iter);
+    if (!json) {
+      goto done;
+    }
+    *rsv = jsonValToValue(ctx, json);
+    res = REDISMODULE_OK;
+    goto done;
+  }
+
+  len = japi->len(iter);
+  if (len > 0) {
+    // First get the JSON serialized value (since it does not consume the iterator)
+    if (japi->getJSONFromIter(iter, ctx, &serialized) == REDISMODULE_ERR) {
+      goto done;
+    }
+
+    // Second, get the first JSON value
+    RedisJSON json = japi->next(iter);
+    RedisJSONPtr json_alloc = NULL; // Used if we need to allocate a new JSON value (e.g if the value is an array)
+    // If the value is an array, we currently try using the first element
+    JSONType type = japi->getType(json);
+    if (type == JSONType_Array) {
+      json_alloc = japi->allocJson();
+      // Empty array will return NULL
+      if (japi->getAt(json, 0, json_alloc) == REDISMODULE_OK) {
+        json = *json_alloc;
+      } else {
+        json = NULL;
+      }
+    }
+
+    if (json) {
+      RSValue *val = jsonValToValue(ctx, json);
+      RSValue *otherval = RSValue_NewRedisString(serialized);
+      RSValue *expand = jsonIterToValueExpanded(ctx, iter);
+      *rsv = RSValue_NewTrio(val, otherval, expand);
+      res = REDISMODULE_OK;
+    } else if (serialized) {
+      RedisModule_FreeString(ctx, serialized);
+    }
+
+    if (json_alloc) {
+      japi->freeJson(json_alloc);
+    }
+  }
+
+done:
+  return res;
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,

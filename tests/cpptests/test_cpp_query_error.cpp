@@ -9,7 +9,7 @@
 
 #include "gtest/gtest.h"
 #include "src/redisearch_rs/headers/query_error.h"
-#include "src/rmalloc.h"
+#include "rmalloc.h"
 #include <string.h>
 #include <string>
 

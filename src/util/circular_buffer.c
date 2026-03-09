@@ -8,7 +8,7 @@
 */
 #include "redismodule.h"
 #include "circular_buffer.h"
-#include "src/rmalloc.h"
+#include "rmalloc.h"
 #include "src/util/likely.h"
 #include "rmutil/rm_assert.h"
 

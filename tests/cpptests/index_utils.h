@@ -35,20 +35,6 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
 
 void freeSpec(RefManager *ism);
 
-/**
- * Iterates the inverted indices in a the numeric tree and calculates the memory used by them.
- * This memory includes memory allocated for data and blocks metadata.
- * NOTE: the returned memory doesn't not include the memory used by the tree itself.
- *
- * If @param rt is NULL, the function will return 0.
- *
- * this function also verifies that the memory counter of each range is equal to its actual memory.
- * if not, if will set @param failed_range to point to the range that failed the check.
- * Then, you can get the range memory by calling InvertedIndex_MemUsage(failed_range);
- * NOTE: Upon early bail out, the returned value will **not** include the memory used by the failed range.
- */
-size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
-
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
 
 class MockQueryEvalCtx {

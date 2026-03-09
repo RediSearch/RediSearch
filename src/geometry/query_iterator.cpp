@@ -99,7 +99,7 @@ void QIter_Free(QueryIterator *self) {
   std::allocator_traits<alloc_type>::destroy(alloc, qi);
   std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
-std::size_t QIter_NumEstimated(QueryIterator *ctx) {
+std::size_t QIter_NumEstimated(const QueryIterator *ctx) {
   return reinterpret_cast<CPPQueryIterator const *>(ctx)->len();
 }
 void QIter_Rewind(QueryIterator *ctx) {

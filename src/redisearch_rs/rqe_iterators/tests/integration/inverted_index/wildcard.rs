@@ -55,9 +55,8 @@ fn wildcard_read() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn wildcard_skip_to() {
-    let test = WildcardBaseTest::new(100);
+    let test = WildcardBaseTest::new(10);
     let mut it = test.create_iterator();
     test.test.skip_to(&mut it);
 }
@@ -225,6 +224,6 @@ mod not_miri {
 
         let reader = it.reader();
         let ii = DocIdsOnly::from_opaque(test.test.context.wildcard_inverted_index());
-        assert!(reader.is_index(ii));
+        assert!(reader.points_to_ii(ii));
     }
 }

@@ -114,7 +114,7 @@ RSValue *RSValue_NewString(char *str, uint32_t len);
  * @param len The length of the string
  * @return A pointer to a heap-allocated RSValue wrapping a constant C string
  */
-RSValue *RSValue_NewConstString(const char *str, uint32_t len);
+RSValue *RSValue_NewBorrowedString(const char *str, uint32_t len);
 
 /**
  * Creates a heap-allocated RSValue which takes a reference to the Redis string.
@@ -140,7 +140,7 @@ RSValue *RSValue_NullStatic();
  * @param dst The length of the string to copy
  * @return A pointer to a heap-allocated RSValue owning the copied string
  */
-RSValue *RSValue_NewCopiedString(const char *s, size_t dst);
+RSValue *RSValue_NewCopiedString(const char *s, uint32_t dst);
 
 /**
  * Creates a heap-allocated RSValue by parsing a string as a number.
@@ -281,8 +281,8 @@ double RSValue_Number_Get(const RSValue *v);
 void RSValue_SetNumber(RSValue *v, double n);
 
 // String getters/setters
-void RSValue_SetString(RSValue *v, char *str, size_t len);
-void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
+void RSValue_SetString(RSValue *v, char *str, uint32_t len);
+void RSValue_SetConstString(RSValue *v, const char *str, uint32_t len);
 
 /**
  * Get the string value and length from an RSValue.
@@ -291,7 +291,7 @@ void RSValue_SetConstString(RSValue *v, const char *str, size_t len);
  * @param lenp Output parameter for the string length. Only used if not NULL
  * @return Pointer to the string data
  */
-char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
+const char *RSValue_String_Get(const RSValue *v, uint32_t *lenp);
 
 /**
  * Get the RedisModuleString from an RSValue.
@@ -369,6 +369,9 @@ RSValue *RSValue_Trio_GetRight(const RSValue *v);
 /* Return the value itself or its referred value */
 RSValue *RSValue_Dereference(const RSValue *v);
 
+/* Dereference through References and Trios to get to the leaf value */
+RSValue *RSValue_DereferenceRefAndTrio(const RSValue *v);
+
 /**
  * Clears the underlying storage of the value, and makes it
  * be a reference to the NULL value
@@ -406,22 +409,13 @@ uint16_t RSValue_Refcount(const RSValue *v);
 // Other Functions (utility, memory management, comparison, etc.)
 ///////////////////////////////////////////////////////////////
 
-/* Convert a value to a string value. If the value is already a string value it gets
- * shallow-copied (no string buffer gets copied) */
-void RSValue_ToString(RSValue *dst, RSValue *v);
-
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into the double pointer */
-int RSValue_ToNumber(const RSValue *v, double *d);
+bool RSValue_ToNumber(const RSValue *v, double *d);
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 uint64_t RSValue_Hash(const RSValue *v, uint64_t hval);
-
-// Combines PtrLen with ToString to convert any RSValue into a string buffer.
-// Returns NULL if buf is required, but is too small
-const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
-                                        size_t buflen);
 
 /**
  * Helper function to allocate memory before passing it to RSValue_NewArrayFromBuilder

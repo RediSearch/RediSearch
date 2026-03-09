@@ -62,8 +62,12 @@ pub trait IndexReader<'index> {
 /// Marker trait for readers producing numeric values.
 pub trait NumericReader<'index>: IndexReader<'index> {}
 
-/// Marker trait for readers producing term values.
-pub trait TermReader<'index>: IndexReader<'index> {}
+/// Trait for readers producing term values.
+pub trait TermReader<'index>: IndexReader<'index> {
+    /// Check if this reader's underlying index points to the same one
+    /// contained in the given opaque [`InvertedIndex`](crate::opaque::InvertedIndex).
+    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool;
+}
 
 /// Filter to apply when reading from an index. Entries which don't match the filter will not be
 /// returned by the reader.

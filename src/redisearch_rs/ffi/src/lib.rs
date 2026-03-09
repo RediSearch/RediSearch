@@ -16,6 +16,7 @@
     dead_code,
     unnecessary_transmutes,
     unsafe_op_in_unsafe_fn,
+    clippy::allow_attributes,
     clippy::ptr_offset_with_cast,
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
@@ -37,8 +38,9 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 /// Access to the RediSearch Module context
 pub mod context;
 
-/// Use the Rust definition directly
+/// Use the Rust definitions directly
 pub use document::DocumentType;
+pub use query_term::{RSQueryTerm, RSTokenFlags};
 
 #[repr(C)]
 #[derive(Debug)]

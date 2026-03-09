@@ -17,7 +17,6 @@
 #include <stdatomic.h>
 #include <time.h>
 
-// TODO: update stats with the number of documents cleaned - MOD-14199
 static bool periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
@@ -36,7 +35,10 @@ static bool periodicCb(void *privdata, bool force) {
     return true;
   }
 
-  SearchDisk_RunGC(sp->diskSpec, sp);
+  size_t num_docs_cleaned = SearchDisk_RunGC(sp->diskSpec, sp);
+
+  IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_cleaned);
+  atomic_fetch_sub(&gc->deletedDocsFromLastRun, num_docs_cleaned);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
@@ -47,7 +49,7 @@ static bool periodicCb(void *privdata, bool force) {
 static void onTerminateCb(void *privdata) {
   DiskGC *gc = privdata;
   size_t remaining = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
-  IndexsGlobalStats_UpdateLogicallyDeleted(-(int64_t)remaining);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(remaining);
   WeakRef_Release(gc->index);
   rm_free(gc);
 }
@@ -66,7 +68,7 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 static void deleteCb(void *ctx) {
   DiskGC *gc = ctx;
   atomic_fetch_add(&gc->deletedDocsFromLastRun, 1);
-  IndexsGlobalStats_UpdateLogicallyDeleted(1);
+  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
 // Stats are maintained in disk info.

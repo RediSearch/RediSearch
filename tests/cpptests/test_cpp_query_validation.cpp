@@ -70,7 +70,7 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
     "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
   QueryError err = QueryError_Default();
-  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC(NULL, "idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
@@ -115,7 +115,7 @@ TEST_F(QueryValidationTest, testValidVectorFilter) {
   };
 
   QueryError err = QueryError_Default();
-  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC(NULL, "idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
@@ -146,7 +146,7 @@ TEST_F(QueryValidationTest, testInvalidHybridSearch) {
     "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
   QueryError err = QueryError_Default();
-  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC(NULL, "idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
@@ -183,7 +183,7 @@ TEST_F(QueryValidationTest, testValidHybridSearch) {
   };
 
   QueryError err = QueryError_Default();
-  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC(NULL, "idx", args, sizeof(args) / sizeof(const char *), &err);
   ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
 
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));

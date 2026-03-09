@@ -20,11 +20,12 @@ use std::{
     ffi::CString,
     ops::{Deref, DerefMut},
 };
-use value::{RSValueMock, RSValueTrait};
+use value::RSValueFFI;
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn insert_without_gap() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
@@ -33,7 +34,7 @@ fn insert_without_gap() {
     let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
     // insert a key at the first position
-    row.write_key(&key, RSValueMock::create_num(42.0));
+    row.write_key(&key, RSValueFFI::new_num(42.0));
     assert!(!row.is_empty());
     assert_eq!(row.len(), 1);
     assert_eq!(row.num_dyn_values(), 1);
@@ -42,7 +43,7 @@ fn insert_without_gap() {
     // insert a key at the second position
     let mut key = RLookupKey::new(c"test2", RLookupKeyFlags::empty());
     key.dstidx = 1;
-    row.write_key(&key, RSValueMock::create_num(84.0));
+    row.write_key(&key, RSValueFFI::new_num(84.0));
     assert!(!row.is_empty());
     assert_eq!(row.len(), 2);
     assert_eq!(row.num_dyn_values(), 2);
@@ -50,8 +51,9 @@ fn insert_without_gap() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn insert_with_gap() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
@@ -59,7 +61,7 @@ fn insert_with_gap() {
     // generate test key at index 15
     let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
     key.dstidx = 15;
-    row.write_key(&key, RSValueMock::create_num(42.0));
+    row.write_key(&key, RSValueFFI::new_num(42.0));
 
     assert!(!row.is_empty());
     assert_eq!(row.len(), 16); // Length should be 16 due to the gap
@@ -68,8 +70,9 @@ fn insert_with_gap() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn insert_non_owned() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
@@ -78,20 +81,21 @@ fn insert_non_owned() {
     let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
     // insert a key at the first position
-    let mock = RSValueMock::create_num(42.0);
+    let mock = RSValueFFI::new_num(42.0);
     row.write_key(&key, mock.clone());
 
     // We have the key outside of the row, so it should have a ref count of 2
-    assert_eq!(row.dyn_values()[0].as_ref().unwrap().strong_count(), 2);
+    assert_eq!(row.dyn_values()[0].as_ref().unwrap().refcount(), 2);
 
     drop(mock);
     // After dropping, the ref count should be back to 1
-    assert_eq!(row.dyn_values()[0].as_ref().unwrap().strong_count(), 1);
+    assert_eq!(row.dyn_values()[0].as_ref().unwrap().refcount(), 1);
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn insert_overwrite() {
-    let mut row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut row: RLookupRow = RLookupRow::new();
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
     assert_eq!(row.num_dyn_values(), 0);
@@ -100,11 +104,11 @@ fn insert_overwrite() {
     let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
 
     // insert a key at the first position
-    let mock_to_be_overwritten = RSValueMock::create_num(42.0);
+    let mock_to_be_overwritten = RSValueFFI::new_num(42.0);
 
     let prev = row.write_key(&key, mock_to_be_overwritten.clone());
     assert!(prev.is_none());
-    assert_eq!(mock_to_be_overwritten.strong_count(), 2);
+    assert_eq!(mock_to_be_overwritten.refcount(), 2);
 
     assert!(!row.is_empty());
     assert_eq!(row.len(), 1);
@@ -112,18 +116,18 @@ fn insert_overwrite() {
     assert_eq!(row.dyn_values()[0].as_ref().unwrap().as_num(), Some(42.0));
 
     // overwrite the value at the same index
-    let prev = row.write_key(&key, RSValueMock::create_num(84.0));
+    let prev = row.write_key(&key, RSValueFFI::new_num(84.0));
     assert!(prev.is_some());
 
     assert_eq!(row.num_dyn_values(), 1);
     assert_eq!(row.dyn_values()[0].as_ref().unwrap().as_num(), Some(84.0));
     // The overwritten value should have been decremented
-    assert_eq!(row.dyn_values()[0].as_ref().unwrap().strong_count(), 1);
-    assert_eq!(mock_to_be_overwritten.strong_count(), 2); // we have both mock_to_be_overwritten and prev
+    assert_eq!(row.dyn_values()[0].as_ref().unwrap().refcount(), 1);
+    assert_eq!(mock_to_be_overwritten.refcount(), 2); // we have both mock_to_be_overwritten and prev
 }
 
 struct WriteKeyMock<'a> {
-    row: RLookupRow<'a, RSValueMock>,
+    row: RLookupRow<'a>,
     num_resize: usize,
 }
 
@@ -135,7 +139,7 @@ impl<'a> WriteKeyMock<'a> {
         }
     }
 
-    fn write_key(&mut self, key: &RLookupKey, val: RSValueMock) {
+    fn write_key(&mut self, key: &RLookupKey, val: RSValueFFI) {
         if key.dstidx >= self.row.len() as u16 {
             // Simulate resizing the row's dyn_values vector
             self.num_resize += 1;
@@ -145,7 +149,7 @@ impl<'a> WriteKeyMock<'a> {
 }
 
 impl<'a> Deref for WriteKeyMock<'a> {
-    type Target = RLookupRow<'a, RSValueMock>;
+    type Target = RLookupRow<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.row
@@ -159,6 +163,7 @@ impl<'a> DerefMut for WriteKeyMock<'a> {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn wipe() {
     let mut row = WriteKeyMock::new();
 
@@ -166,7 +171,7 @@ fn wipe() {
     for i in 0..10 {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
-        row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
+        row.write_key(&key, RSValueFFI::new_num(i as f64 * 2.5));
     }
 
     assert!(!row.is_empty());
@@ -184,7 +189,7 @@ fn wipe() {
     for i in 0..10 {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
-        row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
+        row.write_key(&key, RSValueFFI::new_num(i as f64 * 2.5));
     }
     // we expect no new resizes
     assert_eq!(row.num_resize, 10);
@@ -197,6 +202,7 @@ fn wipe() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn reset() {
     let mut row = WriteKeyMock::new();
 
@@ -204,7 +210,7 @@ fn reset() {
     for i in 0..10 {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
-        row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
+        row.write_key(&key, RSValueFFI::new_num(i as f64 * 2.5));
     }
 
     assert!(!row.is_empty());
@@ -222,7 +228,7 @@ fn reset() {
     for i in 0..10 {
         let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
         key.dstidx = i as u16;
-        row.write_key(&key, RSValueMock::create_num(i as f64 * 2.5));
+        row.write_key(&key, RSValueFFI::new_num(i as f64 * 2.5));
     }
     // we expect new resizes because the vector was replaced with a new allocation
     assert_eq!(row.num_resize, 20);
@@ -235,20 +241,15 @@ fn reset() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_dynamic_values_success() {
     // Test case 1: Successfully retrieve item from dynamic values
     let mut row = RLookupRow::new();
 
     let key1 = create_test_key(0, 0, RLookupKeyFlags::empty());
     let key2 = create_test_key(1, 0, RLookupKeyFlags::empty());
-    row.write_key(
-        &key1,
-        RSValueMock::create_string(b"dynamic_value_1".to_vec()),
-    );
-    row.write_key(
-        &key2,
-        RSValueMock::create_string(b"dynamic_value_2".to_vec()),
-    );
+    row.write_key(&key1, RSValueFFI::new_string(b"dynamic_value_1".to_vec()));
+    row.write_key(&key2, RSValueFFI::new_string(b"dynamic_value_2".to_vec()));
 
     let result = row.get(&key2);
     assert!(result.is_some());
@@ -266,13 +267,14 @@ fn get_item_dynamic_values_success() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_static_values_success() {
     // Test case 2: Successfully retrieve item from sorting vector
-    let sv_value1 = RSValueMock::create_string(b"static_value_1".to_vec());
-    let sv_value2 = RSValueMock::create_string(b"static_value_2".to_vec());
+    let sv_value1 = RSValueFFI::new_string(b"static_value_1".to_vec());
+    let sv_value2 = RSValueFFI::new_string(b"static_value_2".to_vec());
     let sv = RSSortingVector::from_iter([sv_value1, sv_value2]);
 
-    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
+    let mut row: RLookupRow<'_> = RLookupRow::new();
     row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
@@ -288,9 +290,10 @@ fn get_item_static_values_success() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_missing_svsrc_flag() {
     // Test case 3: SvSrc flag missing, should return None
-    let sv_value = RSValueMock::create_string(b"static_value".to_vec());
+    let sv_value = RSValueFFI::new_string(b"static_value".to_vec());
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new();
@@ -303,11 +306,12 @@ fn get_item_missing_svsrc_flag() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_dynamic_out_of_bounds() {
     // Test case 4: Dynamic values index out of bounds
-    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
+    let mut row: RLookupRow<'_> = RLookupRow::new();
     let k1 = create_test_key(0, 0, RLookupKeyFlags::empty());
-    row.write_key(&k1, RSValueMock::create_string(b"dynamic_value".to_vec()));
+    row.write_key(&k1, RSValueFFI::new_string(b"dynamic_value".to_vec()));
 
     let key_out_of_bounds = create_test_key(5, 0, RLookupKeyFlags::empty()); // Out of bounds
 
@@ -316,9 +320,10 @@ fn get_item_dynamic_out_of_bounds() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_static_out_of_bounds() {
     // Test case 5: Sorting vector index out of bounds
-    let sv_value = RSValueMock::create_string(b"static_value".to_vec());
+    let sv_value = RSValueFFI::new_string(b"static_value".to_vec());
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new();
@@ -335,7 +340,7 @@ fn get_item_static_out_of_bounds() {
 #[test]
 fn get_item_no_sorting_vector() {
     // Test case 6: No sorting vector available
-    let row: RLookupRow<'_, RSValueMock> = RLookupRow::new(); // No sorting vector set
+    let row: RLookupRow<'_> = RLookupRow::new(); // No sorting vector set
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
@@ -346,9 +351,10 @@ fn get_item_no_sorting_vector() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_empty_dynamic_valid_static() {
     // Test case 7: Empty dynamic values but valid sorting vector access
-    let sv_value = RSValueMock::create_string(b"static_value".to_vec());
+    let sv_value = RSValueFFI::new_string(b"static_value".to_vec());
     let sv = RSSortingVector::from_iter([sv_value]);
 
     let mut row = RLookupRow::new();
@@ -368,6 +374,7 @@ fn get_item_empty_dynamic_valid_static() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_dynamic_none_value() {
     // Test case 8: Dynamic value slot contains None
     let mut row = RLookupRow::new();
@@ -376,20 +383,21 @@ fn get_item_dynamic_none_value() {
     //row.write_key(&k1,); don't write any value, so it remains None
 
     let k2 = create_test_key(1, 0, RLookupKeyFlags::empty());
-    row.write_key(&k2, RSValueMock::create_string(b"valid_value".to_vec()));
+    row.write_key(&k2, RSValueFFI::new_string(b"valid_value".to_vec()));
 
     let result = row.get(&k1);
     assert!(result.is_none());
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn get_item_priority_dynamic_over_static() {
     // Test case 9: Dynamic values take priority over sorting vector
-    let sv = RSSortingVector::from_iter([RSValueMock::create_string(b"static_value".to_vec())]);
-    let mut row: RLookupRow<'_, RSValueMock> = RLookupRow::new();
+    let sv = RSSortingVector::from_iter([RSValueFFI::new_string(b"static_value".to_vec())]);
+    let mut row: RLookupRow<'_> = RLookupRow::new();
     let key = create_test_key(0, 0, RLookupKeyFlags::empty());
     // Index 0 created for both
-    row.write_key(&key, RSValueMock::create_string(b"dynamic_value".to_vec()));
+    row.write_key(&key, RSValueFFI::new_string(b"dynamic_value".to_vec()));
     row.set_sorting_vector(Some(&sv));
 
     let mut flags = RLookupKeyFlags::empty();
@@ -407,13 +415,14 @@ fn get_item_priority_dynamic_over_static() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_key_by_name_new_key() {
     // Test case: name is not yet part of the lookup and gets created
     let mut lookup = RLookup::new();
     let mut row = RLookupRow::new();
 
     let key_name = CString::new("new_key").unwrap();
-    let value = RSValueMock::create_string(b"test_value".to_vec());
+    let value = RSValueFFI::new_string(b"test_value".to_vec());
 
     // Initially, row should be empty
     assert_eq!(row.len(), 0);
@@ -435,14 +444,15 @@ fn write_key_by_name_new_key() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_key_by_name_existing_key_overwrite() {
     // Test case: name is part of the lookup and its value gets overwritten
     let mut lookup = RLookup::new();
     let mut row = RLookupRow::new();
 
     let key_name = CString::new("existing_key").unwrap();
-    let initial_value = RSValueMock::create_string(b"initial_value".to_vec());
-    let new_value = RSValueMock::create_string(b"new_value".to_vec());
+    let initial_value = RSValueFFI::new_string(b"initial_value".to_vec());
+    let new_value = RSValueFFI::new_string(b"new_value".to_vec());
 
     // Write initial value
     row.write_key_by_name(&mut lookup, key_name.to_owned(), initial_value.clone());
@@ -469,6 +479,7 @@ fn write_key_by_name_existing_key_overwrite() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_multiple_different_keys() {
     // Test case: writing multiple different keys
     let mut lookup = RLookup::new();
@@ -478,9 +489,9 @@ fn write_multiple_different_keys() {
     let key2_name = CString::new("key2").unwrap();
     let key3_name = CString::new("key3").unwrap();
 
-    let value1 = RSValueMock::create_string(b"value1".to_vec());
-    let value2 = RSValueMock::create_string(b"value2".to_vec());
-    let value3 = RSValueMock::create_string(b"value3".to_vec());
+    let value1 = RSValueFFI::new_string(b"value1".to_vec());
+    let value2 = RSValueFFI::new_string(b"value2".to_vec());
+    let value3 = RSValueFFI::new_string(b"value3".to_vec());
 
     // Write multiple keys
     row.write_key_by_name(&mut lookup, key1_name.to_owned(), value1.clone());
@@ -519,6 +530,7 @@ fn create_test_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKe
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_fields_basic() {
     // Tests basic field writing between lookup rows
     let mut src_lookup = RLookup::new();
@@ -528,11 +540,11 @@ fn write_fields_basic() {
     let src_key1_name = CString::new("field1").unwrap();
     let src_key2_name = CString::new("field2").unwrap();
 
-    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src_row: RLookupRow = RLookupRow::new();
 
     // Write values to source row
-    let value1 = RSValueMock::create_num(100.0);
-    let value2 = RSValueMock::create_num(200.0);
+    let value1 = RSValueFFI::new_num(100.0);
+    let value2 = RSValueFFI::new_num(200.0);
 
     src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
     src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
@@ -541,7 +553,7 @@ fn write_fields_basic() {
     dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(src_key2_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields from source to destination
     dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
@@ -557,8 +569,8 @@ fn write_fields_basic() {
 
     // Verify shared ownership (reference counts should be increased)
     // value1 and value2 are referenced by: the original vars + src_row + dst_row = 3 total
-    assert_eq!(value1.strong_count(), 3); // value1 + src_row + dst_row
-    assert_eq!(value2.strong_count(), 3); // value2 + src_row + dst_row
+    assert_eq!(value1.refcount(), 3); // value1 + src_row + dst_row
+    assert_eq!(value2.refcount(), 3); // value2 + src_row + dst_row
 
     // Verify source row still contains the values (shared ownership, not moved)
     let src_cursor1 = src_lookup.find_key_by_name(&src_key1_name).unwrap();
@@ -588,8 +600,8 @@ fn write_fields_empty_source() {
     dst_lookup.get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty());
 
     // Create empty rows
-    let src_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let src_row: RLookupRow = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write from empty source row, will result in error
     dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
@@ -607,6 +619,7 @@ fn write_fields_empty_source() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_fields_different_mapping() {
     // Tests field writing between schemas with different internal indices
     let mut src_lookup = RLookup::new();
@@ -617,12 +630,12 @@ fn write_fields_different_mapping() {
     let key2_name = CString::new("field2").unwrap();
     let key3_name = CString::new("field3").unwrap();
 
-    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src_row: RLookupRow = RLookupRow::new();
 
     // Add values to source
-    let value1 = RSValueMock::create_num(111.0);
-    let value2 = RSValueMock::create_num(222.0);
-    let value3 = RSValueMock::create_num(333.0);
+    let value1 = RSValueFFI::new_num(111.0);
+    let value2 = RSValueFFI::new_num(222.0);
+    let value3 = RSValueFFI::new_num(333.0);
 
     src_row.write_key_by_name(&mut src_lookup, key1_name.to_owned(), value1.clone());
     src_row.write_key_by_name(&mut src_lookup, key2_name.to_owned(), value2.clone());
@@ -637,7 +650,7 @@ fn write_fields_different_mapping() {
     dst_lookup.get_key_write(key3_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(key1_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields
     dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
@@ -655,12 +668,13 @@ fn write_fields_different_mapping() {
     assert_eq!(dst_row.get(dst_key3).unwrap().as_num(), Some(333.0));
 
     // Verify shared ownership (same pointers)
-    assert_eq!(value1.strong_count(), 3); // original + src_row + dst_row
-    assert_eq!(value2.strong_count(), 3); // original + src_row + dst_row
-    assert_eq!(value3.strong_count(), 3); // original + src_row + dst_row
+    assert_eq!(value1.refcount(), 3); // original + src_row + dst_row
+    assert_eq!(value2.refcount(), 3); // original + src_row + dst_row
+    assert_eq!(value3.refcount(), 3); // original + src_row + dst_row
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_fields_multiple_sources_no_overlap() {
     // Tests copy_fields_from with distinct field sets from each source
     let mut src1_lookup = RLookup::new();
@@ -673,14 +687,14 @@ fn write_fields_multiple_sources_no_overlap() {
     let field3_name = CString::new("field3").unwrap();
     let field4_name = CString::new("field4").unwrap();
 
-    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src1_row: RLookupRow = RLookupRow::new();
+    let mut src2_row: RLookupRow = RLookupRow::new();
 
     // Create test data and populate source rows
-    let value1 = RSValueMock::create_num(10.0);
-    let value2 = RSValueMock::create_num(20.0);
-    let value3 = RSValueMock::create_num(30.0);
-    let value4 = RSValueMock::create_num(40.0);
+    let value1 = RSValueFFI::new_num(10.0);
+    let value2 = RSValueFFI::new_num(20.0);
+    let value3 = RSValueFFI::new_num(30.0);
+    let value4 = RSValueFFI::new_num(40.0);
 
     src1_row.write_key_by_name(&mut src1_lookup, field1_name.to_owned(), value1.clone());
     src1_row.write_key_by_name(&mut src1_lookup, field2_name.to_owned(), value2.clone());
@@ -694,7 +708,7 @@ fn write_fields_multiple_sources_no_overlap() {
     dst_lookup.get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write data from both sources to single destination row
     dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
@@ -719,6 +733,7 @@ fn write_fields_multiple_sources_no_overlap() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_fields_multiple_sources_partial_overlap() {
     // Tests copy_fields_from with overlapping field names (last write wins)
     let mut src1_lookup = RLookup::new();
@@ -732,18 +747,18 @@ fn write_fields_multiple_sources_partial_overlap() {
     let field4_name = CString::new("field4").unwrap();
     let field5_name = CString::new("field5").unwrap();
 
-    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src1_row: RLookupRow = RLookupRow::new();
+    let mut src2_row: RLookupRow = RLookupRow::new();
 
     // Create src1 values: field1=1, field2=100, field3=3
-    let s1_val1 = RSValueMock::create_num(1.0);
-    let s1_val2 = RSValueMock::create_num(100.0); // Will be overwritten
-    let s1_val3 = RSValueMock::create_num(3.0);
+    let s1_val1 = RSValueFFI::new_num(1.0);
+    let s1_val2 = RSValueFFI::new_num(100.0); // Will be overwritten
+    let s1_val3 = RSValueFFI::new_num(3.0);
 
     // Create src2 values: field2=999 (conflict), field4=4, field5=5
-    let s2_val2 = RSValueMock::create_num(999.0); // This should win
-    let s2_val4 = RSValueMock::create_num(4.0);
-    let s2_val5 = RSValueMock::create_num(5.0);
+    let s2_val2 = RSValueFFI::new_num(999.0); // This should win
+    let s2_val4 = RSValueFFI::new_num(4.0);
+    let s2_val5 = RSValueFFI::new_num(5.0);
 
     // Write values to rows
     src1_row.write_key_by_name(&mut src1_lookup, field1_name.to_owned(), s1_val1.clone());
@@ -761,20 +776,20 @@ fn write_fields_multiple_sources_partial_overlap() {
     dst_lookup.get_key_write(field4_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(field5_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write src1 first, then src2
     dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
 
     // After first write, s1_val2 should have refcount 3 (original var + src1Row + destRow)
-    assert_eq!(s1_val2.strong_count(), 3); // Shared between source and destination
-    assert_eq!(s2_val2.strong_count(), 2); // s2_val2 unchanged yet (original var + src2Row)
+    assert_eq!(s1_val2.refcount(), 3); // Shared between source and destination
+    assert_eq!(s2_val2.refcount(), 2); // s2_val2 unchanged yet (original var + src2Row)
 
     dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
 
     // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
-    assert_eq!(s1_val2.strong_count(), 2); // Back to original var + src1Row (removed from destRow)
-    assert_eq!(s2_val2.strong_count(), 3); // Now shared: original var + src2Row + destRow
+    assert_eq!(s1_val2.refcount(), 2); // Back to original var + src1Row (removed from destRow)
+    assert_eq!(s2_val2.refcount(), 3); // Now shared: original var + src2Row + destRow
 
     // Verify field2 contains src2 data (last write wins)
     let dst_cursor2 = dst_lookup.find_key_by_name(&field2_name).unwrap();
@@ -792,6 +807,7 @@ fn write_fields_multiple_sources_partial_overlap() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_fields_multiple_sources_full_overlap() {
     // Tests copy_fields_from with identical field sets (last write wins)
     let mut src1_lookup = RLookup::new();
@@ -803,17 +819,17 @@ fn write_fields_multiple_sources_full_overlap() {
     let field2_name = CString::new("field2").unwrap();
     let field3_name = CString::new("field3").unwrap();
 
-    let mut src1_row: RLookupRow<RSValueMock> = RLookupRow::new();
-    let mut src2_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src1_row: RLookupRow = RLookupRow::new();
+    let mut src2_row: RLookupRow = RLookupRow::new();
 
     // Create rows with different data for same field names
-    let s1_val1 = RSValueMock::create_num(100.0);
-    let s1_val2 = RSValueMock::create_num(200.0);
-    let s1_val3 = RSValueMock::create_num(300.0);
+    let s1_val1 = RSValueFFI::new_num(100.0);
+    let s1_val2 = RSValueFFI::new_num(200.0);
+    let s1_val3 = RSValueFFI::new_num(300.0);
 
-    let s2_val1 = RSValueMock::create_num(111.0);
-    let s2_val2 = RSValueMock::create_num(222.0);
-    let s2_val3 = RSValueMock::create_num(333.0);
+    let s2_val1 = RSValueFFI::new_num(111.0);
+    let s2_val2 = RSValueFFI::new_num(222.0);
+    let s2_val3 = RSValueFFI::new_num(333.0);
 
     // Populate source rows
     src1_row.write_key_by_name(&mut src1_lookup, field1_name.to_owned(), s1_val1);
@@ -829,7 +845,7 @@ fn write_fields_multiple_sources_full_overlap() {
     dst_lookup.get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty());
     dst_lookup.get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write src1 first, then src2 - src2 should overwrite all values
     dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
@@ -852,6 +868,7 @@ fn write_fields_multiple_sources_full_overlap() {
 
 #[test]
 #[should_panic(expected = "all source keys must exist in destination")]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_fields_key_missing_in_dst_should_panic() {
     // Tests basic field writing between lookup rows
     let mut src_lookup = RLookup::new();
@@ -861,11 +878,11 @@ fn write_fields_key_missing_in_dst_should_panic() {
     let src_key1_name = CString::new("field1").unwrap();
     let src_key2_name = CString::new("field2").unwrap();
 
-    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src_row: RLookupRow = RLookupRow::new();
 
     // Write values to source row
-    let value1 = RSValueMock::create_num(100.0);
-    let value2 = RSValueMock::create_num(200.0);
+    let value1 = RSValueFFI::new_num(100.0);
+    let value2 = RSValueFFI::new_num(200.0);
 
     src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
     src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
@@ -874,13 +891,14 @@ fn write_fields_key_missing_in_dst_should_panic() {
     // Don't add key2, to force expected panic.
     dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields from source to destination
     dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn write_fields_key_missing_in_dst_should_create() {
     // Tests basic field writing between lookup rows
     let mut src_lookup = RLookup::new();
@@ -890,11 +908,11 @@ fn write_fields_key_missing_in_dst_should_create() {
     let src_key1_name = CString::new("field1").unwrap();
     let src_key2_name = CString::new("field2").unwrap();
 
-    let mut src_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut src_row: RLookupRow = RLookupRow::new();
 
     // Write values to source row
-    let value1 = RSValueMock::create_num(100.0);
-    let value2 = RSValueMock::create_num(200.0);
+    let value1 = RSValueFFI::new_num(100.0);
+    let value2 = RSValueFFI::new_num(200.0);
 
     src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
     src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
@@ -903,7 +921,7 @@ fn write_fields_key_missing_in_dst_should_create() {
     // Don't add key2, to force creation.
     dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
 
-    let mut dst_row: RLookupRow<RSValueMock> = RLookupRow::new();
+    let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields from source to destination
     dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, true);
@@ -919,8 +937,8 @@ fn write_fields_key_missing_in_dst_should_create() {
 
     // Verify shared ownership (reference counts should be increased)
     // value1 and value2 are referenced by: the original vars + src_row + dst_row = 3 total
-    assert_eq!(value1.strong_count(), 3); // value1 + src_row + dst_row
-    assert_eq!(value2.strong_count(), 3); // value2 + src_row + dst_row
+    assert_eq!(value1.refcount(), 3); // value1 + src_row + dst_row
+    assert_eq!(value2.refcount(), 3); // value2 + src_row + dst_row
 
     // Verify source row still contains the values (shared ownership, not moved)
     let src_cursor1 = src_lookup.find_key_by_name(&src_key1_name).unwrap();

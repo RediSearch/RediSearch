@@ -17,7 +17,7 @@
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
-#include "src/rmalloc.h"
+#include "rmalloc.h"
 // #include "src/index.h"
 #include "src/aggregate/aggregate.h"
 #include "src/vector_index.h"
@@ -90,7 +90,7 @@ class ParseHybridTest : public ::testing::Test {
 
   void TearDown() override {
     if (hybridRequest) {
-      HybridRequest_Free(hybridRequest);
+      HybridRequest_DecrRef(hybridRequest);
     }
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);

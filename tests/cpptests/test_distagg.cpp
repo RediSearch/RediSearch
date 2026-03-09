@@ -75,9 +75,9 @@ static void testAverage() {
 
   AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
 
-  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
+  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   rc = AREQ_BuildPipeline(r, &status);
-  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_UNRESOLVED_OK);
+  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);

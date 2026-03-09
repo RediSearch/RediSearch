@@ -15,6 +15,7 @@
 #include "src/info/indexes_info.h"
 #include "src/config.h"
 #include "src/numeric_index.h"
+#include "numeric_range_tree.h"
 
 #include <set>
 #include <string>
@@ -1382,7 +1383,7 @@ TEST_F(LLApiTest, testInfoSize) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
+  size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.
@@ -1444,7 +1445,7 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
+  size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
   // Memory values use the original magic numbers, adjusted for TrieNode size changes.
   // The numDocs field added 8 bytes per trie entry.

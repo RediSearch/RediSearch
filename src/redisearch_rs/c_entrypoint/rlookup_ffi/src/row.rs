@@ -339,7 +339,7 @@ pub unsafe extern "C" fn RLookupRow_Get(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_GetSortingVector(
     row: *const OpaqueRLookupRow,
-) -> *const sorting_vector::RSSortingVector<RSValueFFI> {
+) -> *const sorting_vector::RSSortingVector {
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
@@ -359,7 +359,7 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     row: Option<NonNull<OpaqueRLookupRow>>,
-    sv: *const sorting_vector::RSSortingVector<RSValueFFI>,
+    sv: *const sorting_vector::RSSortingVector,
 ) {
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_non_null(row.expect("`row` must not be null")) };

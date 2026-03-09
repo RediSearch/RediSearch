@@ -134,18 +134,23 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   IndexSpec *spec = sctx->spec;
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   int rv = REDISMODULE_ERR;
+  size_t nitems = 0;
+  SchemaRule *rule = NULL;
+  RedisModuleString *payload_rms = NULL;
+  const char *keyname = NULL;
+  bool hasExpireTimeOnFields = false;
+
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
-  size_t nitems = sctx->spec->numFields;
-  SchemaRule *rule = spec->rule;
+  nitems = sctx->spec->numFields;
+  rule = spec->rule;
   RS_ASSERT(rule);
-  RedisModuleString *payload_rms = NULL;
   Document_MakeStringsOwner(doc); // TODO: necessary?
-  const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
+  keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
   doc->language = SchemaRule_HashLang(sctx->redisCtx, rule, k, keyname);
   doc->score = SchemaRule_HashScore(sctx->redisCtx, rule, k, keyname);
   payload_rms = SchemaRule_HashPayload(sctx->redisCtx, rule, k, keyname);
@@ -157,7 +162,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     RedisModule_FreeString(sctx->redisCtx, payload_rms);
   }
 
-  const bool hasExpireTimeOnFields = spec->monitorFieldExpiration && RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE;
+  hasExpireTimeOnFields = spec->monitorFieldExpiration && RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE;
   // Load indexed fields from the document
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
@@ -198,18 +203,27 @@ done:
 
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status) {
   int rv = REDISMODULE_ERR;
+  IndexSpec *spec = NULL;
+  SchemaRule *rule = NULL;
+  RedisModuleCtx *ctx = NULL;
+  size_t nitems = 0;
+  JSONResultsIterator jsonIter = NULL;
+  RedisModuleKey *k = NULL;
+  RedisJSON jsonRoot;
+  const char *keyName = NULL;
+  size_t ii = 0;
+
   if (!japi) {
     RedisModule_Log(sctx->redisCtx, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "cannot operate on a JSON index as RedisJSON is not loaded");
     return REDISMODULE_ERR;
   }
-  IndexSpec *spec = sctx->spec;
-  SchemaRule *rule = spec->rule;
-  RedisModuleCtx *ctx = sctx->redisCtx;
-  size_t nitems = sctx->spec->numFields;
-  JSONResultsIterator jsonIter = NULL;
+  spec = sctx->spec;
+  rule = spec->rule;
+  ctx = sctx->redisCtx;
+  nitems = sctx->spec->numFields;
 
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!k) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -221,20 +235,19 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModule_CloseKey(k);
 
-  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+  jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??
 
-  const char *keyName = RedisModule_StringPtrLen(doc->docKey, NULL);
+  keyName = RedisModule_StringPtrLen(doc->docKey, NULL);
   doc->language = SchemaRule_JsonLang(sctx->redisCtx, rule, jsonRoot, keyName);
   doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonRoot, keyName);
   // No payload on JSON as RedisJSON does not support binary fields
 
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
-  size_t ii = 0;
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
@@ -279,6 +292,10 @@ done:
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
+  size_t len = 0;
+  size_t n = 0;
+  RedisModuleCallReply *k = NULL;
+  RedisModuleCallReply *v = NULL;
 
   // Hash command is not related to other type such as JSON
   rep = RedisModule_Call(ctx, "HGETALL", "s", doc->docKey);
@@ -286,7 +303,7 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
     goto done;
   }
 
-  size_t len = RedisModule_CallReplyLength(rep);
+  len = RedisModule_CallReplyLength(rep);
   // Zero means the document does not exist in redis
   if (len == 0) {
     goto done;
@@ -296,8 +313,6 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
 
   doc->fields = rm_calloc(len / 2, sizeof(DocumentField));
   doc->numFields = len / 2;
-  size_t n = 0;
-  RedisModuleCallReply *k, *v;
   for (size_t i = 0; i < len; i += 2, ++n) {
     k = RedisModule_CallReplyArrayElement(rep, i);
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
@@ -319,6 +334,14 @@ done:
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id) {
   int rc = REDISMODULE_ERR;
   RedisModuleCallReply *rep = NULL;
+  size_t hashLen = 0;
+  size_t strLen = 0;
+  RedisModuleCallReply *e = NULL;
+  SchemaRule *rule = NULL;
+  size_t numElems = 0;
+  size_t lang_len = 0;
+  size_t score_len = 0;
+  size_t payload_len = 0;
 
   // Hash command is not related to other type such as JSON. Used for FT.GET which is deprecated.
   rep = RedisModule_Call(ctx, "HGETALL", "s", id);
@@ -327,7 +350,7 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
     goto done;
   }
 
-  size_t hashLen = RedisModule_CallReplyLength(rep);
+  hashLen = RedisModule_CallReplyLength(rep);
   RS_LOG_ASSERT(hashLen % 2 == 0, "Number of elements must be even");
   // Zero means the document does not exist in redis
   if (hashLen == 0) {
@@ -335,15 +358,12 @@ int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleStr
     goto done;
   }
 
-  size_t strLen;
-  RedisModuleCallReply *e;
-  SchemaRule *rule = spec->rule;
+  rule = spec->rule;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  size_t numElems = 0;
 
-  size_t lang_len = rule->lang_field ? strlen(rule->lang_field) : 0;
-  size_t score_len = rule->score_field ? strlen(rule->score_field) : 0;
-  size_t payload_len = rule->payload_field ? strlen(rule->payload_field) : 0;
+  lang_len = rule->lang_field ? strlen(rule->lang_field) : 0;
+  score_len = rule->score_field ? strlen(rule->score_field) : 0;
+  payload_len = rule->payload_field ? strlen(rule->payload_field) : 0;
 
   for (size_t i = 0; i < hashLen; i += 2) {
     // parse field

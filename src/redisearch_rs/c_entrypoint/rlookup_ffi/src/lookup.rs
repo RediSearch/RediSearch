@@ -570,7 +570,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
 
     // Safety: ensured by caller (3.)
-    let dst_row = unsafe { dst_row.unwrap().as_mut() };
+    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
 
     // Safety: ensured by caller (4.)
     let index_spec = unsafe { index_spec.unwrap().as_ref() };

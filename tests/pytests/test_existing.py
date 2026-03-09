@@ -117,6 +117,29 @@ def testOptimized():
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
 @skip(cluster=True)
+def test_profile_optimized_wildcard():
+    """Reproduces a crash when FT.PROFILE is used with an optimized wildcard
+    query (INDEXALL ENABLE)."""
+
+    env = Env(moduleArgs="DEFAULT_DIALECT 2")
+    conn = getConnectionByEnv(env)
+
+    # INDEXALL ENABLE makes rule.index_all = true, so wildcard queries go
+    # through the optimized path (NewWildcardIterator_Optimized), which
+    # produces an INV_IDX_WILDCARD_ITERATOR.
+    env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE',
+               'SCHEMA', 't', 'TEXT').ok()
+
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'world')
+
+    # FT.PROFILE with wildcard '*' triggers the profile printing code path
+    # that calls InvIndIterator_GetReaderFlags on the INV_IDX_WILDCARD_ITERATOR.
+    # Without the fix this crashes due to the type mismatch.
+    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT').noError()
+
+
+@skip(cluster=True)
 def test_wildcard_cursor_gc_null_existing_docs():
     """Reproduces a crash when GC frees existingDocs (sets it to NULL) while a
     wildcard cursor is still open. WildcardCheckAbort passes existingDocs to

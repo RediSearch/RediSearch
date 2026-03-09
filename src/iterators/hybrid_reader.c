@@ -10,7 +10,7 @@
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
-#include "wildcard_iterator.h"
+#include "iterators_rs.h"
 #include "query.h"
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
@@ -380,8 +380,8 @@ static IteratorStatus HR_ReadKnnUnsorted(QueryIterator *ctx) {
   return rc;
 }
 
-static size_t HR_NumEstimated(QueryIterator *ctx) {
-  HybridIterator *hr = (HybridIterator *)ctx;
+static size_t HR_NumEstimated(const QueryIterator *ctx) {
+  const HybridIterator *hr = (const HybridIterator *)ctx;
   size_t vec_res_num = MIN(hr->query.k, VecSimIndex_IndexSize(hr->index));
   if (hr->child == NULL) return vec_res_num;
   return MIN(vec_res_num, hr->child->NumEstimated(hr->child));

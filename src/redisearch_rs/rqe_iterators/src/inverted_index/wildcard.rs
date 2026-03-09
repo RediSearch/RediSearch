@@ -53,7 +53,7 @@ where
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
-    /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
+    /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
     /// 3. Both 1 and 2 must remain valid for the lifetime of the iterator.
     /// 4. `context.spec.existingDocs`, when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::InvertedIndex) whose encoding
@@ -102,7 +102,7 @@ where
         // SAFETY: 4. guarantees the encoding variant matches E.
         let ii = E::from_opaque(existing_docs);
 
-        !self.it.reader.is_index(ii)
+        !self.it.reader.points_to_ii(ii)
     }
 
     /// Get a reference to the underlying reader.
@@ -161,5 +161,9 @@ where
         }
 
         self.it.revalidate()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        true
     }
 }

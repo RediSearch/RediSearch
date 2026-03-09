@@ -16,10 +16,6 @@ typedef struct RSToken RSToken;
  * [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
  * [`id`](RSQueryTerm::id) assigned during query parsing.
  *
- * # Memory layout
- *
- * All fields are private and accessed via type-safe methods and FFI functions.
- * C code accesses fields via FFI accessor functions, not direct struct access.
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
@@ -41,6 +37,7 @@ extern "C" {
  * Allocate a new [`RSQueryTerm`] from an [`RSToken`](ffi::RSToken).
  *
  * The term string is copied into a Rust-owned allocation (`Box<[u8]>`).
+ * Bytes are stored as-is without any UTF-8 conversion.
  * The returned pointer must be freed with [`Term_Free`].
  *
  * # Safety
@@ -48,7 +45,7 @@ extern "C" {
  * - `tok` must point to a valid `RSToken` and cannot be NULL.
  * - `tok->str` may be NULL, in which case the resulting term will have a
  *   NULL `str` field.
- * - If not NULL, tok->str should be a valid byte slice of tok->len bytes.
+ * - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
  * - The returned pointer is heap-allocated and must be freed with
  *   [`Term_Free`].
  */
@@ -110,7 +107,7 @@ void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
 int QueryTerm_GetID(const struct RSQueryTerm *term);
 
 /**
- * Get the term string length in bytes (excluding null terminator).
+ * Get the term string length in bytes.
  *
  * # Safety
  *
@@ -120,21 +117,9 @@ int QueryTerm_GetID(const struct RSQueryTerm *term);
 uintptr_t QueryTerm_GetLen(const struct RSQueryTerm *term);
 
 /**
- * Get the string pointer from a query term.
- *
- * Returns a pointer to the null-terminated byte string. The string may not be valid UTF-8.
- *
- * # Safety
- *
- * `term` must be valid and non-null. Returned pointer is valid for the lifetime of the term.
- */
-const char *QueryTerm_GetStr(const struct RSQueryTerm *term);
-
-/**
  * Get both the string pointer and length from a query term.
  *
  * This is useful for C code that needs to work with the byte slice directly.
- * The string may not be valid UTF-8.
  *
  * # Safety
  *

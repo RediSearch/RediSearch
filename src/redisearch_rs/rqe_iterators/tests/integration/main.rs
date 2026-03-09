@@ -6,7 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-
+#![cfg_attr(miri, allow(dead_code, unused_imports))]
 pub(crate) mod utils;
 
 // Mock implementations of C symbol that aren't provided

@@ -823,6 +823,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
                             QueryError *status) {
   // Just a list of functions..
   PLN_Reducer *gr = array_ensure_tail(&gstp->reducers, PLN_Reducer);
+  const char *alias = NULL;
 
   gr->name = name;
   int rv = AC_GetVarArgs(ac, &gr->args);
@@ -831,7 +832,6 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     goto error;
   }
 
-  const char *alias = NULL;
   // See if there is an alias
   if (AC_AdvanceIfMatch(ac, "AS")) {
     rv = AC_GetString(ac, &alias, NULL, 0);
@@ -1036,18 +1036,30 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  atomic_store_explicit(&req->timedOut, false, memory_order_relaxed);
-  atomic_store_explicit(&req->replyState, ReplyState_NotReplied, memory_order_relaxed);
-  req->refcount = 1;  // Initial reference
+  RequestSyncCtx_Init(&req->syncCtx);
   return req;
 }
 
 bool AREQ_TimedOut(AREQ *req) {
-  return atomic_load_explicit(&req->timedOut, memory_order_acquire);
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
 }
 
 void AREQ_SetTimedOut(AREQ *req) {
-  atomic_store_explicit(&req->timedOut, true, memory_order_release);
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+}
+
+bool AREQ_TryClaimReply(AREQ *req) {
+  uint8_t expected = ReplyState_NotReplied;
+  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
+      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
+}
+
+void AREQ_MarkReplied(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
+}
+
+uint8_t AREQ_GetReplyState(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
 }
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
@@ -1135,13 +1147,14 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
+  ParseAggPlanContext papCtx;
   if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
     goto error;
   }
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  ParseAggPlanContext papCtx = {
+  papCtx = (ParseAggPlanContext){
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->reqConfig,
@@ -1540,12 +1553,12 @@ static void AREQ_Free(AREQ *req) {
 }
 
 AREQ *AREQ_IncrRef(AREQ *req) {
-  __atomic_fetch_add(&req->refcount, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
   return req;
 }
 
 void AREQ_DecrRef(AREQ *req) {
-  if (req && !__atomic_sub_fetch(&req->refcount, 1, __ATOMIC_ACQ_REL)) {
+  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
     AREQ_Free(req);
   }
 }

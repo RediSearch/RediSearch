@@ -23,6 +23,7 @@
 #include "dist_profile.h"
 #include "shard_window_ratio.h"
 #include "config.h"
+#include "coord/coord_request_ctx.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -569,6 +570,12 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
                         printDistHybridCoordinatorProfile, ctx);
 }
 
+static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
+  // We should check for timeout in pipeline if policy is return and timeout > 0
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status) {
@@ -605,6 +612,9 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     if (rc != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
+
+    // Set skip timeout
+    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
 
     rs_wall_clock parseClock;
     if (profileOptions != EXEC_NO_FLAGS) {
@@ -746,7 +756,7 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
             .lastAstp = AGPLN_GetArrangeStep(plan)
         };
         sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-        HybridRequest_Free(hreq);
+        HybridRequest_DecrRef(hreq);
     }
     return REDISMODULE_OK;
 }
@@ -756,25 +766,56 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     HybridRequest *hreq, RedisModule_Reply *reply,
     QueryError *status) {
 
-    RS_ASSERT(QueryError_HasError(status));
+    // Try to claim reply ownership. If we get it, we can safely write to the reply.
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+
+    if (!QueryError_HasError(status)) {
+      // No error - just cleanup
+      // This can happen if during request creation we realized the query timed out
+      goto cleanup;
+    }
+
+    // Check that we can claim the reply. If not, the timeout callback owns the reply and we should not write to it.
+    // If we can't claim the reply, we should just clear the error and return.
+    // If hreq is NULL, we don't have a request to claim. This can happen if the cleanup was called before the request was created.
+    if (hreq && !CoordRequestCtx_TryClaimReply(reqCtx)) {
+        // Timeout callback owns reply - just clear the error
+        QueryError_ClearError(status);
+        goto cleanup;
+    }
 
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
 
     QueryError_ReplyAndClear(ctx, status);
+    CoordRequestCtx_MarkReplied(reqCtx);
+
+    cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
-        IndexSpecRef_Release(*strong_ref);
+      IndexSpecRef_Release(*strong_ref);
     }
     if (hreq) {
-        HybridRequest_Free(hreq);
+      HybridRequest_DecrRef(hreq);
     }
+
     RedisModule_EndReply(reply);
 }
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
+
+    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+
+    // Lock before creating request to prevent race with timeout callback
+    CoordRequestCtx_LockSetRequest(reqCtx);
+    if(CoordRequestCtx_TimedOut(reqCtx)) {
+      // Query timed out before request creation - unlock and return
+      CoordRequestCtx_UnlockSetRequest(reqCtx);
+      return;
+    }
+
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    QueryError status = {0};
+    QueryError status = QueryError_Default();
 
     // CMD, index, expr, args...
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
@@ -783,6 +824,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
         // return QueryError_ReplyAndClear(ctx, &status);
         DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
         return;
     }
 
@@ -792,13 +834,27 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (!sp) {
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
         return;
     }
 
+
+    // Check if already timed out
+    if (CoordRequestCtx_TimedOut(reqCtx)) {
+        CoordRequestCtx_UnlockSetRequest(reqCtx);
+        SearchCtx_Free(sctx);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
+    }
+
+    // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+    CoordRequestCtx_SetRequest(reqCtx, hreq);
 
     // Store coordinator start time for dispatch time tracking
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     // Get numShards captured from main thread for thread-safe access
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
@@ -816,4 +872,55 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpecRef_Release(strong_ref);
     RedisModule_EndReply(reply);
+}
+
+// Timeout callback for Coordinator HybridRequest execution
+// Called on the main thread when the blocking client times out (FAIL policy only).
+int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    // This shouldn't happen but handle gracefully
+    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
+
+  // Lock to coordinate with request creation in the background thread.
+  // If the request was not yet created, it won't be - background thread will see the timeout flag.
+  // If the request was already created, we can safely try to claim reply ownership.
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
+  // Signal timeout to the background thread
+  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+
+  if(!CoordRequestCtx_HasRequest(CoordReqCtx)) {
+    // Request not created yet
+    // In this case no need to claim reply ownership - just reply with timeout error
+    // Background thread will notice the timeout and abort execution.
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    CoordRequestCtx_MarkReplied(CoordReqCtx);
+    CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+    return REDISMODULE_OK;
+  }
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  if (CoordRequestCtx_TryClaimReply(CoordReqCtx)) {
+    // We claimed it - reply with timeout error
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+    CoordRequestCtx_MarkReplied(CoordReqCtx);
+  } else {
+    // Background thread owns reply - wait for it to finish if still in progress
+    while (CoordRequestCtx_GetReplyState(CoordReqCtx) == ReplyState_Replying) {
+      // Busy wait until background thread transitions to REPLIED
+    }
+  }
+
+  return REDISMODULE_OK;
 }
