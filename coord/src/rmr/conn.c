@@ -38,6 +38,11 @@ static int MRConn_SendAuth(MRConn *conn);
                   conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
                   ##__VA_ARGS__)
 
+#define CONN_LOG_WARNING(conn, fmt, ...)                                              \
+  RedisModule_Log(RSDummyContext, "warning", "[%p %s:%d %s] " fmt,                    \
+                  conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
+                  ##__VA_ARGS__)
+
 /** detaches from our redis context */
 static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
   if (!conn->conn) {
@@ -153,6 +158,19 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
   return NULL;
 }
 
+/* Get the state string of the first connection for a specific node by id.
+ * Returns NULL if this node is not in the pool */
+const char *MRConnManager_GetNodeState(MRConnManager *mgr, const char *id) {
+  dictEntry *ptr = dictFind(mgr->map, id);
+  if (ptr) {
+    MRConnPool *pool = dictGetVal(ptr);
+    if (pool->num > 0 && pool->conns[0]) {
+      return MRConnState_Str(pool->conns[0]->state);
+    }
+  }
+  return NULL;
+}
+
 /* Send a command to the connection */
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata) {
 
@@ -181,8 +199,11 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
     MRConnPool *pool = dictGetVal(ptr);
 
     MRConn *conn = pool->conns[0];
-    // the node hasn't changed address, we don't need to do anything */
+    // the node hasn't changed address, we don't need to do anything
     if (!strcmp(conn->ep.host, ep->host) && conn->ep.port == ep->port) {
+      RedisModule_Log(RSDummyContext, "notice",
+                      "MRConnManager_Add: Node %s unchanged, skipping reconnect (state: %s)",
+                      id, MRConnState_Str(conn->state));
       return 0;
     }
 
@@ -401,7 +422,7 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   if (MRReply_Type(rep) == REDIS_REPLY_ERROR) {
     size_t len;
     const char* s = MRReply_String(rep, &len);
-    CONN_LOG(conn, "Error authenticating: %.*s", (int)len, s);
+    CONN_LOG_WARNING(conn, "Error authenticating: %.*s", (int)len, s);
     MRConn_SwitchState(conn, MRConn_ReAuth);
     /*we don't try to reconnect to failed connections */
     goto cleanup;
@@ -558,7 +579,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
 
   // if the connection is not stopped - try to reconnect
   if (status != REDIS_OK) {
-    CONN_LOG(conn, "Error on connect: %s", c->errstr);
+    CONN_LOG_WARNING(conn, "Error on connect: %s", c->errstr);
     detachFromConn(conn, 0);  // Free the connection as well - we have an error
     MRConn_SwitchState(conn, MRConn_Connecting);
     return;
@@ -577,7 +598,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     rm_free(ca_cert);
     if (key_file_pass) rm_free(key_file_pass);
     if(ssl_context == NULL || ssl_error != 0) {
-      CONN_LOG(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
+      CONN_LOG_WARNING(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);
@@ -593,7 +614,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       // function will not do it for us.
       ((struct redisAsyncContext*)c)->c.funcs = old_callbacks;
 
-      CONN_LOG(conn, "Error on tls auth, %s.", err);
+      CONN_LOG_WARNING(conn, "Error on tls auth, %s.", err);
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
       MRConn_SwitchState(conn, MRConn_Connecting);
       if (ssl_context) SSL_CTX_free(ssl_context);
@@ -649,7 +670,7 @@ static int MRConn_Connect(MRConn *conn) {
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
   if (c->err) {
-    CONN_LOG(conn, "Could not connect to node: %s", c->errstr);
+    CONN_LOG_WARNING(conn, "Could not connect to node: %s", c->errstr);
     redisAsyncFree(c);
     return REDIS_ERR;
   }

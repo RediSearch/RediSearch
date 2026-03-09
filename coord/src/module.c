@@ -2008,6 +2008,20 @@ int RefreshClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+// Log the topology with master nodes
+static void LogTopologyMasters(RedisModuleCtx *ctx, MRClusterTopology *topo) {
+  for (size_t i = 0; i < topo->numShards; i++) {
+    MRClusterShard *sh = &topo->shards[i];
+    for (size_t j = 0; j < sh->numNodes; j++) {
+      MRClusterNode *node = &sh->nodes[j];
+      if (node->flags & MRNode_Master) {
+        RedisModule_Log(ctx, "notice", "CLUSTERSET shard %zu: master %s (%s:%d)",
+                        i, node->id, node->endpoint.host, node->endpoint.port);
+      }
+    }
+  }
+}
+
 int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
   // this means a parsing error, the parser already sent the explicit error to the client
@@ -2016,6 +2030,8 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+  LogTopologyMasters(ctx, topo);
+
   NumShards = topo->numShards;
 
   // send the topology to the cluster
