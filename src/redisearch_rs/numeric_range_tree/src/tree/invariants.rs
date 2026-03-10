@@ -265,7 +265,7 @@ impl NumericRangeTree {
                         docs += range.num_docs() as usize;
                     } else {
                         let mut reader = range.reader();
-                        let mut result = RSIndexResult::numeric(0.0);
+                        let mut result = RSIndexResult::build_numeric(0.0).build();
                         while reader.next_record(&mut result).unwrap_or(false) {
                             // SAFETY: The entries in a NumericRange always contain
                             // numeric data—they are created via `RSIndexResult::numeric`.

@@ -285,7 +285,7 @@ fn test_seek_full() {
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let mut record_decoded = RSIndexResult::term();
+    let mut record_decoded = RSIndexResult::build_term().build();
 
     let found =
         Full::seek(&mut buf, 10, 30, &mut record_decoded).expect("to decode freqs offsets record");
@@ -332,7 +332,7 @@ fn test_seek_full_wide() {
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let mut record_decoded = RSIndexResult::term();
+    let mut record_decoded = RSIndexResult::build_term().build();
 
     let found =
         FullWide::seek(&mut buf, 10, 30, &mut record_decoded).expect("to decode full record");

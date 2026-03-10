@@ -87,7 +87,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
         debug_assert!(ids.len() == metric_data.len());
 
         Self {
-            base: IdList::with_result(ids, RSIndexResult::metric()),
+            base: IdList::with_result(ids, RSIndexResult::build_metric().build()),
             metric_data,
             type_: MetricType::VectorDistance,
             own_key: std::ptr::null_mut(),
