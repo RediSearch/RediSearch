@@ -334,6 +334,20 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
+    /// Get this record as a mutable term record if possible. If the record is not term, returns
+    /// `None`.
+    pub const fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
+        match &mut self.data {
+            RSResultData::Term(term) => Some(term),
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_)
+            | RSResultData::HybridMetric(_) => None,
+        }
+    }
+
     /// Get the aggregate result associated with this record
     /// **without checking the discriminant**.
     ///

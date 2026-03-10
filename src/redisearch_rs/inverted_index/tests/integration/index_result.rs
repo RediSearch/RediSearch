@@ -9,8 +9,7 @@
 
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
-    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultData, RSResultKind,
-    RSResultKindMask, RSTermRecord,
+    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultKind, RSResultKindMask,
 };
 use query_term::RSQueryTerm;
 
@@ -203,12 +202,10 @@ fn to_owned_a_term_index_result() {
     assert_eq!(ir.weight, ir_copy.weight);
 
     // Make sure the values are not linked
-    match &mut ir_copy.data {
-        RSResultData::Term(RSTermRecord::Owned { offsets, .. }) => {
-            *offsets = RSOffsetVector::empty();
-        }
-        _ => panic!("expected owned term record"),
-    }
+    ir_copy
+        .as_term_mut()
+        .expect("expected term record")
+        .set_offsets(RSOffsetSlice::empty());
 
     assert_eq!(
         ir.as_term().unwrap().offsets().len(),
