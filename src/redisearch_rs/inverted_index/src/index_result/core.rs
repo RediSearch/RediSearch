@@ -221,7 +221,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_numeric(),
             "Invariant violation: `as_numeric_unchecked` was invoked on a non-numeric `RSIndexResult` \
              instance that didn't actually contain a numeric. It was a {}",
-            self.data.kind()
+            self.kind()
         );
 
         match &self.data {
@@ -249,7 +249,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_numeric(),
             "Invariant violation: `as_numeric_unchecked_mut` was invoked on a non-numeric `RSIndexResult` \
              instance that didn't actually contain a numeric. It was a {}",
-            self.data.kind()
+            self.kind()
         );
 
         match &mut self.data {
@@ -303,7 +303,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_term(),
             "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RSIndexResult` \
              instance that didn't actually contain a term. It was a {}",
-            self.data.kind()
+            self.kind()
         );
 
         match &mut self.data {
@@ -345,7 +345,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_aggregate(),
             "Invariant violation: `as_aggregate_unchecked` was invoked on an `IndexResult` \
             instance that didn't actually contain an aggregate! It was a {}",
-            self.data.kind()
+            self.kind()
         );
         match &self.data {
             RSResultData::Union(agg)
