@@ -2116,15 +2116,6 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
-      100, get_uint8_numeric_config, set_uint8_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.diskBufferPercentage)
-    )
-  )
-
-  RM_TRY(
-    RedisModule_RegisterNumericConfig(
       ctx, "search-bm25std-tanh-factor",
       DEFAULT_BM25STD_TANH_FACTOR,
       REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
@@ -2335,6 +2326,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.infoEmitOnZeroIndexes)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      100, get_uint8_numeric_config, set_uint8_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskBufferPercentage)
     )
   )
 
