@@ -163,6 +163,28 @@ impl QueryIterator {
         })
     }
 
+    /// Create an optimized NOT iterator with the given child and wildcard iterators.
+    /// Uses `_New_NotIterator_With_WildCardIterator` which is the C benchmark constructor.
+    #[inline(always)]
+    pub fn new_not_optimized(child: Self, wc: Self, max_doc_id: u64, weight: f64) -> Self {
+        let timeout = ffi::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // REDISEARCH_UNINITIALIZED (-1 as u32) to skip timeout checks.
+        let timeout_counter = u32::MAX;
+
+        Self(unsafe {
+            ffi::_New_NotIterator_With_WildCardIterator(
+                child.0,
+                wc.0,
+                max_doc_id,
+                weight,
+                timeout,
+                timeout_counter,
+            )
+        })
+    }
     /// Creates a new intersection iterator from child ID list iterators.
     ///
     /// # Arguments
