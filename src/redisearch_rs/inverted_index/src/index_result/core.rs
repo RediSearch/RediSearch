@@ -309,7 +309,7 @@ pub struct RSIndexResult<'index> {
     pub freq: u32,
 
     /// The actual data of the result
-    pub data: RSResultData<'index>,
+    data: RSResultData<'index>,
 
     /// Holds an array of metrics yielded by the different iterators in the AST
     pub metrics: *mut RSYieldableMetric,
