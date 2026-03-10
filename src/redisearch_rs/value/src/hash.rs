@@ -17,7 +17,7 @@ use std::hash::Hasher;
 pub fn hash_value(value: &RsValue, fnv64: &mut Fnv64) {
     match value {
         RsValue::Undefined => *fnv64 = Fnv64::with_offset_basis(0),
-        RsValue::Null => *fnv64 = Fnv64::with_offset_basis(fnv64.finish() + 1),
+        RsValue::Null => *fnv64 = Fnv64::with_offset_basis(fnv64.finish().wrapping_add(1)),
         RsValue::Number(num) => fnv64.write(&num.to_ne_bytes()),
         RsValue::String(str) => fnv64.write(str.as_bytes()),
         RsValue::RedisString(str) => fnv64.write(str.as_bytes()),
