@@ -46,10 +46,11 @@ typedef struct AsyncReadResult {
 } AsyncReadResult;
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx);
+  RedisSearchDisk *(*open)(void);
   void (*close)(RedisSearchDisk *disk);
   /**
    * @brief Open an index spec
+   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
    * @param disk Pointer to the disk
    * @param indexName Name of the index
    * @param indexNameLen Length of the index name
@@ -57,8 +58,14 @@ typedef struct BasicDiskAPI {
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @return Pointer to the index spec, or NULL on error
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
-  void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
+  /**
+   * @brief Close an index spec
+   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
+   * @param disk Pointer to the disk context (for cleanup of index metrics)
+   * @param index Pointer to the index spec
+   */
+  void (*closeIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
@@ -105,8 +112,10 @@ typedef struct IndexDiskAPI {
    * @brief Indexes multiple tag values for a document
    *
    * Adds a document to the inverted index for each specified tag value.
-   * Used for tag field indexing.
+   * Used for tag field indexing. Creates a new column family if this is the
+   * first time indexing this tag field, and registers it with Redis BigModule.
    *
+   * @param ctx Redis module context for BigModule APIs (used to register new CFs)
    * @param index Pointer to the index
    * @param values Array of tag values to associate the document with.
    *               NOTE: The array may contain NULL entries (e.g., from tokenization).
@@ -116,7 +125,7 @@ typedef struct IndexDiskAPI {
    * @param fieldIndex Field index for the tag field
    * @return true if the write was successful, false otherwise
    */
-  bool (*indexTags)(RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
+  bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
    * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
@@ -172,6 +181,23 @@ typedef struct IndexDiskAPI {
    * @return Number of deletedIDs removed from the disk index
    */
   size_t (*runGC)(RedisSearchDiskIndexSpec *index, void *user_data);
+
+  /**
+   * @brief Get the total disk usage for this index.
+   *
+   * @param index Pointer to the disk index
+   * @return Total disk usage in bytes
+   */
+  uint64_t (*getDiskUsage)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Flush all to disk
+   *
+   * Forces all memory to be flushed to disk
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*flush)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -307,11 +333,12 @@ typedef struct VectorDiskAPI {
    * The returned handle is a VecSimIndex* that can be used with all standard
    * VecSimIndex_* functions (AddVector, TopKQuery, etc.) due to polymorphism.
    *
+   * @param ctx Redis module context for BigModule APIs
    * @param index Pointer to the index spec (provides storage context)
    * @param params Vector index parameters
    * @return VecSimIndex* handle, or NULL on error
    */
-  void* (*createVectorIndex)(RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
+  void* (*createVectorIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec* index, const VecSimParamsDisk* params);
 
   /**
    * @brief Frees a disk-based vector index.

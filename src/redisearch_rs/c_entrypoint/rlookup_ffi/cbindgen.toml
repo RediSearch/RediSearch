@@ -46,3 +46,7 @@ exclude = ["FieldSpec", "IndexSpec", "Option_Cow_CStr", "SchemaRule"]
 "RLookupKeyFlag" = "RLookup_F"
 "RLookupKeyHeader" = "RLookupKey"
 "RLookupOption" = "RLookup_Opt"
+
+[defines]
+# Remap this rust cfg to the C #define also set by CMake for debug builds.
+"debug_assertions" = "ENABLE_ASSERT"

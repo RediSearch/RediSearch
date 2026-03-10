@@ -33,6 +33,7 @@
 #include "result_processor.h"
 #include "profile/options.h"
 #include "reply_empty.h"
+#include "search_disk.h"
 
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
@@ -201,7 +202,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
         v = RSValue_Trio_GetLeft(v);
       }
       if (rlk && (RLookupKey_GetFlags(rlk) & RLOOKUP_F_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
-        double d;
+        double d = 0.0;
         RSValue_ToNumber(v, &d);
         if (rsv == NULL) {
           rsv = RSValue_NewNumber(d);
@@ -1208,7 +1209,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
 
-  if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
+  if (AREQ_Compile(*r, argv + 2, argc - 2, SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }

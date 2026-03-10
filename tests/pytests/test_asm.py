@@ -531,7 +531,7 @@ def test_ft_search_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.SEARCH')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_search_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.SEARCH')
@@ -541,7 +541,7 @@ def test_ft_aggregate_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_aggregate_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE')
@@ -551,7 +551,7 @@ def test_ft_aggregate_withcursor_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_aggregate_withcursor_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
@@ -576,7 +576,7 @@ def test_ft_search_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.SEARCH', parallel_updates=True)
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_search_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.SEARCH', parallel_updates=True)
@@ -586,7 +586,7 @@ def test_ft_aggregate_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE', parallel_updates=True)
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_aggregate_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE', parallel_updates=True)
@@ -596,7 +596,7 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
@@ -620,7 +620,7 @@ def test_ft_search_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.SEARCH')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_search_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.SEARCH')
@@ -630,7 +630,7 @@ def test_ft_aggregate_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.AGGREGATE')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_aggregate_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.AGGREGATE')
@@ -640,7 +640,7 @@ def test_ft_aggregate_withcursor_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_aggregate_withcursor_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
@@ -709,7 +709,7 @@ def test_add_shard_and_migrate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.SEARCH')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_add_shard_and_migrate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.SEARCH')
@@ -719,7 +719,7 @@ def test_add_shard_and_migrate_aggregate():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.AGGREGATE')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_add_shard_and_migrate_aggregate_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE')
@@ -729,7 +729,7 @@ def test_add_shard_and_migrate_aggregate_withcursor():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_add_shard_and_migrate_aggregate_withcursor_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
@@ -884,19 +884,19 @@ def test_ft_cursors_trimmed_protocol_3_profile():
     env = Env(clusterNodeTimeout=cluster_node_timeout, protocol=protocol)
     _test_ft_cursors_trimmed_profile_warning(env)
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_cursors_trimmed_BG_protocol_2():
     protocol = 2
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
     _test_ft_cursors_trimmed(env, protocol)
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_cursors_trimmed_BG_protocol_3():
     protocol = 3
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)
     _test_ft_cursors_trimmed(env, protocol)
 
-@skip(cluster=False, min_shards=2)
+@skip(cluster=False, min_shards=2, asan=True)
 def test_ft_cursors_trimmed_BG_protocol_3_profile():
     protocol = 3
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2', protocol=protocol)

@@ -14,29 +14,7 @@ pub use ffi::{
     RedisModule_Alloc, RedisModule_Free, ValidateStatus,
 };
 use inverted_index::{RSIndexResult, t_docId};
-use query_term::RSQueryTerm;
 use std::{ffi::c_void, ptr};
-
-// Direct C benchmark functions that eliminate FFI overhead
-// by implementing the benchmark loop entirely in C
-unsafe extern "C" {
-    /// Benchmark optional iterator read operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_optional_read_direct_c(
-        max_id: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-
-    /// Benchmark optional iterator skip_to operations directly in C
-    /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_optional_skip_to_direct_c(
-        max_id: u64,
-        step: u64,
-        iterations_out: *mut u64,
-        time_ns_out: *mut u64,
-    );
-}
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -86,20 +64,6 @@ impl QueryIterator {
 
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
-    }
-
-    #[inline(always)]
-    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex, sctx: *const ffi::RedisSearchCtx) -> Self {
-        let term = Box::into_raw(RSQueryTerm::new("term", 1, 0));
-        Self(unsafe {
-            iterators_ffi::inverted_index::NewInvIndIterator_TermQuery(
-                ii.cast_const(),
-                sctx,
-                field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
-                term,
-                1.0,
-            )
-        })
     }
 
     /// Creates a new intersection iterator from child ID list iterators.
@@ -196,36 +160,6 @@ impl QueryIterator {
     }
 }
 
-/// Create a minimal zeroed `RedisSearchCtx` with a valid `IndexSpec`.
-///
-/// The caller must call [`free_search_ctx`] to free the memory.
-fn new_search_ctx() -> *mut ffi::RedisSearchCtx {
-    let search_ctx = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::RedisSearchCtx>())
-            as *mut ffi::RedisSearchCtx
-    };
-    unsafe {
-        (*search_ctx) = std::mem::zeroed();
-    }
-    let spec = unsafe {
-        RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::IndexSpec>()) as *mut ffi::IndexSpec
-    };
-    unsafe {
-        (*spec) = std::mem::zeroed();
-    }
-    unsafe {
-        (*search_ctx).spec = spec;
-    }
-    search_ctx
-}
-
-fn free_search_ctx(sctx: *mut ffi::RedisSearchCtx) {
-    unsafe {
-        RedisModule_Free.unwrap()((*sctx).spec as *mut c_void);
-        RedisModule_Free.unwrap()(sctx as *mut c_void);
-    }
-}
-
 fn new_redis_search_ctx(max_id: u64) -> *mut ffi::QueryEvalCtx {
     let query_eval_ctx = unsafe {
         RedisModule_Alloc.unwrap()(std::mem::size_of::<ffi::QueryEvalCtx>())
@@ -284,153 +218,4 @@ fn free_redis_search_ctx(ctx: *mut ffi::QueryEvalCtx) {
     unsafe {
         RedisModule_Free.unwrap()(ctx as *mut c_void);
     };
-}
-
-/// Direct C benchmark results
-#[derive(Debug, Clone)]
-pub struct DirectBenchmarkResult {
-    pub iterations: u64,
-    pub time_ns: u64,
-}
-
-impl QueryIterator {
-    /// Run direct C benchmark for optional read operations
-    pub fn benchmark_optional_read_direct(max_id: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_optional_read_direct_c(max_id, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-
-    /// Run direct C benchmark for optional skip_to operations
-    pub fn benchmark_optional_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
-        let mut iterations = 0u64;
-        let mut time_ns = 0u64;
-        unsafe {
-            benchmark_optional_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
-        }
-        DirectBenchmarkResult {
-            iterations,
-            time_ns,
-        }
-    }
-}
-
-/// Simple wrapper around the C InvertedIndex.
-/// All methods are inlined to avoid the overhead when benchmarking.
-pub struct InvertedIndex {
-    pub ii: *mut ffi::InvertedIndex,
-    sctx: *mut ffi::RedisSearchCtx,
-}
-
-impl Drop for InvertedIndex {
-    fn drop(&mut self) {
-        unsafe { inverted_index_ffi::InvertedIndex_Free(self.ii.cast()) };
-        free_search_ctx(self.sctx);
-    }
-}
-
-impl InvertedIndex {
-    #[inline(always)]
-    pub fn new(flags: ffi::IndexFlags) -> Self {
-        let mut memsize = 0;
-        let ptr = inverted_index_ffi::NewInvertedIndex_Ex(flags, false, false, &mut memsize);
-        Self {
-            ii: ptr.cast(),
-            sctx: new_search_ctx(),
-        }
-    }
-
-    #[inline(always)]
-    pub fn write_numeric_entry(&self, doc_id: u64, value: f64) {
-        unsafe {
-            inverted_index_ffi::InvertedIndex_WriteNumericEntry(self.ii.cast(), doc_id, value);
-        }
-    }
-
-    /// `term_ptr` and `offsets` must be valid for the lifetime of the index.
-    #[inline(always)]
-    pub fn write_term_entry(
-        &self,
-        doc_id: u64,
-        freq: u32,
-        field_mask: u32,
-        term: Option<Box<RSQueryTerm>>,
-        offsets: &[u8],
-    ) {
-        let record = RSIndexResult::with_term(
-            term,
-            inverted_index::RSOffsetSlice::from_slice(offsets),
-            doc_id,
-            field_mask as u128,
-            freq,
-        );
-        unsafe {
-            inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
-                self.ii.cast(),
-                &record as *const _ as *mut _,
-            );
-        }
-    }
-
-    #[inline(always)]
-    pub fn iterator_term(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_term(self.ii, self.sctx) }
-    }
-}
-
-#[cfg(test)]
-// `miri` can't handle FFI.
-#[cfg(not(miri))]
-mod tests {
-    use super::*;
-    use ffi::{
-        IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-        ValidateStatus_VALIDATE_OK,
-    };
-
-    #[test]
-    fn term_full_iterator() {
-        let ii = InvertedIndex::new(
-            IndexFlags_Index_StoreFreqs
-                | IndexFlags_Index_StoreTermOffsets
-                | IndexFlags_Index_StoreFieldFlags
-                | IndexFlags_Index_StoreByteOffsets,
-        );
-
-        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let term = || {
-            let mut t = RSQueryTerm::new("term", 1, 0);
-            t.set_idf(5.0);
-            t.set_bm25_idf(10.0);
-            Some(t)
-        };
-
-        ii.write_term_entry(1, 1, 1, term(), &offsets);
-        ii.write_term_entry(10, 1, 1, term(), &offsets);
-        ii.write_term_entry(100, 1, 1, term(), &offsets);
-
-        let it = ii.iterator_term();
-        assert_eq!(it.num_estimated(), 3);
-
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.read(), IteratorStatus_ITERATOR_EOF);
-        assert!(it.at_eof());
-
-        it.rewind();
-        assert_eq!(it.skip_to(10), IteratorStatus_ITERATOR_OK);
-        assert_eq!(it.skip_to(20), IteratorStatus_ITERATOR_NOTFOUND);
-
-        it.rewind();
-        assert_eq!(it.revalidate(), ValidateStatus_VALIDATE_OK);
-
-        it.free();
-    }
 }

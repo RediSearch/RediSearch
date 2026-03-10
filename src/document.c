@@ -635,7 +635,7 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
-  VecSimIndex *vecsim = openVectorIndex(&sp->fields[fs->index], CREATE_INDEX);
+  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, &sp->fields[fs->index], CREATE_INDEX);
   if (!vecsim) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
@@ -772,7 +772,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
   }
 
   // TagIndex_Index handles both disk and memory modes internally
-  if (!TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
+  if (!TagIndex_Index(ctx->redisCtx, tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }

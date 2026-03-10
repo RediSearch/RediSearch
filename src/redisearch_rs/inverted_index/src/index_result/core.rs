@@ -27,7 +27,6 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// Both should be valid `RSYieldableMetric` instances.
-    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
     unsafe fn RSYieldableMetric_Concat(
         parent: *mut *mut RSYieldableMetric,
         child: *const RSYieldableMetric,
@@ -161,7 +160,7 @@ impl<'index> RSIndexResult<'index> {
 
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub const fn with_term(
-        term: Option<Box<RSQueryTerm>>,
+        term: Box<RSQueryTerm>,
         offsets: RSOffsetSlice<'index>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
@@ -222,7 +221,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_numeric(),
             "Invariant violation: `as_numeric_unchecked` was invoked on a non-numeric `RSIndexResult` \
              instance that didn't actually contain a numeric. It was a {}",
-            self.data.kind()
+            self.kind()
         );
 
         match &self.data {
@@ -250,7 +249,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_numeric(),
             "Invariant violation: `as_numeric_unchecked_mut` was invoked on a non-numeric `RSIndexResult` \
              instance that didn't actually contain a numeric. It was a {}",
-            self.data.kind()
+            self.kind()
         );
 
         match &mut self.data {
@@ -304,7 +303,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_term(),
             "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RSIndexResult` \
              instance that didn't actually contain a term. It was a {}",
-            self.data.kind()
+            self.kind()
         );
 
         match &mut self.data {
@@ -335,6 +334,20 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
+    /// Get this record as a mutable term record if possible. If the record is not term, returns
+    /// `None`.
+    pub const fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
+        match &mut self.data {
+            RSResultData::Term(term) => Some(term),
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_)
+            | RSResultData::HybridMetric(_) => None,
+        }
+    }
+
     /// Get the aggregate result associated with this record
     /// **without checking the discriminant**.
     ///
@@ -346,7 +359,7 @@ impl<'index> RSIndexResult<'index> {
             self.is_aggregate(),
             "Invariant violation: `as_aggregate_unchecked` was invoked on an `IndexResult` \
             instance that didn't actually contain an aggregate! It was a {}",
-            self.data.kind()
+            self.kind()
         );
         match &self.data {
             RSResultData::Union(agg)
@@ -408,8 +421,16 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// True if this is a term kind
-    const fn is_term(&self) -> bool {
+    pub const fn is_term(&self) -> bool {
         matches!(self.data, RSResultData::Term(_))
+    }
+
+    /// Debug-only assertion that `self.data == other.data`.
+    ///
+    /// This is a no-op in release builds.
+    #[track_caller]
+    pub fn assert_data(&self, other: &Self) {
+        debug_assert_eq!(self.data, other.data);
     }
 
     /// Is this result some copy type

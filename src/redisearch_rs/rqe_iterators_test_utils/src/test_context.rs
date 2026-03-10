@@ -106,6 +106,15 @@ enum TestContextInner {
     Wildcard {
         inverted_index: ptr::NonNull<ffi::InvertedIndex>,
     },
+    Missing {
+        field_spec: ptr::NonNull<ffi::FieldSpec>,
+        inverted_index: ptr::NonNull<ffi::InvertedIndex>,
+    },
+    Tag {
+        field_spec: ptr::NonNull<ffi::FieldSpec>,
+        tag_index: ptr::NonNull<ffi::TagIndex>,
+        inverted_index: ptr::NonNull<ffi::InvertedIndex>,
+    },
 }
 
 /// Create a spec and search context from the given schema and index name.
@@ -128,6 +137,7 @@ fn create_spec_sctx(
 
     let spec_ref = unsafe {
         ffi::IndexSpec_ParseC(
+            ctx.as_ptr(),
             index_name.as_ptr(),
             args_ptr.as_mut_ptr(),
             args_ptr.len() as i32,
@@ -336,6 +346,158 @@ impl TestContext {
         }
     }
 
+    /// Create a new [`TestContext`] with a doc-ids-only inverted index for missing-field queries.
+    ///
+    /// # Arguments
+    /// * `doc_ids` - An iterator over the document IDs to be indexed (documents missing the field).
+    pub fn missing<I>(doc_ids: I) -> Self
+    where
+        I: Iterator<Item = u64>,
+    {
+        // Serialize TestContext creation to avoid concurrent access to C global state
+        let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        let ctx = ModuleCtx::new();
+        // Create IndexSpec with unique name to avoid parallel test conflicts
+        let index_name = unique_index_name("missing_idx");
+        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA text_field TEXT", &index_name);
+
+        // Get the field spec for the text field
+        let field_name = std::ffi::CString::new("text_field").unwrap();
+        let fs = unsafe {
+            ffi::IndexSpec_GetFieldWithLength(
+                spec.as_ptr(),
+                field_name.as_ptr(),
+                field_name.as_bytes().len(),
+            )
+        };
+        let field_spec: ptr::NonNull<ffi::FieldSpec> =
+            ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+
+        // Create a DocIdsOnly inverted index for the missing field
+        let mut memsize = 0;
+        let ii_ptr = inverted_index_ffi::NewInvertedIndex_Ex(
+            ffi::IndexFlags_Index_DocIdsOnly,
+            false,
+            false,
+            &mut memsize,
+        );
+        let ii = ptr::NonNull::new(ii_ptr.cast()).expect("Failed to create InvertedIndex");
+
+        // Populate with virtual records for each document ID
+        for doc_id in doc_ids {
+            let record = RSIndexResult::virt().doc_id(doc_id);
+            // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
+            unsafe {
+                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                    ii_ptr,
+                    &record as *const _ as *mut _,
+                );
+            }
+        }
+
+        // Add the inverted index to the spec's missingFieldDict,
+        // keyed by the field's fieldName (a HiddenString pointer used as dict key).
+        unsafe {
+            let field_name_key = (*field_spec.as_ptr()).fieldName;
+            let rc = ffi::RS_dictAdd(
+                (*spec.as_ptr()).missingFieldDict,
+                field_name_key as *mut _,
+                ii_ptr as *mut _,
+            );
+            assert_eq!(rc, 0, "dictAdd failed"); // DICT_OK == 0
+        }
+
+        Self {
+            _ctx: ctx,
+            sctx,
+            spec,
+            inner: TestContextInner::Missing {
+                field_spec,
+                inverted_index: ii,
+            },
+        }
+    }
+
+    /// Create a new [`TestContext`] with a tag inverted index for tag queries.
+    ///
+    /// Creates a TAG field, a `TagIndex` with a TrieMap, and adds a doc-ids-only
+    /// inverted index under the key `"test_tag"`.
+    ///
+    /// # Arguments
+    /// * `doc_ids` - An iterator over the document IDs to be indexed.
+    pub fn tag<I>(doc_ids: I) -> Self
+    where
+        I: Iterator<Item = u64>,
+    {
+        // Serialize TestContext creation to avoid concurrent access to C global state
+        let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        let ctx = ModuleCtx::new();
+        // Create IndexSpec with TAG field and unique name
+        let index_name = unique_index_name("tag_idx");
+        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA tag_field TAG", &index_name);
+
+        // Get the field spec for the tag field
+        let field_name = CString::new("tag_field").unwrap();
+        let fs = unsafe {
+            ffi::IndexSpec_GetFieldWithLength(
+                spec.as_ptr(),
+                field_name.as_ptr(),
+                field_name.as_bytes().len(),
+            )
+        };
+        let field_spec: ptr::NonNull<ffi::FieldSpec> =
+            ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+
+        // Create TagIndex via the C API (uses Redis allocator for proper cleanup)
+        let tag_index_raw = unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut()) };
+        let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
+
+        // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex
+        // (CREATE_INDEX = 1 creates a new DocIdsOnly inverted index in the TrieMap)
+        let tag_key = CString::new("test_tag").unwrap();
+        let mut sz: usize = 0;
+        let ii_ptr = unsafe {
+            ffi::TagIndex_OpenIndex(
+                tag_index_raw,
+                tag_key.as_ptr(),
+                tag_key.as_bytes().len(),
+                1, // CREATE_INDEX
+                &mut sz,
+            )
+        };
+        assert!(!ii_ptr.is_null(), "TagIndex_OpenIndex returned null");
+        let ii = ptr::NonNull::new(ii_ptr.cast()).expect("InvertedIndex should not be null");
+
+        // Populate with virtual records for each document ID.
+        // TagIndex_OpenIndex internally calls NewInvertedIndex_Ex, so the
+        // pointer is actually a Rust opaque InvertedIndex despite the C type.
+        let ii_opaque: *mut inverted_index::opaque::InvertedIndex = ii_ptr.cast();
+        for doc_id in doc_ids {
+            let record = RSIndexResult::virt().doc_id(doc_id);
+            // SAFETY: ii_opaque is a valid pointer created via TagIndex_OpenIndex
+            // which delegates to NewInvertedIndex_Ex (Rust FFI).
+            unsafe {
+                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                    ii_opaque,
+                    &record as *const _ as *mut _,
+                );
+            }
+        }
+
+        Self {
+            _ctx: ctx,
+            sctx,
+            spec,
+            inner: TestContextInner::Tag {
+                field_spec,
+                tag_index,
+                inverted_index: ii,
+            },
+        }
+    }
+
     /// Write a record to an inverted index using the ForwardIndexEntry FFI.
     fn write_forward_index_entry(idx: *mut ffi::InvertedIndex, record: &RSIndexResult) {
         let term = CString::new("term").unwrap();
@@ -390,7 +552,7 @@ impl TestContext {
 
     /// Get a mutable reference to the numeric range tree for this context.
     /// Panics if this is not a numeric context.
-    #[allow(clippy::mut_from_ref)]
+    #[expect(clippy::mut_from_ref)]
     pub fn numeric_range_tree_mut(&self) -> &mut numeric_range_tree::NumericRangeTree {
         unsafe { self.numeric_range_tree().as_mut() }
     }
@@ -400,7 +562,9 @@ impl TestContext {
     pub const fn field_spec(&self) -> &ffi::FieldSpec {
         match self.inner {
             TestContextInner::Numeric { field_spec, .. }
-            | TestContextInner::Term { field_spec, .. } => unsafe { field_spec.as_ref() },
+            | TestContextInner::Term { field_spec, .. }
+            | TestContextInner::Missing { field_spec, .. }
+            | TestContextInner::Tag { field_spec, .. } => unsafe { field_spec.as_ref() },
             TestContextInner::Wildcard { .. } => panic!("Wildcard context has no field spec"),
         }
     }
@@ -424,7 +588,7 @@ impl TestContext {
 
     /// Get a mutable reference to the opaque term inverted index for this context.
     /// Panics if this is not a term context.
-    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    #[expect(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
     pub fn term_inverted_index_mut(&self) -> &mut inverted_index_ffi::InvertedIndex {
         match &self.inner {
             TestContextInner::Term { inverted_index, .. } => {
@@ -465,7 +629,7 @@ impl TestContext {
     /// Get the wildcard (doc-ids-only) inverted index for this context.
     /// Returns a reference to the FFI inverted index wrapper.
     /// Panics if this is not a wildcard context.
-    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    #[expect(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
     pub fn wildcard_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
         match &self.inner {
             TestContextInner::Wildcard { inverted_index } => {
@@ -486,8 +650,46 @@ impl TestContext {
         }
     }
 
+    /// Get the missing-field (doc-ids-only) inverted index for this context.
+    /// Returns a reference to the FFI inverted index wrapper.
+    /// Panics if this is not a missing context.
+    #[expect(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    pub fn missing_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Missing { inverted_index, .. } => {
+                // SAFETY: inverted_index is a valid pointer created via NewInvertedIndex_Ex
+                let ii: *mut inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
+                unsafe { &mut *ii }
+            }
+            _ => panic!("TestContext is not a Missing context"),
+        }
+    }
+
+    /// Get the tag (doc-ids-only) inverted index for this context.
+    /// Returns a reference to the FFI inverted index wrapper.
+    /// Panics if this is not a tag context.
+    #[expect(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
+    pub fn tag_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Tag { inverted_index, .. } => {
+                // SAFETY: inverted_index is a valid pointer created via NewInvertedIndex_Ex
+                let ii: *mut inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
+                unsafe { &mut *ii }
+            }
+            _ => panic!("TestContext is not a Tag context"),
+        }
+    }
+
+    /// Get the tag index for this context.
+    /// Panics if this is not a tag context.
+    pub fn tag_index(&self) -> ptr::NonNull<ffi::TagIndex> {
+        match self.inner {
+            TestContextInner::Tag { tag_index, .. } => tag_index,
+            _ => panic!("TestContext is not a Tag context"),
+        }
+    }
+
     /// Get the ffi inverted index for this context.
-    #[allow(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
     pub fn numeric_inverted_index(&self) -> &mut NumericIndex {
         let tree = self.numeric_range_tree_mut();
         let index = tree
