@@ -8,7 +8,7 @@
 */
 
 use crate::{RLookup, RLookupKey, RLookupRow, load_document::LoadDocumentError};
-use query_error::{QueryError, QueryErrorCode};
+use query_error::QueryError;
 use redis_module::{RedisString, key::RedisKey};
 use std::ptr::NonNull;
 
@@ -37,6 +37,7 @@ pub fn load_all_keys(
     _ctx: NonNull<ffi::RedisModuleCtx>,
     _key_name: &RedisString,
     _force_string: bool,
+    _api_version: u32,
     _status: &mut QueryError,
 ) -> Result<(), LoadDocumentError> {
     todo!()

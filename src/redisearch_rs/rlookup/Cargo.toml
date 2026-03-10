@@ -10,21 +10,25 @@ ffi.workspace = true
 c_ffi_utils.workspace = true
 sorting_vector.workspace = true
 document.workspace = true
-enumflags2.workspace = true
+document_metadata.workspace = true
 field_spec.workspace = true
 index_spec.workspace = true
 index_spec_cache.workspace = true
-libc.workspace = true
-pin-project.workspace = true
 schema_rule.workspace = true
-strum.workspace = true
 thin_vec.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
-thiserror.workspace = true
 redis_mock.workspace = true
+query_error.workspace = true
+
+# 3rd party dependencies
+enumflags2.workspace = true
+libc.workspace = true
+pin-project.workspace = true
+strum.workspace = true
+thiserror.workspace = true
 redis-module.workspace = true
 workspace_hack.workspace = true
-query_error.workspace = true
+itertools.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

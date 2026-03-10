@@ -19,7 +19,8 @@ use std::{error::Error, ptr};
 
 use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use document::DocumentType;
-use ffi::DocumentMetadata;
+use document_metadata::DocumentMetadata;
+use itertools::Either;
 use query_error::QueryError;
 use redis_module::RedisString;
 use sorting_vector::RSSortingVector;
@@ -64,18 +65,23 @@ impl<'env, 'a> DocumentLoader<'env, 'a> {
         }
     }
 
-    pub const fn force_load(mut self) -> Self {
-        self.force_load = true;
+    pub const fn force_load(mut self, force_load: bool) -> Self {
+        self.force_load = force_load;
         self
     }
 
-    pub const fn force_string(mut self) -> Self {
-        self.force_string = true;
+    pub const fn force_string(mut self, force_string: bool) -> Self {
+        self.force_string = force_string;
         self
     }
 
-    pub const fn cached_only(mut self) -> Self {
-        self.cached_only = true;
+    pub const fn cached_only(mut self, cached_only: bool) -> Self {
+        self.cached_only = cached_only;
+        self
+    }
+
+    pub const fn api_version(mut self, api_version: u32) -> Self {
+        self.api_version = api_version;
         self
     }
 
@@ -84,8 +90,7 @@ impl<'env, 'a> DocumentLoader<'env, 'a> {
         dmd: &DocumentMetadata,
         status: &mut QueryError,
     ) -> Result<(), LoadDocumentError> {
-        // Safety: the caller has promised - upon construction of the DocumentMetadata - that the type is correctly initialized
-        // which means the `sortVector` is either NULL or a valid pointer.
+        // Safety: we know that the ffi::RSSortingVector is the same type as RSSortingVector
         let sorting_vector = unsafe {
             ptr::from_ref(&dmd.sortVector)
                 .cast::<RSSortingVector>()
@@ -102,6 +107,7 @@ impl<'env, 'a> DocumentLoader<'env, 'a> {
                 self.ctx,
                 &dmd.key_name(Some(self.ctx)),
                 self.force_string,
+                self.api_version,
                 status,
             ),
             DocumentType::Json => json::load_all_keys(
@@ -122,8 +128,7 @@ impl<'env, 'a> DocumentLoader<'env, 'a> {
         dmd: &DocumentMetadata,
         status: &mut QueryError,
     ) -> Result<(), LoadDocumentError> {
-        // Safety: the caller has promised - upon construction of the DocumentMetadata - that the type is correctly initialized
-        // which means the `sortVector` is either NULL or a valid pointer.
+        // Safety: we know that the ffi::RSSortingVector is the same type as RSSortingVector
         let sorting_vector = unsafe {
             ptr::from_ref(&dmd.sortVector)
                 .cast::<RSSortingVector>()
@@ -139,15 +144,13 @@ impl<'env, 'a> DocumentLoader<'env, 'a> {
             // include only keys that are part of the document schema. We cannot load other keys anyway.
             .filter(|key| key.flags.contains(RLookupKeyFlag::SchemaSrc));
 
-        let keys_to_load: Vec<_> = if self.cached_only && !self.force_load {
+        let keys_to_load = if self.cached_only && !self.force_load {
             // if we're told to load only sortable keys, we'll filter out all non-sortable ones
             // UNLESS force_load is given which overrides this filtering
-            keys_to_load
-                .filter(|key| key.flags.contains(RLookupKeyFlag::SvSrc))
-                .collect()
+            Either::Left(keys_to_load.filter(|key| key.flags.contains(RLookupKeyFlag::SvSrc)))
         } else {
             // otherwise, just keep the list of keys as-is.
-            keys_to_load.collect()
+            Either::Right(keys_to_load)
         };
 
         load_specific_keys_internal(
