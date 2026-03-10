@@ -634,9 +634,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Iter<'a>(
-    lookup: *const OpaqueRLookup,
-) -> RLookupIterator<'a> {
+pub unsafe extern "C" fn RLookup_Iter<'a>(lookup: *const OpaqueRLookup) -> RLookupIterator<'a> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
     #[cfg(debug_assertions)]
