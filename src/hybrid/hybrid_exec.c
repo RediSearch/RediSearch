@@ -326,6 +326,10 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
 #ifdef ENABLE_ASSERT
 // Helper function to pause before/after store results for hybrid (for testing timeout during store)
 static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
+  // Only pause if we are using reply callback (otherwise we don't store results)
+  if (!hreq->useReplyCallback) {
+    return;
+  }
   bool enabled = before ? StoreResultsDebugCtx_IsPauseBeforeEnabled()
                         : StoreResultsDebugCtx_IsPauseAfterEnabled();
   if (enabled) {
@@ -599,6 +603,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     if (backgroundDepletion) {
       depleters = array_new(ResultProcessor *, req->nrequests);
     }
+
+    // Pause before store cursors
+    debugPauseStoreResultsHybrid(req, true);  // pause before
+
     req->cursors = array_new(Cursor*, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
@@ -647,10 +655,14 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       }
     }
 
+    // Pause after store cursors
+    debugPauseStoreResultsHybrid(req, false);  // pause after
+
     if (!req->useReplyCallback) {
       // If we are not using reply callback, we should reply with the cursors here
       replyWithCursors(replyCtx, req->cursors);
       array_free(req->cursors);
+      req->cursors = NULL;
     } // else the reply callback will reply with the cursors and free the array
 
     return REDISMODULE_OK;
@@ -762,6 +774,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
 
   replyWithCursors(ctx, req->cursors);
   array_free(req->cursors);
+  req->cursors = NULL;
   return REDISMODULE_OK;
 }
 

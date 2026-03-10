@@ -279,6 +279,11 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
 static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
+    if (req->cursors) {
+      RS_ASSERT(HybridRequest_TimedOut(req));
+      array_free(req->cursors);
+    }
+
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
 
