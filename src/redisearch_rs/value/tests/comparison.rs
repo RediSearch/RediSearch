@@ -89,7 +89,7 @@ fn string_equal() {
 #[test]
 fn string_less_than() {
     let s1 = RsValue::String(RsString::from_vec(b"abc".to_vec()));
-    let s2 = RsValue::String(RsString::from_vec(b"abd".to_vec()));
+    let s2 = RsValue::String(RsString::from_vec(b"abe".to_vec()));
     let result = compare(&s1, &s2, false).unwrap();
     assert_eq!(result, Ordering::Less);
 }
@@ -155,8 +155,16 @@ fn ref_right_delegates_to_inner() {
 
 #[test]
 fn trio_compares_by_left_element() {
-    let t1 = trio(RsValue::Number(1.0), RsValue::Number(99.0), RsValue::Number(99.0));
-    let t2 = trio(RsValue::Number(2.0), RsValue::Number(0.0), RsValue::Number(0.0));
+    let t1 = trio(
+        RsValue::Number(1.0),
+        RsValue::Number(99.0),
+        RsValue::Number(99.0),
+    );
+    let t2 = trio(
+        RsValue::Number(2.0),
+        RsValue::Number(0.0),
+        RsValue::Number(0.0),
+    );
     let result = compare(&t1, &t2, false).unwrap();
     assert_eq!(result, Ordering::Less);
 }
