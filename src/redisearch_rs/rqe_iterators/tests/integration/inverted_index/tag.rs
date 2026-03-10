@@ -10,7 +10,7 @@
 //! Tests for the tag inverted index iterator.
 
 use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, RSResultData, RSTermRecord, doc_ids_only::DocIdsOnly};
+use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
 use query_term::RSQueryTerm;
 use rqe_iterators::{NoOpChecker, RQEIterator, inverted_index::Tag};
 use rqe_iterators_test_utils::MockContext;
@@ -23,15 +23,10 @@ struct TagBaseTest {
 
 impl TagBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-        RSIndexResult {
-            data: RSResultData::Term(RSTermRecord::new()),
-            doc_id,
-            field_mask: RS_FIELDMASK_ALL,
-            freq: 1,
-            dmd: std::ptr::null(),
-            metrics: std::ptr::null_mut(),
-            weight: 0.0,
-        }
+        RSIndexResult::build_term()
+            .doc_id(doc_id)
+            .field_mask(RS_FIELDMASK_ALL)
+            .build()
     }
 
     fn new(n_docs: u64) -> Self {
@@ -122,15 +117,10 @@ mod not_miri {
 
     impl TagRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-            RSIndexResult {
-                data: RSResultData::Term(RSTermRecord::new()),
-                doc_id,
-                field_mask: RS_FIELDMASK_ALL,
-                freq: 1,
-                dmd: std::ptr::null(),
-                metrics: std::ptr::null_mut(),
-                weight: 0.0,
-            }
+            RSIndexResult::build_term()
+                .doc_id(doc_id)
+                .field_mask(RS_FIELDMASK_ALL)
+                .build()
         }
 
         fn new(n_docs: u64) -> Self {

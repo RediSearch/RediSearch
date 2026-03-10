@@ -135,7 +135,7 @@ impl Decoder for Full {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(
@@ -227,7 +227,7 @@ impl Decoder for FullWide {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(

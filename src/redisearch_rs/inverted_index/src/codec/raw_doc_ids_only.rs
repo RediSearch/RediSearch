@@ -112,7 +112,7 @@ impl Decoder for RawDocIdsOnly {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 }
 

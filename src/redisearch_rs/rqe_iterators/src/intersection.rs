@@ -63,7 +63,7 @@ where
                 last_doc_id: 0,
                 num_expected: 0,
                 is_eof: true,
-                result: RSIndexResult::intersect(0),
+                result: RSIndexResult::build_intersect(0).build(),
             };
         };
         let num_children = children.len();
@@ -72,7 +72,7 @@ where
             last_doc_id: 0,
             num_expected,
             is_eof: false,
-            result: RSIndexResult::intersect(num_children),
+            result: RSIndexResult::build_intersect(num_children).build(),
         }
     }
 

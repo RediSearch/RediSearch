@@ -106,8 +106,13 @@ where
             "tag_index entry for the tag value must have an encoding variant matching E",
         );
 
-        let result = RSIndexResult::with_term(term, RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
-            .weight(weight);
+        let result = RSIndexResult::build_term()
+            .borrowed_record(Some(term), RSOffsetSlice::empty())
+            .doc_id(0)
+            .field_mask(RS_FIELDMASK_ALL)
+            .frequency(1)
+            .weight(weight)
+            .build();
 
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),

@@ -148,7 +148,7 @@ pub unsafe fn debug_dump_tree(
 /// Reply with the entries (doc_ids) from a range.
 fn reply_range_entries(entries_arr: &mut ArrayBuilder<'_>, range: &NumericRange) {
     let mut reader = range.reader();
-    let mut result = RSIndexResult::numeric(0.0);
+    let mut result = RSIndexResult::build_numeric(0.0).build();
     while reader.next_record(&mut result).unwrap_or(false) {
         entries_arr.long_long(result.doc_id as i64);
     }
@@ -244,7 +244,7 @@ fn reply_numeric_index_debug(
     {
         let mut values_arr = arr.array();
         let mut reader = index.reader();
-        let mut result = RSIndexResult::numeric(0.0);
+        let mut result = RSIndexResult::build_numeric(0.0).build();
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let value = unsafe { result.as_numeric_unchecked() };

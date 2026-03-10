@@ -79,7 +79,7 @@ impl Decoder for FieldsOffsets {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(
@@ -177,7 +177,7 @@ impl Decoder for FieldsOffsetsWide {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(

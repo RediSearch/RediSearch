@@ -59,10 +59,11 @@ impl Bencher {
             .cartesian_product(deltas)
             .cartesian_product(field_masks_values)
             .map(|((freq, delta), field_mask)| {
-                let record = RSIndexResult::term()
+                let record = RSIndexResult::build_term()
                     .doc_id(100)
                     .field_mask(field_mask)
-                    .frequency(freq);
+                    .frequency(freq)
+                    .build();
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = if wide {
@@ -94,10 +95,11 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = RSIndexResult::term()
+                        let record = RSIndexResult::build_term()
                             .doc_id(100)
                             .field_mask(test.field_mask)
-                            .frequency(test.freq);
+                            .frequency(test.freq)
+                            .build();
 
                         let grew_size = if self.wide {
                             FreqsFieldsWide::encode(&mut buffer, test.delta, &record).unwrap()
@@ -119,7 +121,12 @@ impl Bencher {
         c.bench_function(&id, |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         if self.wide {
                             let res = FreqsFieldsWide::decode(cursor, 100, result);
