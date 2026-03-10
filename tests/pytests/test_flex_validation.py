@@ -309,3 +309,17 @@ def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .error().contains('FT.HYBRID is not supported in disk mode')
+
+@skip(cluster=True)
+def test_flex_blocks_suggest_commands(env):
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SUGADD', 'idx', 'foo', '1') \
+        .error().contains('FT.SUGADD is not supported in disk mode')
+    env.expect('FT.SUGGET', 'idx', 'fo') \
+        .error().contains('FT.SUGGET is not supported in disk mode')
+    env.expect('FT.SUGDEL', 'idx', 'foo') \
+        .error().contains('FT.SUGDEL is not supported in disk mode')
+    env.expect('FT.SUGLEN', 'idx') \
+        .error().contains('FT.SUGLEN is not supported in disk mode')
+
