@@ -1143,7 +1143,7 @@ end:
 
 static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, RedisModule_Reply *reply) {
   char buf[1024] = {0};
-  sprintf(buf, "(0x%x):", dmd->flags);
+  snprintf(buf, sizeof(buf), "(0x%x):", dmd->flags);
   if (dmd->flags & Document_Deleted) {
     strcat(buf, "Deleted,");
   }
