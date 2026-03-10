@@ -407,7 +407,7 @@ impl<'index> RSIndexResult<'index> {
     }
 
     /// True if this is a term kind
-    const fn is_term(&self) -> bool {
+    pub const fn is_term(&self) -> bool {
         matches!(self.data, RSResultData::Term(_))
     }
 
