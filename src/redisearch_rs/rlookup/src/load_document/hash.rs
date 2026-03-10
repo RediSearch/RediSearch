@@ -29,6 +29,7 @@ pub fn load_all_keys(
     _ctx: NonNull<ffi::RedisModuleCtx>,
     _key_name: &RedisString,
     _force_string: bool,
+    _api_version: u32,
     _status: &mut QueryError,
 ) -> Result<(), LoadDocumentError> {
     todo!()

@@ -61,18 +61,23 @@ impl<'env, 'a> DocumentLoader<'env, 'a> {
         }
     }
 
-    pub const fn force_load(mut self) -> Self {
-        self.force_load = true;
+    pub const fn force_load(mut self, force_load: bool) -> Self {
+        self.force_load = force_load;
         self
     }
 
-    pub const fn force_string(mut self) -> Self {
-        self.force_string = true;
+    pub const fn force_string(mut self, force_string: bool) -> Self {
+        self.force_string = force_string;
         self
     }
 
-    pub const fn cached_only(mut self) -> Self {
-        self.cached_only = true;
+    pub const fn cached_only(mut self, cached_only: bool) -> Self {
+        self.cached_only = cached_only;
+        self
+    }
+
+    pub const fn api_version(mut self, api_version: u32) -> Self {
+        self.api_version = api_version;
         self
     }
 
@@ -95,6 +100,7 @@ impl<'env, 'a> DocumentLoader<'env, 'a> {
                 self.ctx,
                 &dmd.key_name(Some(self.ctx)),
                 self.force_string,
+                self.api_version,
                 status,
             ),
             DocumentType::Json => json::load_all_keys(
@@ -176,7 +182,7 @@ where
     // (success could also be when no value is found and nothing is loaded into `dst`,
     //  for example, with a JSONPath with no matches)
     for key_to_load in keys_to_load {
-        if is_value_available(key_to_load, dst_row, force_load) {
+        if should_skip_key(key_to_load, dst_row) && !force_load {
             continue;
         }
 
@@ -189,13 +195,10 @@ where
 // returns true if the value of the key is already available
 // avoids the need to call to redis api to get the value
 // i.e. we can use the sorting vector as a cache
-fn is_value_available(kk: &RLookupKey, dst_row: &RLookupRow, force_load: bool) -> bool {
-    !force_load
-        && (
-            // No need to "write" this key. It's always implicitly loaded!
-            kk.flags.contains(RLookupKeyFlag::ValAvailable)
+fn should_skip_key(kk: &RLookupKey, dst_row: &RLookupRow) -> bool {
+    // No need to "write" this key. It's always implicitly loaded!
+    kk.flags.contains(RLookupKeyFlag::ValAvailable)
         ||
         // There is no value in the sorting vector, and we don't need to load it from the document.
         (kk.flags.contains(RLookupKeyFlag::SvSrc) && dst_row.get(kk).is_none())
-        )
 }
