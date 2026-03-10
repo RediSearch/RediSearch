@@ -9,8 +9,7 @@
 
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{
-    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSResultData, RSResultKind,
-    RSResultKindMask, RSTermRecord,
+    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultKind, RSResultKindMask,
 };
 use query_term::RSQueryTerm;
 
@@ -124,7 +123,7 @@ fn to_owned_an_aggregate_index_result() {
         assert_eq!(ir_first.dmd, ir_clone_first.dmd);
         assert_eq!(ir_first.field_mask, ir_clone_first.field_mask);
         assert_eq!(ir_first.freq, ir_clone_first.freq);
-        assert_eq!(ir_first.data, ir_clone_first.data);
+        ir_first.assert_data(ir_clone_first);
         assert_eq!(ir_first.metrics, ir_clone_first.metrics);
         assert_eq!(ir_first.weight, ir_clone_first.weight);
     }
@@ -147,7 +146,7 @@ fn to_owned_a_numeric_index_result() {
     assert_eq!(ir.dmd, ir_copy.dmd);
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
-    assert_eq!(ir.data, ir_copy.data);
+    ir.assert_data(&ir_copy);
     assert_eq!(ir.metrics, ir_copy.metrics);
     assert_eq!(ir.weight, ir_copy.weight);
 
@@ -170,7 +169,7 @@ fn to_owned_a_virtual_index_result() {
     assert_eq!(ir.dmd, ir_copy.dmd);
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
-    assert_eq!(ir.data, ir_copy.data);
+    ir.assert_data(&ir_copy);
     assert_eq!(ir.metrics, ir_copy.metrics);
     assert_eq!(ir.weight, ir_copy.weight);
 }
@@ -203,12 +202,10 @@ fn to_owned_a_term_index_result() {
     assert_eq!(ir.weight, ir_copy.weight);
 
     // Make sure the values are not linked
-    match &mut ir_copy.data {
-        RSResultData::Term(RSTermRecord::Owned { offsets, .. }) => {
-            *offsets = RSOffsetVector::empty();
-        }
-        _ => panic!("expected owned term record"),
-    }
+    ir_copy
+        .as_term_mut()
+        .expect("expected term record")
+        .set_offsets(RSOffsetSlice::empty());
 
     assert_eq!(
         ir.as_term().unwrap().offsets().len(),
