@@ -13,6 +13,8 @@ import io
 import re
 from datetime import datetime, timedelta, timezone
 
+from ci_failure_suggestions import get_suggestion_for_failure
+
 def get_yesterday_date_range():
     """Get midnight-to-midnight date range for yesterday in UTC."""
     today = datetime.now(timezone.utc)
@@ -458,7 +460,7 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
         print("No failed runs to analyze")
         return
 
-    print(f"\n📥 Downloading and analyzing logs for failed jobs...")
+    print("\n📥 Downloading and analyzing logs for failed jobs...")
 
     failure_analysis = []
 
@@ -513,16 +515,16 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
             if not log_content:
                 # Download run logs once and reuse for all jobs in this run
                 if run_logs_zip is None:
-                    print(f"      Job logs not available, downloading run logs...")
+                    print("      Job logs not available, downloading run logs...")
                     run_logs_zip = fetch_run_logs(token, repo, run_id)
                     if not run_logs_zip:
-                        print(f"      ⚠️  Could not download run logs")
+                        print("      ⚠️  Could not download run logs")
                         continue
 
                 # Extract this job's logs from the zip
                 log_content = extract_job_log_from_zip(run_logs_zip, job_name)
                 if not log_content:
-                    print(f"      ⚠️  Could not find job logs in zip")
+                    print("      ⚠️  Could not find job logs in zip")
                     continue
 
             # Save log content to a unique file
@@ -557,6 +559,15 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                             break
 
 
+            # Get suggested fix for this failure using AI
+            print("      Analyzing failure with AI...")
+            suggestion = get_suggestion_for_failure(
+                error_message=error_message,
+                job_name=job_name,
+                failure_type=failure_type,
+                log_excerpt=log_content  # Pass raw log content for additional context
+            )
+
             failure_analysis.append({
                 'run_id': run_id,
                 'branch': branch,
@@ -564,12 +575,15 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                 'full_job_name': job_name,
                 'failure_type': failure_type,
                 'error_message': error_message,
-                'error_lines': error_lines
+                'error_lines': error_lines,
+                'suggestion': suggestion
             })
 
             print(f"      Failure type: {failure_type}")
             if error_message:
-                print(f"      Error: {error_message}")
+                print(f"      Error: {error_message[:100]}...")
+            if suggestion:
+                print(f"      💡 AI Suggestion: {suggestion[:100]}...")
 
     # Save analysis to file
     if failure_analysis:
@@ -640,6 +654,7 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                         full_job_name = failure['full_job_name']
                         failure_type = failure['failure_type']
                         error_message = failure.get('error_message')
+                        suggestion = failure.get('suggestion')
 
                         f.write(f" Job: {full_job_name}\n")
                         f.write(f" Failure type: {failure_type}\n")
@@ -656,10 +671,8 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
 
                             f.write(f" Error: {first_line}\n")
 
-                            # If there are more lines, indicate it
-                            # if '\n' in clean_msg:
-                            #     num_lines = len(clean_msg.split('\n'))
-                            #     f.write(f"        (+ {num_lines - 1} more lines, see detailed logs below)\n")
+                        if suggestion:
+                            f.write(f" 💡 Suggested fix: {suggestion}\n")
 
                         f.write("\n")
 
@@ -689,7 +702,14 @@ def download_and_analyze_failed_jobs(token, repo, runs, date_str, dir_name=None,
                     if clean_line:
                         f.write(clean_line + "\n")
 
-                f.write("-" * 80 + "\n\n")
+                f.write("-" * 80 + "\n")
+
+                # Add suggested fix
+                if item.get('suggestion'):
+                    f.write(f"\n💡 Suggested Fix:\n")
+                    f.write(f"   {item['suggestion']}\n")
+
+                f.write("\n")
 
         print(f"✅ Saved failure report to {report_file}")
 
@@ -854,8 +874,8 @@ Examples:
             print(f"   Using specified date: {date_str}")
         except ValueError:
             print(f"   ⚠️  Invalid date format: {args.date}")
-            print(f"   Expected format: YYYY-MM-DD (e.g., 2025-12-07)")
-            print(f"   Falling back to yesterday")
+            print("   Expected format: YYYY-MM-DD (e.g., 2025-12-07)")
+            print("   Falling back to yesterday")
             start_time, end_time, date_str = get_yesterday_date_range()
     else:
         start_time, end_time, date_str = get_yesterday_date_range()
