@@ -3749,6 +3749,10 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
 
+  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.CURSOR")) {
+    return REDISMODULE_OK;
+  }
+
   VERIFY_ACL(ctx, argv[2])
 
   if (NumShards == 1) {
