@@ -21,20 +21,20 @@ void Obfuscate_Index(const Sha1 *hash, char* buffer) {
 }
 
 void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "Field@%zu", fieldId);
+  snprintf(buffer, MAX_OBFUSCATED_FIELD_NAME, "Field@%zu", fieldId);
 }
 
 void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "FieldPath@%zu", fieldId);
+  snprintf(buffer, MAX_OBFUSCATED_PATH_NAME, "FieldPath@%zu", fieldId);
 }
 
 void Obfuscate_Document(t_uniqueId docId, char* buffer) {
-  sprintf(buffer, "Document@%zu", docId);
+  snprintf(buffer, MAX_OBFUSCATED_DOCUMENT_NAME, "Document@%zu", docId);
 }
 
 void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
   const size_t epoch = spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
-  sprintf(buffer, "Key@%zu", epoch);
+  snprintf(buffer, MAX_OBFUSCATED_KEY_NAME, "Key@%zu", epoch);
 }
 
 const char *Obfuscate_Prefix(const char *prefix) {
