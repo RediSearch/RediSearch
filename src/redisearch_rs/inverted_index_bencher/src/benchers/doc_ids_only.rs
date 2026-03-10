@@ -36,7 +36,7 @@ impl Bencher {
         let test_values = deltas
             .into_iter()
             .map(|delta| {
-                let record = RSIndexResult::term().doc_id(100);
+                let record = RSIndexResult::build_term().doc_id(100).build();
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = DocIdsOnly::encode(&mut buffer, delta, &record).unwrap();
@@ -58,7 +58,7 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = RSIndexResult::term().doc_id(100);
+                        let record = RSIndexResult::build_term().doc_id(100).build();
 
                         let grew_size =
                             DocIdsOnly::encode(&mut buffer, test.delta, &record).unwrap();
@@ -75,7 +75,12 @@ impl Bencher {
         c.bench_function("Decode DocIdsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = DocIdsOnly::decode(cursor, 100, result);
 

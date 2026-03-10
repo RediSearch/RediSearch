@@ -418,7 +418,7 @@ impl Decoder for Numeric {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::numeric(0.0)
+        RSIndexResult::build_numeric(0.0).build()
     }
 }
 
@@ -439,7 +439,7 @@ impl Decoder for NumericFloatCompression {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::numeric(0.0)
+        RSIndexResult::build_numeric(0.0).build()
     }
 }
 

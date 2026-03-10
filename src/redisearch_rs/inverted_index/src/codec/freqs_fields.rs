@@ -62,7 +62,7 @@ impl Decoder for FreqsFields {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(
@@ -139,7 +139,7 @@ impl Decoder for FreqsFieldsWide {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(

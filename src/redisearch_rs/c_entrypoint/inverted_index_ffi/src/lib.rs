@@ -237,7 +237,7 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
 ) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
-    let record = RSIndexResult::numeric(value).doc_id(doc_id);
+    let record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &mut *ii };

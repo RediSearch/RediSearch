@@ -27,7 +27,7 @@ fn test_encode_doc_ids_only() {
 
     for (delta, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::term().doc_id(doc_id);
+        let record = RSIndexResult::build_term().doc_id(doc_id).build();
 
         let bytes_written =
             DocIdsOnly::encode(&mut buf, delta, &record).expect("to encode freqs only record");
@@ -53,7 +53,7 @@ fn test_doc_ids_only_output_too_small() {
     let buf = &mut buf[0..1];
     let mut cursor = Cursor::new(buf);
 
-    let record = RSIndexResult::term().doc_id(10).frequency(5);
+    let record = RSIndexResult::build_term().doc_id(10).frequency(5).build();
     let res = DocIdsOnly::encode(&mut cursor, 256, &record);
 
     assert!(res.is_err());

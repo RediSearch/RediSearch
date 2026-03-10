@@ -322,3 +322,4 @@ def test_flex_blocks_suggest_commands(env):
         .error().contains('FT.SUGDEL is not supported in disk mode')
     env.expect('FT.SUGLEN', 'idx') \
         .error().contains('FT.SUGLEN is not supported in disk mode')
+

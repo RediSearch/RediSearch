@@ -93,7 +93,12 @@ impl Bencher {
         c.bench_function("Decode OffsetsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = OffsetsOnly::decode(cursor, 100, result);
 
