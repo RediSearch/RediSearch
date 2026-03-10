@@ -519,6 +519,7 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
 }
 
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
+#define BIGREDIS_MAX_RAM "bigredis-max-ram"
 
 bool getHideUserDataFromLogs() {
   char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
@@ -549,6 +550,10 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
     const char *conf = ei->config_names[i];
     if (!strcmp(conf, HIDE_USER_DATA_FROM_LOGS)) {
       onUpdatedHideUserDataFromLogs(ctx);
+    }
+    if (!strcmp(conf, BIGREDIS_MAX_RAM) == 0) {
+      RS_ASSERT(SearchDisk_IsEnabled())
+      SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
     }
   }
 }
