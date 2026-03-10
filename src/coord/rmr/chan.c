@@ -31,10 +31,6 @@ struct MRChannel {
 #include "search_ctx.h"
 #include "util/timeout.h"
 
-// Note: pthread_condattr_setclock only supports CLOCK_MONOTONIC (not CLOCK_MONOTONIC_RAW)
-// The timeout parameter (abstimeMono) is in CLOCK_MONOTONIC_RAW, so we convert it
-// to CLOCK_MONOTONIC in condTimedWait()
-
 MRChannel *MR_NewChannel() {
   MRChannel *chan = rm_malloc(sizeof(*chan));
   *chan = (MRChannel){
@@ -129,32 +125,6 @@ void *MRChannel_Pop(MRChannel *chan) {
   }
 
   return popHeadAndUnlock(chan);
-}
-
-// Platform-specific timed wait on condition variable
-// Returns: true if timed out, false if signaled (or spurious wakeup)
-// abstimeMono is an absolute time in CLOCK_MONOTONIC_RAW
-// macOS: uses pthread_cond_timedwait_relative_np with relative timeout
-// Linux/FreeBSD: converts to CLOCK_MONOTONIC for pthread_cond_timedwait
-static bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
-                          const struct timespec *abstimeMono) {
-  // Calculate remaining time from CLOCK_MONOTONIC_RAW
-  struct timespec nowRaw, remaining;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &nowRaw);
-  rs_timerremaining((struct timespec *)abstimeMono, &nowRaw, &remaining);
-  // Check if already past deadline
-  if (remaining.tv_sec == 0 && remaining.tv_nsec == 0) {
-    return true;  // timed out
-  }
-#if defined(__APPLE__) && defined(__MACH__)
-  return pthread_cond_timedwait_relative_np(cond, lock, &remaining) == ETIMEDOUT;
-#else
-  // Convert to CLOCK_MONOTONIC absolute time for the condition variable
-  struct timespec nowMono, absMono;
-  clock_gettime(CLOCK_MONOTONIC, &nowMono);
-  rs_timeradd(&nowMono, &remaining, &absMono);
-  return pthread_cond_timedwait(cond, lock, &absMono) == ETIMEDOUT;
-#endif
 }
 
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMono, bool *timedOut) {

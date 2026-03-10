@@ -9,6 +9,8 @@
 #pragma once
 
 #include <time.h>
+#include <stdbool.h>
+#include <pthread.h>
 #include "redisearch.h"
 #include "version.h"
 #include "query_error.h"
@@ -21,6 +23,14 @@ extern "C" {
 // "'struct timespec' declared inside parameter list will not be visible outside of this
 // definition or declaration"
 struct timespec;
+
+// Platform-specific timed wait on condition variable
+// Returns: true if timed out, false if signaled (or spurious wakeup)
+// abstimeMono is an absolute time in CLOCK_MONOTONIC_RAW
+// macOS: uses pthread_cond_timedwait_relative_np with relative timeout
+// Linux/FreeBSD: converts to CLOCK_MONOTONIC for pthread_cond_timedwait
+bool condTimedWait(pthread_cond_t *cond, pthread_mutex_t *lock,
+                   const struct timespec *abstimeMono);
 
 /*****************************************
  *            Timeout API
