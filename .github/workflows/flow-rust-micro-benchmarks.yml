@@ -3,6 +3,23 @@ name: Run a Rust Micro Benchmark Flow
 on:
   workflow_call:
 
+env:
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
 jobs:
   benchmarks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -12,10 +29,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false  # We'll fetch submodules separately with retry
+      - name: Fetch submodules with retry
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'git submodule update --init --recursive') }}
       - name: Setup specific
         working-directory: .install
         run: ./install_script.sh sudo
+      - name: Fetch Cargo dependencies with retry
+        working-directory: src/redisearch_rs
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'cargo fetch') }}
       - name: Build RediSearch
         run: make build
       - name: Download Latest Baseline Artifact from master
