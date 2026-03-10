@@ -90,6 +90,15 @@ int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, Query
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
 
+struct EvalCtx;
+/**
+ * Evaluate the filter expression for a schema rule.
+ * @param r The evaluation context (must be initialized with RLookup_LoadRuleFields)
+ * @param filter_exp The filter expression to evaluate
+ * @return true if the document passes the filter (should be indexed), false otherwise
+ */
+bool SchemaRule_FilterPasses(struct EvalCtx *r, const struct RSExpr *filter_exp);
+
 //---------------------------------------------------------------------------------------------
 
 extern TrieMap *SchemaPrefixes_g;
