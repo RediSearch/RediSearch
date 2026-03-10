@@ -301,7 +301,6 @@ impl<'a> RLookupKey<'a> {
         #[cfg(any(debug_assertions, test))]
         if is_tombstone {
             debug_assert!(self.name_len == usize::MAX);
-            // Note: `path` is intentionally NOT nulled in tombstones — see `make_tombstone`.
             debug_assert!(self.flags.contains(RLookupKeyFlag::Hidden))
         }
 
@@ -358,6 +357,7 @@ impl<'a> RLookupKey<'a> {
         // `RLookup` lifetime, so the pointer remains valid.
         //
         // This mirrors the original C behaviour: `overrideKey` never cleared `_path`.
+
         let path = mem::take(me._path.deref_mut());
 
         // this will exclude it from iteration
