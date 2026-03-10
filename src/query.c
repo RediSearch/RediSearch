@@ -994,7 +994,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       size_t len;
       const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
       char default_score_field[len + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", fieldName);
+      snprintf(default_score_field, len + 9, "__%s_score", fieldName);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
       if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
         QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_DUP_FIELD,
