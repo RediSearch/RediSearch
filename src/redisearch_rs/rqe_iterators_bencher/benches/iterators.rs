@@ -10,7 +10,6 @@
 //! Benchmark iterators
 
 use criterion::{Criterion, criterion_group, criterion_main};
-/*
 use inverted_index::{
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -20,7 +19,6 @@ use inverted_index::{
     full::{Full, FullWide},
     offsets_only::OffsetsOnly,
 };
- */
 use rqe_iterators_bencher::benchers;
 
 fn benchmark_empty(c: &mut Criterion) {
@@ -58,12 +56,21 @@ fn benchmark_not_iterator(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_union(c: &mut Criterion) {
+    let bencher = benchers::union::Bencher::default();
+    bencher.bench(c);
+}
+
 fn benchmark_inverted_index_numeric(c: &mut Criterion) {
     let bencher = benchers::inverted_index::NumericBencher::default();
     bencher.bench(c);
 }
 
-/*
+fn benchmark_inverted_index_wildcard(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::WildcardBencher::default();
+    bencher.bench(c);
+}
+
 fn benchmark_inverted_index_term(c: &mut Criterion) {
     // Run bench with each decoder producing term results.
     benchers::inverted_index::TermBencher::<Full>::new(
@@ -139,7 +146,6 @@ fn benchmark_inverted_index_term(c: &mut Criterion) {
     )
     .bench(c);
 }
- */
 
 criterion_group!(
     benches,
@@ -152,7 +158,8 @@ criterion_group!(
     benchmark_optional,
     benchmark_union,
     benchmark_inverted_index_numeric,
-    //benchmark_inverted_index_term,
+    benchmark_inverted_index_wildcard,
+    benchmark_inverted_index_term,
 );
 
 criterion_main!(benches);
