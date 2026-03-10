@@ -185,17 +185,17 @@ where
         self.result.doc_id = min_id;
 
         for child in &mut self.children {
-            if child.last_doc_id() == min_id {
-                if let Some(child_result) = child.current() {
-                    let child_ptr: *const RSIndexResult<'index> = child_result;
-                    // SAFETY: child_ptr points to child's result containing data with 'index
-                    // lifetime. Children are owned by self, so their results remain valid.
-                    let child_ref = unsafe { &*child_ptr };
-                    self.result.push_borrowed(child_ref);
+            if child.last_doc_id() == min_id 
+                && let Some(child_result) = child.current()
+            {
+                let child_ptr: *const RSIndexResult<'index> = child_result;
+                // SAFETY: child_ptr points to child's result containing data with 'index
+                // lifetime. Children are owned by self, so their results remain valid.
+                let child_ref = unsafe { &*child_ptr };
+                self.result.push_borrowed(child_ref);
 
-                    if QUICK_EXIT {
-                        return;
-                    }
+                if QUICK_EXIT {
+                    return;
                 }
             }
         }

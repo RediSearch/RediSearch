@@ -59,7 +59,7 @@ impl Default for DocIdMinHeap {
 impl DocIdMinHeap {
     /// Creates a new empty heap.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { data: Vec::new() }
     }
 
@@ -73,13 +73,13 @@ impl DocIdMinHeap {
 
     /// Returns the number of entries in the heap.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Returns `true` if the heap is empty.
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
