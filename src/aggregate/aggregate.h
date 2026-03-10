@@ -66,7 +66,6 @@ typedef struct {
 typedef struct {
   SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
   int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
-  bool cursor_done;        // Whether cursor is exhausted (for cursor queries)
   bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
   QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
   cachedVars cv;           // Cached lookup variables for result serialization

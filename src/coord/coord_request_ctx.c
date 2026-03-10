@@ -96,6 +96,9 @@ void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCall
 
 void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx, QueryError *status) {
   if (req->useReplyCallback) {
+    // Assert no existing error
+    RS_ASSERT(!QueryError_HasError(&req->preRequestError));
+
     // Deep copy since QueryError contains heap-allocated strings.
     QueryError_CloneFrom(status, &req->preRequestError);
     // Clear the original to avoid leaking heap-allocated strings.
