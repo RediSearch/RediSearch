@@ -32,6 +32,7 @@
 #include "module.h"
 #include "aggregate/reply_empty.h"
 #include "profile/profile.h"
+#include "search_disk_utils.h"
 
 #include <time.h>
 
@@ -672,6 +673,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
+    return REDISMODULE_OK;
+  }
   QueryError status = QueryError_Default();
 
   // Memory guardrail
