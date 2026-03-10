@@ -49,7 +49,7 @@ TEST_F(ExpireTest, testSkipTo) {
   // Add 1000 documents to the index and expire the fields
   for (t_docId doc = 1; doc <= maxDocId; ++doc) {
     char buf[1024];
-    sprintf(buf, "doc:%ld", doc);
+    snprintf(buf, sizeof(buf), "doc:%ld", doc);
     hset_args[0] = RedisModule_CreateString(ctx, buf, strlen(buf));
     RedisModuleCallReply *hset = RedisModule_Call(ctx, "HSET", "!v", hset_args, sizeof(hset_args) / sizeof(hset_args[0]));
     RedisModule_FreeCallReply(hset);
