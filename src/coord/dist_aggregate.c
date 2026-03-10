@@ -28,6 +28,7 @@
 #include "coord/dist_utils.h"
 #include "info/global_stats.h"
 #include "search_disk.h"
+#include "coord_request_ctx.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -418,7 +419,8 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   RS_ASSERT(QueryError_HasError(status));
   QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-  QueryError_ReplyAndClear(ctx, status);
+  AREQ_ReplyOrStoreError(r, ctx, status);
+
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
     IndexSpecRef_Release(*strong_ref);
@@ -431,10 +433,21 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
+
+  CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+  if(CoordRequestCtx_TimedOut(reqCtx)) {
+    // Query timed out before request creation
+    return;
+  }
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
+  CoordRequestCtx_LockSetRequest(reqCtx);
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
+  CoordRequestCtx_SetRequest(reqCtx, r);
+  CoordRequestCtx_UnlockSetRequest(reqCtx);
+
   QueryError status = QueryError_Default();
   specialCaseCtx *knnCtx = NULL;
 
@@ -468,6 +481,83 @@ err:
   DistAggregateCleanups(ctx, cmdCtx, sp, &strong_ref, knnCtx, r, reply, &status);
   return;
 }
+
+// Timeout callback for Coordinator AREQ execution
+// Called on the main thread when the blocking client times out (FAIL policy only).
+int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    // This shouldn't happen but handle gracefully
+    return RedisModule_ReplyWithError(ctx, "ERR timeout with no context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_AGGREGATE);
+
+  // Lock to coordinate with request creation in background thread
+  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+
+  // Signal timeout to the background thread
+  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+
+  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // Reply with timeout error
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+
+  return REDISMODULE_OK;
+}
+
+// Reply callback for Coordinator AREQ Request execution (FAIL policy).
+// Called on the main thread when the background thread calls UnblockClient.
+// The background thread stored results in req->storedReplyState, which we use to build the reply.
+// Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
+int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  UNUSED(argv);
+  UNUSED(argc);
+
+  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!CoordReqCtx) {
+    RedisModule_Log(ctx, "warning", "DistAggregateReplyCallback: no context");
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+  }
+
+  RS_ASSERT(CoordReqCtx->type == COMMAND_AGGREGATE);
+
+  AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  if (!req) {
+    // We expect CoordReqCtx to hold the error if req is NULL
+    if (QueryError_HasError(&CoordReqCtx->preRequestError)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &CoordReqCtx->preRequestError);
+      return REDISMODULE_OK;
+    }
+    // This should not happen, but handle gracefully
+    RedisModule_Log(ctx, "warning", "DistAggregateReplyCallback: no AREQ and no preRequestError");
+    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no AREQ and no preRequestError");
+  }
+
+  // Check if results were stored (background thread completed successfully)
+  if (!req->storedReplyState.hasStoredResults) {
+    // Background thread didn't store results - some early error occurred.
+    if (QueryError_HasError(&req->storedReplyState.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    } else {
+      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+    }
+    return REDISMODULE_OK;
+  }
+
+  AREQ_ReplyWithStoredResults(ctx, req);
+
+  // Note: No AREQ_DecrRef here - CoordRequestCtx_Free releases the context's reference.
+  return REDISMODULE_OK;
+}
+
 
 /* ======================= DEBUG ONLY ======================= */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,

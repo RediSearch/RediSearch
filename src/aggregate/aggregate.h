@@ -593,6 +593,9 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   }
 }
 
+void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status);
+void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
+
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
