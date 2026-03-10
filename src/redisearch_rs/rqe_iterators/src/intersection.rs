@@ -331,6 +331,80 @@ where
     }
 }
 
+/// Outcome of [`Intersection::reduce`].
+pub enum ReducedIntersection<I> {
+    /// One child was empty — the intersection is trivially empty.
+    /// All other children have already been dropped.
+    Empty,
+    /// Exactly one child survived (or all children were wildcards —
+    /// the last one is returned). No intersection wrapper is needed.
+    Single(I),
+    /// Two or more real, non-wildcard children: build a full [`Intersection`].
+    Proceed(Vec<I>),
+}
+
+impl<'index, I> Intersection<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    /// Reduce `children` before constructing an intersection.
+    ///
+    /// 0. No children → `Empty`.
+    /// 1. Strip wildcards. If all were wildcards → `Single(last_wildcard)`.
+    /// 2. Any empty child → `Empty` (all others are dropped).
+    /// 3. Exactly one non-wildcard child → `Single(child)`.
+    /// 4. Two or more real children → `Proceed(children)`.
+    pub fn reduce(children: Vec<I>) -> ReducedIntersection<I> {
+        // Rule 0
+        if children.is_empty() {
+            return ReducedIntersection::Empty;
+        }
+
+        // Rule 1: strip wildcards, keep track of the last one seen before any non-wildcard
+        let mut last_wildcard: Option<I> = None;
+        let mut kept: Vec<I> = Vec::with_capacity(children.len());
+        let mut seen_non_wildcard = false;
+
+        for child in children {
+            if child.is_wildcard() {
+                if seen_non_wildcard {
+                    drop(child); // wildcard after non-wildcard: discard immediately
+                } else {
+                    last_wildcard = Some(child); // Drop evicts the previous wildcard
+                }
+            } else {
+                seen_non_wildcard = true;
+                if let Some(wc) = last_wildcard.take() {
+                    drop(wc); // first non-wildcard: discard saved wildcard
+                }
+                kept.push(child);
+            }
+        }
+
+        if kept.is_empty() {
+            // All were wildcards
+            return match last_wildcard {
+                Some(wc) => ReducedIntersection::Single(wc),
+                None => ReducedIntersection::Empty, // defensive: empty input already handled above
+            };
+        }
+
+        // Rule 2: empty child detection
+        if kept.iter().any(|c| c.is_empty()) {
+            // Drop all kept children (including the empty one); intersection is empty
+            return ReducedIntersection::Empty;
+        }
+
+        // Rule 3
+        if kept.len() == 1 {
+            return ReducedIntersection::Single(kept.remove(0));
+        }
+
+        // Rule 4
+        ReducedIntersection::Proceed(kept)
+    }
+}
+
 impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
     I: RQEIterator<'index>,

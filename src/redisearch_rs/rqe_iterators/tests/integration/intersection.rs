@@ -1393,3 +1393,105 @@ mod slop_and_order {
         assert!(ii.at_eof());
     }
 }
+
+// =============================================================================
+// C-Code: IntersectionIteratorReducerTest
+// Tests for `Intersection::reduce()` — one test per reduction rule.
+// =============================================================================
+
+mod reducer {
+    use rqe_iterators::{
+        Empty, RQEIterator, Wildcard,
+        intersection::{Intersection, ReducedIntersection},
+    };
+
+    use crate::utils::Mock;
+
+    /// Heap-erased iterator, required to mix `Mock<N>`, `Empty`, and `Wildcard`
+    /// in a single `Vec` passed to `Intersection::reduce`.
+    type DynIter = Box<dyn RQEIterator<'static> + 'static>;
+
+    // C-Code: TestIntersectionWithNoChild
+    //
+    // Rule 0: an empty child list is trivially empty.
+    #[test]
+    fn no_children_yields_empty() {
+        let children: Vec<DynIter> = vec![];
+        assert!(matches!(
+            Intersection::reduce(children),
+            ReducedIntersection::Empty
+        ));
+    }
+
+    // C-Code: TestIntersectionWithEmptyChild
+    //
+    // Rule 2: any child that reports `is_empty()` forces the whole intersection
+    // to be empty, even when the other children are non-empty.
+    #[test]
+    fn empty_child_yields_empty() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Empty),
+            Box::new(Mock::new([1u64, 2, 3, 4, 5])),
+        ];
+        assert!(matches!(
+            Intersection::reduce(children),
+            ReducedIntersection::Empty
+        ));
+    }
+
+    // C-Code: TestIntersectionRemovesWildcardChildren
+    //
+    // Rule 1 + Rule 4: wildcard children are stripped; the two remaining real
+    // children proceed to a full intersection.
+    #[test]
+    fn wildcard_children_are_removed() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Wildcard::new(30, 1.0)),
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Wildcard::new(1000, 1.0)),
+        ];
+        let ReducedIntersection::Proceed(cs) = Intersection::reduce(children) else {
+            panic!("expected Proceed, got a different variant");
+        };
+        assert_eq!(cs.len(), 2);
+    }
+
+    // C-Code: TestIntersectionAllWildCardChildren
+    //
+    // Rule 1: when every child is a wildcard the last one is returned as `Single`.
+    // Each wildcard is given a distinct `top_id` so that `num_estimated()` can
+    // identify which instance survived.
+    #[test]
+    fn all_wildcard_children_returns_last() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Wildcard::new(10, 1.0)),
+            Box::new(Wildcard::new(20, 1.0)),
+            Box::new(Wildcard::new(30, 1.0)),
+            Box::new(Wildcard::new(40, 1.0)), // last — expected to survive
+        ];
+        let ReducedIntersection::Single(iter) = Intersection::reduce(children) else {
+            panic!("expected Single, got a different variant");
+        };
+        // `Wildcard::num_estimated` returns `top_id`, so 40 identifies the last child.
+        assert_eq!(iter.num_estimated(), 40);
+    }
+
+    // C-Code: TestIntersectionWithSingleChild
+    //
+    // Rule 1 + Rule 3: wildcards are stripped, leaving exactly one real child
+    // which is returned directly as `Single`.
+    #[test]
+    fn single_real_child_yields_single() {
+        let children: Vec<DynIter> = vec![
+            Box::new(Mock::new([1u64, 2, 3])),
+            Box::new(Wildcard::new(30, 1.0)),
+            Box::new(Wildcard::new(30, 1.0)),
+        ];
+        assert!(matches!(
+            Intersection::reduce(children),
+            ReducedIntersection::Single(_)
+        ));
+    }
+}

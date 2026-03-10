@@ -30,7 +30,7 @@ pub mod util;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
-pub use intersection::Intersection;
+pub use intersection::{Intersection, ReducedIntersection};
 pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
 pub use wildcard::{Wildcard, WildcardIterator};
@@ -129,6 +129,14 @@ pub trait RQEIterator<'index> {
     /// when [`read`](Self::read) would return `Ok(None)`.
     fn at_eof(&self) -> bool;
 
+    /// Returns `true` if this iterator is known to be empty at construction time.
+    ///
+    /// Implementers should only override this when the iterator is structurally
+    /// empty (e.g. [`Empty`]) — not when it happens to be exhausted after reads.
+    fn is_empty(&self) -> bool {
+        false
+    }
+
     /// Returns `true` if this iterator matches all documents.
     fn is_wildcard(&self) -> bool {
         false
@@ -182,6 +190,10 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn at_eof(&self) -> bool {
         (**self).at_eof()
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
     }
 
     fn is_wildcard(&self) -> bool {

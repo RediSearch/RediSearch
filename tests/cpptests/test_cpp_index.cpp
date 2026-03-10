@@ -22,7 +22,7 @@ extern "C" {
 #include "src/iterators/hybrid_reader.h"
 #include "iterators_rs.h"
 #include "src/iterators/union_iterator.h"
-#include "src/iterators/intersection_iterator.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "src/iterators/not_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
