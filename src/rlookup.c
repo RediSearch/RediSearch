@@ -351,7 +351,7 @@ void RLookupRow_Cleanup(RLookupRow *r) {
     array_free(r->dyn);
     r->dyn = NULL;
   }
-  RS_LOG_ASSERT(r->ndyn == 0, "ndyn should be 0 after reset");
+  RS_LOG_ASSERT(r->ndyn == 0, "ndyn should be 0 after cleanup");
 }
 
 void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
