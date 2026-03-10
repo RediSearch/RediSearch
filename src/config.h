@@ -212,8 +212,15 @@ typedef struct {
   bool infoEmitOnZeroIndexes;
   // Simulate working under Flex conditions. This is used for testing only.
   bool simulateInFlex;
+  // Padding to prevent Redis Module Config API from corrupting diskBufferPercentage.
+  // Redis writes 4+ bytes directly to bool config fields (even though bool is 1 byte).
+  // See docs/design/redis-module-config-memory-corruption-bug.md
+  char _padding_after_bool_configs[6];
   // Percentage of available memory to use for disk write buffer (0-100).
   // Used by disk-based indexes for WriteBufferManager budget.
+  // Note: Using long long for Redis Module Config API compatibility.
+  // Redis writes 8 bytes directly to privdata after calling setters.
+  // See docs/design/redis-module-config-memory-corruption-bug.md
   uint8_t diskBufferPercentage;
 } RSConfig;
 

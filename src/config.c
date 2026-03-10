@@ -538,6 +538,7 @@ static inline int errorMemoryLimitG100(QueryError *status) {
   QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
+
 // SET MEMORY LIMIT PERCENTAGE
 CONFIG_SETTER(setIndexingMemoryLimit) {
   uint8_t newLimit;
@@ -1265,7 +1266,7 @@ CONFIG_SETTER(setDiskBufferPercentage) {
 
 CONFIG_GETTER(getDiskBufferPercentage) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->diskBufferPercentage);
+  return sdscatprintf(ss, "%d", config->diskBufferPercentage);
 }
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
@@ -2110,6 +2111,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint8_numeric_config, set_uint8_numeric_config, NULL,
       (void *)&(RSGlobalConfig.indexingMemoryLimit)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      100, get_uint8_numeric_config, set_uint8_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.diskBufferPercentage)
     )
   )
 
