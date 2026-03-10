@@ -727,11 +727,12 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    // TODO: Dump the entire hreq when explain is implemented
-    // Create a dummy AREQ for BlockQueryClientWithTimeout (it expects an AREQ but we'll use the first one)
-    AREQ *dummy_req = hreq->requests[0];
-    // Pass 0 and NULL - no Redis-level timeout or reply_callback for hybrid (HybridRequest uses its own pattern)
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, dummy_req, 0, NULL, NULL);
+    BlockClientCtx blockClientCtx = {0};
+
+    blockClientCtx.ast = &hreq->requests[0]->ast;
+    blockClientCtx.privdata = hreq;
+
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 
