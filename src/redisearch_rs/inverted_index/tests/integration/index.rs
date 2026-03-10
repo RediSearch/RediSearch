@@ -18,14 +18,15 @@ fn test_inverted_index_usage() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
 
     for id in 0..3_200 {
-        ii.add_record(&RSIndexResult::default().doc_id(id)).unwrap();
+        ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+            .unwrap();
     }
 
     assert_eq!(ii.unique_docs(), 3_200);
 
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
 
         // Test reading across block boundaries
         for expected_id in 0..1_100 {
@@ -71,7 +72,7 @@ fn test_inverted_index_usage() {
 
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
 
         for expected_id in 2_000..3_200 {
             let found = reader.next_record(&mut result).unwrap();
@@ -112,7 +113,7 @@ fn test_inverted_index_usage() {
 
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
 
         assert!(
             !reader.next_record(&mut result).unwrap(),
@@ -123,8 +124,12 @@ fn test_inverted_index_usage() {
     // Make the new entries u32::MAX apart. This will allow us to collect every second
     // entry and cause a delta that is too big, thus causing the blocks to split.
     for i in 0..1_002 {
-        ii.add_record(&RSIndexResult::default().doc_id(i * (u32::MAX as t_docId)))
-            .unwrap();
+        ii.add_record(
+            &RSIndexResult::build_virt()
+                .doc_id(i * (u32::MAX as t_docId))
+                .build(),
+        )
+        .unwrap();
     }
 
     assert_eq!(ii.unique_docs(), 1_002);
@@ -149,7 +154,7 @@ fn test_inverted_index_usage() {
 
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
 
         for i in 0..501 {
             let found = reader.next_record(&mut result).unwrap();

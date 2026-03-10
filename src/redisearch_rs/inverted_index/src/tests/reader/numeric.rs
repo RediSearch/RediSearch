@@ -17,9 +17,9 @@ fn reading_filter_based_on_numeric_filter() {
     // Make an iterator with three records having different numeric values. The second record will be
     // filtered out based on the numeric filter.
     let iter = vec![
-        RSIndexResult::numeric(5.0).doc_id(10),
-        RSIndexResult::numeric(25.0).doc_id(11),
-        RSIndexResult::numeric(15.0).doc_id(12),
+        RSIndexResult::build_numeric(5.0).doc_id(10).build(),
+        RSIndexResult::build_numeric(25.0).doc_id(11).build(),
+        RSIndexResult::build_numeric(15.0).doc_id(12).build(),
     ];
 
     let filter = NumericFilter {
@@ -35,13 +35,16 @@ fn reading_filter_based_on_numeric_filter() {
     };
 
     let mut reader = FilterNumericReader::new(&filter, iter.into_iter());
-    let mut result = RSIndexResult::numeric(0.0);
+    let mut result = RSIndexResult::build_numeric(0.0).build();
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::numeric(5.0).doc_id(10));
+    assert_eq!(result, RSIndexResult::build_numeric(5.0).doc_id(10).build());
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::numeric(15.0).doc_id(12));
+    assert_eq!(
+        result,
+        RSIndexResult::build_numeric(15.0).doc_id(12).build()
+    );
 }

@@ -120,7 +120,9 @@ fn skip_to_not_empty() {
         assert_eq!(
             outcome,
             Some(SkipToOutcome::Found(
-                &mut inverted_index::RSIndexResult::virt().doc_id(id)
+                &mut inverted_index::RSIndexResult::build_virt()
+                    .doc_id(id)
+                    .build()
             ))
         );
         assert_eq!(it.last_doc_id(), id);

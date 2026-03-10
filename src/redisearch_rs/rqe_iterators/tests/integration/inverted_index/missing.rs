@@ -22,11 +22,12 @@ struct MissingBaseTest {
 
 impl MissingBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-        RSIndexResult::virt()
+        RSIndexResult::build_virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
             .weight(0.0)
+            .build()
     }
 
     fn new(n_docs: u64) -> Self {
@@ -89,11 +90,12 @@ mod not_miri {
 
     impl MissingRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-            RSIndexResult::virt()
+            RSIndexResult::build_virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
                 .frequency(1)
                 .weight(0.0)
+                .build()
         }
 
         fn new(n_docs: u64) -> Self {

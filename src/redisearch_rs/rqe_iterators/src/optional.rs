@@ -60,13 +60,14 @@ where
     ///   child [`RQEIterator`]. When the child is exhausted, the iterator
     ///   yields virtual [`RSIndexResult`] values without weight until `max_id` is reached.
     /// * `child` [`RQEIterator`] used and wrapped around by this [`Optional`] iterator
-    pub const fn new(max_id: t_docId, weight: f64, child: I) -> Self {
+    pub fn new(max_id: t_docId, weight: f64, child: I) -> Self {
         Self {
             max_doc_id: max_id,
             weight,
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .frequency(1)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
             child: Some(child),
         }
     }

@@ -177,7 +177,7 @@ impl<'index> RSAggregateResult<'index> {
             } => {
                 records.push(child);
 
-                *kind_mask |= child.data.kind();
+                *kind_mask |= child.kind();
             }
             RSAggregateResult::Owned { .. } => {
                 panic!("Cannot push a borrowed child to an owned aggregate result");
@@ -231,7 +231,7 @@ impl<'index> RSAggregateResult<'index> {
                 panic!("Cannot push a borrowed child to an owned aggregate result");
             }
             RSAggregateResult::Owned { records, kind_mask } => {
-                *kind_mask |= child.data.kind();
+                *kind_mask |= child.kind();
                 records.push(child);
             }
         }

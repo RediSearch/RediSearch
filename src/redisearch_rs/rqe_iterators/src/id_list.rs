@@ -40,7 +40,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// If `SORTED` is set to `true`, the list must be sorted.
     #[inline(always)]
     pub fn new(ids: impl Into<OwnedSlice<t_docId>>) -> Self {
-        Self::with_result(ids, RSIndexResult::virt())
+        Self::with_result(ids, RSIndexResult::build_virt().build())
     }
 
     /// Get the current iterator offset—i.e. its position in the list of IDs.
