@@ -486,7 +486,7 @@ uint64_t IndexReader_NumEstimated(const struct IndexReader *ir);
  * # Safety
  * The following invariants must be upheld when calling this function:
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
- * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ * - `ii` must be either NULL or a valid pointer to an `InvertedIndex` instance.
  */
 bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
 
