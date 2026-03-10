@@ -686,15 +686,15 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 static char buffer[1024];
 
 static int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal,
-                    double* doubleVal) {
-  *strVal = buffer;
+                    double* doubleVal) {  
   int numId;
   sscanf((char*)id, "doc%d", &numId);
   if (strcmp(fieldName, TAG_FIELD_NAME1) == 0) {
-    snprintf(*strVal, sizeof(buffer), "tag1-%d", numId);
+    snprintf(buffer, sizeof(buffer), "tag1-%d", numId);
   } else {
-    snprintf(*strVal, sizeof(buffer), "tag2-%d", numId);
+    snprintf(buffer, sizeof(buffer), "tag2-%d", numId);
   }
+  *strVal = buffer;
   return RSVALTYPE_STRING;
 }
 
