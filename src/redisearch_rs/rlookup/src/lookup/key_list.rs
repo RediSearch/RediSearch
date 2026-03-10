@@ -103,6 +103,7 @@ impl<'a> KeyList<'a> {
     }
 
     /// Return a cursor over an [`RLookup`]'s key list.
+    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front");
@@ -114,6 +115,7 @@ impl<'a> KeyList<'a> {
     }
 
     /// Return a cursor over an [`RLookup`]'s key list with editing operations.
+    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::cursor_front_mut");
