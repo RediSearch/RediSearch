@@ -63,7 +63,7 @@ typedef struct HybridRequest {
     // Array of cursors for reply_callback path (internal hybrid search).
     // Non-owning - Allocation and freeing are managed by the functions that create them
     // If using reply callback, the callback will free the array.
-    // In the Edge case of timeout after allocation, HybridRequest_Free will free the array.
+    // In the Edge case of timeout after allocation, HybridRequest_Free will free the array, if it is not NULL.
     arrayof(struct Cursor*) cursors;
 } HybridRequest;
 
