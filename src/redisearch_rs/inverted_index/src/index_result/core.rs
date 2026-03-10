@@ -411,6 +411,14 @@ impl<'index> RSIndexResult<'index> {
         matches!(self.data, RSResultData::Term(_))
     }
 
+    /// Debug-only assertion that `self.data == other.data`.
+    ///
+    /// This is a no-op in release builds.
+    #[track_caller]
+    pub fn assert_data(&self, other: &Self) {
+        debug_assert_eq!(self.data, other.data);
+    }
+
     /// Is this result some copy type
     pub const fn is_copy(&self) -> bool {
         match self.data {
