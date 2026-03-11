@@ -1108,6 +1108,14 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     goto error;
   }
 
+  // For disk indexes, release the spec lock immediately after iterator creation.
+  // This is fine, since the disk iterators use snapshots. This allows the main
+  // thread to write while the query iterates over disk data.
+  // NOTE: Revisit as more index types are supported.
+  if (sctx->spec->diskSpec) {
+    RedisSearchCtx_UnlockSpec(sctx);
+  }
+
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
     int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
@@ -1431,6 +1439,15 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
+
+    // For disk indexes, release the spec lock immediately after iterator creation.
+    // This is fine, since the disk iterators use snapshots. This allows the main
+    // thread to write while the query iterates over disk data.
+    // NOTE: Revisit as more index types are supported.
+    if (sctx->spec->diskSpec) {
+      RedisSearchCtx_UnlockSpec(sctx);
+    }
+
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Since we are still in the main thread, and we already validated the
       // spec'c existence, it is safe to directly get the strong reference from the spec
