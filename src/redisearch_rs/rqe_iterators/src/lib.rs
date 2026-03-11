@@ -130,6 +130,11 @@ pub trait RQEIterator<'index> {
     /// when [`read`](Self::read) would return `Ok(None)`.
     fn at_eof(&self) -> bool;
 
+    /// Returns `true` if this iterator yields no results.
+    fn is_empty(&self) -> bool {
+        false
+    }
+
     /// Returns `true` if this iterator matches all documents.
     fn is_wildcard(&self) -> bool {
         false
@@ -171,6 +176,10 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn at_eof(&self) -> bool {
         (**self).at_eof()
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
     }
 
     fn is_wildcard(&self) -> bool {

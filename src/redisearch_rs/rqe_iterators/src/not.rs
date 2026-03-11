@@ -9,14 +9,14 @@
 
 //! Supporting types for [`Not`] and [`NotOptimized`].
 
-use std::time::Duration;
+use std::{ptr::NonNull, time::Duration};
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
+use ffi::{IteratorType, IteratorType_NOT_ITERATOR, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    util::TimeoutContext,
+    Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty, util::TimeoutContext, wildcard::new_wildcard_iterator,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -585,5 +585,163 @@ where
         } else {
             Ok(RQEValidateStatus::Ok)
         }
+    }
+}
+
+/// The result of [`not_iterator_reducer`].
+enum NotReduction<'index, I> {
+    /// The NOT was reduced to a simpler iterator (e.g. wildcard or empty).
+    Reduced(Box<dyn RQEIterator<'index> + 'index>, IteratorType),
+    /// No reduction was possible. The child is returned unchanged.
+    NotReduced(I),
+}
+
+/// Attempt to reduce a NOT iterator into a simpler form.
+///
+/// Applies the following reduction rules:
+/// 1. If the child is empty, the NOT matches everything — return a wildcard.
+/// 2. If the child is a wildcard, the NOT matches nothing — return empty.
+///
+/// # Safety
+///
+/// When the child is empty (rule 1), this function calls
+/// [`new_wildcard_iterator`] — all its safety preconditions on `query` must
+/// hold.
+unsafe fn not_iterator_reducer<'index, I>(
+    child: I,
+    weight: f64,
+    query: NonNull<ffi::QueryEvalCtx>,
+) -> NotReduction<'index, I>
+where
+    I: RQEIterator<'index> + 'index,
+{
+    if child.is_empty() {
+        // Rule 1: child is empty → NOT matches everything → wildcard.
+        drop(child);
+        // SAFETY: Caller guarantees the preconditions of `new_wildcard_iterator`.
+        let (mut wc, wc_type) = unsafe { new_wildcard_iterator(query, weight) };
+        if let Some(result) = wc.current() {
+            result.freq = 0;
+        }
+        NotReduction::Reduced(wc, wc_type)
+    } else if child.is_wildcard() {
+        // Rule 2: child is wildcard → NOT matches nothing → empty.
+        drop(child);
+        NotReduction::Reduced(Box::new(Empty), ffi::IteratorType_EMPTY_ITERATOR)
+    } else {
+        // No reduction applicable.
+        NotReduction::NotReduced(child)
+    }
+}
+
+/// The result of [`new_not_iterator`].
+pub enum NewNotIterator<'index> {
+    /// The child was trivially reducible; the NOT was replaced by a simpler
+    /// iterator via [`not_iterator_reducer`]:
+    ///
+    /// - Child is [`Empty`] → returns a [`WildcardIterator`](crate::WildcardIterator)
+    ///   (NOT nothing = everything).
+    /// - Child is a [`WildcardIterator`](crate::WildcardIterator) → returns
+    ///   [`Empty`] (NOT everything = nothing).
+    Reduced(Box<dyn RQEIterator<'index> + 'index>, IteratorType),
+    /// No reduction was possible; a proper NOT iterator was created:
+    ///
+    /// - [`Not`] when the index does not have an `existingDocs` inverted
+    ///   index (sequential scan from 1 to `max_doc_id`).
+    /// - [`NotOptimized`] when the index has an `existingDocs` inverted
+    ///   index (backed by a [`WildcardIterator`](crate::WildcardIterator)).
+    NotReduced(Box<dyn NotIterator<'index> + 'index>, IteratorType),
+}
+
+/// Construct a NOT iterator, choosing between [`Not`] (sequential) and
+/// [`NotOptimized`] (wildcard-backed) based on the query evaluation context.
+///
+/// If the child is trivially reducible (empty or wildcard), the reducer is
+/// applied first and a simplified iterator is returned directly as
+/// [`NewNotIterator::Reduced`].
+///
+/// # Safety
+///
+/// 1. `query` must point to a valid [`QueryEvalCtx`](ffi::QueryEvalCtx)
+///    that remains valid for `'index`.
+/// 2. `query.sctx` must be a non-null pointer to a valid
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for `'index`.
+/// 3. `query.sctx.spec` must be a non-null pointer to a valid
+///    [`IndexSpec`](ffi::IndexSpec) that remains valid for `'index`.
+/// 4. `query.sctx.spec.rule`, when non-null, must point to a valid
+///    [`SchemaRule`](ffi::SchemaRule).
+/// 5. When the optimized path is taken, all preconditions of
+///    [`new_wildcard_iterator`] must also hold.
+pub unsafe fn new_not_iterator<'index, I>(
+    child: I,
+    max_doc_id: t_docId,
+    weight: f64,
+    timeout: Duration,
+    skip_timeout_checks: bool,
+    query: NonNull<ffi::QueryEvalCtx>,
+) -> NewNotIterator<'index>
+where
+    I: RQEIterator<'index> + 'index,
+{
+    // SAFETY: Caller guarantees the preconditions for `new_wildcard_iterator`
+    // (used by the reducer when the child is empty).
+    let child = match unsafe { not_iterator_reducer(child, weight, query) } {
+        NotReduction::Reduced(reduced, iter_type) => {
+            return NewNotIterator::Reduced(reduced, iter_type);
+        }
+        NotReduction::NotReduced(child) => child,
+    };
+
+    // Box the child for type-erased child access via `NotIterator`.
+    let child: BoxedChild<'index> = Box::new(child);
+
+    // SAFETY: Caller guarantees `query` points to a valid `QueryEvalCtx` (1).
+    let query_ref = unsafe { query.as_ref() };
+    let sctx = NonNull::new(query_ref.sctx).expect("query.sctx is null");
+    // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2).
+    let sctx_ref = unsafe { sctx.as_ref() };
+    // SAFETY: Caller guarantees `query.sctx.spec` is a valid, non-null pointer (3).
+    let spec = unsafe { &*sctx_ref.spec };
+
+    let has_disk_spec = !spec.diskSpec.is_null();
+    let index_all = NonNull::new(spec.rule)
+        .map(|rule| {
+            // SAFETY: Caller guarantees `spec.rule`, when non-null, points to
+            // a valid `SchemaRule` (4).
+            unsafe { rule.as_ref() }.index_all
+        })
+        .unwrap_or(false);
+
+    let optimized = index_all || has_disk_spec;
+
+    if optimized {
+        // SAFETY: Caller guarantees the preconditions of
+        // `new_wildcard_iterator` hold when the optimized path is taken (5).
+        let (wcii, _) = unsafe { new_wildcard_iterator(query, weight) };
+        // Upcast to `Box<dyn RQEIterator>` since `Box<dyn WildcardIterator>`
+        // does not directly implement `RQEIterator`.
+        let wcii: Box<dyn RQEIterator<'index> + 'index> = wcii;
+        NewNotIterator::NotReduced(
+            Box::new(NotOptimized::new(
+                wcii,
+                child,
+                max_doc_id,
+                weight,
+                timeout,
+                skip_timeout_checks,
+            )),
+            IteratorType_NOT_ITERATOR,
+        )
+    } else {
+        NewNotIterator::NotReduced(
+            Box::new(Not::new(
+                child,
+                max_doc_id,
+                weight,
+                timeout,
+                skip_timeout_checks,
+            )),
+            IteratorType_NOT_ITERATOR,
+        )
     }
 }
