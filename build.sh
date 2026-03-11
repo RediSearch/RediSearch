@@ -473,6 +473,12 @@ prepare_cmake_arguments() {
   # Ensure output file is always .so even on macOS
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_SHARED_LIBRARY_SUFFIX=.so"
 
+  # Enable sccache for C/C++ compilation caching if available
+  if command -v sccache &>/dev/null; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+    echo "Using sccache for C/C++ compilation caching"
+  fi
+
   # Add caching flags to prevent using old configurations
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
@@ -508,6 +514,12 @@ prepare_cmake_arguments() {
 
   # Export RUSTFLAGS so it's available to the Rust build process
   export RUSTFLAGS
+
+  # Enable sccache for Rust if available
+  if command -v sccache &>/dev/null; then
+    export RUSTC_WRAPPER="sccache"
+    echo "Using sccache for Rust compilation caching"
+  fi
 
   # RUSTFLAGS will be passed as environment variable to avoid quoting issues
   # This prevents CMake argument parsing from truncating complex flag values
