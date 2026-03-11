@@ -1,10 +1,5 @@
 name: Build and Upload Artifacts
 
-# Added these to use JWT token to connect with AWS
-permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: read    # This is required for actions/checkout
-
 on:
   workflow_call:
     inputs:
@@ -53,9 +48,6 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     continue-on-error: true
     name: Build cached container for platform
-    permissions:
-      contents: read
-      packages: write # Required for reusable build-image workflow to push GHCR cache/images
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ${{ needs.get-config.outputs.container }}
@@ -71,6 +63,9 @@ jobs:
       needs.get-config.result == 'success' &&
       (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      id-token: write # Required for OIDC role assumption during upload
+      contents: read  # Required for actions/checkout
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
