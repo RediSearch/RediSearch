@@ -1,0 +1,41 @@
+name: Retry Command
+description: |
+  Runs a command with retry logic. Retries up to 5 times with 30 second delays.
+
+inputs:
+  command:
+    description: "The command to run"
+    required: true
+  max_retries:
+    description: "Maximum number of retry attempts"
+    required: false
+    default: "5"
+  retry_delay:
+    description: "Delay in seconds between retries"
+    required: false
+    default: "30"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        COMMAND: ${{ inputs.command }}
+        MAX_RETRIES: ${{ inputs.max_retries }}
+        RETRY_DELAY: ${{ inputs.retry_delay }}
+      run: |
+        SUCCESS=0
+        for i in $(seq 1 "$MAX_RETRIES"); do
+          echo "Attempt $i of $MAX_RETRIES"
+          if eval "$COMMAND"; then
+            echo "Command succeeded"
+            SUCCESS=1
+            break
+          fi
+          if [ "$i" -lt "$MAX_RETRIES" ]; then
+            echo "Command failed, retrying in $RETRY_DELAY seconds..."
+            sleep "$RETRY_DELAY"
+          fi
+        done
+        [ $SUCCESS -eq 1 ] || exit 1
+
