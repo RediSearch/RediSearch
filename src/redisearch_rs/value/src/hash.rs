@@ -13,7 +13,8 @@ use std::hash::Hasher;
 
 /// Hashes an [`RsValue`] into the given [`Fnv64`] hasher.
 ///
-/// The `Undefined` and `Null` variants require FNV-specific state resets.
+/// The `Undefined` and `Null` variants bypass normal `fnv` hashing by directly
+/// resetting the hasher state via [`Fnv64::with_offset_basis`].
 pub fn hash_value(value: &RsValue, fnv64: &mut Fnv64) {
     match value {
         RsValue::Undefined => *fnv64 = Fnv64::with_offset_basis(0),

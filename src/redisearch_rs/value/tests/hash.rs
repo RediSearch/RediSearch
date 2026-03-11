@@ -72,10 +72,10 @@ fn null_advances_hasher_state() {
     let mut hasher = Fnv64::default();
     let before = hasher.finish();
     hash_value(&RsValue::Null, &mut hasher);
-    let after = hasher.finish();
+    let actual = hasher.finish();
 
     let expected = Fnv64::with_offset_basis(before + 1).finish();
-    assert_eq!(after, expected);
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn ref_hashes_same_as_inner_value() {
 
 #[test]
 fn array_hashes_elements_sequentially() {
-    // An array of [1.0, 2.0] should hash the same as hashing 1.0 then 2.0 sequentially.
+    // An array of [x, y] should give the same result as hashing x and y sequentially.
     let arr = RsValue::Array(Array::new(Box::new([
         SharedRsValue::new(RsValue::Number(1.0)),
         SharedRsValue::new(RsValue::Number(2.0)),
@@ -102,7 +102,7 @@ fn array_hashes_elements_sequentially() {
 
 #[test]
 fn map_hashes_keys_and_values() {
-    // A map with one entry {3.0: 4.0} should hash as key then value sequentially.
+    // A map with one entry {key: val} should give the same result as hashing key and value sequentially.
     let map = RsValue::Map(Map::new(Box::new([(
         SharedRsValue::new(RsValue::Number(3.0)),
         SharedRsValue::new(RsValue::Number(4.0)),
