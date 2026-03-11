@@ -207,22 +207,25 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
     size_t queueSize = q->sz;
     int pending = q->pending;
     int maxPending = q->maxPending;
-    uv_mutex_unlock(&q->lock);
-    RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqPop: BLOCKED - pending(%d) >= maxPending(%d), queueSize=%zu",
-                     pending, maxPending, queueSize);
-    // If the queue is full we need to wake up the drain callback
-    uv_async_send(&q->async);
 
-    // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
-    // So it's safe to do without the lock.
+    // Handle pending info logging while still holding the lock.
     if (q->head == q->pendingInfo.head && q->sz > q->pendingInfo.warnSize) {
       // If we hit the same head multiple times, we may have a problem. Log it once.
-      RedisModule_Log(RSDummyContext, "warning", "Work queue at max pending with the same head. Size: %zu", q->sz);
       q->pendingInfo.warnSize = q->sz + (1 << 10);
+      uv_mutex_unlock(&q->lock);
+      RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqPop: BLOCKED - pending(%d) >= maxPending(%d), queueSize=%zu (same head warning)",
+                       pending, maxPending, queueSize);
     } else {
       q->pendingInfo.head = q->head;
       q->pendingInfo.warnSize = q->sz + (1 << 10);
+      uv_mutex_unlock(&q->lock);
+      RedisModule_Log(RSDummyContext, "warning", "DEADLOCK_DEBUG: rqPop: BLOCKED - pending(%d) >= maxPending(%d), queueSize=%zu",
+                       pending, maxPending, queueSize);
     }
+
+    // NOTE: We do NOT call uv_async_send here. The queue will be woken up
+    // when RQ_Done is called (i.e., when an in-flight job completes).
+    // Calling uv_async_send here would cause a CPU spin loop.
 
     return NULL;
   } else {
@@ -243,7 +246,13 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 void RQ_Done(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);
   --q->pending;
+  // If there are jobs waiting in the queue, wake up the async callback
+  // to process them now that we have capacity.
+  int shouldWake = (q->head != NULL);
   uv_mutex_unlock(&q->lock);
+  if (shouldWake) {
+    uv_async_send(&q->async);
+  }
 }
 
 static void rqAsyncCb(uv_async_t *async) {
