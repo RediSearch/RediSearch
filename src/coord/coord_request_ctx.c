@@ -73,7 +73,7 @@ bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx) {
 }
 
 void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
-  return ctx->type == COMMAND_HYBRID ? ctx->hreq : ctx->areq;
+  return ctx->type == COMMAND_HYBRID ? (void *)ctx->hreq : (void *)ctx->areq;
 }
 
 bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
