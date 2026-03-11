@@ -22,6 +22,7 @@
 #include "debug_commands.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
+#include "gc.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -221,6 +222,16 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->doc->docId = docId;
         spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
         ++spec->stats.scoring.numDocuments;
+        // Notify GC of the change
+        if (spec->gc) {
+          if (oldLen > 0) {
+            // Document was updated (old version deleted, new version added)
+            GCContext_OnUpdate(spec->gc);
+          } else {
+            // New document added
+            GCContext_OnAdd(spec->gc);
+          }
+        }
       } else {
         cur->stateFlags |= ACTX_F_ERRORED;
       }

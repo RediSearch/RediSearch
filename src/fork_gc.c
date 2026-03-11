@@ -1160,6 +1160,8 @@ ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->onDelete = deleteCb;
+  callbacks->onAdd = NULL;
+  callbacks->onUpdate = NULL;
   callbacks->getStats = getStatsCb;
 
   return forkGc;

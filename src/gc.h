@@ -39,6 +39,8 @@ typedef struct GCCallbacks {
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
+  void (*onAdd)(void* ctx);
+  void (*onUpdate)(void* ctx);
   void (*onTerm)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
   void (*getStats)(void* gcCtx, InfoGCStats* out);
@@ -59,6 +61,8 @@ void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
+void GCContext_OnAdd(GCContext* gc);
+void GCContext_OnUpdate(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);

@@ -152,6 +152,18 @@ void GCContext_OnDelete(GCContext* gc) {
   }
 }
 
+void GCContext_OnAdd(GCContext* gc) {
+  if (gc->callbacks.onAdd) {
+    gc->callbacks.onAdd(gc->gcCtx);
+  }
+}
+
+void GCContext_OnUpdate(GCContext* gc) {
+  if (gc->callbacks.onUpdate) {
+    gc->callbacks.onUpdate(gc->gcCtx);
+  }
+}
+
 void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
   gc->callbacks.getStats(gc->gcCtx, out);
 }
