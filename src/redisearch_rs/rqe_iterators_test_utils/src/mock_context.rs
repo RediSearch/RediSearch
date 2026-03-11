@@ -124,6 +124,23 @@ impl MockContext {
         NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
     }
 
+    /// Get the query evaluation context.
+    pub const fn qctx(&self) -> NonNull<ffi::QueryEvalCtx> {
+        NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
+    }
+
+    /// Set [`SchemaRule::index_all`]
+    ///
+    /// # Safety
+    ///
+    /// Must not be called while any iterator created from this context is
+    /// still alive, as it mutates the spec through a raw pointer.
+    pub unsafe fn set_index_all(&self, value: bool) {
+        // SAFETY: Caller guarantees no iterators from this context are alive,
+        // so the write does not race.
+        unsafe { (*self.rule).index_all = value };
+    }
+
     /// Get a zeroed [`TagIndex`](ffi::TagIndex) pointer for basic (non-revalidation) tests.
     pub const fn tag_index(&self) -> NonNull<ffi::TagIndex> {
         NonNull::new(self.tag_index).expect("TagIndex should not be null")
