@@ -1017,17 +1017,17 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
+  // check possible optimization after creation of QueryIterator tree
+  if (IsOptimized(req)) {
+    QOptimizer_Iterators(req, req->optimizer);
+  }
+
   // For disk indexes, release the spec lock immediately after iterator creation.
   // This is fine, since the disk iterators use snapshots. This allows the main
   // thread to write while the query iterates over disk data.
   // NOTE: Revisit as more index types are supported.
   if (sctx->spec->diskSpec) {
     RedisSearchCtx_UnlockSpec(sctx);
-  }
-
-  // check possible optimization after creation of QueryIterator tree
-  if (IsOptimized(req)) {
-    QOptimizer_Iterators(req, req->optimizer);
   }
 
   if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
