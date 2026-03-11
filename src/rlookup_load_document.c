@@ -177,7 +177,7 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
       }
       if (!options->forceLoad) {
         /* wanted a sort key, but field is not sortable */
-        if ((options->mode & RLOOKUP_LOAD_SVKEYS) && !(RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC)) {
+        if ((options->cachedOnly) && !(RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC)) {
           continue;
         }
       }
@@ -322,21 +322,28 @@ done:
   return rc;
 }
 
-int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
-  int rv = REDISMODULE_ERR;
-  if (options->dmd) {
-    RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
-  }
+int RLookup_LoadDocumentAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+    int rv = REDISMODULE_ERR;
+    RS_LOG_ASSERT(options->dmd, "must have DocumentMetadata set");
 
-  if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
+    RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
+
     if (options->dmd->type == DocumentType_Hash) {
       rv = RLookup_HGETALL(it, dst, options);
     } else if (options->dmd->type == DocumentType_Json) {
       rv = RLookup_JSON_GetAll(it, dst, options);
     }
-  } else {
-    rv = loadIndividualKeys(it, dst, options);
+
+    return rv;
+}
+
+int RLookup_LoadDocumentIndividual(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+  int rv = REDISMODULE_ERR;
+  if (options->dmd) {
+    RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
   }
+
+  rv = loadIndividualKeys(it, dst, options);
 
   return rv;
 }
