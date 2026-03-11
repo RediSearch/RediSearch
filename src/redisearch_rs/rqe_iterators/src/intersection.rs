@@ -90,8 +90,6 @@ pub struct Intersection<'index, I> {
     is_eof: bool,
     /// Maximum allowed slop (distance) between term positions. `None` disables proximity
     /// validation entirely.
-    ///
-    /// Capped to [`i32::MAX`] because of [`ffi::IndexResult_IsWithinRange`]
     max_slop: Option<u32>,
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
@@ -181,8 +179,6 @@ where
         if !in_order {
             children.sort_by(compare);
         }
-        // FIXME: Capped because of `ffi::IndexResult_IsWithinRange`
-        let max_slop = max_slop.map(|v| v.min(i32::MAX as u32));
         let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
             return Self {
                 children,
@@ -248,24 +244,10 @@ where
 
     /// Check if the current aggregate result satisfies the proximity constraints.
     ///
-    /// Delegates to the C `IndexResult_IsWithinRange` implementation, which correctly
-    /// handles union children (e.g. stemmed/synonym expansions) by recursively merging
-    /// offset positions via `RSIndexResult_IterateOffsets`.
+    /// Delegates to [`RSIndexResult::is_within_range`], which handles union children (e.g.
+    /// stemmed/synonym expansions) by recursively merging offset positions across synonyms.
     fn current_is_relevant(&self) -> bool {
-        // SAFETY:
-        // - `self.result` is a valid, fully initialised `RSIndexResult`.
-        // - The C function reads from `r` without taking ownership or storing the pointer.
-        // - `from_ref` gives a `*const` pointer; `cast_mut` is required by the C API, which
-        //   uses a non-const pointer even though it only reads; no mutation occurs.
-        unsafe {
-            ffi::IndexResult_IsWithinRange(
-                std::ptr::from_ref(&self.result).cast_mut().cast(),
-                // `v as i32` is lossless: the constructor caps `max_slop` to
-                // `i32::MAX as u32`, so `v` always fits in `i32`.
-                self.max_slop.map_or(i32::MAX, |v| v as i32),
-                self.in_order as std::ffi::c_int,
-            ) != 0
-        }
+        self.result.is_within_range(self.max_slop, self.in_order)
     }
 
     /// Find consensus on a doc_id and verify that the result satisfies the proximity constraints.

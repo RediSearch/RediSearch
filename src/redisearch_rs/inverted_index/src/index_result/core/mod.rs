@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod proximity;
+
 use std::ptr;
 
 use ffi::{
@@ -606,6 +608,20 @@ impl<'index> RSIndexResult<'index> {
     /// True if this is a term kind
     pub const fn is_term(&self) -> bool {
         matches!(self.data, RSResultData::Term(_))
+    }
+
+    /// Returns `true` when the term positions in this result satisfy the given
+    /// proximity constraints.
+    ///
+    /// - `max_slop`: maximum allowed number of non-matched token slots between
+    ///   consecutive terms. `None` disables the check entirely.
+    /// - `in_order`: when `true`, terms must appear in the same order as the
+    ///   child iterators.
+    ///
+    /// Returns `true` when `self` is not an aggregate, has ≤ 1 child, or ≤ 1
+    /// child has meaningful offsets.
+    pub fn is_within_range(&self, max_slop: Option<u32>, in_order: bool) -> bool {
+        proximity::is_within_range(self, max_slop, in_order)
     }
 
     /// Debug-only assertion that `self.data == other.data`.

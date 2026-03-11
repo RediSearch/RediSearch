@@ -256,3 +256,123 @@ fn to_owned_a_term_index_result() {
         "cloned offsets should not have changed"
     );
 }
+
+// ── is_within_range — trivial paths ──────────────────────────────────────
+
+#[test]
+fn non_aggregate_always_true() {
+    // A term result (not an aggregate) → trivially within range.
+    static BYTES: [u8; 1] = [5];
+    let ir = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&BYTES))
+        .doc_id(1)
+        .build();
+    assert!(ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(0), true));
+}
+
+#[test]
+fn single_child_aggregate_always_true() {
+    // An intersection with a single numeric child — no proximity check needed.
+    let child = RSIndexResult::build_numeric(1.0).doc_id(1).build();
+    let mut ir = RSIndexResult::build_intersect(1).build();
+    ir.push_borrowed(&child);
+    assert!(ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(0), true));
+}
+
+// ── is_within_range — max_slop=None + in_order=true ─────────────────────
+
+#[test]
+fn in_order_no_slop_succeeds_when_order_exists() {
+    // t1 at pos 3, t2 at pos 7: ordered with any gap → true.
+    static T1: [u8; 1] = [3];
+    static T2: [u8; 1] = [7];
+    let t1: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T1))
+        .doc_id(1)
+        .build();
+    let t2: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T2))
+        .doc_id(1)
+        .build();
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
+    assert!(ir.is_within_range(None, true));
+}
+
+#[test]
+fn in_order_no_slop_fails_when_order_impossible() {
+    // t1 is only at position 10, t2 is only at position 5.
+    // With in_order=true there is no pair (t1_pos, t2_pos) where t1_pos < t2_pos,
+    // so the check must fail regardless of max_slop=None.
+    static T1: [u8; 1] = [10]; // pos 10
+    static T2: [u8; 1] = [5]; // pos 5 — cannot follow 10
+    let t1: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T1))
+        .doc_id(1)
+        .build();
+    let t2: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&T2))
+        .doc_id(1)
+        .build();
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
+    assert!(!ir.is_within_range(None, true));
+}
+
+#[test]
+fn purely_numeric_children_always_true() {
+    // An intersection of two numeric results has no offsets → trivially within range.
+    let child1 = RSIndexResult::build_numeric(1.0).doc_id(1).build();
+    let child2 = RSIndexResult::build_numeric(2.0).doc_id(1).build();
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&child1);
+    ir.push_borrowed(&child2);
+    assert!(ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(0), true));
+}
+
+// ── is_within_range — full integration ───────────────────────────────────
+
+/// C-Code: Mirrors the C++ `testDistance` test using the full `is_within_range` entry point.
+///
+/// vw1 = {1, 9, 13, 16, 22}, vw2 = {4, 7, 32}
+#[test]
+fn full_test_mirrors_cpp_testdistance() {
+    // vw1 = {1, 9, 13, 16, 22} → deltas [1, 8, 4, 3, 6]
+    // vw2 = {4, 7, 32}          → deltas [4, 3, 25]
+    // Since all values < 128, varint bytes equal the delta values.
+    static VW1_BYTES: [u8; 5] = [1, 8, 4, 3, 6];
+    static VW2_BYTES: [u8; 3] = [4, 3, 25];
+
+    let t1: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&VW1_BYTES))
+        .doc_id(1)
+        .build();
+    let t2: RSIndexResult<'static> = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(&VW2_BYTES))
+        .doc_id(1)
+        .build();
+
+    let mut ir = RSIndexResult::build_intersect(2).build();
+    ir.push_borrowed(&t1);
+    ir.push_borrowed(&t2);
+
+    // Unordered: slop=1 is true because (vw1=9, vw2=7) has span=1.
+    assert!(!ir.is_within_range(Some(0), false));
+    assert!(ir.is_within_range(Some(1), false));
+    assert!(ir.is_within_range(Some(2), false));
+    assert!(ir.is_within_range(Some(3), false));
+    assert!(ir.is_within_range(Some(4), false));
+
+    // In-order:
+    assert!(!ir.is_within_range(Some(0), true));
+    assert!(!ir.is_within_range(Some(1), true));
+    assert!(ir.is_within_range(Some(2), true));
+    assert!(ir.is_within_range(Some(3), true));
+    assert!(ir.is_within_range(Some(4), true));
+    assert!(ir.is_within_range(Some(5), true));
+}
