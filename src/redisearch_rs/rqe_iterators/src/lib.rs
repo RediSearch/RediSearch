@@ -24,6 +24,8 @@ pub mod not;
 pub mod optional;
 pub mod profile;
 pub mod union;
+mod union_flat;
+mod union_heap;
 pub mod utils;
 pub mod wildcard;
 

@@ -7,15 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Integration tests for the Union iterator.
+//! Integration tests for the UnionFlat iterator variants.
 //!
 //! Tests use `UnionFullFlat` by default, which is the "full mode" variant
 //! that aggregates results from all matching children.
 
 use ffi::t_docId;
 use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionFullHeap, UnionQuickFlat,
-    UnionQuickHeap, id_list::IdListSorted,
+    RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionQuickFlat,
+    id_list::IdListSorted,
 };
 
 use crate::utils::{Mock, MockRevalidateResult};
@@ -533,38 +533,8 @@ fn current_after_operations() {
 }
 
 // ============================================================================
-// Tests for other union variants
+// Tests for UnionQuickFlat variant
 // ============================================================================
-
-/// Test that UnionFullHeap produces the same results as UnionFullFlat.
-#[test]
-#[cfg_attr(miri, ignore)]
-fn heap_variant_produces_same_results() {
-    let ids1 = vec![10, 20, 30, 40, 50];
-    let ids2 = vec![15, 25, 35, 45, 55];
-
-    // Test with flat variant
-    let mut flat_iter = UnionFullFlat::new(vec![
-        IdListSorted::new(ids1.clone()),
-        IdListSorted::new(ids2.clone()),
-    ]);
-    let mut flat_results = Vec::new();
-    while let Some(result) = flat_iter.read().expect("read failed") {
-        flat_results.push(result.doc_id);
-    }
-
-    // Test with heap variant
-    let mut heap_iter = UnionFullHeap::new(vec![
-        IdListSorted::new(ids1),
-        IdListSorted::new(ids2),
-    ]);
-    let mut heap_results = Vec::new();
-    while let Some(result) = heap_iter.read().expect("read failed") {
-        heap_results.push(result.doc_id);
-    }
-
-    assert_eq!(flat_results, heap_results);
-}
 
 /// Test that UnionQuickFlat produces the same doc_ids as UnionFullFlat.
 /// (Quick mode just doesn't aggregate results, but yields same documents)
@@ -585,10 +555,8 @@ fn quick_variant_produces_same_doc_ids() {
     }
 
     // Test with quick variant
-    let mut quick_iter = UnionQuickFlat::new(vec![
-        IdListSorted::new(ids1),
-        IdListSorted::new(ids2),
-    ]);
+    let mut quick_iter =
+        UnionQuickFlat::new(vec![IdListSorted::new(ids1), IdListSorted::new(ids2)]);
     let mut quick_results = Vec::new();
     while let Some(result) = quick_iter.read().expect("read failed") {
         quick_results.push(result.doc_id);
@@ -597,92 +565,165 @@ fn quick_variant_produces_same_doc_ids() {
     assert_eq!(full_results, quick_results);
 }
 
-/// Test that UnionQuickHeap produces the same doc_ids as other variants.
+/// Test that Full mode aggregates results from ALL children with the same doc_id,
+/// while Quick mode only takes the result from the first matching child.
 #[test]
 #[cfg_attr(miri, ignore)]
-fn quick_heap_variant_produces_same_doc_ids() {
-    let ids1 = vec![10, 20, 30, 40, 50];
-    let ids2 = vec![15, 25, 35, 45, 55];
+fn full_mode_aggregates_all_matching_children() {
+    // Create 3 children that all have doc_id 10 (and some unique docs)
+    let child1 = IdListSorted::new(vec![10, 20, 30]);
+    let child2 = IdListSorted::new(vec![10, 25, 35]);
+    let child3 = IdListSorted::new(vec![10, 28, 38]);
 
-    // Test with full flat variant
+    let mut full_iter = UnionFullFlat::new(vec![child1, child2, child3]);
+
+    // Read doc_id 10 - should aggregate results from all 3 children
+    let result = full_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+
+    // In Full mode, the aggregate should contain results from all 3 children
+    let aggregate = result.as_aggregate().expect("Expected aggregate result");
+    assert_eq!(
+        aggregate.len(),
+        3,
+        "Full mode should aggregate all 3 children with doc_id 10"
+    );
+}
+
+/// Test that Quick mode only takes the result from the first matching child.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn quick_mode_takes_first_matching_child_only() {
+    // Create 3 children that all have doc_id 10 (and some unique docs)
+    let child1 = IdListSorted::new(vec![10, 20, 30]);
+    let child2 = IdListSorted::new(vec![10, 25, 35]);
+    let child3 = IdListSorted::new(vec![10, 28, 38]);
+
+    let mut quick_iter = UnionQuickFlat::new(vec![child1, child2, child3]);
+
+    // Read doc_id 10 - should only take result from first child
+    let result = quick_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+
+    // In Quick mode, the aggregate should contain result from only 1 child
+    let aggregate = result.as_aggregate().expect("Expected aggregate result");
+    assert_eq!(
+        aggregate.len(),
+        1,
+        "Quick mode should only take result from first matching child"
+    );
+}
+
+/// Test that Full mode aggregates varying numbers of children for different doc_ids.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn full_mode_aggregates_correct_number_of_children() {
+    // doc_id 10: in child1, child2, child3 (3 children)
+    // doc_id 20: in child1 only (1 child)
+    // doc_id 25: in child2 only (1 child)
+    // doc_id 30: in child1, child3 (2 children)
+    let child1 = IdListSorted::new(vec![10, 20, 30]);
+    let child2 = IdListSorted::new(vec![10, 25]);
+    let child3 = IdListSorted::new(vec![10, 30]);
+
+    let mut full_iter = UnionFullFlat::new(vec![child1, child2, child3]);
+
+    // doc_id 10: should have 3 children
+    let result = full_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+    assert_eq!(
+        result.as_aggregate().unwrap().len(),
+        3,
+        "doc_id 10 should aggregate 3 children"
+    );
+
+    // doc_id 20: should have 1 child
+    let result = full_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 20);
+    assert_eq!(
+        result.as_aggregate().unwrap().len(),
+        1,
+        "doc_id 20 should aggregate 1 child"
+    );
+
+    // doc_id 25: should have 1 child
+    let result = full_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 25);
+    assert_eq!(
+        result.as_aggregate().unwrap().len(),
+        1,
+        "doc_id 25 should aggregate 1 child"
+    );
+
+    // doc_id 30: should have 2 children
+    let result = full_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 30);
+    assert_eq!(
+        result.as_aggregate().unwrap().len(),
+        2,
+        "doc_id 30 should aggregate 2 children"
+    );
+}
+
+/// Test that Quick mode always has exactly 1 child in the aggregate.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn quick_mode_always_has_one_child() {
+    // Same data as full_mode_aggregates_correct_number_of_children
+    let child1 = IdListSorted::new(vec![10, 20, 30]);
+    let child2 = IdListSorted::new(vec![10, 25]);
+    let child3 = IdListSorted::new(vec![10, 30]);
+
+    let mut quick_iter = UnionQuickFlat::new(vec![child1, child2, child3]);
+
+    // All doc_ids should have exactly 1 child in Quick mode
+    while let Some(result) = quick_iter.read().expect("read failed") {
+        assert_eq!(
+            result.as_aggregate().unwrap().len(),
+            1,
+            "Quick mode should always have exactly 1 child for doc_id {}",
+            result.doc_id
+        );
+    }
+}
+
+/// Test Quick vs Full mode with skip_to operation.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn quick_vs_full_with_skip_to() {
+    // doc_id 50: in all 3 children
+    let child1 = IdListSorted::new(vec![10, 30, 50]);
+    let child2 = IdListSorted::new(vec![20, 40, 50]);
+    let child3 = IdListSorted::new(vec![25, 45, 50]);
+
+    // Full mode skip_to
     let mut full_iter = UnionFullFlat::new(vec![
-        IdListSorted::new(ids1.clone()),
-        IdListSorted::new(ids2.clone()),
-    ]);
-    let mut full_results = Vec::new();
-    while let Some(result) = full_iter.read().expect("read failed") {
-        full_results.push(result.doc_id);
-    }
-
-    // Test with quick heap variant
-    let mut quick_heap_iter = UnionQuickHeap::new(vec![
-        IdListSorted::new(ids1),
-        IdListSorted::new(ids2),
-    ]);
-    let mut quick_heap_results = Vec::new();
-    while let Some(result) = quick_heap_iter.read().expect("read failed") {
-        quick_heap_results.push(result.doc_id);
-    }
-
-    assert_eq!(full_results, quick_heap_results);
-}
-
-/// Test skip_to with heap variant.
-#[test]
-#[cfg_attr(miri, ignore)]
-fn heap_variant_skip_to() {
-    let ids1 = vec![10, 20, 30, 40, 50];
-    let ids2 = vec![15, 25, 35, 45, 55];
-
-    let mut heap_iter = UnionFullHeap::new(vec![
-        IdListSorted::new(ids1),
-        IdListSorted::new(ids2),
+        IdListSorted::new(vec![10, 30, 50]),
+        IdListSorted::new(vec![20, 40, 50]),
+        IdListSorted::new(vec![25, 45, 50]),
     ]);
 
-    // Skip to 25 (exists in child2)
-    let result = heap_iter.skip_to(25).expect("skip_to failed");
-    assert!(matches!(result, Some(SkipToOutcome::Found(_))));
-    assert_eq!(heap_iter.last_doc_id(), 25);
+    let outcome = full_iter.skip_to(50).expect("skip_to failed");
+    assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+    let result = full_iter.current().unwrap();
+    assert_eq!(result.doc_id, 50);
+    assert_eq!(
+        result.as_aggregate().unwrap().len(),
+        3,
+        "Full mode skip_to should aggregate all 3 children"
+    );
 
-    // Skip to 33 (between 30 and 35, should land on 35)
-    let result = heap_iter.skip_to(33).expect("skip_to failed");
-    assert!(matches!(result, Some(SkipToOutcome::NotFound(_))));
-    assert_eq!(heap_iter.last_doc_id(), 35);
+    // Quick mode skip_to
+    let mut quick_iter = UnionQuickFlat::new(vec![child1, child2, child3]);
 
-    // Read remaining
-    let mut remaining = Vec::new();
-    while let Some(result) = heap_iter.read().expect("read failed") {
-        remaining.push(result.doc_id);
-    }
-    assert_eq!(remaining, vec![40, 45, 50, 55]);
-}
-
-/// Test rewind with heap variant.
-#[test]
-#[cfg_attr(miri, ignore)]
-fn heap_variant_rewind() {
-    let ids1 = vec![10, 20, 30];
-    let ids2 = vec![15, 25, 35];
-
-    let mut heap_iter = UnionFullHeap::new(vec![
-        IdListSorted::new(ids1),
-        IdListSorted::new(ids2),
-    ]);
-
-    // Read all
-    let mut results1 = Vec::new();
-    while let Some(result) = heap_iter.read().expect("read failed") {
-        results1.push(result.doc_id);
-    }
-
-    // Rewind and read again
-    heap_iter.rewind();
-    let mut results2 = Vec::new();
-    while let Some(result) = heap_iter.read().expect("read failed") {
-        results2.push(result.doc_id);
-    }
-
-    assert_eq!(results1, results2);
-    assert_eq!(results1, vec![10, 15, 20, 25, 30, 35]);
+    let outcome = quick_iter.skip_to(50).expect("skip_to failed");
+    assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+    let result = quick_iter.current().unwrap();
+    assert_eq!(result.doc_id, 50);
+    assert_eq!(
+        result.as_aggregate().unwrap().len(),
+        1,
+        "Quick mode skip_to should only take first matching child"
+    );
 }
 

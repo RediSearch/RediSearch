@@ -14,7 +14,7 @@
 //! efficient operations that Rust's [`std::collections::BinaryHeap`] lacks:
 //!
 //! - [`DocIdMinHeap::replace_root`]: O(log n) in-place root replacement with single sift-down
-//! - [`DocIdMinHeap::for_each_root`]: O(k) iteration over all entries equal to root
+//! - [`DocIdMinHeap::data`]: Direct access to heap data for manual traversal
 //!
 //! See `UNION_ITERATOR_DESIGN.md` for detailed design rationale.
 
@@ -25,7 +25,7 @@ use ffi::t_docId;
 /// Stores `(doc_id, child_index)` pairs ordered by `doc_id` (minimum at root).
 /// Provides efficient operations for the union iterator pattern:
 /// - O(log n) in-place root replacement via [`Self::replace_root`]
-/// - O(k) iteration over entries equal to root via [`Self::for_each_root`]
+/// - Direct access to heap data via [`Self::data`] for manual traversal
 ///
 /// # Example
 ///
@@ -39,10 +39,8 @@ use ffi::t_docId;
 ///
 /// assert_eq!(heap.peek(), Some((5, 1)));
 ///
-/// // Iterate over all entries with minimum doc_id
-/// let mut found = Vec::new();
-/// heap.for_each_root(|doc_id, idx| found.push((doc_id, idx)));
-/// assert_eq!(found.len(), 2);  // Both entries with doc_id=5
+/// // Access heap data directly for traversal
+/// let root_doc_id = heap.data()[0].0;
 /// ```
 #[derive(Debug, Clone)]
 pub struct DocIdMinHeap {
@@ -97,6 +95,19 @@ impl DocIdMinHeap {
         self.data.first().copied()
     }
 
+    /// Returns a reference to the underlying heap data.
+    ///
+    /// This allows callers to iterate over the heap structure directly,
+    /// which is useful when the caller needs to access other data during
+    /// iteration (avoiding borrow checker conflicts with closure-based APIs).
+    ///
+    /// The data is stored as `(doc_id, child_index)` tuples in heap order
+    /// (smallest doc_id at index 0). Children of index `i` are at `2*i+1` and `2*i+2`.
+    #[inline]
+    pub fn data(&self) -> &[(t_docId, usize)] {
+        &self.data
+    }
+
     /// Pushes an entry onto the heap.
     ///
     /// # Complexity
@@ -149,54 +160,6 @@ impl DocIdMinHeap {
         debug_assert!(!self.data.is_empty(), "cannot replace root of empty heap");
         self.data[0] = (doc_id, child_idx);
         self.sift_down(0);
-    }
-
-    /// Iterates over all entries with the same doc_id as the root.
-    ///
-    /// The callback receives `(doc_id, child_index)` for each matching entry.
-    /// The heap is **not modified** during iteration.
-    ///
-    /// # Complexity
-    ///
-    /// O(k) where k = number of entries with minimum doc_id.
-    pub fn for_each_root<F>(&self, mut f: F)
-    where
-        F: FnMut(t_docId, usize),
-    {
-        if self.data.is_empty() {
-            return;
-        }
-
-        let root_doc_id = self.data[0].0;
-        self.for_each_root_recursive(0, root_doc_id, &mut f);
-    }
-
-    /// Recursive helper for `for_each_root`.
-    ///
-    /// Traverses the heap tree, visiting all nodes equal to `root_doc_id`.
-    /// Due to heap property, if a node has doc_id > root_doc_id, all its
-    /// descendants also have doc_id >= that node's doc_id, so we can prune.
-    fn for_each_root_recursive<F>(&self, idx: usize, root_doc_id: t_docId, f: &mut F)
-    where
-        F: FnMut(t_docId, usize),
-    {
-        if idx >= self.data.len() {
-            return;
-        }
-
-        let (doc_id, child_idx) = self.data[idx];
-        if doc_id != root_doc_id {
-            // Heap property: children have >= priority, so no need to recurse
-            return;
-        }
-
-        f(doc_id, child_idx);
-
-        // Recurse to children
-        let left = 2 * idx + 1;
-        let right = 2 * idx + 2;
-        self.for_each_root_recursive(left, root_doc_id, f);
-        self.for_each_root_recursive(right, root_doc_id, f);
     }
 
     /// Sifts an element up the tree to restore heap property.
@@ -318,64 +281,6 @@ mod tests {
     }
 
     #[test]
-    fn test_for_each_root_single_entry() {
-        let mut heap = DocIdMinHeap::new();
-        heap.push(10, 0);
-
-        let mut found = Vec::new();
-        heap.for_each_root(|doc_id, idx| found.push((doc_id, idx)));
-
-        assert_eq!(found, vec![(10, 0)]);
-    }
-
-    #[test]
-    fn test_for_each_root_multiple_same_doc_id() {
-        let mut heap = DocIdMinHeap::new();
-        heap.push(5, 0);
-        heap.push(5, 1);
-        heap.push(5, 2);
-        heap.push(10, 3);
-
-        let mut found = Vec::new();
-        heap.for_each_root(|doc_id, idx| found.push((doc_id, idx)));
-
-        // Should find all entries with doc_id=5
-        assert_eq!(found.len(), 3);
-        for (doc_id, _) in &found {
-            assert_eq!(*doc_id, 5);
-        }
-    }
-
-    #[test]
-    fn test_for_each_root_mixed_doc_ids() {
-        let mut heap = DocIdMinHeap::new();
-        heap.push(10, 0);
-        heap.push(5, 1);
-        heap.push(15, 2);
-        heap.push(5, 3);
-        heap.push(20, 4);
-
-        let mut found = Vec::new();
-        heap.for_each_root(|doc_id, idx| found.push((doc_id, idx)));
-
-        // Should find only entries with minimum doc_id=5
-        assert_eq!(found.len(), 2);
-        for (doc_id, _) in &found {
-            assert_eq!(*doc_id, 5);
-        }
-    }
-
-    #[test]
-    fn test_for_each_root_empty_heap() {
-        let heap = DocIdMinHeap::new();
-
-        let mut found = Vec::new();
-        heap.for_each_root(|doc_id, idx| found.push((doc_id, idx)));
-
-        assert!(found.is_empty());
-    }
-
-    #[test]
     fn test_clear() {
         let mut heap = DocIdMinHeap::new();
         heap.push(10, 0);
@@ -411,5 +316,19 @@ mod tests {
         let mut sorted = extracted.clone();
         sorted.sort();
         assert_eq!(extracted, sorted);
+    }
+
+    #[test]
+    fn test_data_access() {
+        let mut heap = DocIdMinHeap::new();
+        heap.push(5, 0);
+        heap.push(10, 1);
+        heap.push(15, 2);
+
+        // Access underlying data directly
+        let data = heap.data();
+        assert_eq!(data.len(), 3);
+        // Root should have minimum doc_id
+        assert_eq!(data[0].0, 5);
     }
 }
