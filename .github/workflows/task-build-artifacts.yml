@@ -4,7 +4,6 @@ name: Build and Upload Artifacts
 permissions:
   id-token: write   # This is required for requesting the JWT
   contents: read    # This is required for actions/checkout
-  packages: write   # Required for reusable build-image workflow to push GHCR cache/images
 
 on:
   workflow_call:
@@ -54,6 +53,9 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     continue-on-error: true
     name: Build cached container for platform
+    permissions:
+      contents: read
+      packages: write # Required for reusable build-image workflow to push GHCR cache/images
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ${{ needs.get-config.outputs.container }}

@@ -9,6 +9,9 @@ jobs:
   build-image:
     continue-on-error: true
     name: Build container for lint
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ubuntu:noble
