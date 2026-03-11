@@ -659,14 +659,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
 
-    HybridRequest_UnlockCursors(req);
-
     if (backgroundDepletion) {
       int rc = RPSafeDepleter_DepleteAll(depleters);
       array_free(depleters);
       if (rc != RS_RESULT_OK) {
-        // Lock again to safely free cursors
-        HybridRequest_LockCursors(req);
         array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
         req->cursors = NULL;
         HybridRequest_UnlockCursors(req);
@@ -678,6 +674,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         return REDISMODULE_ERR;
       }
     }
+
+    HybridRequest_UnlockCursors(req);
 
     // Pause after store cursors
     debugPauseStoreResultsHybrid(req, false);  // pause after
