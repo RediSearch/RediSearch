@@ -607,6 +607,22 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     // Pause before store cursors
     debugPauseStoreResultsHybrid(req, true);  // pause before
 
+    // Lock cursor creation to synchronize with timeout callback.
+    // This ensures that if timeout fires:
+    // 1. Before we create cursors: we'll see timedOut flag and skip creation
+    // 2. After we create cursors: timeout callback will free them properly
+    HybridRequest_LockCursors(req);
+
+    // Check if we timed out before creating cursors
+    if (HybridRequest_TimedOut(req)) {
+      HybridRequest_UnlockCursors(req);
+      if (depleters) {
+        array_free(depleters);
+      }
+      QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, "Timed out before creating cursors");
+      return REDISMODULE_ERR;
+    }
+
     req->cursors = array_new(Cursor*, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
@@ -634,6 +650,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     if (array_len(req->cursors) != req->nrequests) {
       array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
       req->cursors = NULL;
+      HybridRequest_UnlockCursors(req);
       if (depleters) {
         array_free(depleters);
       }
@@ -642,12 +659,17 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       return REDISMODULE_ERR;
     }
 
+    HybridRequest_UnlockCursors(req);
+
     if (backgroundDepletion) {
       int rc = RPSafeDepleter_DepleteAll(depleters);
       array_free(depleters);
       if (rc != RS_RESULT_OK) {
+        // Lock again to safely free cursors
+        HybridRequest_LockCursors(req);
         array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
         req->cursors = NULL;
+        HybridRequest_UnlockCursors(req);
         if (rc == RS_RESULT_TIMEDOUT) {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
         } else {
@@ -725,8 +747,9 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
 
 // Timeout callback for HybridRequest execution in Run in Threads mode.
 // Called on the main thread when the blocking client times out (FAIL policy only).
-// Simply sets the timeout flag and replies with error - no synchronization needed
-// because HybridRequest uses reply_callback pattern (background thread does not reply directly).
+// Acquires cursorMutex to synchronize with HybridRequest_StartCursors:
+// - If cursors were already created, we free them here
+// - If cursors haven't been created yet, StartCursors will see timedOut and skip creation
 static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -741,8 +764,22 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   HybridRequest *hreq = (HybridRequest *)node->privdata;
+
+  // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
+  // After setting timedOut, any subsequent cursor creation attempt will be skipped.
+  // If cursors were already created, we free them here.
+  HybridRequest_LockCursors(hreq);
+
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
+
+  // Free cursors if they were already created
+  if (hreq->cursors) {
+    array_free_ex(hreq->cursors, Cursor_Free(*(Cursor**)ptr));
+    hreq->cursors = NULL;
+  }
+
+  HybridRequest_UnlockCursors(hreq);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
@@ -818,6 +855,11 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
 }
 
+// Wrapper for HybridRequest_DecrRef to match BlockedClientFreePrivDataCB signature
+static void HybridRequest_DecrRefWrapper(void *privdata) {
+  HybridRequest_DecrRef((HybridRequest *)privdata);
+}
+
 
 // Background execution functions implementation
 static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
@@ -847,6 +889,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     blockClientCtx.ast = &hreq->requests[0]->ast;
     blockClientCtx.privdata = hreq;
+    HybridRequest_IncrRef(hreq);
+    blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;
 
     if (hreq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       blockClientCtx.timeoutCallback = HybridQueryTimeoutFailCallback;

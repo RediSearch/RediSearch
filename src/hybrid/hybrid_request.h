@@ -60,16 +60,31 @@ typedef struct HybridRequest {
     // The reply_callback reads from here to build the reply on the main thread.
     ChunkReplyState storedReplyState;
 
+    // Mutex for synchronizing cursor creation with timeout callback.
+    // Protects cursor array access to ensure proper cleanup on timeout.
+    pthread_mutex_t cursorMutex;
+
     // Array of cursors for reply_callback path (internal hybrid search).
-    // Non-owning - Allocation and freeing are managed by the functions that create them
-    // If using reply callback, the callback will free the array.
-    // In the Edge case of timeout after allocation, HybridRequest_Free will free the array, if it is not NULL.
+    // Protected by cursorMutex to synchronize with timeout callback.
+    // Cleanup is handled by:
+    // - reply_callback: frees array after replying with cursor IDs
+    // - timeout_callback: acquires lock and frees cursors if they were already created
+    // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
     arrayof(struct Cursor*) cursors;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 bool HybridRequest_TimedOut(HybridRequest *req);
 void HybridRequest_SetTimedOut(HybridRequest *req);
+
+// Cursor mutex wrappers for synchronizing cursor creation with timeout callback
+static inline void HybridRequest_LockCursors(HybridRequest *req) {
+  pthread_mutex_lock(&req->cursorMutex);
+}
+
+static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
+  pthread_mutex_unlock(&req->cursorMutex);
+}
 
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
   return !req->skipTimeoutChecks;
