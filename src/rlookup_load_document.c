@@ -202,7 +202,7 @@ done:
 /**
  * Find a key in the lookup table by name. Returns NULL if not found.
  */
-RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) {
+static RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) {
   RLookupIteratorMut iter = RLookup_IterMut(lookup);
   RLookupKey* key;
 
