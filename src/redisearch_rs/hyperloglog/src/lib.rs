@@ -146,6 +146,7 @@ impl<T, const BITS: u8, const SIZE: usize, H: hash32::Hasher + Default>
     /// Creates an HLL from existing register data.
     ///
     /// This is useful for deserializing an HLL or loading from external storage.
+    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn from_registers(registers: [u8; SIZE]) -> Self {
         // Trigger compile-time checks
         let () = Self::_BITS_RANGE_CHECK;

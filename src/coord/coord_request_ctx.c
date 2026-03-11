@@ -15,12 +15,15 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   ctx->type = type;
   atomic_store_explicit(&ctx->timedOut, false, memory_order_relaxed);
   pthread_mutex_init(&ctx->setReqLock, NULL);
-  // Request pointer starts as NULL, set by background thread after parsing
+  ctx->preRequestError = QueryError_Default();
   return ctx;
 }
 
 void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   if (!ctx) return;
+
+  // Clear pre-request error if set
+  QueryError_ClearError(&ctx->preRequestError);
 
   // Decrement refcount on the request (if set)
   if (ctx->type == COMMAND_HYBRID) {
@@ -41,12 +44,23 @@ void CoordRequestCtx_UnlockSetRequest(CoordRequestCtx *ctx) {
   pthread_mutex_unlock(&ctx->setReqLock);
 }
 
-// Must be called with setReqLock held.
 void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   if (ctx->type == COMMAND_HYBRID) {
     ctx->hreq = HybridRequest_IncrRef((HybridRequest *)req);
   } else {
     ctx->areq = AREQ_IncrRef((AREQ *)req);
+  }
+
+  // Propagate useReplyCallback to the request
+  if (ctx->type == COMMAND_HYBRID) {
+    ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
+  } else {
+    ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+  }
+
+  // Propagate timeout to the request if already set
+  if (CoordRequestCtx_TimedOut(ctx)) {
+    CoordRequestCtx_SetTimedOut(ctx);
   }
 }
 
@@ -56,6 +70,10 @@ bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx) {
   } else {
     return ctx->areq != NULL;
   }
+}
+
+void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
+  return ctx->type == COMMAND_HYBRID ? (void *)ctx->hreq : (void *)ctx->areq;
 }
 
 bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
@@ -72,26 +90,20 @@ void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
   }
 }
 
-bool CoordRequestCtx_TryClaimReply(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    return ctx->hreq ? HybridRequest_TryClaimReply(ctx->hreq) : false;
-  } else {
-    return ctx->areq ? AREQ_TryClaimReply(ctx->areq) : false;
-  }
+void CoordRequestCtx_SetUseReplyCallback(CoordRequestCtx *ctx, bool useReplyCallback) {
+  ctx->useReplyCallback = useReplyCallback;
 }
 
-void CoordRequestCtx_MarkReplied(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    if (ctx->hreq) HybridRequest_MarkReplied(ctx->hreq);
-  } else {
-    if (ctx->areq) AREQ_MarkReplied(ctx->areq);
-  }
-}
+void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx, QueryError *status) {
+  if (req->useReplyCallback) {
+    // Assert no existing error
+    RS_ASSERT(!QueryError_HasError(&req->preRequestError));
 
-uint8_t CoordRequestCtx_GetReplyState(CoordRequestCtx *ctx) {
-  if (ctx->type == COMMAND_HYBRID) {
-    return ctx->hreq ? HybridRequest_GetReplyState(ctx->hreq) : ReplyState_NotReplied;
+    // Deep copy since QueryError contains heap-allocated strings.
+    QueryError_CloneFrom(status, &req->preRequestError);
+    // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
   } else {
-    return ctx->areq ? AREQ_GetReplyState(ctx->areq) : ReplyState_NotReplied;
+    QueryError_ReplyAndClear(ctx, status);
   }
 }

@@ -4,7 +4,7 @@ from RLTest import Env
 
 def testFilter1(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'things',
+    env.cmd('FT.CREATE', 'things',
             'ON', 'HASH',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text')
@@ -16,11 +16,11 @@ def testFilter1(env):
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'stuff', 'ON', 'HASH',
+    env.cmd('FT.CREATE', 'stuff', 'ON', 'HASH',
             'FILTER', 'startswith(@__key, "stuff:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
-    env.cmd('ft.create', 'things', 'ON', 'HASH',
+    env.cmd('FT.CREATE', 'things', 'ON', 'HASH',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', 'name', 'text', 'age', 'numeric')
 
@@ -33,12 +33,12 @@ def testFilter2(env):
 
 def testIdxField(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx1',
+    env.cmd('FT.CREATE', 'idx1',
             'ON', 'HASH',
             'PREFIX', 1, 'doc',
             'FILTER', '@indexName=="idx1"',
             'SCHEMA', 'name', 'text', 'indexName', 'text')
-    env.cmd('ft.create', 'idx2',
+    env.cmd('FT.CREATE', 'idx2',
             'ON', 'HASH',
             'FILTER', '@indexName=="idx2"',
             'SCHEMA', 'name', 'text', 'indexName', 'text')
@@ -81,7 +81,7 @@ def testMultiFilters2(env):
 
 def testCountry(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx1',
+    env.cmd('FT.CREATE', 'idx1',
             'PREFIX', 1, 'address:',
             'FILTER', '@country=="usa"',
             'SCHEMA', 'business', 'text', 'country', 'text')
@@ -94,7 +94,7 @@ def testCountry(env):
 
 def testIssue1571(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx',
+    env.cmd('FT.CREATE', 'idx',
             'FILTER', '@index=="yes"',
             'SCHEMA', 't', 'TEXT')
 
@@ -116,11 +116,11 @@ def testIssue1571(env):
 
 def testIssue1571WithRename(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx1',
+    env.cmd('FT.CREATE', 'idx1',
             'PREFIX', '1', 'idx1',
             'FILTER', '@index=="yes"',
             'SCHEMA', 't', 'TEXT')
-    env.cmd('ft.create', 'idx2',
+    env.cmd('FT.CREATE', 'idx2',
             'PREFIX', '1', 'idx2',
             'FILTER', '@index=="yes"',
             'SCHEMA', 't', 'TEXT')
@@ -160,12 +160,12 @@ def testRenameWithFilterUsingFieldValueBetweenIndexes(env):
     conn = getConnectionByEnv(env)
 
     # Create two indexes with different prefixes but same filter expression
-    env.cmd('ft.create', 'idx1',
+    env.cmd('FT.CREATE', 'idx1',
             'PREFIX', '1', 'prefix1:',
             'FILTER', '@category=="books"',
             'SCHEMA', 'title', 'TEXT', 'category', 'TAG')
 
-    env.cmd('ft.create', 'idx2',
+    env.cmd('FT.CREATE', 'idx2',
             'PREFIX', '1', 'prefix2:',
             'FILTER', '@category=="books"',
             'SCHEMA', 'title', 'TEXT', 'category', 'TAG')
@@ -194,12 +194,12 @@ def testRenameWithFilterExcludingDocument(env):
     conn = getConnectionByEnv(env)
 
     # Create an index with a filter that checks field value
-    env.cmd('ft.create', 'idx1',
+    env.cmd('FT.CREATE', 'idx1',
             'PREFIX', '1', 'prefix1:',
             'FILTER', '@type=="allowed"',
             'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
 
-    env.cmd('ft.create', 'idx2',
+    env.cmd('FT.CREATE', 'idx2',
             'PREFIX', '1', 'prefix2:',
             'FILTER', '@type=="special"',
             'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
@@ -228,7 +228,7 @@ def testRenameToSameName(env):
     conn = getConnectionByEnv(env)
 
     # Create an index with a filter
-    env.cmd('ft.create', 'idx1',
+    env.cmd('FT.CREATE', 'idx1',
             'PREFIX', '1', 'prefix1:',
             'FILTER', '@type=="allowed"',
             'SCHEMA', 'data', 'TEXT', 'type', 'TAG')
@@ -248,12 +248,12 @@ def testRenameToSameName(env):
 @skip(no_json=True)
 def testIdxFieldJson(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx1',
+    env.cmd('FT.CREATE', 'idx1',
             'ON', 'JSON',
             'PREFIX', 1, 'doc',
             'FILTER', '@indexName=="idx1"',
             'SCHEMA', '$.name', 'AS', 'name', 'text', '$.indexName', 'AS', 'indexName', 'text')
-    env.cmd('ft.create', 'idx2',
+    env.cmd('FT.CREATE', 'idx2',
             'ON', 'JSON',
             'FILTER', '@indexName=="idx2"',
             'SCHEMA', '$.name', 'AS', 'name', 'text', '$.indexName', 'AS', 'indexName', 'text')
@@ -268,7 +268,7 @@ def testIdxFieldJson(env):
 def testFilterStartWith(env):
     conn = getConnectionByEnv(env)
 
-    env.cmd('ft.create', 'things',
+    env.cmd('FT.CREATE', 'things',
             'ON', 'JSON',
             'FILTER', 'startswith(@__key, "thing:")',
             'SCHEMA', '$.name', 'AS', 'name', 'text')
@@ -281,7 +281,7 @@ def testFilterStartWith(env):
 @skip(no_json=True)
 def testFilterWithOperator(env):
     conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'things',
+    env.cmd('FT.CREATE', 'things',
             'ON', 'JSON',
             'FILTER', '@num > (0 + 0)',
             'SCHEMA', '$.name', 'AS', 'name', 'text', '$.num', 'AS', 'num', 'numeric')
@@ -296,7 +296,7 @@ def testFilterWithOperator(env):
 def testFilterWithNot(env):
     conn = getConnectionByEnv(env)
     # check NOT on a non existing value return 1 result
-    env.cmd('ft.create', 'things',
+    env.cmd('FT.CREATE', 'things',
             'ON', 'JSON',
             'FILTER', '!(@name == "bar")',
             'SCHEMA', '$.name', 'AS', 'name', 'text')
@@ -310,7 +310,7 @@ def testFilterWithNot(env):
     env.cmd('FT.DROPINDEX', 'things', 'DD')
 
     # check NOT on an existing value return 0 results
-    env.cmd('ft.create', 'things',
+    env.cmd('FT.CREATE', 'things',
             'ON', 'JSON',
             'FILTER', '!(@name == "foo")',
             'SCHEMA', '$.name', 'AS', 'name', 'text')
@@ -502,6 +502,9 @@ def test_filter_and_missing_field(env):
     env.expect('FT.CREATE', 'idx2', 'FILTER', '@d2==0 && @d1==0',
                'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
 
+    waitForIndex(env, 'idx1')
+    waitForIndex(env, 'idx2')
+
     # Both indexes should have 0 documents (d2=1, d1 missing)
     result1 = env.cmd('FT.SEARCH', 'idx1', '*')
     result2 = env.cmd('FT.SEARCH', 'idx2', '*')
@@ -579,6 +582,9 @@ def test_filter_both_fields_missing(env):
                'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
     env.expect('FT.CREATE', 'idx2', 'FILTER', '@d1==1 || @d2==1',
                'SCHEMA', 'd1', 'NUMERIC', 'd2', 'NUMERIC').ok()
+
+    waitForIndex(env, 'idx1')
+    waitForIndex(env, 'idx2')
 
     # Should have 0 documents because both fields are missing (treated as false)
     result = env.cmd('FT.SEARCH', 'idx1', '*')

@@ -3748,8 +3748,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   handlerCtx.bcCtx.free_privdata = DistHybridFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    handlerCtx.bcCtx.callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
+    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -3761,6 +3763,10 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
+  }
+
+  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.CURSOR")) {
+    return REDISMODULE_OK;
   }
 
   VERIFY_ACL(ctx, argv[2])
