@@ -68,7 +68,6 @@ fn main() {
         src.join("index_result").join("index_result.h"),
         src.join("iterators").join("intersection_iterator.h"),
         src.join("iterators").join("inverted_index_iterator.h"),
-        src.join("iterators").join("not_iterator.h"),
         src.join("iterators").join("optional_iterator.h"),
         src.join("json.h"),
         src.join("numeric_index.h"),

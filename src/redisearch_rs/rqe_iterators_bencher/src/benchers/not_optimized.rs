@@ -14,8 +14,6 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::NotOptimized};
 
-use crate::ffi::{IteratorStatus_ITERATOR_OK, QueryIterator};
-
 #[derive(Default)]
 pub struct Bencher;
 
@@ -93,19 +91,6 @@ impl Bencher {
             });
         });
 
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let wc = QueryIterator::new_id_list(Self::all_docs());
-                let child = QueryIterator::new_empty();
-                let it =
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT);
-                while it.read() == IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-
         group.finish();
     }
 
@@ -130,19 +115,6 @@ impl Bencher {
             });
         });
 
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let wc = QueryIterator::new_id_list(Self::all_docs());
-                let child = QueryIterator::new_id_list(Self::dense_child());
-                let it =
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT);
-                while it.read() == IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-
         group.finish();
     }
 
@@ -163,19 +135,6 @@ impl Bencher {
                 while let Ok(Some(current)) = it.read() {
                     black_box(current);
                 }
-            });
-        });
-
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let wc_it = QueryIterator::new_id_list(Self::sparse_wc());
-                let child = QueryIterator::new_id_list(Self::sparse_child());
-                let it =
-                    QueryIterator::new_not_optimized(child, wc_it, Self::MAX_DOC_ID, Self::WEIGHT);
-                while it.read() == IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
             });
         });
 
@@ -204,19 +163,6 @@ impl Bencher {
             });
         });
 
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let wc = QueryIterator::new_id_list(Self::all_docs());
-                let child = QueryIterator::new_empty();
-                let it =
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT);
-                while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-
         group.finish();
     }
 
@@ -242,19 +188,6 @@ impl Bencher {
             });
         });
 
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let wc = QueryIterator::new_id_list(Self::all_docs());
-                let child = QueryIterator::new_id_list(Self::sparse_wc());
-                let it =
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT);
-                while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-
         group.finish();
     }
 
@@ -277,19 +210,6 @@ impl Bencher {
                 while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                     black_box(current);
                 }
-            });
-        });
-
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                let wc = QueryIterator::new_id_list(Self::all_docs());
-                let child = QueryIterator::new_id_list(Self::dense_child());
-                let it =
-                    QueryIterator::new_not_optimized(child, wc, Self::MAX_DOC_ID, Self::WEIGHT);
-                while it.skip_to(it.last_doc_id() + step) == IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
             });
         });
 

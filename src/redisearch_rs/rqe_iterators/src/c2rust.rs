@@ -309,11 +309,23 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
+    fn is_empty(&self) -> bool {
+        self.type_ == ffi::IteratorType_EMPTY_ITERATOR
+    }
+
     #[expect(non_upper_case_globals)]
     fn is_wildcard(&self) -> bool {
         matches!(
             self.type_,
             IteratorType_WILDCARD_ITERATOR | IteratorType_INV_IDX_WILDCARD_ITERATOR
         )
+    }
+
+    fn as_c_header_ptr(&self) -> Option<std::ptr::NonNull<QueryIterator>> {
+        Some(self.header)
+    }
+
+    fn into_c_header_ptr(self: Box<Self>) -> Option<std::ptr::NonNull<QueryIterator>> {
+        Some((*self).into_raw())
     }
 }

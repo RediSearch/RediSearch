@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::t_docId;
+use std::ptr::NonNull;
+
+use ffi::{QueryIterator, t_docId};
 use thiserror::Error;
 
 use ::inverted_index::RSIndexResult;
@@ -139,6 +141,23 @@ pub trait RQEIterator<'index> {
     fn is_wildcard(&self) -> bool {
         false
     }
+
+    /// Returns a pointer to the underlying C [`QueryIterator`] header,
+    /// if this iterator wraps one.
+    ///
+    /// Used for FFI interop to recover the C pointer from a trait object.
+    fn as_c_header_ptr(&self) -> Option<NonNull<QueryIterator>> {
+        None
+    }
+
+    /// Consume this boxed iterator and return the underlying C
+    /// [`QueryIterator`] pointer, if this iterator wraps one.
+    ///
+    /// The caller takes ownership of the returned pointer.
+    /// If `None` is returned, the iterator has already been dropped.
+    fn into_c_header_ptr(self: Box<Self>) -> Option<NonNull<QueryIterator>> {
+        None
+    }
 }
 
 // Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
@@ -184,5 +203,13 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn is_wildcard(&self) -> bool {
         (**self).is_wildcard()
+    }
+
+    fn as_c_header_ptr(&self) -> Option<NonNull<QueryIterator>> {
+        (**self).as_c_header_ptr()
+    }
+
+    fn into_c_header_ptr(self: Box<Self>) -> Option<NonNull<QueryIterator>> {
+        (*self).into_c_header_ptr()
     }
 }
