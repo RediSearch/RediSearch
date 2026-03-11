@@ -13,7 +13,8 @@ use std::{cmp::Ordering, ffi::c_int};
 use value::RsValue;
 use value::comparison::{CompareError, compare};
 
-/// Compare two [`RsValue`]s, returning `-1`, `0`, or `1`.
+/// Compare two [`RsValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
+/// or `1` if `v1 > v2`.
 ///
 /// When `status` is null, mixed number/string comparisons fall back to
 /// string-based comparison. When `status` is non-null and string-to-number
@@ -55,7 +56,8 @@ pub unsafe extern "C" fn RSValue_Cmp(
     }
 }
 
-/// Test two [`RsValue`]s for equality, returning `1` if equal and `0` otherwise.
+/// Test two [`RsValue`]s for equality, returning `true` if equal and `false`
+/// otherwise.
 ///
 /// Unlike [`RSValue_Cmp`], the string-fallback is never used: if a string
 /// cannot be parsed as a number, the values are considered not equal.
@@ -91,9 +93,9 @@ pub unsafe extern "C" fn RSValue_Equal(
 
 /// Test whether an [`RsValue`] is "truthy".
 ///
-/// Returns `1` for non-zero numbers, non-empty strings, and non-empty arrays.
+/// Returns `true` for non-zero numbers, non-empty strings, and non-empty arrays.
 /// All other variants (including [`RsValue::Null`] and [`RsValue::Map`])
-/// evaluate to `0`. References are followed via
+/// evaluate to `false`. References are followed via
 /// [`RsValue::fully_dereferenced_ref`].
 ///
 /// # Safety
