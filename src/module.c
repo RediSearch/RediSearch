@@ -4569,7 +4569,9 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
 
   // Load default values
   RM_TRY_F(RedisModule_LoadDefaultConfigs, ctx);
-
+  RS_LOG_ASSERT(RSGlobalConfig.joanTest == DEFAULT_JOAN_TEST,
+                "joanTest should be default value after LoadDefaultConfigs");
+  RedisModule_Log(ctx, "notice", "JOAN ======> joanTest = %d", RSGlobalConfig.joanTest);
   char *err = NULL;
   // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {

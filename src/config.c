@@ -2084,6 +2084,16 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
+      ctx, "search-joan-test",
+      DEFAULT_JOAN_TEST,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      255, get_uint8_numeric_config, set_uint8_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.joanTest)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
       ctx, "search-bm25std-tanh-factor",
       DEFAULT_BM25STD_TANH_FACTOR,
       REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
