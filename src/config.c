@@ -109,9 +109,20 @@ static const char* FTConfigNameToConfigName(const char *name) {
   return NULL;
 }
 
+/******************************************************************************
+ * Config Callback Functions
+ *
+ * IMPORTANT: All config getter/setter callbacks MUST be declared as `static`.
+ * This prevents symbol collisions when multiple Redis modules are loaded
+ * together (e.g., RediSearch + vector-sets). Without `static`, the dynamic
+ * linker may resolve these generic function names to the wrong module's
+ * implementation, causing silent failures.
+ *****************************************************************************/
+
 static int set_long_numeric_config(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(err);
+  REDISMODULE_NOT_USED(name);
   *(long long *)privdata = val;
   return REDISMODULE_OK;
 }
@@ -192,7 +203,7 @@ static long long get_uint8_numeric_config(const char *name, void *privdata) {
 static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
   REDISMODULE_NOT_USED(err);
-  *(bool *)privdata = (bool)val;
+  *(bool *)privdata = val;
   return REDISMODULE_OK;
 }
 
