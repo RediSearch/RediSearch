@@ -34,6 +34,7 @@
 #include "profile/options.h"
 #include "reply_empty.h"
 #include "search_disk.h"
+#include "search_disk_utils.h"
 
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.
@@ -1461,6 +1462,10 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     return RedisModule_WrongArity(ctx);
   }
 
+  if (type == COMMAND_AGGREGATE &&
+      SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
+    return REDISMODULE_OK;
+  }
   QueryError status = QueryError_Default();
 
   // Memory guardrail
@@ -1812,12 +1817,17 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_WrongArity(ctx);
   }
 
+  if (type == COMMAND_AGGREGATE &&
+      SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
+    return REDISMODULE_OK;
+  }
+  QueryError status = QueryError_Default();
+
   AREQ *r = NULL;
   AREQ_Debug_params debug_params = {0};
   int debug_argv_count = 0;
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
-  QueryError status = QueryError_Default();
   AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
   if (!debug_req) {
     goto error;

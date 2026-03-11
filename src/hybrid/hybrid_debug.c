@@ -14,6 +14,7 @@
 #include "result_processor.h"
 #include "rmutil/args.h"
 #include "rmalloc.h"
+#include "search_disk_utils.h"
 
 // Debug parameters structure for hybrid queries
 typedef struct {
@@ -260,6 +261,9 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return RedisModule_WrongArity(ctx);
   }
 
+  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
+    return REDISMODULE_OK;
+  }
   QueryError status = QueryError_Default();
 
   // Get index name and create search context (same pattern as regular hybridCommandHandler)

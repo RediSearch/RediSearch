@@ -112,7 +112,7 @@ impl NumericRange {
         }
 
         // Add to inverted index
-        let record = RSIndexResult::numeric(value).doc_id(doc_id);
+        let record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
         self.entries.add_record(&record)
     }
 
@@ -237,7 +237,7 @@ impl NumericRange {
         // via HLL.
         let mut reader = self.entries.reader();
         reader.skip_to(start_id);
-        let mut result = RSIndexResult::numeric(0.0);
+        let mut result = RSIndexResult::build_numeric(0.0).build();
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let value = unsafe { result.as_numeric_unchecked() };

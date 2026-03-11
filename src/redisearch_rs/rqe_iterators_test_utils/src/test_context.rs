@@ -322,7 +322,7 @@ impl TestContext {
 
         // Populate with virtual records for each document ID
         for doc_id in doc_ids {
-            let record = RSIndexResult::virt().doc_id(doc_id);
+            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
@@ -386,7 +386,7 @@ impl TestContext {
 
         // Populate with virtual records for each document ID
         for doc_id in doc_ids {
-            let record = RSIndexResult::virt().doc_id(doc_id);
+            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
@@ -475,7 +475,7 @@ impl TestContext {
         // pointer is actually a Rust opaque InvertedIndex despite the C type.
         let ii_opaque: *mut inverted_index::opaque::InvertedIndex = ii_ptr.cast();
         for doc_id in doc_ids {
-            let record = RSIndexResult::virt().doc_id(doc_id);
+            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii_opaque is a valid pointer created via TagIndex_OpenIndex
             // which delegates to NewInvertedIndex_Ex (Rust FFI).
             unsafe {
@@ -650,6 +650,15 @@ impl TestContext {
         }
     }
 
+    /// Get a raw pointer to the missing-field inverted index suitable for FFI.
+    /// Panics if this is not a missing context.
+    pub fn missing_index_ptr(&self) -> *const ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Missing { inverted_index, .. } => inverted_index.as_ptr(),
+            _ => panic!("TestContext is not a Missing context"),
+        }
+    }
+
     /// Get the missing-field (doc-ids-only) inverted index for this context.
     /// Returns a reference to the FFI inverted index wrapper.
     /// Panics if this is not a missing context.
@@ -676,6 +685,15 @@ impl TestContext {
                 let ii: *mut inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
                 unsafe { &mut *ii }
             }
+            _ => panic!("TestContext is not a Tag context"),
+        }
+    }
+
+    /// Get a raw pointer to the tag inverted index suitable for FFI.
+    /// Panics if this is not a tag context.
+    pub fn tag_index_ptr(&self) -> *const ffi::InvertedIndex {
+        match &self.inner {
+            TestContextInner::Tag { inverted_index, .. } => inverted_index.as_ptr(),
             _ => panic!("TestContext is not a Tag context"),
         }
     }

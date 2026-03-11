@@ -19,7 +19,9 @@ use inverted_index::{
 fn encode_fields_only(records: &[(u32, u32)]) -> Vec<u8> {
     let mut buf = Cursor::new(Vec::new());
     for &(delta, field_mask) in records {
-        let record = RSIndexResult::term().field_mask(field_mask as t_fieldMask);
+        let record = RSIndexResult::build_term()
+            .field_mask(field_mask as t_fieldMask)
+            .build();
         FieldsOnly::encode(&mut buf, delta, &record).expect("to encode");
     }
     buf.into_inner()
@@ -29,7 +31,7 @@ fn encode_fields_only(records: &[(u32, u32)]) -> Vec<u8> {
 fn encode_fields_only_wide(records: &[(u32, u128)]) -> Vec<u8> {
     let mut buf = Cursor::new(Vec::new());
     for &(delta, field_mask) in records {
-        let record = RSIndexResult::term().field_mask(field_mask);
+        let record = RSIndexResult::build_term().field_mask(field_mask).build();
         FieldsOnlyWide::encode(&mut buf, delta, &record).expect("to encode");
     }
     buf.into_inner()
@@ -60,9 +62,10 @@ fn test_encode_fields_only() {
 
     for (delta, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = inverted_index::RSIndexResult::term()
+        let record = inverted_index::RSIndexResult::build_term()
             .doc_id(doc_id)
-            .field_mask(field_mask);
+            .field_mask(field_mask)
+            .build();
 
         let bytes_written =
             FieldsOnly::encode(&mut buf, delta, &record).expect("to encode freqs only record");
@@ -123,9 +126,10 @@ fn test_encode_fields_only_wide() {
 
     for (delta, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = inverted_index::RSIndexResult::term()
+        let record = inverted_index::RSIndexResult::build_term()
             .doc_id(doc_id)
-            .field_mask(field_mask);
+            .field_mask(field_mask)
+            .build();
 
         let bytes_written =
             FieldsOnlyWide::encode(&mut buf, delta, &record).expect("to encode freqs only record");
@@ -150,7 +154,7 @@ fn test_encode_fields_only_output_too_small() {
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
 
-    let record = RSIndexResult::term();
+    let record = RSIndexResult::build_term().build();
     let res = FieldsOnly::encode(&mut cursor, 0, &record);
 
     assert!(res.is_err());
@@ -196,7 +200,7 @@ fn test_seek_fields_only() {
         (5, 1),  // doc_id = 60
     ]);
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
+    let mut result = RSIndexResult::build_term().build();
 
     // Seek to 30 (skips first two records)
     let found = FieldsOnly::seek(&mut cursor, 10, 30, &mut result).expect("seek");
@@ -226,7 +230,7 @@ fn test_seek_fields_only_wide() {
         (5, 1),  // doc_id = 60
     ]);
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
+    let mut result = RSIndexResult::build_term().build();
 
     // Seek to 30
     let found = FieldsOnlyWide::seek(&mut cursor, 10, 30, &mut result).expect("seek");

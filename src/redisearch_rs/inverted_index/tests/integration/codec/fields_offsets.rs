@@ -163,7 +163,9 @@ fn test_encode_fields_offsets_field_mask_overflow() {
     let buf = [0u8; 100];
     let mut cursor = Cursor::new(buf);
 
-    let record = inverted_index::RSIndexResult::term().field_mask(u32::MAX as t_fieldMask + 1);
+    let record = inverted_index::RSIndexResult::build_term()
+        .field_mask(u32::MAX as t_fieldMask + 1)
+        .build();
     let _res = FieldsOffsets::encode(&mut cursor, 0, &record);
 }
 
@@ -172,7 +174,7 @@ fn test_encode_fields_offsets_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 3];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::term();
+    let record = inverted_index::RSIndexResult::build_term().build();
 
     let res = FieldsOffsets::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
@@ -231,7 +233,7 @@ fn test_seek_fields_offsets() {
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let mut record_decoded = RSIndexResult::term();
+    let mut record_decoded = RSIndexResult::build_term().build();
 
     let found = FieldsOffsets::seek(&mut buf, 10, 30, &mut record_decoded)
         .expect("to decode fields offsets record");
@@ -273,7 +275,7 @@ fn test_seek_fields_offsets_wide() {
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let mut record_decoded = RSIndexResult::term();
+    let mut record_decoded = RSIndexResult::build_term().build();
 
     let found = FieldsOffsetsWide::seek(&mut buf, 10, 30, &mut record_decoded)
         .expect("to decode fields offsets record");

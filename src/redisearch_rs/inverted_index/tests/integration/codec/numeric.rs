@@ -388,7 +388,7 @@ fn test_numeric_encode_decode(
     expected_buffer: Vec<u8>,
 ) {
     let mut buf = Cursor::new(Vec::new());
-    let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
+    let record = RSIndexResult::build_numeric(value).doc_id(u64::MAX).build();
 
     let bytes_written = Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
         .expect("to encode numeric record");
@@ -420,7 +420,7 @@ fn test_numeric_encode_decode(
 #[test]
 fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
-    let record = RSIndexResult::numeric(3.124);
+    let record = RSIndexResult::build_numeric(3.124).build();
 
     let _bytes_written =
         NumericFloatCompression::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
@@ -466,7 +466,7 @@ fn test_empty_buffer() {
 #[should_panic(expected = "numeric encoder will only be called for numeric records")]
 fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
-    let record = RSIndexResult::virt().doc_id(10);
+    let record = RSIndexResult::build_virt().doc_id(10).build();
 
     let _result = Numeric::encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record);
 }
@@ -474,7 +474,7 @@ fn encoding_non_numeric_record() {
 #[test]
 fn encoding_to_fixed_buffer() {
     let mut buffer = Cursor::new([0; 2]);
-    let record = RSIndexResult::numeric(100.0).doc_id(1);
+    let record = RSIndexResult::build_numeric(100.0).doc_id(1).build();
 
     let result = Numeric::encode(&mut buffer, NumericDelta::from_u64(1).unwrap(), &record);
 
@@ -542,7 +542,7 @@ fn encoding_to_slow_writer() {
     }
 
     let mut buffer = SlowWriter::new(Vec::new());
-    let record = RSIndexResult::numeric(3.124).doc_id(10);
+    let record = RSIndexResult::build_numeric(3.124).doc_id(10).build();
 
     let result = Numeric::encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record)
         .expect("to encode the complete record");
@@ -601,7 +601,7 @@ mod property_based {
             value in u64::MIN..u64::MAX,
         ) {
             let mut buf = Cursor::new(Vec::new());
-            let record = RSIndexResult::numeric(value as _).doc_id(u64::MAX);
+            let record = RSIndexResult::build_numeric(value as _).doc_id(u64::MAX).build();
 
             let _bytes_written =
                 Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
@@ -623,7 +623,7 @@ mod property_based {
             value in f64::MIN..f64::MAX,
         ) {
             let mut buf = Cursor::new(Vec::new());
-            let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
+            let record = RSIndexResult::build_numeric(value).doc_id(u64::MAX).build();
 
             let _bytes_written =
                 Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");

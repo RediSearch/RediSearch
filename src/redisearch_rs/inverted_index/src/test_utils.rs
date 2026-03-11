@@ -28,14 +28,13 @@ impl<'a> TestTermRecord<'a> {
         term.set_idf(5.0);
         term.set_bm25_idf(10.0);
 
-        let record = RSIndexResult::with_term(
-            term,
-            RSOffsetSlice::from_slice(offsets),
-            doc_id,
-            field_mask,
-            freq,
-        )
-        .weight(1.0);
+        let record = RSIndexResult::build_term()
+            .borrowed_record(Some(term), RSOffsetSlice::from_slice(offsets))
+            .doc_id(doc_id)
+            .field_mask(field_mask)
+            .frequency(freq)
+            .weight(1.0)
+            .build();
 
         Self { record }
     }

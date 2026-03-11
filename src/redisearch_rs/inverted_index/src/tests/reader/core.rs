@@ -41,14 +41,14 @@ fn seeking_records() {
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
-    let mut result = RSIndexResult::default();
+    let mut result = RSIndexResult::build_virt().build();
 
     let found = ir
         .seek_record(101, &mut result)
         .expect("to be able to read from the buffer");
 
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(101));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(101).build());
 
     let found = ir
         .seek_record(105, &mut result)
@@ -57,7 +57,7 @@ fn seeking_records() {
     assert!(found);
     assert_eq!(
         result,
-        RSIndexResult::virt().doc_id(108),
+        RSIndexResult::build_virt().doc_id(108).build(),
         "should seek to the next highest ID"
     );
 
@@ -71,7 +71,7 @@ fn seeking_records() {
 fn index_reader_construction_with_no_blocks() {
     let ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let mut ir = ii.reader();
-    let mut result = RSIndexResult::default();
+    let mut result = RSIndexResult::build_virt().build();
 
     assert_eq!(ir.next_record(&mut result).unwrap(), false);
     ir.reset();
@@ -179,19 +179,19 @@ fn reader_reset() {
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
-    let mut result = RSIndexResult::default();
+    let mut result = RSIndexResult::build_virt().build();
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(10).build());
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(11));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(11).build());
 
     assert_eq!(ir.gc_marker, 0);
     ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
@@ -204,13 +204,14 @@ fn reader_reset() {
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(10).build());
 }
 
 #[test]
 fn reader_needs_revalidation() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
 
     let ir = ii.reader();
 
@@ -274,19 +275,21 @@ fn reader_has_duplicates() {
         }
 
         fn base_result<'index>() -> RSIndexResult<'index> {
-            RSIndexResult::default()
+            RSIndexResult::build_virt().build()
         }
     }
 
     let mut ii = InvertedIndex::<AllowDupsDummy>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
 
     {
         let ir = ii.reader();
         assert!(!ir.has_duplicates());
     }
 
-    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
     let ir = ii.reader();
     assert!(ir.has_duplicates(), "should have duplicates");
 }
@@ -296,7 +299,8 @@ fn reader_flags() {
     let mut ii = InvertedIndex::<Dummy>::new(
         IndexFlags_Index_StoreTermOffsets | IndexFlags_Index_WideSchema,
     );
-    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
     let ir = ii.reader();
 
     assert_eq!(
@@ -308,7 +312,8 @@ fn reader_flags() {
 #[test]
 fn reader_is_index() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
     let ir = ii.reader();
 
     assert!(ir.points_to_ii(&ii));
@@ -336,25 +341,25 @@ fn reading_records() {
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
-    let mut result = RSIndexResult::default();
+    let mut result = RSIndexResult::build_virt().build();
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(10).build());
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(11));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(11).build());
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(100));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(100).build());
 
     let found = ir
         .next_record(&mut result)
@@ -382,19 +387,19 @@ fn reading_over_empty_blocks() {
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
-    let mut result = RSIndexResult::default();
+    let mut result = RSIndexResult::build_virt().build();
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(10).build());
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(30));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(30).build());
 
     let found = ir
         .next_record(&mut result)
@@ -437,7 +442,7 @@ fn read_using_the_first_block_id_as_the_base() {
         }
 
         fn base_result<'index>() -> RSIndexResult<'index> {
-            RSIndexResult::default()
+            RSIndexResult::build_virt().build()
         }
 
         fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
@@ -454,25 +459,25 @@ fn read_using_the_first_block_id_as_the_base() {
     }];
     let ii = InvertedIndex::<FirstBlockIdDummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();
-    let mut result = RSIndexResult::default();
+    let mut result = RSIndexResult::build_virt().build();
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(10));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(10).build());
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(11));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(11).build());
 
     let found = ir
         .next_record(&mut result)
         .expect("to be able to read from the buffer");
     assert!(found);
-    assert_eq!(result, RSIndexResult::virt().doc_id(12));
+    assert_eq!(result, RSIndexResult::build_virt().doc_id(12).build());
 }
 
 impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for I {

@@ -71,6 +71,7 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
 #include "search_disk.h"
+#include "search_disk_utils.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "coord/coord_request_ctx.h"
@@ -80,7 +81,6 @@
 #include "aggregate/reply_empty.h"
 #include "module_init.h"
 #include "asm_state_machine.h"
-#include "search_disk_utils.h"
 #include "config.h"
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // for usleep in coordinator reduce pause
@@ -3588,6 +3588,10 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_WrongArity(ctx);
   }
 
+  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
+    return REDISMODULE_OK;
+  }
+
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
@@ -3667,6 +3671,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+
+  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
+    return REDISMODULE_OK;
   }
 
   // Memory guardrail

@@ -81,6 +81,6 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         } else {
             IteratorType_ID_LIST_UNSORTED_ITERATOR
         },
-        IdList::<SORTED>::with_result(ids_list, RSIndexResult::virt().weight(weight)),
+        IdList::<SORTED>::with_result(ids_list, RSIndexResult::build_virt().weight(weight).build()),
     )
 }

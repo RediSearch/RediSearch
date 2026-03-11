@@ -31,9 +31,9 @@ fn reading_filter_based_on_geo_filter() {
     // Make an iterator with three records having different geo distances. The last record will be
     // filtered out based on the geo distance.
     let iter = vec![
-        RSIndexResult::numeric(5.0).doc_id(10),
-        RSIndexResult::numeric(15.0).doc_id(11),
-        RSIndexResult::numeric(25.0).doc_id(12),
+        RSIndexResult::build_numeric(5.0).doc_id(10).build(),
+        RSIndexResult::build_numeric(15.0).doc_id(11).build(),
+        RSIndexResult::build_numeric(25.0).doc_id(12).build(),
     ];
 
     let geo_filter = GeoFilter {
@@ -58,13 +58,13 @@ fn reading_filter_based_on_geo_filter() {
     };
 
     let mut reader = FilterGeoReader::new(&filter, iter.into_iter());
-    let mut result = RSIndexResult::numeric(0.0);
+    let mut result = RSIndexResult::build_numeric(0.0).build();
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::numeric(1.0).doc_id(10));
+    assert_eq!(result, RSIndexResult::build_numeric(1.0).doc_id(10).build());
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::numeric(3.0).doc_id(11));
+    assert_eq!(result, RSIndexResult::build_numeric(3.0).doc_id(11).build());
 }

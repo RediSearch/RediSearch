@@ -22,11 +22,12 @@ struct WildcardBaseTest {
 
 impl WildcardBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-        RSIndexResult::virt()
+        RSIndexResult::build_virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
             .frequency(1)
             .weight(1.0)
+            .build()
     }
 
     fn new(n_docs: u64) -> Self {
@@ -89,11 +90,12 @@ mod not_miri {
 
     impl WildcardRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
-            RSIndexResult::virt()
+            RSIndexResult::build_virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
                 .frequency(1)
                 .weight(1.0)
+                .build()
         }
 
         fn new(n_docs: u64) -> Self {
