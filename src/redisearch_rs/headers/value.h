@@ -133,7 +133,7 @@ int RSValue_Cmp(const struct RsValue *v1, const struct RsValue *v2, QueryError *
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RSValue_Equal(const struct RsValue *v1, const struct RsValue *v2, QueryError *_status);
+bool RSValue_Equal(const struct RsValue *v1, const struct RsValue *v2, QueryError *_status);
 
 /**
  * Test whether an [`RsValue`] is "truthy".
@@ -149,7 +149,7 @@ int RSValue_Equal(const struct RsValue *v1, const struct RsValue *v2, QueryError
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RSValue_BoolTest(const struct RsValue *value);
+bool RSValue_BoolTest(const struct RsValue *value);
 
 /**
  * Creates and returns a new **owned** [`RsValue::Undefined`].
