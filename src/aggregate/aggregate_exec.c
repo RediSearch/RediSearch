@@ -1670,9 +1670,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.CURSOR")) {
-    return REDISMODULE_OK;
-  }
 
   long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
@@ -1718,9 +1715,6 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.CURSOR")) {
-    return REDISMODULE_OK;
   }
 
   long long cid;
@@ -1769,9 +1763,6 @@ int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.CURSOR")) {
-    return REDISMODULE_OK;
-  }
 
   long long cid;
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
@@ -1791,9 +1782,6 @@ int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
-  }
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.CURSOR")) {
-    return REDISMODULE_OK;
   }
 
   // Collect idle cursors from both local and coord lists

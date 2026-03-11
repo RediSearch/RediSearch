@@ -1479,8 +1479,7 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
 static int DiskDisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argc);
   const char *command = RedisModule_StringPtrLen(argv[0], NULL);
-  SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, command);
-  return REDISMODULE_OK;
+  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in disk mode", command);
 }
 
 static RedisModuleCmdFunc DiskDisabledCmd(RedisModuleCmdFunc f) {
@@ -3763,10 +3762,6 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
-  }
-
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.CURSOR")) {
-    return REDISMODULE_OK;
   }
 
   VERIFY_ACL(ctx, argv[2])
