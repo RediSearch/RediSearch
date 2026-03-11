@@ -15,7 +15,7 @@ use value::RSValueFFI;
 ///
 /// Safety:
 /// 1. `key` must be a valid pointer to an [`RLookupKey`].
-/// 2. `row` must be a valid pointer to an [`RLookupRow`].
+/// 2. `row` must be a valid pointer to an [`rlookup::RLookupRow`].
 /// 3. `value` must be a valid pointer to an [`ffi::RSValue`].
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RLookup_WriteKey<'a>(
@@ -42,7 +42,7 @@ unsafe extern "C" fn RLookup_WriteKey<'a>(
 ///
 /// Safety:
 /// 1. `key` must be a valid pointer to an [`RLookupKey`].
-/// 2. `row` must be a valid pointer to an [`RLookupRow`].
+/// 2. `row` must be a valid pointer to an [`rlookup::RLookupRow`].
 /// 3. `value` must be a valid pointer to an [`ffi::RSValue`].
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RLookup_WriteOwnKey<'a>(
@@ -65,7 +65,7 @@ unsafe extern "C" fn RLookup_WriteOwnKey<'a>(
 /// Wipes a RLookupRow by decrementing all values and resetting the row.
 ///
 /// Safety:
-/// 1. The pointer must be a valid pointer to an [`RLookupRow`].
+/// 1. The pointer must be a valid pointer to an [`rlookup::RLookupRow`].
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RLookupRow_Wipe<'a>(
     row: Option<NonNull<rlookup::RLookupRow<'a, RSValueFFI>>>,
@@ -80,7 +80,7 @@ unsafe extern "C" fn RLookupRow_Wipe<'a>(
 /// This does not affect the sorting vector.
 ///
 /// Safety:
-/// 1. The pointer must be a valid pointer to an [`RLookupRow`].
+/// 1. The pointer must be a valid pointer to an [`rlookup::RLookupRow`].
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RLookupRow_Reset<'a>(
     row: Option<NonNull<rlookup::RLookupRow<'a, RSValueFFI>>>,

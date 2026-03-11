@@ -397,7 +397,7 @@ impl<'a> RLookupKey<'a> {
     /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
     ///
     /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
-    /// will deallocate the `RLookupKey`. This function should only be used by [`RLookup::drop`].
+    /// will deallocate the `RLookupKey`. This function should only be used by [`KeyList::drop`].
     ///
     /// # Safety
     ///
@@ -410,7 +410,7 @@ impl<'a> RLookupKey<'a> {
         // This function must be kept in sync with `Self::into_ptr` above.
 
         // Safety:
-        // 1 -> This function will only ever be called through `RLookup::drop` below.
+        // 1 -> This function will only ever be called through `KeyList::drop` below.
         //      We therefore know - because push_key creates pointers through `into_ptr` - that the invariant is upheld.
         // 2 -> Has to be upheld by the caller
         let b = unsafe { Box::from_raw(ptr.as_ptr()) };
@@ -586,7 +586,7 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
+    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::_name]
     /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
     fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
@@ -603,7 +603,7 @@ impl<'a> KeyList<'a> {
         None
     }
 
-    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
+    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::_name]
     /// and return a [`CursorMut`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
     fn find_by_name_mut(&mut self, name: &CStr) -> Option<CursorMut<'_, 'a>> {

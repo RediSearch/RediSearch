@@ -67,7 +67,7 @@ pub enum FieldSpecType {
 pub type FieldSpecTypes = BitFlags<FieldSpecType>;
 
 /// KeyMode is a set of flags that can be used when opening a key with `RedisModule_OpenKey`.
-/// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#RedisModule_OpenKey
+/// See <https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#RedisModule_OpenKey>
 /// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
 #[bitflags]
 #[repr(u32)] // should be c_unit
@@ -313,7 +313,7 @@ impl RedisString {
         (ptr, len)
     }
 
-    /// Converts a raw `RedisModuleString` pointer to a C-style string reference [`&CStr`].
+    /// Converts a raw `RedisModuleString` pointer to a C-style string reference [`CStr`].
     ///
     /// This is useful at points where the Rust wrapper is not accessible, e.g. callbacks.
     /// If possible prefer [RedisString::try_as_c_str] which is safer and more idiomatic.
@@ -343,7 +343,7 @@ impl RedisString {
         }
     }
 
-    /// Converts the string to a C-style string reference [&CStr], uses the `RedisModule_StringPtrLen` function from the C API.
+    /// Converts the string to a C-style string reference [`CStr`], uses the `RedisModule_StringPtrLen` function from the C API.
     #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn try_as_c_str(&self) -> Option<&CStr> {
@@ -526,7 +526,7 @@ impl RedisScanCursor {
 
     /// This function uses the [RedisScanCursor] to iterate over each element and call a callback function for each element.
     /// For now the only usage pattern we saw was an extensive while loop as shown in the documentation as an example:
-    /// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_scankey
+    /// See <https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_scankey>
     ///
     /// Safety:
     /// The callback provides by the callee must be safe to call and must not mutate the state of the cursor.

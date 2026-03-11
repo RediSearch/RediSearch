@@ -370,7 +370,7 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *
  * Safety:
  * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 2. `row` must be a valid pointer to an [`rlookup::RLookupRow`].
  * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
  */
 void RLookup_WriteKey(const struct RLookupKey *key,
@@ -382,7 +382,7 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  *
  * Safety:
  * 1. `key` must be a valid pointer to an [`RLookupKey`].
- * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 2. `row` must be a valid pointer to an [`rlookup::RLookupRow`].
  * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
@@ -393,7 +393,7 @@ void RLookup_WriteOwnKey(const struct RLookupKey *key,
  * Wipes a RLookupRow by decrementing all values and resetting the row.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ * 1. The pointer must be a valid pointer to an [`rlookup::RLookupRow`].
  */
 void RLookupRow_Wipe(struct RLookupRow *row);
 
@@ -403,7 +403,7 @@ void RLookupRow_Wipe(struct RLookupRow *row);
  * This does not affect the sorting vector.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ * 1. The pointer must be a valid pointer to an [`rlookup::RLookupRow`].
  */
 void RLookupRow_Reset(struct RLookupRow *row);
 
