@@ -59,7 +59,6 @@ jobs:
       runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
       san: none
       checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
-    secrets: inherit
 
   build:
     name: Build ${{ needs.get-config.outputs.name }}

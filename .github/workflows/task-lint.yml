@@ -14,7 +14,6 @@ jobs:
       container: ubuntu:noble
       runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
       san: none
-    secrets: inherit
 
   lint:
     name: Linting

@@ -131,7 +131,6 @@ jobs:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env }}
       san: ${{ inputs.san || 'none' }}
-    secrets: inherit
 
   common-flow:
     needs: [get-config, build-image, start-runner]
