@@ -10,7 +10,7 @@
 //! Benchmark union iterator.
 //!
 //! Compares C and Rust implementations of the union iterator
-//! using SortedIdList as child iterators. Also compares Rust Flat vs Heap variants.
+//! using SortedIdList as child iterators.
 
 use std::{hint::black_box, time::Duration};
 
@@ -18,10 +18,7 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{
-    RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
-    id_list::IdListSorted,
-};
+use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat, id_list::IdListSorted};
 
 use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
 
@@ -94,60 +91,33 @@ impl Bencher {
     }
 
     pub fn bench(&self, c: &mut Criterion) {
-        // Flat benchmarks (O(n) min-finding, no heap overhead)
-        self.bench_flat(c);
-        // Heap benchmarks (O(log n) min-finding via custom DocIdMinHeap)
-        self.bench_heap(c);
-    }
-
-    fn bench_flat(&self, c: &mut Criterion) {
-        // Full mode - 5 children
-        let mut group = self.benchmark_group(c, "Union Flat 5 Children High Overlap");
-        self.bench_read_flat(&mut group, high_overlap_ids);
+        // 5 children
+        let mut group = self.benchmark_group(c, "Union 5 Children High Overlap");
+        self.bench_read(&mut group, high_overlap_ids);
         group.finish();
 
-        let mut group = self.benchmark_group(c, "Union Flat 5 Children Disjoint");
-        self.bench_read_flat(&mut group, disjoint_ids);
+        let mut group = self.benchmark_group(c, "Union 5 Children Disjoint");
+        self.bench_read(&mut group, disjoint_ids);
         group.finish();
 
-        // Full mode - 50 children
-        let mut group = self.benchmark_group(c, "Union Flat 50 Children High Overlap");
-        self.bench_read_flat(&mut group, high_overlap_ids_many);
+        // 50 children
+        let mut group = self.benchmark_group(c, "Union 50 Children High Overlap");
+        self.bench_read(&mut group, high_overlap_ids_many);
         group.finish();
 
-        let mut group = self.benchmark_group(c, "Union Flat 50 Children Disjoint");
-        self.bench_read_flat(&mut group, disjoint_ids_many);
+        let mut group = self.benchmark_group(c, "Union 50 Children Disjoint");
+        self.bench_read(&mut group, disjoint_ids_many);
         group.finish();
     }
 
-    fn bench_heap(&self, c: &mut Criterion) {
-        // Full mode - 5 children
-        let mut group = self.benchmark_group(c, "Union Heap 5 Children High Overlap");
-        self.bench_read_heap(&mut group, high_overlap_ids);
-        group.finish();
-
-        let mut group = self.benchmark_group(c, "Union Heap 5 Children Disjoint");
-        self.bench_read_heap(&mut group, disjoint_ids);
-        group.finish();
-
-        // Full mode - 50 children
-        let mut group = self.benchmark_group(c, "Union Heap 50 Children High Overlap");
-        self.bench_read_heap(&mut group, high_overlap_ids_many);
-        group.finish();
-
-        let mut group = self.benchmark_group(c, "Union Heap 50 Children Disjoint");
-        self.bench_read_heap(&mut group, disjoint_ids_many);
-        group.finish();
-    }
-
-    /// Benchmark Flat variant (O(n) min-finding, no heap overhead).
-    /// Compares C Flat, Rust Full Flat, and Rust Quick Flat.
-    fn bench_read_flat<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
+    /// Benchmark Union iterator (O(n) min-finding, no heap overhead).
+    /// Compares C, Rust Full, and Rust Quick variants.
+    fn bench_read<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
     where
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C Flat implementation benchmark
+        // C implementation benchmark
         group.bench_function("C Full", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false),
@@ -161,7 +131,7 @@ impl Bencher {
             );
         });
 
-        // Rust Full Flat variant
+        // Rust Full variant
         group.bench_function("Rust Full", |b| {
             b.iter_batched_ref(
                 || UnionFullFlat::new(ids_to_rust_children(make_ids())),
@@ -174,7 +144,7 @@ impl Bencher {
             );
         });
 
-        // Rust Quick Flat variant (returns after first match)
+        // Rust Quick variant (returns after first match)
         group.bench_function("Rust Quick", |b| {
             b.iter_batched_ref(
                 || UnionQuickFlat::new(ids_to_rust_children(make_ids())),
@@ -187,53 +157,4 @@ impl Bencher {
             );
         });
     }
-
-    /// Benchmark Heap variant (O(log n) min-finding via custom DocIdMinHeap).
-    /// Compares C Heap, Rust Full Heap, and Rust Quick Heap.
-    fn bench_read_heap<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
-    where
-        M: Measurement,
-        F: Fn() -> Vec<Vec<u64>>,
-    {
-        // C Heap implementation benchmark
-        group.bench_function("C Full", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true),
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // Rust Full Heap variant
-        group.bench_function("Rust Full", |b| {
-            b.iter_batched_ref(
-                || UnionFullHeap::new(ids_to_rust_children(make_ids())),
-                |it| {
-                    while let Ok(Some(current)) = it.read() {
-                        black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // Rust Quick Heap variant (returns after first match)
-        group.bench_function("Rust Quick", |b| {
-            b.iter_batched_ref(
-                || UnionQuickHeap::new(ids_to_rust_children(make_ids())),
-                |it| {
-                    while let Ok(Some(current)) = it.read() {
-                        black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
 }
