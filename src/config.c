@@ -194,6 +194,7 @@ static int set_max_trim_delay_numeric_config(const char *name, long long val,
 
 static int set_uint8_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *(uint8_t *)privdata = (uint8_t) val;
   return REDISMODULE_OK;
