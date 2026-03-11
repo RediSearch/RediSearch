@@ -48,11 +48,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Returns a newly created [`SearchResult`].
- */
-struct SearchResult SearchResult_New(void);
-
-/**
  * Overrides the contents of `dst` with those from `src` taking ownership of `src`.
  * Ensures proper cleanup of any existing data in `dst`.
  *
