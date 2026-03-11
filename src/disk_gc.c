@@ -41,8 +41,9 @@ static bool periodicCb(void *privdata, bool force) {
   size_t deleted = atomic_load(&gc->deletedDocsFromLastRun);
   size_t to_subtract = deleted < num_docs_cleaned ? deleted : num_docs_cleaned;
   atomic_fetch_sub(&gc->deletedDocsFromLastRun, to_subtract);
-  // Reset the changes counter after GC run
-  atomic_store(&gc->changesFromLastRun, 0);
+  // Subtract the changes we accounted for at the start of this GC run.
+  // Concurrent modifications since then will be preserved for the next cycle.
+  atomic_fetch_sub(&gc->changesFromLastRun, num_changes);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
