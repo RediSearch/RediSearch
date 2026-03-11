@@ -37,10 +37,7 @@ static bool periodicCb(void *privdata, bool force) {
   }
 
   size_t num_docs_cleaned = SearchDisk_RunGC(sp->diskSpec, sp);
-
-  // Update global stats for logically deleted docs
   IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_cleaned);
-  // Subtract the cleaned docs from the deleted counter (capped at 0)
   size_t deleted = atomic_load(&gc->deletedDocsFromLastRun);
   size_t to_subtract = deleted < num_docs_cleaned ? deleted : num_docs_cleaned;
   atomic_fetch_sub(&gc->deletedDocsFromLastRun, to_subtract);
