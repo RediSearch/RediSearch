@@ -58,12 +58,16 @@ jobs:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
       san: none
-      checkout-ref: ${{ env.REF }}
+      checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
     secrets: inherit
 
   build:
     name: Build ${{ needs.get-config.outputs.name }}
     needs: [get-config, build-image]
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      (needs.build-image.result == 'success' || needs.build-image.result == 'skipped')
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     defaults:
       run:

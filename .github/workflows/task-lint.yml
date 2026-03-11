@@ -6,9 +6,23 @@ on:
   workflow_call:
 
 jobs:
+  build-image:
+    continue-on-error: true
+    name: Build container for lint
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ubuntu:noble
+      runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+      san: none
+    secrets: inherit
+
   lint:
     name: Linting
+    needs: build-image
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    container:
+      image: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || 'ubuntu:noble' }}
+      options: --user root
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -17,9 +31,26 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd $(id -un) | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld $HOME
+          ls -ld $h
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> $GITHUB_ENV
       - name: Setup
+        if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
-        run: ./install_script.sh sudo
+        run: ./install_script.sh
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:
