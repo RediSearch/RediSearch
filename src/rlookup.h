@@ -53,11 +53,6 @@ bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key);
  */
 bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key);
 
-/**
- * Find a key in the lookup table by name. Returns NULL if not found.
- */
-RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len);
-
 #ifdef __cplusplus
 }
 #endif
