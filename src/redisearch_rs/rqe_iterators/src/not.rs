@@ -588,6 +588,102 @@ where
     }
 }
 
+/// Trait for NOT iterators ([`Not`] and [`NotOptimized`]).
+pub trait NotIterator<'index>: RQEIterator<'index> {
+    /// Get a shared reference to the child iterator, or `None` if unset.
+    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
+
+    /// Replace the child iterator.
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>);
+
+    /// Take ownership of the child iterator, leaving it unset.
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>>;
+}
+
+type BoxedChild<'index> = Box<dyn RQEIterator<'index> + 'index>;
+
+impl<'index> NotIterator<'index> for Not<'index, BoxedChild<'index>> {
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        self.child
+            .as_ref()
+            .map(|c| &**c as &dyn RQEIterator<'index>)
+    }
+
+    fn set_child(&mut self, child: BoxedChild<'index>) {
+        self.child = MaybeEmpty::new(child);
+    }
+
+    fn take_child(&mut self) -> Option<BoxedChild<'index>> {
+        self.child.take_iterator()
+    }
+}
+
+impl<'index, W> NotIterator<'index> for NotOptimized<'index, W, BoxedChild<'index>>
+where
+    W: RQEIterator<'index>,
+{
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        self.child
+            .as_ref()
+            .map(|c| &**c as &dyn RQEIterator<'index>)
+    }
+
+    fn set_child(&mut self, child: BoxedChild<'index>) {
+        self.child = MaybeEmpty::new(child);
+    }
+
+    fn take_child(&mut self) -> Option<BoxedChild<'index>> {
+        self.child.take_iterator()
+    }
+}
+
+/// Implement [`RQEIterator`] for `Box<dyn NotIterator>` so that it can be
+/// stored inside an `RQEIteratorWrapper`.
+impl<'index> RQEIterator<'index> for Box<dyn NotIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        (**self).is_wildcard()
+    }
+}
+
 /// The result of [`not_iterator_reducer`].
 enum NotReduction<'index, I> {
     /// The NOT was reduced to a simpler iterator (e.g. wildcard or empty).
