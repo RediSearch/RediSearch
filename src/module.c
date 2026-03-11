@@ -1751,7 +1751,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_RESTORE_IF_NX,       NULL,                          "write",            RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_SYNUPDATE_CMD,       SynUpdateCommand,              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_ALTER_CMD,           AlterIndexCommand,             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_ALTER_CMD,           DiskDisabledCmd(AlterIndexCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALTER_IF_NX_CMD,     AlterIndexIfNXCommand,         "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_DICT_ADD,            DiskDisabledCmd(DictAddCommand),  "write deny-oom",   SetFtDictaddInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_DICT_DEL,            DiskDisabledCmd(DictDelCommand),  "write",            SetFtDictdelInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
@@ -4673,7 +4673,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     SearchCommand writeCommands[] = {
       DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT.ALTER",          SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.ALTER",          SafeCmd(DiskDisabledCmd(FanoutCommandHandlerWithIndexAtFirstArg)),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.DROPINDEX",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", true,                noKeyArgs, false),
       // TODO: Either make ALL replication commands internal (such that no need for ACL check), or add ACL check.true
