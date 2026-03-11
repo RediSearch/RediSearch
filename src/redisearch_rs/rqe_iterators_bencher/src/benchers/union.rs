@@ -111,16 +111,16 @@ impl Bencher {
     }
 
     /// Benchmark Union iterator (O(n) min-finding, no heap overhead).
-    /// Compares C, Rust Full, and Rust Quick variants.
+    /// Compares C Full, C Quick, Rust Full, and Rust Quick variants.
     fn bench_read<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
     where
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C implementation benchmark
+        // C Full implementation benchmark (aggregates all matching children)
         group.bench_function("C Full", |b| {
             b.iter_batched_ref(
-                || ffi::QueryIterator::new_union(&make_ids(), 1.0, false),
+                || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, false),
                 |it| {
                     while it.read() == IteratorStatus_ITERATOR_OK {
                         black_box(it.current());
@@ -131,7 +131,21 @@ impl Bencher {
             );
         });
 
-        // Rust Full variant
+        // C Quick implementation benchmark (returns after first match)
+        group.bench_function("C Quick", |b| {
+            b.iter_batched_ref(
+                || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // Rust Full variant (aggregates all matching children)
         group.bench_function("Rust Full", |b| {
             b.iter_batched_ref(
                 || UnionFullFlat::new(ids_to_rust_children(make_ids())),

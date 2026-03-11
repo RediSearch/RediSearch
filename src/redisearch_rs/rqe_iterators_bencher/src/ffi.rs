@@ -155,8 +155,14 @@ impl QueryIterator {
     /// * `children_ids` - A slice of vectors, each containing sorted document IDs for a child iterator
     /// * `weight` - The weight for the union result
     /// * `use_heap` - Whether to force heap-based algorithm (for benchmarking purposes)
+    /// * `quick_exit` - Whether to return after first match (true) or aggregate all matches (false)
     #[inline(always)]
-    pub fn new_union(children_ids: &[Vec<t_docId>], weight: f64, use_heap: bool) -> Self {
+    pub fn new_union(
+        children_ids: &[Vec<t_docId>],
+        weight: f64,
+        use_heap: bool,
+        quick_exit: bool,
+    ) -> Self {
         let num_children = children_ids.len();
 
         // Allocate array of child iterator pointers using RedisModule_Alloc
@@ -200,7 +206,7 @@ impl QueryIterator {
             ffi::NewUnionIterator(
                 children_ptr,
                 num_children as i32,
-                false, // quickExit: collect all matching children
+                quick_exit,
                 weight,
                 ffi::QueryNodeType_QN_UNION,
                 std::ptr::null(), // q_str
