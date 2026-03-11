@@ -168,6 +168,10 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Setup sccache
+        # sccache-action is a JavaScript action requiring Node.js 20+
+        if: needs.get-config.outputs.node20_supported == 'true'
+        uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
@@ -204,6 +208,10 @@ jobs:
         env:
             COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
+
+      - name: Show sccache stats
+        if: needs.get-config.outputs.node20_supported == 'true'
+        run: ${SCCACHE_PATH:-sccache} --show-stats
 
       # Upload
       - name: Configure AWS Credentials
