@@ -15,10 +15,7 @@ pub use ffi::{
 };
 use inverted_index::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
-use std::{
-    ffi::c_void,
-    ptr::{self, NonNull},
-};
+use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -90,47 +87,6 @@ impl QueryIterator {
                 field::FieldMaskOrIndex::Mask(ffi::RS_FIELDMASK_ALL),
                 term,
                 1.0,
-            )
-        })
-    }
-
-    /// Create an optimized wildcard iterator from a search context.
-    ///
-    /// # Safety
-    ///
-    /// `sctx` must satisfy the preconditions of `NewWildcardIterator_Optimized`:
-    /// valid `RedisSearchCtx` with `spec.rule.index_all == true` and a valid
-    /// `spec.existingDocs` inverted index.
-    #[inline(always)]
-    pub unsafe fn new_wildcard_optimized(sctx: NonNull<ffi::RedisSearchCtx>, weight: f64) -> Self {
-        // SAFETY: Caller guarantees the preconditions of `NewWildcardIterator_Optimized`.
-        Self(unsafe {
-            iterators_ffi::wildcard::NewWildcardIterator_Optimized(sctx.as_ptr(), weight)
-        })
-    }
-
-    /// Create an optimized NOT iterator with the given child and wildcard iterators.
-    /// Uses `_New_NotIterator_With_WildCardIterator` which is the C benchmark constructor.
-    #[inline(always)]
-    pub fn new_not_optimized(child: Self, wc: Self, max_doc_id: u64, weight: f64) -> Self {
-        let timeout = ffi::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        // REDISEARCH_UNINITIALIZED (-1 as u32) to skip timeout checks.
-        let timeout_counter = u32::MAX;
-
-        // SAFETY: `child.0` and `wc.0` are valid QueryIterator pointers created by
-        // the C API. Ownership of both is transferred to the new NOT iterator.
-        // `timeout` and `timeout_counter` are stack values with no pointer invariants.
-        Self(unsafe {
-            ffi::_New_NotIterator_With_WildCardIterator(
-                child.0,
-                wc.0,
-                max_doc_id,
-                weight,
-                timeout,
-                timeout_counter,
             )
         })
     }
