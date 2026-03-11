@@ -46,7 +46,6 @@ jobs:
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
-    continue-on-error: true
     name: Build cached container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
