@@ -1,0 +1,96 @@
+name: Build Cached Container
+
+on:
+  workflow_call:
+    inputs:
+      container:
+        description: "Base container image (for example: ubuntu:noble)"
+        type: string
+        required: true
+      runner-env:
+        description: "Runner label/image used to build and push to GHCR"
+        type: string
+        required: true
+      san:
+        description: "Suffix component used in the shared cache tag"
+        type: string
+        default: none
+      checkout-ref:
+        description: "Optional git ref/SHA to checkout before docker build"
+        type: string
+        default: ""
+    outputs:
+      image:
+        description: "Built image tag for this run"
+        value: ${{ jobs.build-image.outputs.image }}
+      succeeded:
+        description: "Whether image build completed successfully"
+        value: ${{ jobs.build-image.outputs.succeeded }}
+
+jobs:
+  build-image:
+    runs-on: ${{ inputs.runner-env }}
+    permissions:
+      contents: read
+      packages: write # required for GHCR push
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      succeeded: ${{ steps.mark-success.outputs.succeeded }}
+    steps:
+      - name: Checkout
+        if: inputs.checkout-ref == ''
+        uses: actions/checkout@v5
+
+      - name: Checkout (custom ref)
+        if: inputs.checkout-ref != ''
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout-ref }}
+
+      - name: Set image name
+        id: meta
+        run: |
+          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
+          CONTAINER="${{ inputs.container }}"
+          SAN="${{ inputs.san }}"
+          RUN_ID=${{ github.run_id }}
+
+          CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
+          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ inputs.runner-env }}-${RUN_ID}"
+          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ inputs.runner-env }}-cache"
+
+          echo "image=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "cache=$CACHE_REF" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: $IMAGE_TAG"
+          echo "Using cache ref: $CACHE_REF"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (cached)
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          context: .
+          build-args: |
+            BASE_IMAGE=${{ inputs.container }}
+          file: Dockerfile
+          tags: ${{ steps.meta.outputs.image }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd
+          cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
+
+      # This step only runs if all previous steps succeeded.
+      - name: Mark success
+        id: mark-success
+        run: |
+          echo "succeeded=true" >> "$GITHUB_OUTPUT"
