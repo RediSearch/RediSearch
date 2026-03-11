@@ -1136,7 +1136,8 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
-// Assumes the spec is guarded (by its own lock for read or by the global lock)
+// Assumes the spec is guarded by its own lock (for read), such that races with
+// main-thread/GC updates are avoided.
 int prepareExecutionPlan(AREQ *req, QueryError *status) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
