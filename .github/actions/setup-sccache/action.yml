@@ -1,0 +1,16 @@
+name: Setup sccache
+description: Setup sccache with GitHub Actions cache backend
+
+runs:
+  using: composite
+  steps:
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.9
+    - name: Configure sccache environment
+      # Use --noprofile --norc to avoid Alpine's /etc/profile resetting PATH,
+      # which would hide the sccache binary installed by the previous step.
+      shell: bash --noprofile --norc -eo pipefail {0}
+      run: |
+        SCCACHE=$(command -v sccache)
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "RUSTC_WRAPPER=$SCCACHE" >> "$GITHUB_ENV"

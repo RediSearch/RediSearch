@@ -364,6 +364,10 @@ jobs:
           echo "Runner OS: $RUNNER_OS"
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
+      - name: Setup sccache
+        # sccache-action is a JavaScript action requiring Node.js 20+
+        if: steps.node20.outputs.supported == 'true'
+        uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
@@ -519,6 +523,10 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make rust-tests
+
+      - name: Show sccache stats
+        if: steps.node20.outputs.supported == 'true'
+        run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Check test logs folder size
         if: always()

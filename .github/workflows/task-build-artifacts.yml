@@ -157,6 +157,10 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Setup sccache
+        # sccache-action is a JavaScript action requiring Node.js 20+
+        if: steps.node20.outputs.supported == 'true'
+        uses: ./.github/actions/setup-sccache
       - name: Setup
         working-directory: .install
         env:
@@ -204,6 +208,10 @@ jobs:
         env:
             COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
+
+      - name: Show sccache stats
+        if: steps.node20.outputs.supported == 'true'
+        run: ${SCCACHE_PATH:-sccache} --show-stats
 
       # Upload
       - name: Configure AWS Credentials Using Role (node20)
