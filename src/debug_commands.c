@@ -119,6 +119,75 @@ bool StoreResultsDebugCtx_IsPaused(void) {
 void StoreResultsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalStoreResultsDebugCtx.pause, pause);
 }
+
+// ============================================================================
+// Named Sync Points Implementation
+// ============================================================================
+static SyncPointCtx globalSyncPointCtx = {0};
+
+// Internal helper: find sync point by name
+static SyncPointState* SyncPoint_FindByName(const char *name) {
+  int count = atomic_load(&globalSyncPointCtx.count);
+  for (int i = 0; i < count; i++) {
+    if (strcmp(globalSyncPointCtx.points[i].name, name) == 0) {
+      return &globalSyncPointCtx.points[i];
+    }
+  }
+  return NULL;
+}
+
+void SyncPoint_Arm(const char *name) {
+  SyncPointState *existing = SyncPoint_FindByName(name);
+  if (existing) {
+    atomic_store(&existing->armed, true);
+    return;
+  }
+  int idx = atomic_fetch_add(&globalSyncPointCtx.count, 1);
+  if (idx >= SYNC_POINT_MAX_ARMED) {
+    atomic_fetch_sub(&globalSyncPointCtx.count, 1);
+    return;
+  }
+  SyncPointState *sp = &globalSyncPointCtx.points[idx];
+  strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
+  sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
+  atomic_store(&sp->armed, true);
+  atomic_store(&sp->waiting, false);
+}
+
+void SyncPoint_Signal(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (sp) atomic_store(&sp->armed, false);  // Disarm to release waiting thread
+}
+
+bool SyncPoint_IsWaiting(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->waiting) : false;
+}
+
+bool SyncPoint_IsArmed(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->armed) : false;
+}
+
+void SyncPoint_ClearAll(void) {
+  int count = atomic_load(&globalSyncPointCtx.count);
+  for (int i = 0; i < count; i++) {
+    atomic_store(&globalSyncPointCtx.points[i].armed, false);
+    atomic_store(&globalSyncPointCtx.points[i].waiting, false);
+  }
+  atomic_store(&globalSyncPointCtx.count, 0);
+}
+
+void SyncPoint_Check(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  atomic_store(&sp->waiting, true);
+  while (atomic_load(&sp->armed)) {
+    usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
+  }
+  atomic_store(&sp->waiting, false);
+}
 #endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
@@ -2212,6 +2281,55 @@ DEBUG_COMMAND(printRPStream) {
   return REDISMODULE_OK;
 }
 
+#ifdef ENABLE_ASSERT
+/**
+ * FT.DEBUG SYNC_POINT <subcommand> [point_name]
+ *
+ * Subcommands:
+ *   ARM <name>        - Enable a sync point (queries will pause when reaching it)
+ *   SIGNAL <name>     - Resume execution at a sync point
+ *   IS_WAITING <name> - Check if a query is paused at a sync point
+ *   IS_ARMED <name>   - Check if a sync point is armed
+ *   CLEAR             - Reset all sync points
+ */
+DEBUG_COMMAND(syncPoint) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  // argc layout: FT.DEBUG SYNC_POINT <subcommand> [<point_name>]
+  // argv[0] = FT.DEBUG, argv[1] = SYNC_POINT, argv[2] = subcommand, argv[3] = point_name
+  if (argc < 3) return RedisModule_WrongArity(ctx);
+
+  const char *subOp = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcmp("ARM", subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    SyncPoint_Arm(name);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (!strcmp("SIGNAL", subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    SyncPoint_Signal(name);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (!strcmp("IS_WAITING", subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithBool(ctx, SyncPoint_IsWaiting(name));
+  }
+  if (!strcmp("IS_ARMED", subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithBool(ctx, SyncPoint_IsArmed(name));
+  }
+  if (!strcmp("CLEAR", subOp)) {
+    SyncPoint_ClearAll();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
+}
+#endif
+
 /**
  * FT.DEBUG QUERY_CONTROLLER <command> [options]
  */
@@ -2550,6 +2668,13 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
+#ifdef ENABLE_ASSERT
+  // Register SYNC_POINT command (only available with ENABLE_ASSERT)
+  int rc = RedisModule_CreateSubcommand(debugCommand, "SYNC_POINT", syncPoint,
+            IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+            RS_DEBUG_FLAGS);
+  if (rc != REDISMODULE_OK) return rc;
+#endif
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand,
           IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
           RS_DEBUG_FLAGS);

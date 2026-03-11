@@ -91,7 +91,57 @@ bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
 void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool StoreResultsDebugCtx_IsPaused(void);
 void StoreResultsDebugCtx_SetPause(bool pause);
-#endif
+
+// ============================================================================
+// Named Sync Points for deterministic concurrency testing
+// ============================================================================
+
+// Maximum number of named sync points that can be armed simultaneously
+#define SYNC_POINT_MAX_ARMED 16
+// Maximum length of a sync point name
+#define SYNC_POINT_NAME_MAX_LEN 64
+
+// Predefined sync point names for query execution
+// These correspond to specific locations in the query execution path
+#define SYNC_POINT_AFTER_ITERATOR_CREATE  "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_ITERATOR_CREATE "BeforeIteratorCreate"
+#define SYNC_POINT_BEFORE_LOCK_RELEASE_BG "BeforeLockRelease"
+#define SYNC_POINT_AFTER_LOCK_RELEASE     "AfterLockRelease"
+#define SYNC_POINT_BEFORE_FIRST_READ      "BeforeFirstRead"
+
+// State of a single sync point
+typedef struct SyncPointState {
+  char name[SYNC_POINT_NAME_MAX_LEN];   // Name of the sync point
+  atomic_bool armed;                    // Whether this sync point is armed (will block)
+  atomic_bool waiting;                  // Whether a thread is currently waiting at this point
+} SyncPointState;
+
+// Container for all sync point states
+typedef struct SyncPointCtx {
+  SyncPointState points[SYNC_POINT_MAX_ARMED];   // Array of sync points
+  atomic_int count;                              // Number of armed sync points
+} SyncPointCtx;
+
+// SyncPoint API function declarations
+// Arm a sync point - subsequent calls to SyncPoint_Check will block
+void SyncPoint_Arm(const char *name);
+// Signal a waiting thread at the named sync point to continue (also disarms it)
+void SyncPoint_Signal(const char *name);
+// Check if a thread is waiting at the named sync point
+bool SyncPoint_IsWaiting(const char *name);
+// Check if a sync point is armed
+bool SyncPoint_IsArmed(const char *name);
+// Clear all sync points
+void SyncPoint_ClearAll(void);
+// Called from code paths to potentially wait at a sync point
+// If the named point is armed, blocks until signaled
+void SyncPoint_Check(const char *name);
+
+// Macro for sync point checks - compiles to nothing in release builds
+// Usage: SYNC_POINT_CHECK(SYNC_POINT_AFTER_ITERATOR_CREATE);
+#define SYNC_POINT_CHECK(name) SyncPoint_Check(name)
+
+#endif  // ENABLE_ASSERT
 
 // Yield counter functions
 void IncrementLoadYieldCounter(void);

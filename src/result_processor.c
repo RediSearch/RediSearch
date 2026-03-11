@@ -66,6 +66,9 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
+#ifdef ENABLE_ASSERT
+  bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
+#endif
 } RPQueryIterator;
 
 
@@ -214,6 +217,7 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
  */
 static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
+
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
   if (sctx->spec->diskSpec) {
@@ -252,6 +256,13 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+
+#ifdef ENABLE_ASSERT
+  if (self->firstRead) {
+    self->firstRead = false;
+    SyncPoint_Check(SYNC_POINT_BEFORE_FIRST_READ);
+  }
+#endif
 
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
@@ -300,6 +311,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+
+#ifdef ENABLE_ASSERT
+  if (self->firstRead) {
+    self->firstRead = false;
+    SyncPoint_Check(SYNC_POINT_BEFORE_FIRST_READ);
+  }
+#endif
 
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
@@ -374,6 +392,9 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.type = RP_INDEX;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   ret->timeoutLimiter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
+#ifdef ENABLE_ASSERT
+  ret->firstRead = true;
+#endif
 
   // Initialize async read state
   IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
