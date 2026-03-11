@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod min_heap;
 mod timeout;
 
-pub use min_heap::DocIdMinHeap;
 pub use timeout::TimeoutContext;
