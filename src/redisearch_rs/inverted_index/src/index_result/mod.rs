@@ -11,6 +11,7 @@ mod aggregate;
 mod core;
 mod kind;
 mod offsets;
+pub mod proximity;
 mod result_data;
 mod term_record;
 
@@ -20,5 +21,6 @@ pub use self::core::{RSIndexResult, ResultMetrics_Reset_func};
 pub use aggregate::{RSAggregateResult, RSAggregateResultIter};
 pub use kind::{RSResultKind, RSResultKindMask};
 pub use offsets::{RSOffsetSlice, RSOffsetVector};
+pub use proximity::is_within_range;
 pub use result_data::RSResultData;
 pub use term_record::RSTermRecord;

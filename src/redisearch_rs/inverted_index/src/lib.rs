@@ -30,7 +30,7 @@ pub use gc::{GcApplyInfo, GcScanDelta};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetSlice, RSOffsetVector,
     RSQueryTerm, RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
-    ResultMetrics_Reset_func,
+    ResultMetrics_Reset_func, is_within_range,
 };
 
 // Re-export reader types.
