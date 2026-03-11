@@ -30,7 +30,7 @@ static bool periodicCb(void *privdata, bool force) {
   }
 
   // Check total changes (deletes + adds + updates) to decide whether to run GC
-  size_t num_changes = atomic_load(&gc->changesFromLastRun);
+  size_t num_changes = atomic_exchange(&gc->changesFromLastRun, 0);
   if (!force && num_changes < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return true;
@@ -41,9 +41,6 @@ static bool periodicCb(void *privdata, bool force) {
   size_t deleted = atomic_load(&gc->deletedDocsFromLastRun);
   size_t to_subtract = deleted < num_docs_cleaned ? deleted : num_docs_cleaned;
   atomic_fetch_sub(&gc->deletedDocsFromLastRun, to_subtract);
-  // Subtract the changes we accounted for at the start of this GC run.
-  // Concurrent modifications since then will be preserved for the next cycle.
-  atomic_fetch_sub(&gc->changesFromLastRun, num_changes);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
