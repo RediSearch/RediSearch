@@ -688,22 +688,6 @@ pub struct RLookupIteratorMut<'a> {
     pub current: *mut RLookupKey<'a>,
 }
 
-/// Run internal assertions on an [`RLookup`].
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[cfg(debug_assertions)]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __RLookup_AssertValid(lookup: *const OpaqueRLookup) {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
-
-    lookup.assert_valid("RLookup_AssertValid");
-}
-
 /// Turns `name` into an owned allocation if needed, and returns it together with the (cleared) flags.
 fn handle_name_alloc_flag(name: &CStr, flags: RLookupKeyFlags) -> (Cow<'_, CStr>, RLookupKeyFlags) {
     if flags.contains(RLookupKeyFlag::NameAlloc) {
