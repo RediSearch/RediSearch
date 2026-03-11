@@ -94,6 +94,7 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
         while True:
             client_id = get_query_client(env, query, msg)
             if client_id:
+                env.debugPrint(f"Found client {client_id} for query {query}", force=True)
                 return client_id
             time.sleep(0.1)
 
