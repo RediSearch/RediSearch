@@ -9,6 +9,7 @@
 #include "aggregate.h"
 #include "reducer.h"
 
+#include <cursor.h>
 #include <query.h>
 #include <extension.h>
 #include <result_processor.h>
@@ -1049,6 +1050,7 @@ AREQ *AREQ_New(void) {
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   RequestSyncCtx_Init(&req->syncCtx);
+  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
@@ -1060,19 +1062,7 @@ void AREQ_SetTimedOut(AREQ *req) {
   atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
 }
 
-bool AREQ_TryClaimReply(AREQ *req) {
-  uint8_t expected = ReplyState_NotReplied;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.replyState, &expected,
-      ReplyState_Replying, memory_order_acq_rel, memory_order_acquire);
-}
 
-void AREQ_MarkReplied(AREQ *req) {
-  atomic_store_explicit(&req->syncCtx.replyState, ReplyState_Replied, memory_order_release);
-}
-
-uint8_t AREQ_GetReplyState(AREQ *req) {
-  return atomic_load_explicit(&req->syncCtx.replyState, memory_order_acquire);
-}
 
 int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
@@ -1482,8 +1472,34 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
+void ChunkReplyState_Destroy(ChunkReplyState *state) {
+  // Free any stored results that weren't consumed
+  // (e.g., if timeout occurred before reply_callback ran)
+  if (state->results) {
+    for (size_t i = 0; i < array_len(state->results); i++) {
+      SearchResult_Destroy(state->results[i]);
+      rm_free(state->results[i]);
+    }
+    array_free(state->results);
+    state->results = NULL;
+  }
+
+  // Timeout edge case: cursor wasn't handled by reply_callback.
+  // See ChunkReplyState ownership model in aggregate.h for full explanation.
+  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  if (state->cursor) {
+    state->cursor->execState = NULL;
+    Cursor_Free(state->cursor);
+    state->cursor = NULL;
+  }
+
+  // Clear stored error state
+  QueryError_ClearError(&state->err);
+}
 
 static void AREQ_Free(AREQ *req) {
+  ChunkReplyState_Destroy(&req->storedReplyState);
+
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
