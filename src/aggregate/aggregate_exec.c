@@ -1513,12 +1513,17 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
+  RedisSearchCtx *sctx = AREQ_SearchCtx(r);
+  // Take a read lock on the spec (to avoid conflicts with the GC).
+  RedisSearchCtx_LockSpecRead(sctx);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+    RedisSearchCtx_UnlockSpec(sctx);
     AREQ_DecrRef(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
-  char *ret = QAST_DumpExplain(&r->ast, AREQ_SearchCtx(r)->spec);
+  char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
+  RedisSearchCtx_UnlockSpec(sctx);
   AREQ_DecrRef(r);
   CurrentThread_ClearIndexSpec();
   return ret;
