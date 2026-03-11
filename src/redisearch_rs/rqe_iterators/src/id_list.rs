@@ -45,7 +45,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
     /// Get the current iterator offset—i.e. its position in the list of IDs.
     ///
-    /// This is used by [`MetricIterator`](crate::metric::MetricIterator) to iterate over the corresponding list
+    /// This is used by [`Metric`](crate::metric::Metric) to iterate over the corresponding list
     /// of metric data in lockstep.
     #[inline(always)]
     pub(super) const fn offset(&self) -> usize {

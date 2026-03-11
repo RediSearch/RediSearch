@@ -12,9 +12,9 @@
 //!
 //! It also contains wrappers for some RedisModule types, using new-type pattern to ensure proper memory/lock management.
 //!
-//! - [RedisString]: A wrapper around `RedisModuleString` that ensures proper memory management.
-//! - [RedisKey]: A wrapper around `RedisModuleKey` that ensures proper resource management (open/close)
-//! - [RedisScanCursor]: A wrapper around `RedisModuleScanCursor` that ensures proper resource management (create/destroy).
+//! - `RedisString`: A wrapper around `RedisModuleString` that ensures proper memory management.
+//! - `RedisKey`: A wrapper around `RedisModuleKey` that ensures proper resource management (open/close)
+//! - `RedisScanCursor`: A wrapper around `RedisModuleScanCursor` that ensures proper resource management (create/destroy).
 
 use core::slice;
 use enumflags2::{BitFlags, bitflags};
@@ -28,7 +28,7 @@ use std::{
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
 pub enum RLookupLoadMode {
-    /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
+    /// Use keylist to load a number of `RLookupLoadOptions::n_keys` from `RLookupLoadOptions::keys`
     KeyList = 0,
 
     /// Load only cached keys from the [sorting_vector::RSSortingVector] and do not load from [crate::row::RLookupRow]
