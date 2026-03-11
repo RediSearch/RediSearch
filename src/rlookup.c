@@ -15,19 +15,6 @@
 #include "value.h"
 #include "util/arr.h"
 
-RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) {
-  RLookupIteratorMut iter = RLookup_IterMut(lookup);
-  RLookupKey* key;
-
-  while (RLookupIteratorMut_Next(&iter, &key)) {
-    // match `name` to the name of the key
-    if (RLookupKey_GetNameLen(key) == name_len && !strncmp(RLookupKey_GetName(key), name, name_len)) {
-      return key;
-    }
-  }
-  return NULL;
-}
-
 /**
  * Advances the iterator to the next key places a pointer to it into `key`.
  *
