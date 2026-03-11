@@ -167,6 +167,7 @@ static void sideThread(void *arg) {
   // Run the loop one more time to process close callbacks
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_ONCE);
   uv_loop_close(&io_runtime_ctx->uv_runtime.loop);
+  printf("IO Runtime thread finished\n");
 }
 
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
@@ -286,6 +287,7 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
     uv_mutex_unlock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
     if (!io_runtime_ctx->uv_runtime.loop_th_creation_failed) {
       // Make sure IORuntimeCtx Free is not holding the GIL
+      printf("Waiting for IORuntime thread to finish\n");
       uv_thread_join(&io_runtime_ctx->uv_runtime.loop_th);
     }
   } else {

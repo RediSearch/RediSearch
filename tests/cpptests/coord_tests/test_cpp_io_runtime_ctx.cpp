@@ -21,13 +21,26 @@
 #include <array>
 #include <initializer_list>
 #include <span>
-
+static std::atomic<bool> tear_down_started = false;
+static std::atomic<bool> testCallback2_incremented = true;
 // Test callback for queue operations
+static void testCallback2(void *privdata) {
+  int *counter = (int *)privdata;
+
+  while (!tear_down_started.load()) {
+    usleep(1); // 1us delay
+  }
+    printf("testCallback: about to access counter at %p\n", counter);
+
+  (*counter)++;
+  testCallback2_incremented = true;
+  printf("testCallback: incremented counter at %p\n", counter);
+}
 static void testCallback(void *privdata) {
   int *counter = (int *)privdata;
+
   (*counter)++;
 }
-
 // Test callback for topology updates
 static void testTopoCallback(void *privdata) {
   struct UpdateTopologyCtx *ctx = (struct UpdateTopologyCtx *)privdata;
@@ -60,9 +73,16 @@ protected:
   }
 
   void TearDown() override {
+
     // Clear any pending topology before shutdown
     IORuntimeCtx_FireShutdown(ctx);
+    tear_down_started = true;
+    while (!testCallback2_incremented.load()) {
+      usleep(1); // 1us delay
+    }
+    printf("TearDown: about to free IORuntimeCtx\n");
     IORuntimeCtx_Free(ctx);
+    tear_down_started = false;
   }
 };
 
@@ -312,6 +332,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveIoThreadsMetric) {
 
 TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   // Test that uv_threads_running_topology_update metric is tracked correctly
+  int dummy = 0;
 
   // Setup
   ConcurrentSearch_CreatePool(1);
@@ -343,10 +364,10 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
     }
     rm_free(ctx);
   };
+  testCallback2_incremented = false;
 
   // Start the IO runtime thread (required for uv loop to process async events)
-  int dummy = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &dummy);
+  IORuntimeCtx_Schedule(ctx, testCallback2, &dummy);
 
   // Schedule topology update - this calls uv_async_send which triggers topologyAsyncCB
   MRClusterTopology *newTopo = getDummyTopology(9999);
