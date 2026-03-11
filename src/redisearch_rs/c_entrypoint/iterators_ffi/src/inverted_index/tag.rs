@@ -114,7 +114,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
 /// # Parameters
 ///
 /// * `idx` - Pointer to the tag's inverted index ([`DocIdsOnly`] or [`RawDocIdsOnly`] encoded).
-/// * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the [`TrieMap`](triemap_ffi::TrieMap) of tag values.
+/// * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the `TrieMap` of tag values.
 /// * `sctx` - Pointer to the Redis search context.
 /// * `field_mask_or_index` - Field mask or field index to filter on.
 /// * `term` - Pointer to the query term representing the tag value. Ownership is
@@ -134,7 +134,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
 /// 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
 ///    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
 /// 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
-///    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) [`TrieMap`](triemap_ffi::TrieMap) lookup.
+///    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
 /// 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
 /// 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
 ///    iterator.
