@@ -263,6 +263,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   // Phase 2: Use static flags for communication with the topo callback
   static std::atomic<bool> topo_started{false};
   static std::atomic<bool> topo_should_finish{false};
+  int dummy_counter = 0;
   topo_started = false;
   topo_should_finish = false;
 
@@ -285,8 +286,7 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
   };
 
   // Start the IO runtime thread (required for uv loop to process async events)
-  int dummy = 0;
-  IORuntimeCtx_Schedule(ctx, testCallback, &dummy);
+  IORuntimeCtx_Schedule(ctx, testCallback, &dummy_counter);
 
   // Schedule topology update - this calls uv_async_send which triggers topologyAsyncCB
   MRClusterTopology *newTopo = getDummyTopology(9999);
@@ -309,6 +309,11 @@ TEST_F(IORuntimeCtxCommonTest, ActiveTopologyUpdateThreadsMetric) {
     return stats.uv_threads_running_topology_update == 0;
   });
   ASSERT_TRUE(success) << "Timeout waiting for metric to return to 0";
+
+  // Phase 5: Wait for testCallback to complete before returning
+  // (it runs asynchronously after topology validation timer fires)
+  success = RS::WaitForCondition([&]() { return dummy_counter >= 1; });
+  ASSERT_TRUE(success) << "Timeout waiting for testCallback to complete";
 
   // Cleanup
   ConcurrentSearch_ThreadPoolDestroy();
