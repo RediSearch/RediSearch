@@ -30,6 +30,7 @@ on:
 jobs:
   build-image:
     runs-on: ${{ inputs.runner-env }}
+    continue-on-error: true
     permissions:
       contents: read
       packages: write # required for GHCR push
