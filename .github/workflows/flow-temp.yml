@@ -14,6 +14,9 @@ on:
 jobs:
 
   alpine-test:
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
