@@ -75,14 +75,38 @@ jobs:
       - name: Install bash
         if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
-        uses: ./.github/actions/retry-command
-        with:
-          command: apk add bash
+        run: |
+          SUCCESS=0
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i of 5"
+            if apk add bash; then
+              echo "Setup succeeded"
+              SUCCESS=1
+              break
+            fi
+            if [ "$i" -lt 5 ]; then
+              echo "Setup failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          [ "$SUCCESS" -eq 1 ] || exit 1
       - name: Setup Dependencies
         if: needs.get-config.outputs.setup_script
-        uses: ./.github/actions/retry-command
-        with:
-          command: ${{ needs.get-config.outputs.setup_script }}
+        run: |
+          SUCCESS=0
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i of 5"
+            if ${{ needs.get-config.outputs.setup_script }}; then
+              echo "Setup succeeded"
+              SUCCESS=1
+              break
+            fi
+            if [ "$i" -lt 5 ]; then
+              echo "Setup failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          [ "$SUCCESS" -eq 1 ] || exit 1
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
@@ -95,18 +119,43 @@ jobs:
           ref: ${{ env.REF }}
       - name: checkout (legacy)
         if: needs.get-config.outputs.node20_supported != 'true'
-        uses: ./.github/actions/checkout-legacy
-        with:
-          ref: ${{ env.REF }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          echo "Detected platform: $CONTAINER"
+          case "$CONTAINER" in
+            amazonlinux:2)
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
+
+              git init
+              git remote add origin "$REPO_URL"
+
+              git fetch origin "$REF" || {
+                echo "Failed to fetch ref: '$REF'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '$CONTAINER'"
+              exit 1
+              ;;
+          esac
       - name: Setup
         uses: ./.github/actions/retry-command
         with:
-          command: .install/install_script.sh ${{ needs.get-config.outputs.install_mode }}
+          command: ./install_script.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
       - name: Install aws cli
         uses: ./.github/actions/retry-command
         with:
-          command: .install/install_aws.sh ${{ needs.get-config.outputs.install_mode }}
+          command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
       - name: Setup test dependencies
         uses: ./.github/actions/retry-command
         with:

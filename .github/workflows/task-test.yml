@@ -198,9 +198,21 @@ jobs:
       - name: Install bash
         if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
-        uses: ./.github/actions/retry-command
-        with:
-          command: apk add bash
+        run: |
+          SUCCESS=0
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i of 5"
+            if apk add bash; then
+              echo "Setup succeeded"
+              SUCCESS=1
+              break
+            fi
+            if [ "$i" -lt 5 ]; then
+              echo "Setup failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          [ "$SUCCESS" -eq 1 ] || exit 1
 
       - name: Free up disk space (container)
         # For container jobs - delete mounted host directories
@@ -231,7 +243,19 @@ jobs:
           df -h
       - name: Fix HOME Directory
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
-        uses: ./.github/actions/fix-home-directory
+        shell: bash
+        run: |
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
 
       - name: Disable automatic apt updates (self-hosted Linux)
         if: ${{ needs.get-config.outputs.ec2_image_id && !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
@@ -245,9 +269,21 @@ jobs:
 
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
-        uses: ./.github/actions/retry-command
-        with:
-          command: ${{ needs.get-config.outputs.setup_script }}
+        run: |
+          SUCCESS=0
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i of 5"
+            if ${{ needs.get-config.outputs.setup_script }}; then
+              echo "Setup succeeded"
+              SUCCESS=1
+              break
+            fi
+            if [ "$i" -lt 5 ]; then
+              echo "Setup failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
+          [ "$SUCCESS" -eq 1 ] || exit 1
 
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
@@ -267,9 +303,33 @@ jobs:
           submodules: recursive
       - name: Full checkout (legacy)
         if: needs.get-config.outputs.node20_supported != 'true'
-        uses: ./.github/actions/checkout-legacy
-        with:
-          ref: ${{ github.ref }}
+        env:
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          echo "Detected platform: $CONTAINER"
+          case "$CONTAINER" in
+            amazonlinux:2)
+              git config --global --add safe.directory "/__w/$GITHUB_REPO"
+
+              REPO_URL="https://github.com/$GITHUB_REPO.git"
+
+              git init
+              git remote add origin "$REPO_URL"
+
+              git fetch origin "$GITHUB_REF" || {
+                echo "Failed to fetch ref: '$GITHUB_REF'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '$CONTAINER'"
+              exit 1
+              ;;
+          esac
       - name: Print CPU information
         env:
           RUNNER_ARCH: ${{ runner.arch }}
@@ -296,7 +356,8 @@ jobs:
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
         with:
-          command: .install/install_script.sh ${{ needs.get-config.outputs.install_mode }}
+          command: ./install_script.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
 
       # Cache Rust packages
       - uses: Swatinem/rust-cache@v2
@@ -322,7 +383,8 @@ jobs:
         if: inputs.san == 'address'
         uses: ./.github/actions/retry-command
         with:
-          command: .install/install_llvm.sh ${{ needs.get-config.outputs.install_mode }}
+          command: ./install_llvm.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
       - name: Configure LLVM for sanitizer
         if: inputs.san == 'address'
         run: |
