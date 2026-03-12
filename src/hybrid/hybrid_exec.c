@@ -619,7 +619,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (depleters) {
         array_free(depleters);
       }
-      QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, "Timed out before creating cursors");
+      QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
 
@@ -857,7 +857,6 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 static void HybridRequest_DecrRefWrapper(void *privdata) {
   HybridRequest_DecrRef((HybridRequest *)privdata);
 }
-
 
 // Background execution functions implementation
 static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
