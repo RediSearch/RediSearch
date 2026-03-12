@@ -113,6 +113,7 @@ jobs:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
     permissions:
       contents: read
+      id-token: write
       packages: write
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit

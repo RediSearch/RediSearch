@@ -17,6 +17,7 @@ jobs:
     secrets: inherit
     permissions:
       contents: read
+      id-token: write
       packages: write
     uses: ./.github/workflows/flow-build-artifacts.yml
 
