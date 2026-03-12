@@ -28,11 +28,13 @@ fn debug_undefined() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn debug_number() {
     assert_eq!(debug(&RsValue::Number(42.0)), "42");
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn debug_number_obfuscated() {
     assert_eq!(debug_obfuscated(&RsValue::Number(42.0)), "Number");
 }
@@ -46,6 +48,7 @@ fn debug_string() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn debug_string_obfuscated() {
     assert_eq!(
         debug_obfuscated(&RsValue::String(RsString::from_vec(b"Hello".to_vec()))),
@@ -66,13 +69,13 @@ fn debug_array() {
     assert_eq!(
         debug(&RsValue::Array(Array::new(
             vec![
-                SharedRsValue::new(RsValue::Number(12.0)),
-                SharedRsValue::new(RsValue::Number(34.0)),
-                SharedRsValue::new(RsValue::Number(56.0))
+                SharedRsValue::new(RsValue::String(RsString::from_vec(b"foo".to_vec()))),
+                SharedRsValue::new(RsValue::String(RsString::from_vec(b"bar".to_vec()))),
+                SharedRsValue::new(RsValue::String(RsString::from_vec(b"baz".to_vec())))
             ]
             .into_boxed_slice()
         )),),
-        "[12, 34, 56]"
+        "[\"foo\", \"bar\", \"baz\"]"
     );
 }
 
@@ -82,17 +85,17 @@ fn debug_map() {
         debug(&RsValue::Map(Map::new(
             vec![
                 (
-                    SharedRsValue::new(RsValue::Number(12.0)),
+                    SharedRsValue::new(RsValue::String(RsString::from_vec(b"foo".to_vec()))),
                     SharedRsValue::new(RsValue::Null)
                 ),
                 (
-                    SharedRsValue::new(RsValue::Number(34.0)),
+                    SharedRsValue::new(RsValue::String(RsString::from_vec(b"bar".to_vec()))),
                     SharedRsValue::new(RsValue::Undefined)
                 ),
             ]
             .into_boxed_slice()
         )),),
-        "{12: NULL, 34: <Undefined>}"
+        "{\"foo\": NULL, \"bar\": <Undefined>}"
     );
 }
 
@@ -108,10 +111,10 @@ fn debug_ref() {
 fn debug_trio() {
     assert_eq!(
         debug(&RsValue::Trio(RsValueTrio::new(
-            SharedRsValue::new(RsValue::Number(12.0)),
-            SharedRsValue::new(RsValue::Number(34.0)),
-            SharedRsValue::new(RsValue::Number(56.0))
+            SharedRsValue::new(RsValue::String(RsString::from_vec(b"foo".to_vec()))),
+            SharedRsValue::new(RsValue::String(RsString::from_vec(b"bar".to_vec()))),
+            SharedRsValue::new(RsValue::String(RsString::from_vec(b"baz".to_vec())))
         )),),
-        "12"
+        "\"foo\""
     );
 }
