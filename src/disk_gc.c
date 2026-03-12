@@ -71,7 +71,6 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 static void deletedOrUpdatedCb(void *ctx) {
   DiskGC *gc = ctx;
   atomic_fetch_add(&gc->deletedOrUpdatedDocsFromLastRun, 1);
-  atomic_fetch_add(&gc->writesFromLastRun, 1);
   IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
