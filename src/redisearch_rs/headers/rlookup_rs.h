@@ -738,6 +738,8 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup,
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
  *
+ * Ownership of `name` remains with the caller, this function will make a copy if required.
+ *
  * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
  *
  * # Safety
@@ -765,6 +767,8 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
+ *
+ * Ownership of `name` remains with the caller, this function will make a copy if required.
  *
  * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
  *
