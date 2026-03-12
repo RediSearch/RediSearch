@@ -25,9 +25,9 @@ typedef struct DiskGC {
   WeakRef index;
   atomic_size_t intervalSec;
   // Tracks all changes (deletes, adds, updates) since last GC run
-  atomic_size_t changesFromLastRun;
+  atomic_size_t additionsFromLastRun;
   // Tracks only deletes for global stats (logically deleted docs)
-  atomic_size_t deletedDocsFromLastRun;
+  atomic_size_t deletedOrUpdatedDocsFromLastRun;
 } DiskGC;
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);

@@ -655,7 +655,7 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   // of document to delete at this point, we wouldn't have accounted for this deletion later on
   // after the GC is done.
   RS::deleteDocument(ctx, ism, numToDocStr(2).c_str());
-  ASSERT_EQ(fgc->deletedDocsFromLastRun, 2);
+  ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 2);
 
   FGC_Apply(fgc);
 
