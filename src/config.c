@@ -192,6 +192,23 @@ int set_uint8_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
+int set_search_disk_buffer_percentage_config(const char *name, long long val,
+  void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  if (val > 100) {
+    if (err) {
+      *err = RedisModule_CreateStringPrintf(NULL, "search-disk-buffer-percentage must be between 1 and 100, but got %lld", val);
+    }
+    return REDISMODULE_ERR;
+  }
+  *(uint8_t *)privdata = (uint8_t) val;
+  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
+    SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
+  }
+  return REDISMODULE_OK;
+}
+
 long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(uint8_t *)privdata);
@@ -2333,7 +2350,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      100, get_uint8_numeric_config, set_uint8_numeric_config, NULL,
+      100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
     )
   )

@@ -565,7 +565,7 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
     if (!strcmp(conf, HIDE_USER_DATA_FROM_LOGS)) {
       onUpdatedHideUserDataFromLogs(ctx);
     }
-    if (!strcmp(conf, BIGREDIS_MAX_RAM) == 0) {
+    if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
       RS_ASSERT(SearchDisk_IsEnabled())
       SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
     }

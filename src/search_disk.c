@@ -68,6 +68,10 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   return disk_db != NULL;
 }
 
+bool SearchDisk_IsInitialized() {
+  return disk_db != NULL;
+}
+
 // Callback for BigModuleRegister - returns total disk usage across all indexes
 static size_t getDiskUsageCallback(void) {
   size_t total = 0;
