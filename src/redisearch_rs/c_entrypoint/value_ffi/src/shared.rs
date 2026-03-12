@@ -7,8 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{mem::ManuallyDrop, ops::Deref};
-
+use crate::util::{expect_shared_value, expect_value};
 use value::{RsValue, SharedRsValue};
 
 /// Decrement the reference count of the provided [`RsValue`] object. If this was
@@ -26,50 +25,50 @@ pub unsafe extern "C" fn RSValue_DecrRef(value: *const RsValue) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Dereference(value: *const RsValue) -> *mut RsValue {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let dereferenced_value = shared_value.fully_dereferenced();
-    dereferenced_value.as_ptr() as *mut _
+    let value = unsafe { expect_value(value) };
+
+    let value = value.fully_dereferenced_ref();
+
+    std::ptr::from_ref(value).cast_mut()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_DereferenceRefAndTrio(value: *const RsValue) -> *mut RsValue {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    let dereferenced_value = shared_value.value().fully_dereferenced_ref_and_trio();
-    let value = unsafe { crate::util::expect_shared_value(dereferenced_value) };
-    value.as_ptr() as *mut _
+    let value = unsafe { expect_value(value) };
+
+    let value = value.fully_dereferenced_ref_and_trio();
+
+    std::ptr::from_ref(value).cast_mut()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Clear(value: *const RsValue) {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let mut shared_value = ManuallyDrop::new(shared_value);
+    let mut shared_value = unsafe { expect_shared_value(value) };
+
     shared_value.set_value(RsValue::Undefined);
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_IncrRef(value: *const RsValue) -> *mut RsValue {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
-    <SharedRsValue as Clone>::clone(&shared_value).into_raw() as *mut _
+    let shared_value = unsafe { expect_shared_value(value) };
+
+    SharedRsValue::clone(&shared_value).into_raw().cast_mut()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_MakeReference(dst: *const RsValue, src: *const RsValue) {
-    let shared_dst = unsafe { SharedRsValue::from_raw(dst) };
-    let mut shared_dst = ManuallyDrop::new(shared_dst);
-    let shared_src = unsafe { SharedRsValue::from_raw(src) };
-    let shared_src = ManuallyDrop::new(shared_src);
+    let mut shared_dst = unsafe { expect_shared_value(dst) };
 
-    let new_value = RsValue::Ref(shared_src.deref().clone());
+    let shared_src = unsafe { expect_shared_value(src) };
+
+    let new_value = RsValue::Ref(SharedRsValue::clone(&shared_src));
     shared_dst.set_value(new_value);
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RsValue, src: *const RsValue) {
-    let shared_dst = unsafe { SharedRsValue::from_raw(dst) };
-    let mut shared_dst = ManuallyDrop::new(shared_dst);
+    let mut shared_dst = unsafe { expect_shared_value(dst) };
+
     let shared_src = unsafe { SharedRsValue::from_raw(src) };
 
     let new_value = RsValue::Ref(shared_src);
@@ -78,18 +77,20 @@ pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RsValue, src: *con
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RsValue, src: *const RsValue) {
-    let _shared_dst = unsafe { SharedRsValue::from_raw(*dstpp) };
-    let shared_src = unsafe { SharedRsValue::from_raw(src) };
-    let shared_src = ManuallyDrop::new(shared_src);
-    let shared_src_clone = shared_src.deref().clone();
+    let _ = unsafe { SharedRsValue::from_raw(*dstpp) };
+
+    let shared_src = unsafe { expect_shared_value(src) };
+
+    let clone = SharedRsValue::clone(&shared_src);
+
     unsafe {
-        *dstpp = shared_src_clone.into_raw() as *mut _;
+        *dstpp = clone.into_raw().cast_mut();
     }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Refcount(value: *const RsValue) -> u16 {
-    let shared_value = unsafe { SharedRsValue::from_raw(value) };
-    let shared_value = ManuallyDrop::new(shared_value);
+    let shared_value = unsafe { expect_shared_value(value) };
+
     SharedRsValue::refcount(&shared_value) as u16
 }
