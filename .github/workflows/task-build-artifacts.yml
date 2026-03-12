@@ -47,9 +47,6 @@ jobs:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build cached container for platform
-    permissions:
-      contents: read
-      packages: write
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ${{ needs.get-config.outputs.container }}
