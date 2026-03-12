@@ -440,7 +440,7 @@ jobs:
         id: artifact-names
         run:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          UNIQUE_ID="${{ github.run_id }}-$RANDOM"
+          UNIQUE_ID="$RANDOM"
           ARTIFACT_NAME=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
                              ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }} - ${UNIQUE_ID}" | \
