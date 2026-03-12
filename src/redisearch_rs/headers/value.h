@@ -645,24 +645,102 @@ void RSValue_SetConstString(struct RsValue *value, const char *str, uint32_t len
  * # Safety
  *
  * 1. `value` must point to a valid **owned** [`RsValue`] obtained from an
- *    `RSValue_*` function returning an owned [`RsValue`] object.
+ *    `RSValue_*` function (it will be consumed).
  */
 void RSValue_DecrRef(const struct RsValue *value);
 
+/**
+ * Follows [`RsValue::Ref`] indirections and returns a pointer to the
+ * innermost non-[`Ref`](RsValue::Ref) [`RsValue`].
+ *
+ * The returned pointer borrows from the same allocation as `value`; no new
+ * ownership is created.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
 struct RsValue *RSValue_Dereference(const struct RsValue *value);
 
+/**
+ * Like [`RSValue_Dereference`], but also follows [`RsValue::Trio`]
+ * indirections by recursing into the left element of each trio.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
 struct RsValue *RSValue_DereferenceRefAndTrio(const struct RsValue *value);
 
+/**
+ * Resets `value` to [`RsValue::Undefined`], dropping whatever it previously held.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
 void RSValue_Clear(const struct RsValue *value);
 
+/**
+ * Increments the reference count of `value` and returns a new owned pointer
+ * to the same allocation.
+ *
+ * The caller must ensure the returned pointer is eventually passed to
+ * [`RSValue_DecrRef`].
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
 struct RsValue *RSValue_IncrRef(const struct RsValue *value);
 
+/**
+ * Replaces the content of `dst` with an [`RsValue::Ref`] pointing to `src`.
+ *
+ * `src`'s reference count is incremented; `dst`'s previous content is dropped.
+ *
+ * # Safety
+ *
+ * 1. `dst` and `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
 void RSValue_MakeReference(const struct RsValue *dst, const struct RsValue *src);
 
+/**
+ * Like [`RSValue_MakeReference`], but **takes ownership** of `src` instead of
+ * incrementing its reference count.
+ *
+ * After this call, `src` must not be used or freed by the caller.
+ *
+ * # Safety
+ *
+ * 1. `dst` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 2. `src` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function. Ownership is transferred to `dst`.
+ */
 void RSValue_MakeOwnReference(const struct RsValue *dst, const struct RsValue *src);
 
+/**
+ * Replaces the pointer at `*dstpp` with a new clone of `src`.
+ *
+ * The previous value at `*dstpp` is decremented (and potentially freed).
+ * `src`'s reference count is incremented.
+ *
+ * # Safety
+ *
+ * 1. `dstpp` must be a valid, non-null pointer to a `*mut RsValue`.
+ * 2. `*dstpp` must point to a valid **owned** [`RsValue`] obtained from an
+ *    `RSValue_*` function (it will be consumed).
+ * 3. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
 void RSValue_Replace(struct RsValue **dstpp, const struct RsValue *src);
 
+/**
+ * Returns the current reference count of `value`.
+ *
+ * # Safety
+ *
+ * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ */
 uint16_t RSValue_Refcount(const struct RsValue *value);
 
 /**
