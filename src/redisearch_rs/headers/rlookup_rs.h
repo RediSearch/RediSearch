@@ -619,6 +619,38 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                QueryError *status);
 
 /**
+ * Advances the iterator to the next key, placing a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys, or `false` when exhausted
+ * (the caller should not call this function again after `false` is returned).
+ *
+ * # Safety
+ *
+ * 1. `iterator` must be a [valid], non-null pointer to an `RLookupIterator`.
+ * 2. `key` must be a [valid], non-null pointer for writes of one `*const RLookupKey`.
+ * 3. The iterator must not outlive the `RLookup` it was created from.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookupIterator_Next(struct RLookupIterator *iterator, const struct RLookupKey **key);
+
+/**
+ * Advances the mutable iterator to the next key, placing a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys, or `false` when exhausted
+ * (the caller should not call this function again after `false` is returned).
+ *
+ * # Safety
+ *
+ * 1. `iterator` must be a [valid], non-null pointer to an `RLookupIteratorMut`.
+ * 2. `key` must be a [valid], non-null pointer for writes of one `*mut RLookupKey`.
+ * 3. The iterator must not outlive the `RLookup` it was created from.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookupIteratorMut_Next(struct RLookupIteratorMut *iterator, struct RLookupKey **key);
+
+/**
  * Return an iterator over an [`RLookup`]'s key list.
  *
  * # Safety

@@ -37,41 +37,6 @@ typedef enum {
         block \
     }
 
-/**
- * Advances the iterator to the next key places a pointer to it into `key`.
- *
- * Returns `true` while there are more keys or `false` to indicate the
- * last key ways returned and the caller should not call this function anymore.
- */
-static inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** key) {
-    const RLookupKey *current = iterator->current;
-    if (current == NULL) {
-        return false;
-    } else {
-        *key = current;
-        iterator->current = current->next;
-
-        return true;
-    }
-}
-
-/**
- * Advances the iterator to the next key places a pointer to it into `key`.
- *
- * Returns `true` while there are more keys or `false` to indicate the
- * last key ways returned and the caller should not call this function anymore.
- */
-static inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** key) {
-    RLookupKey *current = iterator->current;
-    if (current == NULL) {
-        return false;
-    } else {
-        *key = current;
-        iterator->current = current->next;
-
-        return true;
-    }
-}
 
 #ifdef __cplusplus
 }

@@ -627,6 +627,68 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
 }
 
+/// Advances the iterator to the next key, placing a pointer to it into `key`.
+///
+/// Returns `true` while there are more keys, or `false` when exhausted
+/// (the caller should not call this function again after `false` is returned).
+///
+/// # Safety
+///
+/// 1. `iterator` must be a [valid], non-null pointer to an `RLookupIterator`.
+/// 2. `key` must be a [valid], non-null pointer for writes of one `*const RLookupKey`.
+/// 3. The iterator must not outlive the `RLookup` it was created from.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupIterator_Next<'a>(
+    iterator: Option<NonNull<RLookupIterator<'a>>>,
+    key: Option<NonNull<*const RLookupKey<'a>>>,
+) -> bool {
+    // Safety: ensured by caller (1.)
+    let iterator = unsafe { iterator.unwrap().as_mut() };
+    let current = iterator.current;
+    if current.is_null() {
+        return false;
+    }
+    // Safety: current is non-null and valid per iterator invariant (3.)
+    let next = unsafe { *(&*current).next.get() };
+    // Safety: ensured by caller (2.)
+    unsafe { *key.unwrap().as_ptr() = current };
+    iterator.current = next.map_or(ptr::null(), |p| p.as_ptr().cast_const());
+    true
+}
+
+/// Advances the mutable iterator to the next key, placing a pointer to it into `key`.
+///
+/// Returns `true` while there are more keys, or `false` when exhausted
+/// (the caller should not call this function again after `false` is returned).
+///
+/// # Safety
+///
+/// 1. `iterator` must be a [valid], non-null pointer to an `RLookupIteratorMut`.
+/// 2. `key` must be a [valid], non-null pointer for writes of one `*mut RLookupKey`.
+/// 3. The iterator must not outlive the `RLookup` it was created from.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookupIteratorMut_Next<'a>(
+    iterator: Option<NonNull<RLookupIteratorMut<'a>>>,
+    key: Option<NonNull<*mut RLookupKey<'a>>>,
+) -> bool {
+    // Safety: ensured by caller (1.)
+    let iterator = unsafe { iterator.unwrap().as_mut() };
+    let current = iterator.current;
+    if current.is_null() {
+        return false;
+    }
+    // Safety: current is non-null and valid per iterator invariant (3.)
+    let next = unsafe { *(&*current).next.get() };
+    // Safety: ensured by caller (2.)
+    unsafe { *key.unwrap().as_ptr() = current };
+    iterator.current = next.map_or(ptr::null_mut(), NonNull::as_ptr);
+    true
+}
+
 /// Return an iterator over an [`RLookup`]'s key list.
 ///
 /// # Safety
