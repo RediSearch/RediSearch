@@ -28,7 +28,7 @@ use crate::RsValue;
 /// [`Clone`] increments the [`Arc`] reference count (or cheaply copies the
 /// pointer for static values). [`Drop`] decrements it and frees the allocation
 /// when the count reaches zero.
-#[allow(rustdoc::private_intra_doc_links)]
+#[expect(rustdoc::private_intra_doc_links)]
 pub struct SharedRsValue {
     ptr: *const RsValue,
 }
@@ -37,16 +37,10 @@ pub struct SharedRsValue {
 /// to avoid heap allocation for null values.
 static NULL_VALUE: RsValue = RsValue::Null;
 
-// SAFETY: The inner pointer is either the `&'static NULL_VALUE` (inherently
-// Send + Sync) or an `Arc<RsValue>` raw pointer, and `Arc<T>` is Send + Sync
-// when `T: Send + Sync`. `RsValue` satisfies both bounds.
-unsafe impl Send for SharedRsValue {}
-unsafe impl Sync for SharedRsValue {}
-
 impl SharedRsValue {
     /// Creates a [`SharedRsValue`] pointing to the static [`NULL_VALUE`]
     /// sentinel, avoiding a heap allocation.
-    #[allow(rustdoc::private_intra_doc_links)]
+    #[expect(rustdoc::private_intra_doc_links)]
     pub fn null_static() -> Self {
         Self {
             ptr: &NULL_VALUE as *const RsValue,
@@ -61,14 +55,14 @@ impl SharedRsValue {
     }
 
     /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
-    pub fn into_raw(self) -> *const RsValue {
+    pub const fn into_raw(self) -> *const RsValue {
         let ptr = self.ptr;
         std::mem::forget(self); // Prevent Drop from running
         ptr
     }
 
     /// Returns the underlying raw pointer without consuming `self`.
-    pub fn as_ptr(&self) -> *const RsValue {
+    pub const fn as_ptr(&self) -> *const RsValue {
         self.ptr
     }
 
@@ -77,13 +71,12 @@ impl SharedRsValue {
     /// # Safety
     ///
     /// `ptr` must be a valid pointer obtained from [`SharedRsValue::into_raw`].
-    pub unsafe fn from_raw(ptr: *const RsValue) -> Self {
+    pub const unsafe fn from_raw(ptr: *const RsValue) -> Self {
         Self { ptr }
     }
 
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// sentinel rather than a heap-allocated [`Arc`].
-    #[allow(rustdoc::private_intra_doc_links)]
     fn is_static(&self) -> bool {
         std::ptr::eq(self.ptr, &NULL_VALUE)
     }
@@ -188,3 +181,13 @@ impl Drop for SharedRsValue {
         }
     }
 }
+
+// SAFETY: The inner pointer is either the `&'static NULL_VALUE` (inherently
+// Send + Sync) or an `Arc<RsValue>` raw pointer, and `Arc<T>` is Send + Sync
+// when `T: Send + Sync`. `RsValue` satisfies both bounds.
+unsafe impl Send for SharedRsValue {}
+
+// SAFETY: The inner pointer is either the `&'static NULL_VALUE` (inherently
+// Send + Sync) or an `Arc<RsValue>` raw pointer, and `Arc<T>` is Send + Sync
+// when `T: Send + Sync`. `RsValue` satisfies both bounds.
+unsafe impl Sync for SharedRsValue {}
