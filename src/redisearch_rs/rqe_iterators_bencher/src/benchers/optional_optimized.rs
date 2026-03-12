@@ -12,20 +12,64 @@
 //! Sparse = few existing docs relative to max_doc_id — where the optimization matters most.
 //! Dense  = most doc IDs occupied — both variants should be close.
 //! Full   = all docs present, child matches all — upper bound on optimized throughput.
+//!
+//! Both C and Rust use the same `DocIdsOnly` inverted index as `existingDocs`, so their
+//! `wcii` paths are comparable: the C iterator reads from it via `NewWildcardIterator_Optimized`,
+//! while the Rust iterator reads from it via `new_wildcard_iterator_optimized`.
 
-use std::{hint::black_box, time::Duration};
+use std::{hint::black_box, ptr, time::Duration};
 
+use crate::ffi;
+use ::ffi::IteratorStatus_ITERATOR_OK;
+use ::ffi::QueryEvalCtx;
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 use rqe_iterators::{
-    IdList, RQEIterator, empty::Empty, optional_optimized::OptionalOptimized,
+    IdList, RQEIterator, optional_optimized::OptionalOptimized,
     wildcard::new_wildcard_iterator_optimized,
 };
 use rqe_iterators_test_utils::TestContext;
 
+/// Owned `QueryEvalCtx` that borrows its `sctx`/`docTable` from a [`TestContext`].
+///
+/// Allocated with the global allocator so that it does not participate in Stacked
+/// Borrows tracking for the underlying spec/sctx data.
+struct OwnedQueryEvalCtx(*mut QueryEvalCtx);
+
+impl OwnedQueryEvalCtx {
+    /// # Safety
+    /// `ctx` must outlive this `OwnedQueryEvalCtx`.
+    unsafe fn new(ctx: &TestContext) -> Self {
+        unsafe {
+            let layout = std::alloc::Layout::new::<QueryEvalCtx>();
+            let raw = std::alloc::alloc_zeroed(layout) as *mut QueryEvalCtx;
+            assert!(!raw.is_null(), "QueryEvalCtx allocation failed");
+            (*raw).sctx = ctx.sctx.as_ptr();
+            (*raw).docTable = ptr::addr_of_mut!((*ctx.spec.as_ptr()).docs);
+            Self(raw)
+        }
+    }
+
+    fn as_ptr(&self) -> *mut QueryEvalCtx {
+        self.0
+    }
+}
+
+impl Drop for OwnedQueryEvalCtx {
+    fn drop(&mut self) {
+        unsafe {
+            std::alloc::dealloc(self.0.cast(), std::alloc::Layout::new::<QueryEvalCtx>());
+        }
+    }
+}
+
 pub struct Bencher {
-    context_dense: TestContext,
+    // Must be declared before the TestContexts they borrow from, so they are
+    // dropped first (Rust drops fields in declaration order).
+    qctx_sparse: OwnedQueryEvalCtx,
+    qctx_dense: OwnedQueryEvalCtx,
     context_sparse: TestContext,
+    context_dense: TestContext,
 }
 
 impl Default for Bencher {
@@ -40,9 +84,15 @@ impl Default for Bencher {
                 (*(*spec).rule).index_all = true;
             }
         }
+        // SAFETY: qctx_* are declared before context_* in the struct, so they are
+        // dropped first, before the TestContexts they borrow from.
+        let qctx_sparse = unsafe { OwnedQueryEvalCtx::new(&context_sparse) };
+        let qctx_dense = unsafe { OwnedQueryEvalCtx::new(&context_dense) };
         Self {
-            context_dense,
             context_sparse,
+            context_dense,
+            qctx_sparse,
+            qctx_dense,
         }
     }
 }
@@ -73,17 +123,43 @@ impl Bencher {
     }
 
     /// Sparse: few existing docs relative to max_doc_id — where the optimization matters most.
-    /// Uses a small wcii (SPARSE_MAX existing docs) with an Empty child (all virtual results).
+    /// Uses a small wcii (SPARSE_MAX existing docs) with an out-of-range IdList child (all virtual results).
     fn bench_sparse_read(&self, c: &mut Criterion) {
         let context = &self.context_sparse;
         let mut group = self.benchmark_group(c, "Iterator - OptionalOptimized - Read Sparse");
+
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || {
+                    ffi::QueryIterator::new_optional_optimized(
+                        // new_empty() would trigger OptionalIteratorReducer's short-circuit,
+                        // returning a plain wildcard instead of OptionalOptimizedIterator.
+                        ffi::QueryIterator::new_id_list(vec![Self::SPARSE_MAX + 1]),
+                        self.qctx_sparse.as_ptr(),
+                        Self::SPARSE_MAX,
+                        Self::WEIGHT,
+                    )
+                },
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
 
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
                     // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
                     let (wcii, _) = unsafe { new_wildcard_iterator_optimized(context.sctx, 0.) };
-                    OptionalOptimized::new(wcii, Empty, Self::SPARSE_MAX, Self::WEIGHT)
+                    // Use an out-of-range IdList rather than Empty to match the C benchmark
+                    // structure: Empty would also work here (Rust has no OptionalIteratorReducer
+                    // short-circuit), but this keeps the child shape identical to C.
+                    let child = IdList::<'_, true>::new(vec![Self::SPARSE_MAX + 1]);
+                    OptionalOptimized::new(wcii, child, Self::SPARSE_MAX, Self::WEIGHT)
                 },
                 |it| {
                     while let Ok(Some(cur)) = it.read() {
@@ -104,6 +180,26 @@ impl Bencher {
         let context = &self.context_dense;
         let child_ids = Self::make_child_doc_ids(0.9);
         let mut group = self.benchmark_group(c, "Iterator - OptionalOptimized - Read Dense");
+
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || {
+                    ffi::QueryIterator::new_optional_optimized(
+                        ffi::QueryIterator::new_id_list(child_ids.clone()),
+                        self.qctx_dense.as_ptr(),
+                        Self::DENSE_MAX,
+                        Self::WEIGHT,
+                    )
+                },
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
 
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
@@ -132,6 +228,26 @@ impl Bencher {
         let context = &self.context_dense;
         let full_child_ids: Vec<u64> = (1..=Self::DENSE_MAX).collect();
         let mut group = self.benchmark_group(c, "Iterator - OptionalOptimized - Read Full");
+
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || {
+                    ffi::QueryIterator::new_optional_optimized(
+                        ffi::QueryIterator::new_id_list(full_child_ids.clone()),
+                        self.qctx_dense.as_ptr(),
+                        Self::DENSE_MAX,
+                        Self::WEIGHT,
+                    )
+                },
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
 
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
