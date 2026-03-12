@@ -152,9 +152,9 @@ void GCContext_OnDelete(GCContext* gc) {
   }
 }
 
-void GCContext_OnAdd(GCContext* gc) {
-  if (gc->callbacks.onAdd) {
-    gc->callbacks.onAdd(gc->gcCtx);
+void GCContext_OnWrite(GCContext* gc) {
+  if (gc->callbacks.onWrite) {
+    gc->callbacks.onWrite(gc->gcCtx);
   }
 }
 

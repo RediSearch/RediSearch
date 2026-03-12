@@ -262,7 +262,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
     } else {
       if (spec->gc) {
-        GCContext_OnAdd(spec->gc);
+        GCContext_OnWrite(spec->gc);
       }
     }
   }

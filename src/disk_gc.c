@@ -118,7 +118,7 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->onDelete = deleteCb;
-  callbacks->onAdd = writeCb;
+  callbacks->onWrite = writeCb;
   callbacks->onUpdate = updateCb;
   callbacks->getStats = getStatsCb;
 
