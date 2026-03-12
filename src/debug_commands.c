@@ -127,7 +127,9 @@ static SyncPointCtx globalSyncPointCtx = {0};
 
 // Internal helper: find sync point by name
 static SyncPointState* SyncPoint_FindByName(const char *name) {
-  int count = atomic_load(&globalSyncPointCtx.count);
+  // Use acquire semantics to synchronize with the release fence in SyncPoint_Arm,
+  // ensuring we see fully initialized slots when iterating.
+  int count = atomic_load_explicit(&globalSyncPointCtx.count, memory_order_acquire);
   for (int i = 0; i < count; i++) {
     if (strcmp(globalSyncPointCtx.points[i].name, name) == 0) {
       return &globalSyncPointCtx.points[i];
@@ -142,16 +144,23 @@ void SyncPoint_Arm(const char *name) {
     atomic_store(&existing->armed, true);
     return;
   }
-  int idx = atomic_fetch_add(&globalSyncPointCtx.count, 1);
+  // Reserve a slot atomically. We use a simple counter since ARM is only called
+  // from the main thread (via FT.DEBUG command), so no concurrent ARMs occur.
+  int idx = atomic_load(&globalSyncPointCtx.count);
   if (idx >= SYNC_POINT_MAX_ARMED) {
-    atomic_fetch_sub(&globalSyncPointCtx.count, 1);
     return;
   }
+  // Initialize the slot BEFORE making it visible to avoid data race:
+  // Other threads calling SyncPoint_FindByName iterate up to `count`,
+  // so we must fully initialize before incrementing count.
   SyncPointState *sp = &globalSyncPointCtx.points[idx];
   strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
   sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
   atomic_store(&sp->armed, true);
   atomic_store(&sp->waiting, false);
+  // Memory fence: ensure all writes above are visible before incrementing count
+  atomic_thread_fence(memory_order_release);
+  atomic_fetch_add(&globalSyncPointCtx.count, 1);
 }
 
 void SyncPoint_Signal(const char *name) {

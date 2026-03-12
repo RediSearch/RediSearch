@@ -29,7 +29,6 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "hybrid/hybrid_request.h"
-#include "debug_commands.h"
 #include "module.h"
 #include "result_processor.h"
 #include "profile/options.h"
