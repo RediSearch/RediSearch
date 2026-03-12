@@ -25,6 +25,7 @@ pub mod maybe_empty;
 pub mod metric;
 pub mod not;
 pub mod optional;
+pub mod optional_optimized;
 pub mod profile;
 pub mod union;
 mod union_flat;
