@@ -315,7 +315,9 @@ jobs:
                 echo "Failed to fetch ref: '$GITHUB_REF'";
                 exit 1;
               }
+              # Check out the fetched ref.
               git checkout FETCH_HEAD
+              # Update submodules.
               git submodule update --init --recursive
               ;;
             *)
