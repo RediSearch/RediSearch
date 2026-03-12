@@ -1484,7 +1484,7 @@ static int DiskDisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **a
 
 static RedisModuleCmdFunc DiskDisabledCmd(RedisModuleCmdFunc f) {
   if (SearchDisk_IsEnabledForValidation()) {
-    return DiskDisabledCommandHandler;
+    return &DiskDisabledCommandHandler;
   }
   return f;
 }
