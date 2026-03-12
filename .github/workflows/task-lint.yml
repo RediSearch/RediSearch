@@ -8,11 +8,13 @@ on:
 jobs:
   build-image:
     name: Build container for lint
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
       container: ubuntu:noble
       runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-      san: none
 
   lint:
     name: Linting
