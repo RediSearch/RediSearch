@@ -112,6 +112,7 @@ fn string_vs_number_reversed() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
 fn number_vs_unparseable_string_with_fallback() {
     let n = RsValue::Number(5.0);
     let s = RsValue::String(RsString::from_vec(b"hello".to_vec()));
