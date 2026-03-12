@@ -1677,26 +1677,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  if (SearchDisk_IsEnabled()) {
-    bool disk_initialized = SearchDisk_Initialize(ctx);
-    if (!disk_initialized) {
-      RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
-      return REDISMODULE_ERR;
-    }
-
-    // Register BigModule callbacks for disk usage reporting
-    if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
-      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
-      return REDISMODULE_ERR;
-    }
-
-    if (RSGlobalConfig.numWorkerThreads == 0) {
-      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
-      workersThreadPool_SetNumWorkers();
-      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
-    }
-  }
-
   // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
 

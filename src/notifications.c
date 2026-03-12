@@ -505,6 +505,20 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
   }
 }
 
+void BigRedisReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(ctx);
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  REDISMODULE_NOT_USED(data);
+  RedisModule_Log(ctx, "notice", "Got BigRedis ready event.");
+  bool disk_initialized = SearchDisk_Initialize(ctx);
+  RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
+  if (RSGlobalConfig.numWorkerThreads == 0) {
+    RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+    workersThreadPool_SetNumWorkers();
+    RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
+  }
+}
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
@@ -579,29 +593,32 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   // after resharding, its safe to filter keys which are not in our slot range.
   if (RedisModule_ShardingGetKeySlot) {
     // we have server events support, lets subscribe to relevant events.
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
+    RedisModule_Log(ctx, "notice", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
   bool shutdownEventHandled = false;
   if (getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_Log(ctx, "notice", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
     shutdownEventHandled = true;
   }
 
   if (!shutdownEventHandled && SearchDisk_IsEnabled()) {
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownDiskClose);
-
   }
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
+  RedisModule_Log(ctx, "notice", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
+  RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to BigRedis ready event");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_BigRedisReady, BigRedisReadyEvent);
+  }
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {

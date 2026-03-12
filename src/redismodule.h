@@ -594,7 +594,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
 #define REDISMODULE_EVENT_SST_REPLICATION 20
-#define _REDISMODULE_EVENT_NEXT 21 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_BIGREDIS_READY 21
+#define _REDISMODULE_EVENT_NEXT 22 /* Next event flag, should be updated if a new event added. */
 
 /* RL Extension: */
 #define REDISMODULE_EVENT_SHARDING 1000
@@ -735,6 +736,10 @@ static const RedisModuleEvent
     },
     RedisModuleEvent_SSTReplication = {
         REDISMODULE_EVENT_SST_REPLICATION,
+        1
+    },
+    RedisModuleEvent_BigRedisReady = {
+        REDISMODULE_EVENT_BIGREDIS_READY,
         1
     };
 
