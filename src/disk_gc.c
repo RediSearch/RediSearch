@@ -39,9 +39,9 @@ static bool periodicCb(void *privdata, bool force) {
     return true;
   }
   // Reset counters before running GC
-  atomic_store(&gc->writesFromLastRun, 0);
-  atomic_store(&gc->deletesFromLastRun, 0);
-  atomic_store(&gc->updatesFromLastRun, 0);
+  atomic_subtract(&gc->writesFromLastRun, num_writes);
+  atomic_subtract(&gc->deletesFromLastRun, num_deletes);
+  atomic_subtract(&gc->updatesFromLastRun, num_updates);
 
   SearchDisk_RunGC(sp->diskSpec, sp);
   IndexsGlobalStats_DecreaseLogicallyDeleted(num_deletes + num_updates);
