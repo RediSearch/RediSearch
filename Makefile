@@ -296,18 +296,13 @@ run:
 		fi; \
 	fi
 
-# Function to extract EXCLUDE_RUST_BENCHING_CRATES_LINKING_C from build.sh
-define get_rust_exclude_crates
-$(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
-endef
-
 lint:
 	@echo "Running linters for debug..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace --no-deps --document-private-items
 	@echo "Running linters for release..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) --release -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items --release
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace --release -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace --no-deps --document-private-items --release
 
 fmt:
 ifeq ($(CHECK),1)
