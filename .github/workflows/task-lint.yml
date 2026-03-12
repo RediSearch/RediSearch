@@ -19,9 +19,7 @@ jobs:
   lint:
     name: Linting
     needs: build-image
-    if: |
-      !cancelled() &&
-      (needs.build-image.result == 'success' || needs.build-image.result == 'failure')
+    if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     container:
       image: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || 'ubuntu:noble' }}
