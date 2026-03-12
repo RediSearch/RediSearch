@@ -505,18 +505,20 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
   }
 }
 
-void BigRedisReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(subevent);
   REDISMODULE_NOT_USED(data);
-  RedisModule_Log(ctx, "notice", "Got BigRedis ready event.");
-  bool disk_initialized = SearchDisk_Initialize(ctx);
-  RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
-  if (RSGlobalConfig.numWorkerThreads == 0) {
-    RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
-    workersThreadPool_SetNumWorkers();
-    RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
+  RedisModule_Log(ctx, "notice", "Got Server ready event.");
+  if (SearchDisk_IsEnabled()) {
+    bool disk_initialized = SearchDisk_Initialize(ctx);
+    RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
+    if (RSGlobalConfig.numWorkerThreads == 0) {
+      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+      workersThreadPool_SetNumWorkers();
+      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
+    }
   }
 }
 
@@ -616,8 +618,8 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
   if (SearchDisk_IsEnabled()) {
-    RedisModule_Log(ctx, "notice", "Subscribe to BigRedis ready event");
-    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_BigRedisReady, BigRedisReadyEvent);
+    RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);
   }
 }
 

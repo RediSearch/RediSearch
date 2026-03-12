@@ -598,7 +598,7 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 
 /* RL Extension: Use IDs >= 1000 to maintain ABI compatibility with OSS Redis */
 #define REDISMODULE_EVENT_SHARDING 1000
-#define REDISMODULE_EVENT_BIGREDIS_READY 1010
+#define REDISMODULE_EVENT_SERVER_READY 1010
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -738,8 +738,8 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_SST_REPLICATION,
         1
     },
-    RedisModuleEvent_BigRedisReady = {
-        REDISMODULE_EVENT_BIGREDIS_READY,
+    RedisModuleEvent_ServerReady = {
+        REDISMODULE_EVENT_SERVER_READY,
         1
     };
 
