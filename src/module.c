@@ -4579,7 +4579,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Disk-based indexes cannot be enabled after server startup
   if (SearchDisk_IsEnabled() &&
       !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP)) {
-    RedisModule_Log(ctx, "warning", "Cannot load module with disk indexes after server startup");
+    RedisModule_Log(ctx, "error", "Cannot load module with disk indexes after server startup");
     return REDISMODULE_ERR;
   }
 
