@@ -40,12 +40,10 @@ jobs:
     steps:
       - name: Checkout
         if: inputs.checkout-ref == ''
-        continue-on-error: true
         uses: actions/checkout@v5
 
       - name: Checkout (custom ref)
         if: inputs.checkout-ref != ''
-        continue-on-error: true
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.checkout-ref }}
@@ -71,7 +69,6 @@ jobs:
           echo "Using cache ref: $CACHE_REF"
 
       - name: Log in to GHCR
-        continue-on-error: true
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -79,16 +76,13 @@ jobs:
           password: ${{ github.token }}
 
       - name: Set up QEMU
-        continue-on-error: true
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
-        continue-on-error: true
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build and push (cached)
         id: build-and-push
-        continue-on-error: true
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           push: true
@@ -102,10 +96,5 @@ jobs:
 
       - name: Mark build status
         id: mark-status
-        if: always()
         run: |
-          if [ "${{ steps.build-and-push.outcome }}" = "success" ]; then
-            echo "succeeded=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "succeeded=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "succeeded=true" >> "$GITHUB_OUTPUT"
