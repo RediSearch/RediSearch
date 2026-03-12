@@ -469,9 +469,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: |
-          make unit-tests
-          exit 1  # Intentional failure for testing artifact upload
+        run: make unit-tests
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
