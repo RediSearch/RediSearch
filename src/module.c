@@ -4576,6 +4576,13 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Register the module configuration parameters
   GetRedisVersion(ctx);
 
+  // Disk-based indexes cannot be enabled after server startup
+  if (SearchDisk_IsEnabled() &&
+      !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP)) {
+    RedisModule_Log(ctx, "warning", "Cannot load module with disk indexes after server startup");
+    return REDISMODULE_ERR;
+  }
+
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
 
