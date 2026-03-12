@@ -30,7 +30,7 @@ static bool periodicCb(void *privdata, bool force) {
   }
 
   // Check total changes (deletes + adds + updates) to decide whether to run GC
-  size_t num_changes = atomic_load(&gc->changesFromLastRun, 0);
+  size_t num_changes = atomic_load(&gc->changesFromLastRun);
   if (!force && num_changes < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return true;
@@ -54,7 +54,6 @@ static void onTerminateCb(void *privdata) {
   DiskGC *gc = privdata;
   size_t remaining = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
   IndexsGlobalStats_DecreaseLogicallyDeleted(remaining);
-  atomic_store(&gc->changesFromLastRun, 0);
   WeakRef_Release(gc->index);
   rm_free(gc);
 }
