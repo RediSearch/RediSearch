@@ -246,7 +246,6 @@ def test_sanity_zero_results():
 def test_del_reuse():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
-    env.assertEqual(1, 3)
     def del_insert(env):
         conn = getConnectionByEnv(env)
 
