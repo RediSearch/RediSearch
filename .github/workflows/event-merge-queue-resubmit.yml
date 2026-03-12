@@ -573,8 +573,8 @@ jobs:
 
           CLIENT_MUTATION_ID="mq-recover-pr-${PR_NUM}-${PR_HEAD_SHA:0:12}"
           if ! gh api graphql \
-            -f query='mutation($id: ID!, $clientMutationId: String!) { dequeuePullRequest(input: {id: $id, clientMutationId: $clientMutationId}) { mergeQueueEntry { id } } }' \
-            -F id="$PR_NODE_ID" \
+            -f query='mutation($pullRequestId: ID!, $clientMutationId: String!) { dequeuePullRequest(input: {pullRequestId: $pullRequestId, clientMutationId: $clientMutationId}) { mergeQueueEntry { id } } }' \
+            -F pullRequestId="$PR_NODE_ID" \
             -F clientMutationId="${CLIENT_MUTATION_ID}-dequeue" >/dev/null 2>&1; then
             ACTION_TAKEN="mutation-failed"
             REASON="dequeue-failed"
