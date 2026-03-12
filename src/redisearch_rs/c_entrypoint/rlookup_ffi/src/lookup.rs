@@ -124,6 +124,8 @@ pub unsafe extern "C" fn RLookup_EnableOptions(
 ///     1. The entire memory range of this cstr must be contained within a single allocation!
 ///     2. `name` must be non-null even for a zero-length cstr.
 /// 4. The nul terminator must be within `isize::MAX` from `name`
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_FindFieldInSpecCache(
     lookup: *const OpaqueRLookup,
@@ -634,18 +636,21 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_Iter(lookup: *const OpaqueRLookup) -> ffi::RLookupIterator {
+pub unsafe extern "C" fn RLookup_Iter<'a>(lookup: *const OpaqueRLookup) -> RLookupIterator<'a> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
     #[cfg(debug_assertions)]
     lookup.assert_valid("RLookup_Iter");
 
-    let current = lookup
-        .cursor()
-        .current()
-        .map_or(ptr::null(), |c| ptr::from_ref(c).cast::<ffi::RLookupKey>());
+    let current = lookup.cursor().current().map_or(ptr::null(), ptr::from_ref);
 
-    ffi::RLookupIterator { current }
+    RLookupIterator { current }
+}
+
+/// An iterator over the keys in an `RLookup`, returning immutable pointers.
+#[repr(C)]
+pub struct RLookupIterator<'a> {
+    pub current: *const RLookupKey<'a>,
 }
 
 /// Return an iterator over an [`RLookup`]'s key list with editing operations.
@@ -660,9 +665,9 @@ pub unsafe extern "C" fn RLookup_Iter(lookup: *const OpaqueRLookup) -> ffi::RLoo
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookup_IterMut(
+pub unsafe extern "C" fn RLookup_IterMut<'a>(
     lookup: Option<NonNull<OpaqueRLookup>>,
-) -> ffi::RLookupIteratorMut {
+) -> RLookupIteratorMut<'a> {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
     #[cfg(debug_assertions)]
@@ -674,10 +679,15 @@ pub unsafe extern "C" fn RLookup_IterMut(
             // Both this function and the caller guarantee that the value behind the pointer is never moved.
             unsafe { Pin::into_inner_unchecked(c) },
         )
-        .cast::<ffi::RLookupKey>()
     });
 
-    ffi::RLookupIteratorMut { current }
+    RLookupIteratorMut { current }
+}
+
+/// An iterator over the keys in an `RLookup`, returning mutable pointers.
+#[repr(C)]
+pub struct RLookupIteratorMut<'a> {
+    pub current: *mut RLookupKey<'a>,
 }
 
 /// Run internal assertions on an [`RLookup`].

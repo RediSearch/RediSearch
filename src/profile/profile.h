@@ -79,13 +79,13 @@ static_assert(PROFILE_WARNING_TYPE_ASM_INACCURATE_RESULTS <= (1 << 7),
 
 static void ProfileWarnings_Add(ProfileWarnings *profileWarnings, ProfileWarningType code) {
   RS_ASSERT(profileWarnings);
-  RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  RS_ASSERT((size_t)code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
   *profileWarnings |= code;
 }
 
 static bool ProfileWarnings_Has(const ProfileWarnings *profileWarnings, ProfileWarningType code) {
   RS_ASSERT(profileWarnings);
-  RS_ASSERT(code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
+  RS_ASSERT((size_t)code <= (1 << (sizeof(ProfileWarnings) * 8 - 1)));
   return *profileWarnings & code;
 }
 

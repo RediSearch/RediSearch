@@ -10,7 +10,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, RSOffsetSlice, RSResultData, RSTermRecord};
+use inverted_index::{RSIndexResult, RSOffsetSlice};
 use rqe_iterators::RQEIterator;
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
@@ -240,9 +240,10 @@ impl<'index, const N: usize> Mock<'index, N> {
     pub fn new(doc_ids: [t_docId; N]) -> Self {
         debug_assert!(doc_ids.is_sorted(), "Mock Iterator API assumes sorted list");
         Self {
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .weight(1.)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
             doc_ids,
             positions: None,
             next_index: 0,
@@ -252,7 +253,6 @@ impl<'index, const N: usize> Mock<'index, N> {
 
     /// Like [`Mock::new`], but each document carries a term position (valid range `1..=127`).
     /// The result produced for each document will be a `Term` record instead of a virtual one,
-    #[expect(unused)]
     pub fn new_with_positions(doc_ids: [t_docId; N], positions: [u8; N]) -> Self {
         debug_assert!(
             positions.iter().all(|&p| (1..=127).contains(&p)),
@@ -274,16 +274,24 @@ impl<'index, const N: usize> Mock<'index, N> {
         MockData(self.data.0.clone())
     }
 
-    /// Return the term data for the document at `index`, or `None` for virtual results.
-    fn position_data_for_index(&self, index: usize) -> Option<RSResultData<'index>> {
-        self.positions.map(|positions| {
+    /// Replace `self.result` with the appropriate result for the document at `index`.
+    ///
+    /// If positions are configured, builds a term result with owned offsets for
+    /// that document. Otherwise builds a virtual result.
+    fn set_result(&mut self, index: usize) {
+        let doc_id = self.doc_ids[index];
+        if let Some(positions) = self.positions {
             let pos_byte = [positions[index]];
-            let owned_offsets = RSOffsetSlice::from_slice(&pos_byte).to_owned();
-            RSResultData::Term(RSTermRecord::Owned {
-                term: None,
-                offsets: owned_offsets,
-            })
-        })
+            let offsets = RSOffsetSlice::from_slice(&pos_byte).to_owned();
+            self.result = RSIndexResult::build_term()
+                .doc_id(doc_id)
+                .weight(1.)
+                .field_mask(RS_FIELDMASK_ALL)
+                .owned_record(None, offsets)
+                .build();
+        } else {
+            self.result.doc_id = doc_id;
+        }
     }
 }
 
@@ -295,24 +303,25 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn read(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
-        let mut data = self.data.0.borrow_mut();
-
-        data.read_count += 1;
-        if self.at_eof() {
-            return if let Some(err) = data.error_at_done {
-                Err(err.into_rqe_iterator_error())
-            } else {
-                Ok(None)
-            };
+        {
+            let mut data = self.data.0.borrow_mut();
+            data.read_count += 1;
+            if self.at_eof() {
+                return if let Some(err) = data.error_at_done {
+                    Err(err.into_rqe_iterator_error())
+                } else {
+                    Ok(None)
+                };
+            }
         }
 
-        self.result.doc_id = self.doc_ids[self.next_index];
-        if let Some(data) = self.position_data_for_index(self.next_index) {
-            self.result.data = data;
-        }
+        self.set_result(self.next_index);
         self.next_index += 1;
 
-        data.delay_if_index_limit_reached(self.result.doc_id);
+        self.data
+            .0
+            .borrow_mut()
+            .delay_if_index_limit_reached(self.result.doc_id);
 
         Ok(Some(&mut self.result))
     }
@@ -372,10 +381,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
                 rqe_iterators::RQEValidateStatus::Moved {
                     current: (self.next_index < N).then(|| {
                         // Simulate a move by incrementing nextIndex
-                        self.result.doc_id = self.doc_ids[self.next_index];
-                        if let Some(data) = self.position_data_for_index(self.next_index) {
-                            self.result.data = data;
-                        }
+                        self.set_result(self.next_index);
                         self.next_index += 1;
                         &mut self.result
                     }),

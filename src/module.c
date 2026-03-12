@@ -1479,13 +1479,12 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
 static int DiskDisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argc);
   const char *command = RedisModule_StringPtrLen(argv[0], NULL);
-  SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, command);
-  return REDISMODULE_OK;
+  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in disk mode", command);
 }
 
 static RedisModuleCmdFunc DiskDisabledCmd(RedisModuleCmdFunc f) {
   if (SearchDisk_IsEnabledForValidation()) {
-    return DiskDisabledCommandHandler;
+    return &DiskDisabledCommandHandler;
   }
   return f;
 }
@@ -3748,8 +3747,10 @@ int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   handlerCtx.bcCtx.free_privdata = DistHybridFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    handlerCtx.bcCtx.callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
+    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,

@@ -255,11 +255,13 @@ impl<'a> RLookupRow<'a> {
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
     /// This does not free all the memory consumed by the row, but simply resets
     /// the row data (preserving any caches) so that it may be refilled.
+    /// Also clears the sorting vector.
     pub fn wipe(&mut self) {
         for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
             *value = None;
             self.num_dyn_values -= 1;
         }
+        self.sorting_vector = None;
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.

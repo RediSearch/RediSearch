@@ -56,9 +56,10 @@ where
             child: MaybeEmpty::new(child),
             max_doc_id,
             forced_eof: false,
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .weight(weight)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
             // The `limit` of 5_000 determines the granularity of the timeout check.
             // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
             // the internal counter goes up. When it reaches this `limit` of 5_000 it will

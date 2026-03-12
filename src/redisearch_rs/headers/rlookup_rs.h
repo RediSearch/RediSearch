@@ -17,10 +17,6 @@ typedef uint32_t RLookupOptions;
 // Forward declaration of RSValue, which is only used as ptr in the sorting_vector module
 typedef struct RSValue RSValue;
 
-// Forward declarations of iterator types
-typedef struct RLookupIterator RLookupIterator;
-typedef struct RLookupIteratorMut RLookupIteratorMut;
-
 // Required to ensure that the alignment declared by cbindgen is respected on
 // the C/C++ side.
 #define ALIGNED(n) __attribute__((aligned(n)))
@@ -198,6 +194,20 @@ typedef struct ALIGNED(8) RLookupRow {
   Size_40 _0;
 } RLookupRow;
 
+/**
+ * An iterator over the keys in an `RLookup`, returning immutable pointers.
+ */
+typedef struct RLookupIterator {
+  const struct RLookupKey *current;
+} RLookupIterator;
+
+/**
+ * An iterator over the keys in an `RLookup`, returning mutable pointers.
+ */
+typedef struct RLookupIteratorMut {
+  struct RLookupKey *current;
+} RLookupIteratorMut;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -333,6 +343,8 @@ void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
  *     1. The entire memory range of this cstr must be contained within a single allocation!
  *     2. `name` must be non-null even for a zero-length cstr.
  * 4. The nul terminator must be within `isize::MAX` from `name`
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
 
@@ -616,7 +628,7 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RLookupIterator RLookup_Iter(const struct RLookup *lookup);
+struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list with editing operations.
@@ -631,7 +643,7 @@ RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
+struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
 #if defined(ENABLE_ASSERT)
 /**
