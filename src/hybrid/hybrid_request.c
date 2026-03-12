@@ -17,6 +17,7 @@
 #include "spec.h"
 #include "module.h"
 #include "profile/profile.h"
+#include "iterators_rs.h"
 
 #ifdef __cplusplus
 extern "C" {

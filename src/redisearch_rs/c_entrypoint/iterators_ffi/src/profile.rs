@@ -9,11 +9,12 @@
 
 use ffi::QueryIterator;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::profile::{Profile, ProfileCounters};
+use rqe_iterators::{
+    c2rust::CRQEIterator,
+    interop::RQEIteratorWrapper,
+    profile::{Profilable, Profile, ProfileCounters},
+};
 use std::ptr::NonNull;
-
-use rqe_iterators::c2rust::CRQEIterator;
 
 type ProfileIteratorImpl = Profile<'static, CRQEIterator>;
 
@@ -100,4 +101,30 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
     wrapper.inner.wall_time_ns()
+}
+
+/// Add profile iterators to all nodes in the iterator tree.
+///
+/// Wraps each iterator as a [`CRQEIterator`], calls
+/// [`into_profiled`](Profilable::into_profiled) (which recursively profiles
+/// all children via the [`Profilable`] trait), then boxes the result back
+/// as a `QueryIterator*`.
+///
+/// # Safety
+///
+/// 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+/// 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Profile_AddIters(root: *mut *mut QueryIterator) {
+    debug_assert!(!root.is_null());
+    // SAFETY: guaranteed by 1.
+    let it = unsafe { *root };
+    let Some(it) = NonNull::new(it) else {
+        return;
+    };
+    // SAFETY: guaranteed by 2 — *root is a valid, non-aliased QueryIterator.
+    let iter = unsafe { CRQEIterator::new(it) };
+    let profiled = iter.into_profiled();
+    // SAFETY: guaranteed by 1 — root is a valid pointer we can write through.
+    unsafe { *root = RQEIteratorWrapper::boxed_new(IteratorType::Profile, profiled) };
 }

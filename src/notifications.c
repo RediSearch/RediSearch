@@ -20,6 +20,7 @@
 #include "src/coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "iterators_rs.h"
 
 #define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;

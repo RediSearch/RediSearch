@@ -634,6 +634,21 @@ const struct ProfileCounters *ProfileIterator_GetCounters(const QueryIterator *i
 uint64_t ProfileIterator_GetWallTimeNs(const QueryIterator *it);
 
 /**
+ * Add profile iterators to all nodes in the iterator tree.
+ *
+ * Wraps each iterator as a [`CRQEIterator`], calls
+ * [`into_profiled`](Profilable::into_profiled) (which recursively profiles
+ * all children via the [`Profilable`] trait), then boxes the result back
+ * as a `QueryIterator*`.
+ *
+ * # Safety
+ *
+ * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
+ * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
+ */
+void Profile_AddIters(QueryIterator **root);
+
+/**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
