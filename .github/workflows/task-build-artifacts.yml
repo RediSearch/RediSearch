@@ -63,6 +63,7 @@ jobs:
     permissions:
       id-token: write # Required for OIDC role assumption during upload
       contents: read  # Required for actions/checkout
+      packages: read  # Required for GHCR read
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
