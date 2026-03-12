@@ -75,13 +75,6 @@ env:
     [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
-  print-uid:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    steps:
-      - name: Print UID
-        run: |
-          TEST_UID="${{ github.run_id }}-$RANDOM"
-          echo "UID: $TEST_UID"
   # Get configuration for this specific platform and architecture
   get-config:
     name: Get build configurations for platform
@@ -476,7 +469,9 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make unit-tests
+        run: |
+          make unit-tests
+          exit 1  # Intentional failure for testing artifact upload
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
