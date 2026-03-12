@@ -223,6 +223,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         ++spec->stats.scoring.numDocuments;
       } else {
         cur->stateFlags |= ACTX_F_ERRORED;
+        continue;
       }
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
