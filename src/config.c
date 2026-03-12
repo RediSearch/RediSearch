@@ -726,7 +726,7 @@ CONFIG_GETTER(getFrisoINI) {
 }
 
 // friso-ini
-RedisModuleString * get_friso_ini(const char *name, void *privdata) {
+static RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   if (str == NULL) {
     return NULL;
@@ -738,7 +738,7 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   return config_friso_ini;
 }
 
-RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
+static RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   RS_ASSERT(str != NULL);
   if (config_default_scorer) {
