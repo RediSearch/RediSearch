@@ -246,6 +246,7 @@ jobs:
         if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
         shell: bash
         run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
           h=$(getent passwd "$(id -un)" | cut -d: -f6)
           if [ "$h" = "$HOME" ]; then
             echo "HOME fine: $HOME"
@@ -289,6 +290,7 @@ jobs:
         with:
           submodules: recursive
       - name: Full checkout (legacy)
+        # Manual checkout path for platforms where Node 20-based actions are unavailable.
         if: needs.get-config.outputs.node20_supported != 'true'
         env:
           GITHUB_REF: ${{ github.ref }}
@@ -298,13 +300,17 @@ jobs:
           echo "Detected platform: $CONTAINER"
           case "$CONTAINER" in
             amazonlinux:2)
+              # Configure the safe directory.
               git config --global --add safe.directory "/__w/$GITHUB_REPO"
 
+              # Checkout.
               REPO_URL="https://github.com/$GITHUB_REPO.git"
 
+              # Initialize a Git repository.
               git init
               git remote add origin "$REPO_URL"
 
+              # Fetch the requested ref, then check it out and initialize submodules.
               git fetch origin "$GITHUB_REF" || {
                 echo "Failed to fetch ref: '$GITHUB_REF'";
                 exit 1;
