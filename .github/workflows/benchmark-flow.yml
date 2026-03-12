@@ -107,6 +107,7 @@ jobs:
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
               --collect_search_memory True
+              --last_n_baseline 100
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
