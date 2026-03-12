@@ -532,7 +532,7 @@ def testconfigMultiTextOffsetDeltaSlop0():
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
-@skip(no_json=True)
+@skip(cluster=True, asan=True, no_json=True)
 def testconfigMultiTextOffsetDeltaSlopNeg():
     """ test ft.config `MULTI_TEXT_SLOP` rejects negative values """
     try:
