@@ -237,7 +237,9 @@ jobs:
             local jobs_json
             jobs_json=$(gh api "/repos/$REPO/actions/runs/$run_id/jobs?per_page=100")
             echo "$jobs_json" | jq -r '[.jobs[]
-              | select(.name | test("^(get-latest-redis-tag|lint|test-matrix)"))
+              # `get-latest-redis-tag` is currently a fast bootstrap/dummy job and
+              # should not be treated as real validation progress for stuck-run detection.
+              | select(.name | test("^(lint|test-matrix)"))
               | select((.status == "in_progress") or (.started_at != null))
             ] | length > 0'
           }
