@@ -253,7 +253,6 @@ impl<'index, const N: usize> Mock<'index, N> {
 
     /// Like [`Mock::new`], but each document carries a term position (valid range `1..=127`).
     /// The result produced for each document will be a `Term` record instead of a virtual one,
-    #[expect(unused)]
     pub fn new_with_positions(doc_ids: [t_docId; N], positions: [u8; N]) -> Self {
         debug_assert!(
             positions.iter().all(|&p| (1..=127).contains(&p)),

@@ -81,7 +81,7 @@ pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 pub const GET_KEY_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
 
-/// Flags do not persist to the key, they are just options to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
+/// Flags do not persist to the key, they are just options to [`super::RLookup::get_key_read`], [`super::RLookup::get_key_write`], or [`super::RLookup::get_key_load`].
 pub const TRANSIENT_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | ForceLoad | NameAlloc});
 
@@ -245,7 +245,7 @@ impl<'a> RLookupKey<'a> {
     /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
     ///
     /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
-    /// will deallocate the `RLookupKey`. This function should only be used by [`RLookup::drop`].
+    /// will deallocate the `RLookupKey`. This function should only be used by [`super::key_list::KeyList`]'s `drop` implementation.
     ///
     /// # Safety
     ///

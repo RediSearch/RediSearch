@@ -1108,6 +1108,14 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     goto error;
   }
 
+  // For disk indexes, release the spec lock immediately after iterator creation.
+  // This is fine, since the disk iterators use snapshots. This allows the main
+  // thread to write while the query iterates over disk data.
+  // NOTE: Revisit as more index types are supported.
+  if (sctx->spec->diskSpec) {
+    RedisSearchCtx_UnlockSpec(sctx);
+  }
+
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
     int rc = AREQ_StartCursor(req, reply, execution_ref, &status, false);
@@ -1136,7 +1144,8 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
-// Assumes the spec is guarded (by its own lock for read or by the global lock)
+// Assumes the spec is guarded by its own lock (for read), such that races with
+// main-thread/GC updates are avoided.
 int prepareExecutionPlan(AREQ *req, QueryError *status) {
   int rc = REDISMODULE_ERR;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -1431,6 +1440,15 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
+
+    // For disk indexes, release the spec lock immediately after iterator creation.
+    // This is fine, since the disk iterators use snapshots. This allows the main
+    // thread to write while the query iterates over disk data.
+    // NOTE: Revisit as more index types are supported.
+    if (sctx->spec->diskSpec) {
+      RedisSearchCtx_UnlockSpec(sctx);
+    }
+
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Since we are still in the main thread, and we already validated the
       // spec'c existence, it is safe to directly get the strong reference from the spec
@@ -1513,12 +1531,17 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
+  RedisSearchCtx *sctx = AREQ_SearchCtx(r);
+  // Take a read lock on the spec (to avoid conflicts with the GC).
+  RedisSearchCtx_LockSpecRead(sctx);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+    RedisSearchCtx_UnlockSpec(sctx);
     AREQ_DecrRef(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
-  char *ret = QAST_DumpExplain(&r->ast, AREQ_SearchCtx(r)->spec);
+  char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
+  RedisSearchCtx_UnlockSpec(sctx);
   AREQ_DecrRef(r);
   CurrentThread_ClearIndexSpec();
   return ret;

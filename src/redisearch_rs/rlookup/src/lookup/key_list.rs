@@ -102,7 +102,7 @@ impl<'a> KeyList<'a> {
         unsafe { Pin::new_unchecked(key) }
     }
 
-    /// Return a cursor over an [`RLookup`]'s key list.
+    /// Return a cursor over an [`super::RLookup`]'s key list.
     #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn cursor_front(&self) -> Cursor<'_, 'a> {
         #[cfg(debug_assertions)]
@@ -114,7 +114,7 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    /// Return a cursor over an [`RLookup`]'s key list with editing operations.
+    /// Return a cursor over an [`super::RLookup`]'s key list with editing operations.
     #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
         #[cfg(debug_assertions)]
