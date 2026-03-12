@@ -9,8 +9,9 @@
 #pragma once
 
 #include "redismodule.h"
-#include  <stdbool.h>
+#include <stdbool.h>
 #include <stdatomic.h>
+#include <stdint.h>
 #include "result_processor.h"
 
 #define RS_DEBUG_FLAGS 0, 0, 0
@@ -104,9 +105,6 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
 #define SYNC_POINT_AFTER_ITERATOR_CREATE  "AfterIteratorCreate"
-#define SYNC_POINT_BEFORE_ITERATOR_CREATE "BeforeIteratorCreate"
-#define SYNC_POINT_BEFORE_LOCK_RELEASE_BG "BeforeLockRelease"
-#define SYNC_POINT_AFTER_LOCK_RELEASE     "AfterLockRelease"
 #define SYNC_POINT_BEFORE_FIRST_READ      "BeforeFirstRead"
 
 // State of a single sync point
@@ -119,12 +117,13 @@ typedef struct SyncPointState {
 // Container for all sync point states
 typedef struct SyncPointCtx {
   SyncPointState points[SYNC_POINT_MAX_ARMED];   // Array of sync points
-  atomic_int count;                              // Number of armed sync points
+  _Atomic uint32_t count;                        // Number of armed sync points
 } SyncPointCtx;
 
 // SyncPoint API function declarations
-// Arm a sync point - subsequent calls to SyncPoint_Check will block
-void SyncPoint_Arm(const char *name);
+// Arm a sync point - subsequent calls to SyncPoint_Wait will block
+// Returns true on success, false if max sync points reached
+bool SyncPoint_Arm(const char *name);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
@@ -135,11 +134,7 @@ bool SyncPoint_IsArmed(const char *name);
 void SyncPoint_ClearAll(void);
 // Called from code paths to potentially wait at a sync point
 // If the named point is armed, blocks until signaled
-void SyncPoint_Check(const char *name);
-
-// Macro for sync point checks - compiles to nothing in release builds
-// Usage: SYNC_POINT_CHECK(SYNC_POINT_AFTER_ITERATOR_CREATE);
-#define SYNC_POINT_CHECK(name) SyncPoint_Check(name)
+void SyncPoint_Wait(const char *name);
 
 #endif  // ENABLE_ASSERT
 

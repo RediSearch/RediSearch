@@ -129,8 +129,8 @@ static SyncPointCtx globalSyncPointCtx = {0};
 static SyncPointState* SyncPoint_FindByName(const char *name) {
   // Use acquire semantics to synchronize with the release fence in SyncPoint_Arm,
   // ensuring we see fully initialized slots when iterating.
-  int count = atomic_load_explicit(&globalSyncPointCtx.count, memory_order_acquire);
-  for (int i = 0; i < count; i++) {
+  uint32_t count = atomic_load_explicit(&globalSyncPointCtx.count, memory_order_acquire);
+  for (uint32_t i = 0; i < count; i++) {
     if (strcmp(globalSyncPointCtx.points[i].name, name) == 0) {
       return &globalSyncPointCtx.points[i];
     }
@@ -138,17 +138,17 @@ static SyncPointState* SyncPoint_FindByName(const char *name) {
   return NULL;
 }
 
-void SyncPoint_Arm(const char *name) {
+bool SyncPoint_Arm(const char *name) {
   SyncPointState *existing = SyncPoint_FindByName(name);
   if (existing) {
     atomic_store(&existing->armed, true);
-    return;
+    return true;
   }
   // Reserve a slot atomically. We use a simple counter since ARM is only called
   // from the main thread (via FT.DEBUG command), so no concurrent ARMs occur.
-  int idx = atomic_load(&globalSyncPointCtx.count);
+  uint32_t idx = atomic_load(&globalSyncPointCtx.count);
   if (idx >= SYNC_POINT_MAX_ARMED) {
-    return;
+    return false;
   }
   // Initialize the slot BEFORE making it visible to avoid data race:
   // Other threads calling SyncPoint_FindByName iterate up to `count`,
@@ -161,6 +161,7 @@ void SyncPoint_Arm(const char *name) {
   // Memory fence: ensure all writes above are visible before incrementing count
   atomic_thread_fence(memory_order_release);
   atomic_fetch_add(&globalSyncPointCtx.count, 1);
+  return true;
 }
 
 void SyncPoint_Signal(const char *name) {
@@ -179,15 +180,15 @@ bool SyncPoint_IsArmed(const char *name) {
 }
 
 void SyncPoint_ClearAll(void) {
-  int count = atomic_load(&globalSyncPointCtx.count);
-  for (int i = 0; i < count; i++) {
+  uint32_t count = atomic_load(&globalSyncPointCtx.count);
+  for (uint32_t i = 0; i < count; i++) {
     atomic_store(&globalSyncPointCtx.points[i].armed, false);
     atomic_store(&globalSyncPointCtx.points[i].waiting, false);
   }
   atomic_store(&globalSyncPointCtx.count, 0);
 }
 
-void SyncPoint_Check(const char *name) {
+void SyncPoint_Wait(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (!sp || !atomic_load(&sp->armed)) return;
 
@@ -2291,6 +2292,13 @@ DEBUG_COMMAND(printRPStream) {
 }
 
 #ifdef ENABLE_ASSERT
+// Subcommand constants for SYNC_POINT
+#define SYNC_POINT_SUBCMD_ARM        "ARM"
+#define SYNC_POINT_SUBCMD_SIGNAL     "SIGNAL"
+#define SYNC_POINT_SUBCMD_IS_WAITING "IS_WAITING"
+#define SYNC_POINT_SUBCMD_IS_ARMED   "IS_ARMED"
+#define SYNC_POINT_SUBCMD_CLEAR      "CLEAR"
+
 /**
  * FT.DEBUG SYNC_POINT <subcommand> [point_name]
  *
@@ -2309,29 +2317,31 @@ DEBUG_COMMAND(syncPoint) {
 
   const char *subOp = RedisModule_StringPtrLen(argv[2], NULL);
 
-  if (!strcmp("ARM", subOp)) {
+  if (!strcmp(SYNC_POINT_SUBCMD_ARM, subOp)) {
     if (argc != 4) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
-    SyncPoint_Arm(name);
+    if (!SyncPoint_Arm(name)) {
+      return RedisModule_ReplyWithError(ctx, "ERR max sync points reached");
+    }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  if (!strcmp("SIGNAL", subOp)) {
+  if (!strcmp(SYNC_POINT_SUBCMD_SIGNAL, subOp)) {
     if (argc != 4) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
     SyncPoint_Signal(name);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  if (!strcmp("IS_WAITING", subOp)) {
+  if (!strcmp(SYNC_POINT_SUBCMD_IS_WAITING, subOp)) {
     if (argc != 4) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
     return RedisModule_ReplyWithBool(ctx, SyncPoint_IsWaiting(name));
   }
-  if (!strcmp("IS_ARMED", subOp)) {
+  if (!strcmp(SYNC_POINT_SUBCMD_IS_ARMED, subOp)) {
     if (argc != 4) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
     return RedisModule_ReplyWithBool(ctx, SyncPoint_IsArmed(name));
   }
-  if (!strcmp("CLEAR", subOp)) {
+  if (!strcmp(SYNC_POINT_SUBCMD_CLEAR, subOp)) {
     SyncPoint_ClearAll();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }

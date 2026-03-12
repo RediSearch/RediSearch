@@ -1101,12 +1101,6 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     sctx->redisCtx = outctx;
   }
 
-#ifdef ENABLE_ASSERT
-  // Sync point: pause before acquiring the spec lock
-  // Writes BEFORE this point should be visible, writes AFTER should NOT
-  SYNC_POINT_CHECK(SYNC_POINT_BEFORE_ITERATOR_CREATE);
-#endif
-
   // lock spec
   RedisSearchCtx_LockSpecRead(sctx);
 
@@ -1127,7 +1121,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Sync point (debug): pause after iterators are created and snapshot is established.
   // For disk indexes, the lock is already released at this point.
   // For RAM indexes, the lock is still held.
-  SYNC_POINT_CHECK(SYNC_POINT_AFTER_ITERATOR_CREATE);
+  SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
 #endif
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
@@ -1466,7 +1460,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 #ifdef ENABLE_ASSERT
     // Sync point: pause after acquiring the spec lock
     // The snapshot is now established
-    SYNC_POINT_CHECK(SYNC_POINT_AFTER_ITERATOR_CREATE);
+    SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
 #endif
 
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {

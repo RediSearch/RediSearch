@@ -260,7 +260,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_Check(SYNC_POINT_BEFORE_FIRST_READ);
+    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
   }
 #endif
 
@@ -315,7 +315,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   if (self->firstRead) {
     self->firstRead = false;
-    SyncPoint_Check(SYNC_POINT_BEFORE_FIRST_READ);
+    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
   }
 #endif
 
