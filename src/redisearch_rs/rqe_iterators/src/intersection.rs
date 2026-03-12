@@ -15,7 +15,9 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    c2rust::CRQEIterator,
+    interop::RQEIteratorWrapper,
+    profile::{Profilable, Profile},
 };
 
 use ffi::t_docId;
@@ -549,5 +551,28 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Intersect
+    }
+}
+
+impl<'index, I> Profilable<'index> for Intersection<'index, I>
+where
+    I: Profilable<'index>,
+{
+    type Profiled = Intersection<'index, Profile<'index, I::Profiled>>;
+
+    fn profile_children(self) -> Self::Profiled {
+        Intersection {
+            children: self
+                .children
+                .into_iter()
+                .map(Profilable::into_profiled)
+                .collect(),
+            last_doc_id: self.last_doc_id,
+            num_expected: self.num_expected,
+            is_eof: self.is_eof,
+            max_slop: self.max_slop,
+            in_order: self.in_order,
+            result: self.result,
+        }
     }
 }

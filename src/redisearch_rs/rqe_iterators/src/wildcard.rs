@@ -18,7 +18,7 @@ use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
-    SkipToOutcome,
+    SkipToOutcome, profile::Profilable,
 };
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
@@ -102,6 +102,13 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Wildcard
+    }
+}
+
+impl<'index> Profilable<'index> for Wildcard<'index> {
+    type Profiled = Self;
+    fn profile_children(self) -> Self {
+        self
     }
 }
 

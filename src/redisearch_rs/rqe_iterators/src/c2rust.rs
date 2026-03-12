@@ -22,7 +22,10 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
+    not::Not, optional::Optional, profile::Profilable,
+};
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
 ///
@@ -317,5 +320,220 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn as_c_iterator(&self) -> Option<&CRQEIterator> {
         Some(self)
+    }
+}
+
+/// Profile-wrap a child [`CRQEIterator`] by calling [`Profilable::into_profiled`]
+/// and boxing the result back into a [`CRQEIterator`].
+fn profile_child(child: CRQEIterator) -> CRQEIterator {
+    let profiled = child.into_profiled();
+    let ptr = RQEIteratorWrapper::boxed_new(IteratorType::Profile, profiled);
+    // SAFETY: `boxed_new` returns a valid, owning, non-null pointer.
+    let ptr = unsafe { NonNull::new_unchecked(ptr) };
+    // SAFETY: `ptr` is valid and owning per above.
+    unsafe { CRQEIterator::new(ptr) }
+}
+
+impl Profilable<'_> for CRQEIterator {
+    type Profiled = Self;
+
+    /// Profile the subtree rooted at this iterator — wrapping every
+    /// child node — **without** wrapping `self`.
+    ///
+    /// Dispatches on the iterator type tag to handle each variant:
+    /// - Rust composite iterators ([`Not`], [`Optional`]): children
+    ///   are extracted, recursively profiled via `profile_child`, and set back.
+    /// - C-native composite iterators (optimized Not/Optional, Hybrid,
+    ///   Optimus, Union, C Intersection): children are accessed through
+    ///   partial `repr(C)` struct layouts, recursively profiled, and written
+    ///   back.
+    /// - Leaf iterators: returned unchanged (no children to recurse into).
+    fn profile_children(self) -> Self {
+        let type_ = self.type_;
+
+        match type_ {
+            IteratorType::Not => {
+                // SAFETY:
+                // - Type tag guarantees this is a Not<CRQEIterator> wrapper.
+                // - `into_raw()` consumed `self`, so no other reference exists;
+                //   exclusive access is guaranteed.
+                let wrapper = unsafe {
+                    RQEIteratorWrapper::<Not<CRQEIterator>>::mut_ref_from_header_ptr(
+                        self.into_raw().as_ptr(),
+                    )
+                };
+
+                if let Some(child) = wrapper.inner.take_child() {
+                    wrapper.inner.set_child(profile_child(child));
+                }
+
+                // SAFETY: RQEIteratorWrapper is #[repr(C)] with QueryIterator as
+                // its first field, so the pointer cast is valid. We still own
+                // the allocation; re-wrap as CRQEIterator.
+                let ptr =
+                    // SAFETY: wrapper came from `boxed_new`, so non-null.
+                    unsafe { NonNull::new_unchecked(wrapper as *mut _ as *mut QueryIterator) };
+                // SAFETY: ptr is valid and owning per above.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            IteratorType::NotOptimized => {
+                let ptr = self.into_raw().as_ptr();
+                // SAFETY: type tag guarantees this is a NotIteratorOptimized.
+                let ni = unsafe { &mut *(ptr as *mut ffi::NotIteratorOptimized) };
+                if !ni.child.is_null() {
+                    // SAFETY: child pointer is non-null (just checked).
+                    let child_ptr = unsafe { NonNull::new_unchecked(ni.child) };
+                    // SAFETY: child is a valid, owning pointer.
+                    let child = unsafe { CRQEIterator::new(child_ptr) };
+                    ni.child = std::ptr::null_mut();
+                    ni.child = profile_child(child).into_raw().as_ptr();
+                }
+                // SAFETY: ptr is non-null (came from `into_raw`).
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: we still own the pointer.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            IteratorType::Optional => {
+                // SAFETY:
+                // - Type tag guarantees this is an Optional<CRQEIterator> wrapper.
+                // - `into_raw()` consumed `self`, so no other reference exists;
+                //   exclusive access is guaranteed.
+                let wrapper = unsafe {
+                    RQEIteratorWrapper::<Optional<CRQEIterator>>::mut_ref_from_header_ptr(
+                        self.into_raw().as_ptr(),
+                    )
+                };
+
+                if let Some(child) = wrapper.inner.take_child() {
+                    wrapper.inner.set_child(profile_child(child));
+                }
+
+                // SAFETY: RQEIteratorWrapper is #[repr(C)] with QueryIterator as
+                // its first field, so the pointer cast is valid. We still own
+                // the allocation; re-wrap as CRQEIterator.
+                let ptr =
+                    // SAFETY: wrapper came from `boxed_new`, so non-null.
+                    unsafe { NonNull::new_unchecked(wrapper as *mut _ as *mut QueryIterator) };
+                // SAFETY: ptr is valid and owning per above.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            IteratorType::OptionalOptimized => {
+                let ptr = self.into_raw().as_ptr();
+                // SAFETY: type tag guarantees this is an OptionalOptimizedIterator.
+                let oi = unsafe { &mut *(ptr as *mut ffi::OptionalOptimizedIterator) };
+                if !oi.child.is_null() {
+                    // SAFETY: child pointer is non-null (just checked).
+                    let child_ptr = unsafe { NonNull::new_unchecked(oi.child) };
+                    // SAFETY: child is a valid, owning pointer.
+                    let child = unsafe { CRQEIterator::new(child_ptr) };
+                    oi.child = std::ptr::null_mut();
+                    oi.child = profile_child(child).into_raw().as_ptr();
+                }
+                // SAFETY: ptr is non-null (came from `into_raw`).
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: we still own the pointer.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            IteratorType::Intersect => {
+                let ptr = self.into_raw().as_ptr();
+                // SAFETY: type tag guarantees this is a C IntersectionIterator.
+                let ii = unsafe { &mut *(ptr as *mut ffi::IntersectionIterator) };
+                for i in 0..ii.num_its as usize {
+                    // SAFETY: `its` is a valid array of `num_its` pointers.
+                    let slot = unsafe { ii.its.add(i) };
+                    // SAFETY: slot is within bounds per above.
+                    let child_ptr = unsafe { *slot };
+                    if !child_ptr.is_null() {
+                        // SAFETY: child pointer is non-null (just checked).
+                        let child_ptr = unsafe { NonNull::new_unchecked(child_ptr) };
+                        // SAFETY: child is a valid, owning pointer.
+                        let child = unsafe { CRQEIterator::new(child_ptr) };
+                        // SAFETY: writing back to the same slot.
+                        unsafe { *slot = profile_child(child).into_raw().as_ptr() };
+                    }
+                }
+                // SAFETY: ptr is non-null (came from `into_raw`).
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: we still own the pointer.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            IteratorType::Union => {
+                let ptr = self.into_raw().as_ptr();
+                // SAFETY: type tag guarantees this is a UnionIterator.
+                let ui = unsafe { &mut *(ptr as *mut ffi::UnionIterator) };
+                for i in 0..ui.num_orig as usize {
+                    // SAFETY: `its_orig` is a valid array of `num_orig` pointers.
+                    let slot = unsafe { ui.its_orig.add(i) };
+                    // SAFETY: slot is within bounds per above.
+                    let child_ptr = unsafe { *slot };
+                    if !child_ptr.is_null() {
+                        // SAFETY: child pointer is non-null (just checked).
+                        let child_ptr = unsafe { NonNull::new_unchecked(child_ptr) };
+                        // SAFETY: child is a valid, owning pointer.
+                        let child = unsafe { CRQEIterator::new(child_ptr) };
+                        // SAFETY: writing back to the same slot.
+                        unsafe { *slot = profile_child(child).into_raw().as_ptr() };
+                    }
+                }
+                // SAFETY: `ptr` is a valid UnionIterator allocated by C.
+                // We only modified `its_orig` entries (in-place); `its`,
+                // `heap_min_id`, and `num` are untouched and remain valid.
+                unsafe { ffi::UI_SyncIterList(ptr.cast()) };
+                // SAFETY: ptr is non-null (came from `into_raw`).
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: we still own the pointer.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            IteratorType::Hybrid => {
+                let ptr = self.into_raw().as_ptr();
+                // SAFETY: type tag guarantees this is a HybridIterator.
+                let hi = unsafe { &mut *(ptr as *mut ffi::HybridIterator) };
+                if !hi.child.is_null() {
+                    // SAFETY: child pointer is non-null (just checked).
+                    let child_ptr = unsafe { NonNull::new_unchecked(hi.child) };
+                    // SAFETY: child is a valid, owning pointer.
+                    let child = unsafe { CRQEIterator::new(child_ptr) };
+                    hi.child = std::ptr::null_mut();
+                    hi.child = profile_child(child).into_raw().as_ptr();
+                }
+                // SAFETY: ptr is non-null (came from `into_raw`).
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: we still own the pointer.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            IteratorType::Optimus => {
+                let ptr = self.into_raw().as_ptr();
+                // SAFETY: type tag guarantees this is an OptimizerIterator.
+                let oi = unsafe { &mut *(ptr as *mut ffi::OptimizerIterator) };
+                if !oi.child.is_null() {
+                    // SAFETY: child pointer is non-null (just checked).
+                    let child_ptr = unsafe { NonNull::new_unchecked(oi.child) };
+                    // SAFETY: child is a valid, owning pointer.
+                    let child = unsafe { CRQEIterator::new(child_ptr) };
+                    oi.child = std::ptr::null_mut();
+                    oi.child = profile_child(child).into_raw().as_ptr();
+                }
+                // SAFETY: ptr is non-null (came from `into_raw`).
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: we still own the pointer.
+                unsafe { CRQEIterator::new(ptr) }
+            }
+            // Rust leaf iterators — no children to recurse into.
+            IteratorType::Wildcard
+            | IteratorType::InvIdxNumeric
+            | IteratorType::InvIdxTerm
+            | IteratorType::InvIdxWildcard
+            | IteratorType::InvIdxMissing
+            | IteratorType::InvIdxTag
+            | IteratorType::Empty
+            | IteratorType::IdListSorted
+            | IteratorType::IdListUnsorted
+            | IteratorType::MetricSortedById
+            | IteratorType::MetricSortedByScore => self,
+            IteratorType::Profile => {
+                unreachable!("profile_children called on an already-profiled iterator")
+            }
+            IteratorType::Max => unreachable!("Unexpected iterator type: {type_}"),
+        }
     }
 }

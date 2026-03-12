@@ -39,6 +39,7 @@ pub use id_list::IdList;
 pub use intersection::Intersection;
 pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
+pub use profile::Profilable;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{Union, UnionFlat, UnionFullFlat, UnionQuickFlat};
 pub use wildcard::{Wildcard, WildcardIterator};

@@ -12,7 +12,10 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile::Profilable,
+};
 
 /// An iterator that yields no results.
 ///
@@ -65,5 +68,12 @@ impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
+    }
+}
+
+impl<'index> Profilable<'index> for Empty {
+    type Profiled = Self;
+    fn profile_children(self) -> Self {
+        self
     }
 }

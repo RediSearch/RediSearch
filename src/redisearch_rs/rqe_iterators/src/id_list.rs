@@ -15,7 +15,7 @@ use std::cmp::Ordering;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    utils::OwnedSlice,
+    profile::Profilable, utils::OwnedSlice,
 };
 
 /// An iterator that yields results according to a sorted list of unique IDs, specified on construction.
@@ -252,5 +252,12 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
         } else {
             IteratorType::IdListUnsorted
         }
+    }
+}
+
+impl<'index, const SORTED: bool> Profilable<'index> for IdList<'index, SORTED> {
+    type Profiled = Self;
+    fn profile_children(self) -> Self {
+        self
     }
 }

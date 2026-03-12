@@ -12,7 +12,10 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    profile::{Profilable, Profile},
+};
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
@@ -539,5 +542,26 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Union
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> Profilable<'index> for UnionFlat<'index, I, QUICK_EXIT>
+where
+    I: Profilable<'index>,
+{
+    type Profiled = UnionFlat<'index, Profile<'index, I::Profiled>, QUICK_EXIT>;
+
+    fn profile_children(self) -> Self::Profiled {
+        UnionFlat {
+            num_active: self.num_active,
+            num_estimated: self.num_estimated,
+            is_eof: self.is_eof,
+            result: self.result,
+            children: self
+                .children
+                .into_iter()
+                .map(Profilable::into_profiled)
+                .collect(),
+        }
     }
 }

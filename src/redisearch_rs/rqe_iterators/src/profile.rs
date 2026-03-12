@@ -83,6 +83,34 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     }
 }
 
+/// Trait for iterators whose subtree can be wrapped with [`Profile`] instrumentation.
+///
+/// Composite iterators override [`profile_children`](Profilable::profile_children)
+/// to recurse into their children first; leaf iterators return `self` unchanged.
+///
+/// The associated type [`Profiled`](Profilable::Profiled) represents `Self` after
+/// all children have been wrapped. For leaf iterators this is just `Self`; for
+/// composites it reflects the transformed child types (e.g.
+/// `Not<Profile<I::Profiled>>`).
+pub trait Profilable<'index>: RQEIterator<'index> + Sized {
+    /// The type of `Self` after all children have been wrapped with [`Profile`].
+    ///
+    /// For leaf iterators this is `Self`. For composite iterators the child type
+    /// parameter changes to reflect the profiled children.
+    type Profiled: RQEIterator<'index>;
+
+    /// Wrap all children with [`Profile`] iterators, without wrapping `self`.
+    ///
+    /// Leaf iterators return `self` unchanged. Composite iterators call
+    /// [`into_profiled`](Profilable::into_profiled) on each child.
+    fn profile_children(self) -> Self::Profiled;
+
+    /// Wrap the entire subtree — children first, then `self` — with [`Profile`].
+    fn into_profiled(self) -> Profile<'index, Self::Profiled> {
+        Profile::new(self.profile_children())
+    }
+}
+
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -139,5 +167,16 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Profile
+    }
+}
+
+impl<'index, P: Profilable<'index>> Profilable<'index> for Box<P>
+where
+    Box<P::Profiled>: RQEIterator<'index>,
+{
+    type Profiled = Box<P::Profiled>;
+
+    fn profile_children(self) -> Self::Profiled {
+        Box::new((*self).profile_children())
     }
 }

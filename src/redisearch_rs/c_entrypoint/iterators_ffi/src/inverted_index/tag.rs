@@ -15,7 +15,8 @@ use inverted_index::{
     raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+    FieldExpirationChecker, IteratorType, Profilable, interop::RQEIteratorWrapper,
+    inverted_index::Tag,
 };
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
@@ -217,4 +218,11 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
+}
+
+impl<'index> Profilable<'index> for TagIterator<'index> {
+    type Profiled = Self;
+    fn profile_children(self) -> Self {
+        self
+    }
 }

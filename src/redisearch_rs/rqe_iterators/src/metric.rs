@@ -11,7 +11,7 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
-    utils::OwnedSlice,
+    profile::Profilable, utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
 use inverted_index::RSIndexResult;
@@ -192,5 +192,12 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
         } else {
             IteratorType::MetricSortedByScore
         }
+    }
+}
+
+impl<'index, const SORTED_BY_ID: bool> Profilable<'index> for Metric<'index, SORTED_BY_ID> {
+    type Profiled = Self;
+    fn profile_children(self) -> Self {
+        self
     }
 }

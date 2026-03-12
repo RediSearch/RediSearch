@@ -16,7 +16,7 @@ use inverted_index::{
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
-    SkipToOutcome,
+    SkipToOutcome, profile::Profilable,
 };
 
 use super::InvIndIterator;
@@ -187,5 +187,17 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxMissing
+    }
+}
+
+impl<'index, E, C> Profilable<'index> for Missing<'index, E, C>
+where
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    <E as DecodedBy>::Decoder: DocIdsDecoder,
+    C: ExpirationChecker,
+{
+    type Profiled = Self;
+    fn profile_children(self) -> Self {
+        self
     }
 }

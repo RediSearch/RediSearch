@@ -12,7 +12,9 @@ use std::{fmt::Debug, ptr::NonNull};
 use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
-use rqe_iterators::{IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard};
+use rqe_iterators::{
+    IteratorType, Profilable, interop::RQEIteratorWrapper, inverted_index::Wildcard,
+};
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
@@ -168,4 +170,11 @@ pub unsafe extern "C" fn NewInvIndIterator_WildcardQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
+}
+
+impl<'index> Profilable<'index> for WildcardIterator<'index> {
+    type Profiled = Self;
+    fn profile_children(self) -> Self {
+        self
+    }
 }
