@@ -58,6 +58,21 @@ env:
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -198,21 +213,7 @@ jobs:
       - name: Install bash
         if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
-        run: |
-          SUCCESS=0
-          for i in 1 2 3 4 5; do
-            echo "Attempt $i of 5"
-            if apk add bash; then
-              echo "Setup succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ "$i" -lt 5 ]; then
-              echo "Setup failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ "$SUCCESS" -eq 1 ] || exit 1
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
       - name: Free up disk space (container)
         # For container jobs - delete mounted host directories
@@ -269,21 +270,7 @@ jobs:
 
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
-        run: |
-          SUCCESS=0
-          for i in 1 2 3 4 5; do
-            echo "Attempt $i of 5"
-            if ${{ needs.get-config.outputs.setup_script }}; then
-              echo "Setup succeeded"
-              SUCCESS=1
-              break
-            fi
-            if [ "$i" -lt 5 ]; then
-              echo "Setup failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          [ "$SUCCESS" -eq 1 ] || exit 1
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
 
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
