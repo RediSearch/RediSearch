@@ -12,10 +12,15 @@
 //! Sparse = few existing docs relative to max_doc_id — where the optimization matters most.
 //! Dense  = most doc IDs occupied — both variants should be close.
 //! Full   = all docs present, child matches all — upper bound on optimized throughput.
+//!
+//! Both C and Rust use the same `DocIdsOnly` inverted index as `existingDocs`, so their
+//! `wcii` paths are comparable: the C iterator reads from it via `NewWildcardIterator_Optimized`,
+//! while the Rust iterator reads from it via `new_wildcard_iterator_optimized`.
 
 use std::{hint::black_box, time::Duration};
 
 use crate::ffi::{self, IndexFlags_Index_DocIdsOnly};
+use ::ffi::IteratorStatus_ITERATOR_OK;
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 use rqe_iterators::{
@@ -52,7 +57,9 @@ impl Bencher {
     }
 
     /// Sparse: few existing docs relative to max_doc_id — where the optimization matters most.
-    /// Uses a small wcii (1_000 existing docs) with an Empty child (all virtual results).
+    ///
+    /// Both C and Rust use existingDocs with 1_000 entries and a child with no overlap,
+    /// so every result is a virtual hit.
     fn bench_sparse_read(&self, c: &mut Criterion) {
         const EXISTING: u64 = 1_000;
 
@@ -72,6 +79,25 @@ impl Bencher {
         }
 
         let mut group = self.benchmark_group(c, "Iterator - OptionalOptimized - Read Sparse");
+
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || {
+                    ffi::QueryIterator::new_optional_optimized(
+                        ffi::QueryIterator::new_id_list(vec![Self::LARGE_MAX + 1]),
+                        mock_ctx.qctx().as_ptr(),
+                        Self::WEIGHT,
+                    )
+                },
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
 
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
@@ -114,6 +140,25 @@ impl Bencher {
 
         let mut group = self.benchmark_group(c, "Iterator - OptionalOptimized - Read Dense");
 
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || {
+                    ffi::QueryIterator::new_optional_optimized(
+                        ffi::QueryIterator::new_id_list(child_ids.clone()),
+                        mock_ctx.qctx().as_ptr(),
+                        Self::WEIGHT,
+                    )
+                },
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
@@ -155,6 +200,25 @@ impl Bencher {
         let full_child_ids: Vec<u64> = (1..=Self::LARGE_MAX).collect();
 
         let mut group = self.benchmark_group(c, "Iterator - OptionalOptimized - Read Full");
+
+        group.bench_function("C", |b| {
+            b.iter_batched_ref(
+                || {
+                    ffi::QueryIterator::new_optional_optimized(
+                        ffi::QueryIterator::new_id_list(full_child_ids.clone()),
+                        mock_ctx.qctx().as_ptr(),
+                        Self::WEIGHT,
+                    )
+                },
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
 
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(

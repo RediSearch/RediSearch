@@ -119,6 +119,11 @@ impl MockContext {
         NonNull::new(self.numeric_range_tree).expect("NumericRangeTree should not be null")
     }
 
+    /// Get the query evaluation context.
+    pub const fn qctx(&self) -> NonNull<ffi::QueryEvalCtx> {
+        NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
+    }
+
     /// Get the search context from the TestContext.
     pub const fn sctx(&self) -> NonNull<ffi::RedisSearchCtx> {
         NonNull::new(self.sctx).expect("RedisSearchCtx should not be null")
