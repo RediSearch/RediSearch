@@ -75,6 +75,13 @@ env:
     [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
+  print-uid:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Print UID
+        run: |
+          TEST_UID="${{ github.run_id }}-$RANDOM"
+          echo "UID: $TEST_UID"
   # Get configuration for this specific platform and architecture
   get-config:
     name: Get build configurations for platform
@@ -440,10 +447,13 @@ jobs:
         id: artifact-names
         run:
           | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
+          UNIQUE_ID="${{ github.run_id }}-$RANDOM"
+          ARTIFACT_NAME=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
-                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
-                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+                             ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }} - ${UNIQUE_ID}" | \
+                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
+          echo "Artifact name: ${ARTIFACT_NAME}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
       - name: Build
         env:
           SAN: ${{ inputs.san }}
