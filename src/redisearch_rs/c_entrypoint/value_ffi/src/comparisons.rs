@@ -18,8 +18,7 @@ use value::comparison::{CompareError, compare};
 ///
 /// When `status` is null, mixed number/string comparisons fall back to
 /// string-based comparison. When `status` is non-null and string-to-number
-/// conversion fails, a [`QueryError`] is written to `status` and `0` is
-/// returned.
+/// conversion fails, a [`QueryError`] is written to `status`.
 ///
 /// # Safety
 ///

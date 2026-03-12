@@ -108,8 +108,7 @@ struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
  *
  * When `status` is null, mixed number/string comparisons fall back to
  * string-based comparison. When `status` is non-null and string-to-number
- * conversion fails, a [`QueryError`] is written to `status` and `0` is
- * returned.
+ * conversion fails, a [`QueryError`] is written to `status`.
  *
  * # Safety
  *
