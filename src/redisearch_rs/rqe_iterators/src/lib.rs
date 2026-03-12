@@ -22,6 +22,7 @@ pub mod maybe_empty;
 pub mod metric;
 pub mod not;
 pub mod optional;
+pub mod optional_optimized;
 pub mod profile;
 pub mod utils;
 pub mod wildcard;
@@ -136,8 +137,10 @@ pub trait RQEIterator<'index> {
     }
 }
 
-// Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
-impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
+// Implement RQEIterator for any Box<I> where I: RQEIterator + ?Sized.
+// This covers Box<dyn RQEIterator> as well as Box<dyn SubTrait> for any
+// subtrait of RQEIterator, without requiring a separate delegation impl per subtrait.
+impl<'index, I: RQEIterator<'index> + ?Sized> RQEIterator<'index> for Box<I> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
     }
