@@ -18,9 +18,10 @@ jobs:
     needs: build-image
     if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    container:
-      image: ${{ needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || 'ubuntu:noble' }}
-      options: --user root
+    container: ${{
+      needs.build-image.outputs.succeeded == 'true'
+        && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
+      || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -45,10 +46,18 @@ jobs:
           echo "USER: $USER"
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          if [[ "${{ needs.build-image.outputs.succeeded }}" == 'true' ]]; then
+            echo "mode=" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=sudo" >> "$GITHUB_OUTPUT"
+          fi
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
-        run: ./install_script.sh
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:
