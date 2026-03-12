@@ -1640,7 +1640,8 @@ RSConfigOptions RSGlobalConfigOptions = {
         {.name = "_SIMULATE_IN_FLEX",
          .helpText = "Simulate working under Flex conditions. This is used for testing only.",
          .setValue = setDebugSimulateInFlex,
-         .getValue = getDebugSimulateInFlex},
+         .getValue = getDebugSimulateInFlex,
+         .flags = RSCONFIGVAR_F_IMMUTABLE}
         {.name = "DISK_BUFFER_PERCENTAGE",
          .helpText = "Percentage of available memory to use for disk write buffer (1-100)",
          .setValue = setDiskBufferPercentage,
@@ -2331,7 +2332,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-_simulate-in-flex", 0,
-      REDISMODULE_CONFIG_UNPREFIXED,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.simulateInFlex)
     )

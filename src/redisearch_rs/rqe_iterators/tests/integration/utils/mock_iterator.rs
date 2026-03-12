@@ -10,7 +10,7 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::RSIndexResult;
+use inverted_index::{RSIndexResult, RSOffsetSlice};
 use rqe_iterators::RQEIterator;
 
 /// Test iterator used in unit tests that expect an [`RQEIterator`]
@@ -50,6 +50,12 @@ use rqe_iterators::RQEIterator;
 pub struct Mock<'index, const N: usize> {
     result: RSIndexResult<'index>,
     doc_ids: [t_docId; N],
+    /// One term position per document, or `None` for a virtual (non-term) result.
+    ///
+    /// Each value must be in the range `1..=127`: values in that range are their own
+    /// single-byte LEB128 varint encoding, so the byte can be passed directly to
+    /// [`RSOffsetSlice::from_slice`] without a separate encoding step.
+    positions: Option<[u8; N]>,
     next_index: usize,
     data: MockData,
 }
@@ -234,12 +240,27 @@ impl<'index, const N: usize> Mock<'index, N> {
     pub fn new(doc_ids: [t_docId; N]) -> Self {
         debug_assert!(doc_ids.is_sorted(), "Mock Iterator API assumes sorted list");
         Self {
-            result: RSIndexResult::virt()
+            result: RSIndexResult::build_virt()
                 .weight(1.)
-                .field_mask(RS_FIELDMASK_ALL),
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
             doc_ids,
+            positions: None,
             next_index: 0,
             data: MockData::new(),
+        }
+    }
+
+    /// Like [`Mock::new`], but each document carries a term position (valid range `1..=127`).
+    /// The result produced for each document will be a `Term` record instead of a virtual one,
+    pub fn new_with_positions(doc_ids: [t_docId; N], positions: [u8; N]) -> Self {
+        debug_assert!(
+            positions.iter().all(|&p| (1..=127).contains(&p)),
+            "positions must be in 1..=127 (single-byte varint range)"
+        );
+        Self {
+            positions: Some(positions),
+            ..Self::new(doc_ids)
         }
     }
 
@@ -252,6 +273,26 @@ impl<'index, const N: usize> Mock<'index, N> {
     pub fn data(&self) -> MockData {
         MockData(self.data.0.clone())
     }
+
+    /// Replace `self.result` with the appropriate result for the document at `index`.
+    ///
+    /// If positions are configured, builds a term result with owned offsets for
+    /// that document. Otherwise builds a virtual result.
+    fn set_result(&mut self, index: usize) {
+        let doc_id = self.doc_ids[index];
+        if let Some(positions) = self.positions {
+            let pos_byte = [positions[index]];
+            let offsets = RSOffsetSlice::from_slice(&pos_byte).to_owned();
+            self.result = RSIndexResult::build_term()
+                .doc_id(doc_id)
+                .weight(1.)
+                .field_mask(RS_FIELDMASK_ALL)
+                .owned_record(None, offsets)
+                .build();
+        } else {
+            self.result.doc_id = doc_id;
+        }
+    }
 }
 
 impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
@@ -262,21 +303,25 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn read(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
-        let mut data = self.data.0.borrow_mut();
-
-        data.read_count += 1;
-        if self.at_eof() {
-            return if let Some(err) = data.error_at_done {
-                Err(err.into_rqe_iterator_error())
-            } else {
-                Ok(None)
-            };
+        {
+            let mut data = self.data.0.borrow_mut();
+            data.read_count += 1;
+            if self.at_eof() {
+                return if let Some(err) = data.error_at_done {
+                    Err(err.into_rqe_iterator_error())
+                } else {
+                    Ok(None)
+                };
+            }
         }
 
-        self.result.doc_id = self.doc_ids[self.next_index];
+        self.set_result(self.next_index);
         self.next_index += 1;
 
-        data.delay_if_index_limit_reached(self.result.doc_id);
+        self.data
+            .0
+            .borrow_mut()
+            .delay_if_index_limit_reached(self.result.doc_id);
 
         Ok(Some(&mut self.result))
     }
@@ -323,18 +368,20 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn revalidate(
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let mut data = self.data.0.borrow_mut();
+        let revalidate_result = {
+            let mut data = self.data.0.borrow_mut();
+            data.validation_count += 1;
+            data.revalidate_result
+        };
 
-        data.validation_count += 1;
-
-        Ok(match data.revalidate_result {
+        Ok(match revalidate_result {
             MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
             MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
             MockRevalidateResult::Move => {
                 rqe_iterators::RQEValidateStatus::Moved {
                     current: (self.next_index < N).then(|| {
                         // Simulate a move by incrementing nextIndex
-                        self.result.doc_id = self.doc_ids[self.next_index];
+                        self.set_result(self.next_index);
                         self.next_index += 1;
                         &mut self.result
                     }),

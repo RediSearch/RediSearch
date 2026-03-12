@@ -75,9 +75,11 @@ where
         term.set_idf(idf::calculate_idf(total_docs, term_docs));
         term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
 
-        let result =
-            RSIndexResult::with_term(Some(term), RSOffsetSlice::empty(), 0, RS_FIELDMASK_ALL, 1)
-                .weight(weight);
+        let result = RSIndexResult::build_term()
+            .borrowed_record(Some(term), RSOffsetSlice::empty())
+            .field_mask(RS_FIELDMASK_ALL)
+            .weight(weight)
+            .build();
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
             context,

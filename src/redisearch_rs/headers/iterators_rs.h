@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
 #include "iterators/inverted_index_iterator.h"
+#include "tag_index.h"
 #include "numeric_range_tree.h"
 #include "query.h"
 
@@ -236,6 +237,48 @@ struct NumericRangeIteratorsResult CreateNumericRangeIterators(const NumericRang
                                                                const RedisSearchCtx *sctx,
                                                                const NumericFilter *f,
                                                                const FieldFilterContext *field_ctx);
+
+/**
+ * Creates a new tag inverted index iterator.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the tag's inverted index ([`DocIdsOnly`] or [`RawDocIdsOnly`] encoded).
+ * * `tag_idx` - Pointer to the [`TagIndex`](ffi::TagIndex) containing the `TrieMap` of tag values.
+ * * `sctx` - Pointer to the Redis search context.
+ * * `field_mask_or_index` - Field mask or field index to filter on.
+ * * `term` - Pointer to the query term representing the tag value. Ownership is
+ *   transferred to the iterator.
+ * * `weight` - Weight to apply to the term results.
+ *
+ * # Returns
+ *
+ * A pointer to a heap-allocated [`QueryIterator`](ffi::QueryIterator) that can be used from C
+ * code. The caller is responsible for freeing the iterator by calling its `Free` callback
+ * (i.e. `it->Free(it)`).
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
+ *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
+ * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
+ * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
+ * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
+ *    iterator.
+ * 5. `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
+ * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
+ *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ */
+QueryIterator *NewInvIndIterator_TagQuery_Rs(const InvertedIndex *idx,
+                                             const TagIndex *tag_idx,
+                                             const RedisSearchCtx *sctx,
+                                             FieldMaskOrIndex field_mask_or_index,
+                                             RSQueryTerm *term,
+                                             double weight);
 
 /**
  * Creates a new term inverted index iterator for querying term fields.

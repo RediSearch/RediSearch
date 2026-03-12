@@ -19,9 +19,11 @@ struct AREQ;
 struct Cursor;
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
+typedef RedisModuleCmdFunc BlockedClientReplyCB;
 
 RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req,
-                                                      int timeoutMS, BlockedClientTimeoutCB timeoutCallback);
+                                                      int timeoutMS, BlockedClientReplyCB replyCallback,
+                                                      BlockedClientTimeoutCB timeoutCallback);
 RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, Cursor* cursor, size_t count, int timeoutMS);
 
 #ifdef __cplusplus
