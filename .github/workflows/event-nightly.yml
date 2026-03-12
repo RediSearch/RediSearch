@@ -11,6 +11,9 @@ on:
 
 jobs:
   test-all-platforms:
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:

@@ -1,10 +1,5 @@
 name: Build and Upload Artifacts
 
-# Added these to use JWT token to connect with AWS
-permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: read    # This is required for actions/checkout
-
 on:
   workflow_call:
     inputs:
@@ -48,10 +43,27 @@ jobs:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
 
+  build-image:
+    needs: get-config
+    if: ${{ needs.get-config.outputs.container }}
+    name: Build cached container for platform
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ${{ needs.get-config.outputs.container }}
+      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+      checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
+
   build:
     name: Build ${{ needs.get-config.outputs.name }}
-    needs: [get-config]
+    needs: [get-config, build-image]
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success'
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      id-token: write # Required for OIDC role assumption during upload
+      contents: read  # Required for actions/checkout
+      packages: read  # Required for GHCR read
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -59,7 +71,7 @@ jobs:
       needs.get-config.outputs.container
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
-            needs.get-config.outputs.container,
+            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
             needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
         )
       || null }}
@@ -91,8 +103,24 @@ jobs:
         if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
       - name: Setup Dependencies
-        if: needs.get-config.outputs.setup_script
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
         run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
@@ -158,6 +186,7 @@ jobs:
               ;;
           esac
       - name: Setup
+        if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
         env:
           INSTALL_MODE: ${{ steps.mode.outputs.mode }}
