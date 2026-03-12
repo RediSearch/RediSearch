@@ -39,12 +39,12 @@ static bool periodicCb(void *privdata, bool force) {
     return true;
   }
   // Reset counters before running GC
-  atomic_subtract(&gc->writesFromLastRun, num_writes);
-  atomic_subtract(&gc->deletesFromLastRun, num_deletes);
-  atomic_subtract(&gc->updatesFromLastRun, num_updates);
+  atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
+  atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);
+  atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
-  SearchDisk_RunGC(sp->diskSpec, sp);
-  IndexsGlobalStats_DecreaseLogicallyDeleted(num_deletes + num_updates);
+  size_t num_cleaned = SearchDisk_RunGC(sp->diskSpec, sp);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(num_cleaned);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 

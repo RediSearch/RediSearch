@@ -215,7 +215,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         spec->stats.scoring.numDocuments--;
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
-        updated = true;
+        updated = docId != 0; // If docId is 0, the document was not added
       }
       if (docId) {
         cur->doc->docId = docId;
