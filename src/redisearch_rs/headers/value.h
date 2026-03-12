@@ -262,6 +262,19 @@ struct RsValue *RSValue_NewParsedNumber(const char *value,
  */
 struct RsValue *RSValue_NewNumberFromInt64(int64_t number);
 
+/**
+ * Returns a pointer to the static [`RsValue::Null`] sentinel.
+ *
+ * Unlike [`RSValue_NewNull`], this does **not** heap-allocate; it returns a
+ * pointer to a shared static value managed by [`SharedRsValue::null_static`].
+ * The returned pointer must still be passed to
+ * [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef) for symmetry, but
+ * decrementing it is a no-op.
+ *
+ * # Safety
+ *
+ * The returned pointer must not be mutated.
+ */
 struct RsValue *RSValue_NullStatic(void);
 
 /**
