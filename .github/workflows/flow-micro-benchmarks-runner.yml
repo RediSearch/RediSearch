@@ -71,6 +71,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
       - name: Install benchmark dependencies
         run: |
           export HOME=/home/ubuntu
@@ -89,6 +91,8 @@ jobs:
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Collect results
         run: |
           # Determine OS name

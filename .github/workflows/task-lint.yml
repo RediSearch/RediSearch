@@ -17,6 +17,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
       - name: Setup
         working-directory: .install
         run: ./install_script.sh sudo
@@ -56,6 +58,9 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         id: advisories
         continue-on-error: true
+        env:
+          # Unset RUSTC_WRAPPER as sccache is not available in the cargo-deny container
+          RUSTC_WRAPPER: ""
         with:
           command: check advisories
           arguments: --all-features
@@ -63,6 +68,9 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         id: dep-licenses
         continue-on-error: true
+        env:
+          # Unset RUSTC_WRAPPER as sccache is not available in the cargo-deny container
+          RUSTC_WRAPPER: ""
         with:
           command: check licenses
           arguments: --all-features
@@ -78,6 +86,8 @@ jobs:
             echo "    cargo hakari generate && cargo hakari manage-deps"
             exit 1
           fi
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||
