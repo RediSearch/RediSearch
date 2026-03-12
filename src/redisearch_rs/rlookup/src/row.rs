@@ -246,7 +246,7 @@ impl<'a> RLookupRow<'a> {
             cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
         } else {
             rlookup
-                .get_key_write(name, RLookupKeyFlags::empty())
+                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
                 .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
         };
         self.write_key(key, val);
