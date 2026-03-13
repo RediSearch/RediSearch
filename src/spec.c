@@ -3525,7 +3525,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   if (SearchDisk_IsEnabled()) {
-    RS_ASSERT(disk_db);
+    RS_ASSERT(SearchDisk_IsInitialized());
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);

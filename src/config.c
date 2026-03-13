@@ -1274,6 +1274,7 @@ CONFIG_SETTER(setDiskBufferPercentage) {
       "DISK_BUFFER_PERCENTAGE is only valid when disk mode is enabled");
     return REDISMODULE_ERR;
   }
+  RS_ASSERT(SearchDisk_IsInitialized());
   uint8_t newPercentage;
   int acrc = AC_GetU8(ac, &newPercentage, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
