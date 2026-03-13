@@ -40,5 +40,6 @@ mod maybe_empty;
 mod metric;
 mod not;
 mod optional;
+mod optional_optimized;
 mod profile;
 mod wildcard;
