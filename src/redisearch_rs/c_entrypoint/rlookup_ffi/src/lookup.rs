@@ -7,14 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::DocumentMetadata;
 use libc::size_t;
+use query_error::{QueryError, opaque::OpaqueQueryError};
 use rlookup::{
-    IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey,
-    RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
+    DocumentLoader, IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup,
+    RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
-    ffi::{CStr, c_char},
+    ffi::{CStr, c_char, c_int},
     pin::Pin,
     ptr::{self, NonNull},
     slice,
@@ -600,8 +602,8 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
-    status: Option<NonNull<ffi::QueryError>>,
-) -> i32 {
+    status: Option<NonNull<OpaqueQueryError>>,
+) -> c_int {
     // Safety: ensured by caller (1.)
     let search_ctx = unsafe { search_ctx.unwrap().as_mut() };
 
@@ -622,9 +624,123 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let key = unsafe { CStr::from_ptr(key) };
 
     // Safety: ensured by caller (8.)
-    let status = unsafe { status.unwrap().as_mut() };
+    let status = unsafe { QueryError::from_opaque_non_null(status.unwrap()) };
 
-    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, status)
+    let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
+
+    match lookup.load_rule_fields(ctx, dst_row, index_spec, key, status) {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) => {
+            tracing::error!(
+                search_ctx = ?search_ctx,
+                dst_row = ?dst_row,
+                index_spec = ?index_spec,
+                key = ?key,
+                status = ?status,
+                "RLookup::load_rule_fields failed with {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
+}
+
+/// Load values from the document `dmd` into `dst_row`
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup` that is properly initialized.
+/// 2. `dst_row` must be a [valid], non-null pointer to an `RLookupRow` that is properly initialized.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_LoadDocumentAll(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow>>,
+    dmd: *const ffi::RSDocumentMetadata,
+    search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
+    force_string: bool,
+    status: Option<NonNull<OpaqueQueryError>>,
+) -> c_int {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    // Safety: ensured by caller (2.)
+    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
+
+    let dmd = unsafe { DocumentMetadata::from_raw(dmd) };
+
+    let search_ctx = unsafe { search_ctx.unwrap().as_ref() };
+
+    let status = unsafe { QueryError::from_opaque_non_null(status.unwrap()) };
+
+    let loader = DocumentLoader::new(lookup, dst_row, NonNull::new(search_ctx.redisCtx).unwrap())
+        .force_string(force_string)
+        .api_version(search_ctx.apiVersion);
+
+    let res = loader.load_all(&dmd, status);
+
+    match res {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) => {
+            tracing::error!(
+                lookup = ?lookup,
+                dst_row = ?dst_row,
+                dmd = ?dmd,
+                search_ctx = ?search_ctx,
+                force_string = ?force_string,
+                "rlookup::load_document::load_all_keys failed with {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
+}
+
+/// Load values for all non-present and loadable keys in `rlookup` from the document `dmd` into `dst_row`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_LoadDocumentSpecific(
+    lookup: Option<NonNull<OpaqueRLookup>>,
+    dst_row: Option<NonNull<OpaqueRLookupRow>>,
+    dmd: *const ffi::RSDocumentMetadata,
+    search_ctx: Option<NonNull<ffi::RedisSearchCtx>>,
+    force_load: bool,
+    cached_only: bool,
+    status: Option<NonNull<OpaqueQueryError>>,
+) -> c_int {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    // Safety: ensured by caller (2.)
+    let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
+
+    let search_ctx = unsafe { search_ctx.unwrap().as_ref() };
+
+    let dmd = unsafe { DocumentMetadata::from_raw(dmd) };
+
+    let status = unsafe { QueryError::from_opaque_non_null(status.unwrap()) };
+
+    let loader = DocumentLoader::new(lookup, dst_row, NonNull::new(search_ctx.redisCtx).unwrap())
+        .api_version(search_ctx.apiVersion)
+        .force_load(force_load)
+        .cached_only(cached_only);
+
+    let res = loader.load_specific(&dmd, status);
+
+    match res {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) => {
+            tracing::error!(
+                lookup = ?lookup,
+                dst_row = ?dst_row,
+                dmd =?dmd,
+                search_ctx = ?search_ctx,
+                force_load = ?force_load,
+                cached_only = ?cached_only,
+                "rlookup::load_document::load_specific_keys failed with {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
 }
 
 /// Return an iterator over an [`RLookup`]'s key list.

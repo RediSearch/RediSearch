@@ -1910,11 +1910,13 @@ dependencies = [
  "cbindgen",
  "ffi",
  "libc",
+ "query_error",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
  "sorting_vector",
+ "tracing",
  "value",
  "workspace_hack",
 ]

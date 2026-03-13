@@ -12,6 +12,7 @@ use std::slice;
 use crate::{SchemaRule, bindings::field_spec::FieldSpec};
 
 /// A safe wrapper around an `ffi::IndexSpec`.
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct IndexSpec(ffi::IndexSpec);
 
