@@ -1785,6 +1785,7 @@ dependencies = [
  "quote 1.0.44",
  "redis-module",
  "result_processor_ffi",
+ "rlookup_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -2163,6 +2164,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "inverted_index",
+ "rlookup",
  "workspace_hack",
 ]
 
