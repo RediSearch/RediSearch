@@ -200,7 +200,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}, UID ${{ needs.print-uid.outputs.uid }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}, UID ${{ env.UID  }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
