@@ -28,7 +28,7 @@ typedef struct MRConn{
   uv_loop_t *loop;
   int protocol; // 0 (undetermined), 2, or 3
   MRConnState state;
-  long long commandTimeoutMS;  // Timeout for commands (0 = no timeout)
+  uint32_t commandTimeoutMS;  // Timeout for commands (0 = no timeout)
 } MRConn;
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
@@ -37,7 +37,7 @@ static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Disconnect(MRConn *conn);
 static void MRConn_Stop(MRConn *conn);
-static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, long long commandTimeoutMS);
+static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t commandTimeoutMS);
 static int MRConn_StartNewConnection(MRConn *conn);
 static int MRConn_SendAuth(MRConn *conn);
 
@@ -84,7 +84,7 @@ static inline void MRConnPool_Disconnect(const MRConnPool *pool) {
   }
 }
 
-static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop, long long commandTimeoutMS) {
+static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop, uint32_t commandTimeoutMS) {
   MRConnPool *pool = rm_malloc(sizeof(*pool));
   *pool = (MRConnPool){
       .num = num,
@@ -176,7 +176,7 @@ static dictType nodeIdToConnPoolType = {
 };
 
 /* Init the connection manager */
-void MRConnManager_Init(MRConnManager *mgr, int nodeConns, long long commandTimeoutMS) {
+void MRConnManager_Init(MRConnManager *mgr, int nodeConns, uint32_t commandTimeoutMS) {
   /* Create the connection map */
   mgr->map = dictCreate(&nodeIdToConnPoolType, NULL);
   mgr->nodeConns = nodeConns;
@@ -772,7 +772,7 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
   }
 }
 
-static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, long long commandTimeoutMS) {
+static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t commandTimeoutMS) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
   *conn = (MRConn){
     .state = MRConn_Disconnected,

@@ -251,7 +251,7 @@ static void UV_Close(IORuntimeCtx *io_runtime_ctx) {
   uv_loop_close(&io_runtime_ctx->uv_runtime.loop);
 }
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership, long long commandTimeoutMS) {
+IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership, uint32_t commandTimeoutMS) {
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
   MRConnManager_Init(&io_runtime_ctx->conn_mgr, conn_pool_size, commandTimeoutMS);
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr.nodeConns * PENDING_FACTOR, id);

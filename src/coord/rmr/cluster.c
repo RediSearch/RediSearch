@@ -14,7 +14,7 @@
 #include "rq.h"
 
 /* Initialize the MapReduce engine with a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads, long long commandTimeoutMS) {
+MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads, uint32_t commandTimeoutMS) {
   MRCluster *cl = rm_new(MRCluster);
   RS_ASSERT(num_io_threads > 0);
   cl->num_io_threads = num_io_threads;
