@@ -927,7 +927,7 @@ static bool periodicCb(void *privdata, bool force) {
     return false;
   }
 
-  if (!force && gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!force && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -989,8 +989,8 @@ static bool periodicCb(void *privdata, bool force) {
 
   // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
   // upon deleting a document (this is the actual number of documents to be cleaned by the fork).
-  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
-  gc->deletedDocsFromLastRun = 0;
+  size_t num_docs_to_clean = gc->deletedOrUpdatedDocsFromLastRun;
+  gc->deletedOrUpdatedDocsFromLastRun = 0;
 
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
@@ -1091,7 +1091,7 @@ void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
-  IndexsGlobalStats_DecreaseLogicallyDeleted(gc->deletedDocsFromLastRun);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(gc->deletedOrUpdatedDocsFromLastRun);
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);
@@ -1123,9 +1123,9 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoEndDictField(ctx);
 }
 
-static void deleteCb(void *ctx) {
+static void deleteOrUpdateCb(void *ctx) {
   ForkGC *gc = ctx;
-  ++gc->deletedDocsFromLastRun;
+  ++gc->deletedOrUpdatedDocsFromLastRun;
   IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
@@ -1146,7 +1146,7 @@ ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   ForkGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (ForkGC){
       .index = StrongRef_Demote(spec_ref),
-      .deletedDocsFromLastRun = 0,
+      .deletedOrUpdatedDocsFromLastRun = 0,
   };
   forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
@@ -1159,7 +1159,9 @@ ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
-  callbacks->onDelete = deleteCb;
+  callbacks->onDelete = deleteOrUpdateCb;
+  callbacks->onWrite = NULL; // writes are not tracked for forkGC
+  callbacks->onUpdate = deleteOrUpdateCb;
   callbacks->getStats = getStatsCb;
 
   return forkGc;
