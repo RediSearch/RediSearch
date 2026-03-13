@@ -52,7 +52,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Serialize)]
+#[derive(Debug, Serialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -65,8 +65,41 @@ pub struct IndexBlock {
     /// The total number of non-unique entries in this block
     pub(crate) num_entries: u16,
 
+    /// Maximum term frequency seen in this block.
+    /// Used for block-max score optimization.
+    /// A value of 0 indicates metadata was not tracked (e.g., DocIdsOnly encoding).
+    pub(crate) max_freq: u32,
+
+    /// Maximum document score seen in this block.
+    /// Used for block-max score optimization.
+    pub(crate) max_doc_score: f32,
+
+    /// Minimum document length seen in this block.
+    /// Used for block-max score optimization (shorter docs get higher TF scores).
+    pub(crate) min_doc_len: u32,
+
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
+}
+
+impl PartialEq for IndexBlock {
+    fn eq(&self, other: &Self) -> bool {
+        self.first_doc_id == other.first_doc_id
+            && self.last_doc_id == other.last_doc_id
+            && self.num_entries == other.num_entries
+            && self.max_freq == other.max_freq
+            && self.max_doc_score.to_bits() == other.max_doc_score.to_bits()
+            && self.min_doc_len == other.min_doc_len
+            && self.buffer == other.buffer
+    }
+}
+
+impl Eq for IndexBlock {}
+
+impl Default for IndexBlock {
+    fn default() -> Self {
+        Self::new(0)
+    }
 }
 
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
@@ -82,7 +115,17 @@ impl<'de> Deserialize<'de> for IndexBlock {
             first_doc_id: t_docId,
             last_doc_id: t_docId,
             num_entries: u16,
+            #[serde(default)]
+            max_freq: u32,
+            #[serde(default)]
+            max_doc_score: f32,
+            #[serde(default = "default_min_doc_len")]
+            min_doc_len: u32,
             buffer: Vec<u8>,
+        }
+
+        fn default_min_doc_len() -> u32 {
+            u32::MAX
         }
 
         let ib = IB::deserialize(deserializer)?;
@@ -96,6 +139,9 @@ impl<'de> Deserialize<'de> for IndexBlock {
             first_doc_id: ib.first_doc_id,
             last_doc_id: ib.last_doc_id,
             num_entries: ib.num_entries,
+            max_freq: ib.max_freq,
+            max_doc_score: ib.max_doc_score,
+            min_doc_len: ib.min_doc_len,
             buffer: ib.buffer,
         })
     }
@@ -111,6 +157,9 @@ impl IndexBlock {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
             num_entries: 0,
+            max_freq: 0,
+            max_doc_score: 0.0,
+            min_doc_len: u32::MAX,
             buffer: Vec::new(),
         };
         TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
@@ -141,6 +190,40 @@ impl IndexBlock {
     /// Get a reference to the encoded data in this block. This is only needed for some C tests.
     pub fn data(&self) -> &[u8] {
         &self.buffer
+    }
+
+    /// Get the maximum term frequency in this block.
+    pub const fn max_freq(&self) -> u32 {
+        self.max_freq
+    }
+
+    /// Get the minimum document length in this block.
+    pub const fn min_doc_len(&self) -> u32 {
+        self.min_doc_len
+    }
+
+    /// Get the maximum document score in this block.
+    pub const fn max_doc_score(&self) -> f32 {
+        self.max_doc_score
+    }
+
+    /// Check if this block has scoring metadata.
+    /// Returns true if metadata was tracked (num_entries > 0 and max_freq > 0).
+    pub const fn has_scoring_metadata(&self) -> bool {
+        // If num_entries is 0, the block is empty
+        // If max_freq is 0, metadata was not tracked (e.g., DocIdsOnly encoding)
+        self.num_entries > 0 && self.max_freq > 0
+    }
+
+    /// Create a test block with specific scoring metadata (for testing only).
+    #[cfg(test)]
+    pub fn test_with_scoring_metadata(max_freq: u32, min_doc_len: u32, max_doc_score: f32) -> Self {
+        let mut block = Self::new(1);
+        block.num_entries = 1; // Non-empty block
+        block.max_freq = max_freq;
+        block.min_doc_len = min_doc_len;
+        block.max_doc_score = max_doc_score;
+        block
     }
 
     pub(crate) const fn writer(&mut self) -> ControlledCursor<'_> {
@@ -279,6 +362,28 @@ impl<E: Encoder> InvertedIndex<E> {
         }
 
         Ok(buf_growth + mem_growth)
+    }
+
+    /// Add a new record to the index with scoring metadata.
+    /// This updates the block's max_freq, min_doc_len, and max_doc_score fields.
+    pub fn add_record_with_metadata(
+        &mut self,
+        record: &RSIndexResult,
+        doc_len: u32,
+        doc_score: f32,
+    ) -> std::io::Result<usize> {
+        let result = self.add_record(record)?;
+
+        // Update the scoring metadata on the last block
+        if let Some(block) = self.blocks.last_mut() {
+            block.max_freq = block.max_freq.max(record.freq);
+            block.min_doc_len = block.min_doc_len.min(doc_len);
+            if doc_score > block.max_doc_score {
+                block.max_doc_score = doc_score;
+            }
+        }
+
+        Ok(result)
     }
 
     /// Returns the last document ID in the index, if any.
