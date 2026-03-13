@@ -6,6 +6,7 @@ on:
 
 permissions:
   actions: read
+  checks: read
   contents: read
 
 jobs:
@@ -18,99 +19,86 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.merge_group.head_sha }}
-          BASE_SHA: ${{ github.event.merge_group.base_sha }}
-          PR_NUMBER: ${{ github.event.merge_group.head_ref }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
           CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
-          # Extract PR number from head_ref (format: refs/pull/NUMBER/merge or gh-readonly-queue/main/pr-NUMBER-...)
-          if [[ "$PR_NUMBER" =~ refs/pull/([0-9]+)/merge ]]; then
+          set -euo pipefail
+
+          if [[ "$HEAD_REF" =~ refs/pull/([0-9]+)/merge ]]; then
             PR_NUM="${BASH_REMATCH[1]}"
-          elif [[ "$PR_NUMBER" =~ pr-([0-9]+)- ]]; then
+          elif [[ "$HEAD_REF" =~ pr-([0-9]+)- ]]; then
             PR_NUM="${BASH_REMATCH[1]}"
           else
-            echo "Could not extract PR number from: $PR_NUMBER"
-            echo "resubmit=false" >> $GITHUB_OUTPUT
+            echo "Could not extract PR number from: $HEAD_REF"
+            echo "resubmit=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "Checking PR #$PR_NUM"
-          echo "Current HEAD SHA: $HEAD_SHA"
-          echo "Current BASE SHA: $BASE_SHA"
+          PR_JSON=$(gh api "/repos/$REPO/pulls/$PR_NUM")
+          PR_HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+          echo "PR head SHA: $PR_HEAD_SHA"
 
-          # The merge queue creates a NEW temporary merge commit each time,
-          # so head_sha will be different even for the same PR commits.
-          # Hence, we should check the PR's actual head commit (before merge).
-
-          # Get the PR's actual head SHA (the last commit on the PR branch)
-          PR_HEAD_SHA=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.head.sha')
-          echo "PR's actual HEAD SHA: $PR_HEAD_SHA"
-
-          # Get the list of previous workflow runs for this merge queue workflow
-          # Look for runs from the same PR that have failed/cancelled
-          echo "Searching for previous merge_group runs for PR #$PR_NUM..."
-
-          ALL_RUNS=$(gh api \
+          RUNS_JSON=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$REPO/actions/runs?event=merge_group&per_page=100" \
-            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID) | {id: .id, head_sha: .head_sha, conclusion: .conclusion, head_ref: .head_branch}" | jq -s '.')
+            "/repos/$REPO/actions/workflows/event-merge-to-queue.yml/runs?event=merge_group&per_page=100")
 
-          echo "Recent merge_group runs:"
-          echo "$ALL_RUNS" | jq -c '.[]'
-
-          # Look for previous runs from the same PR (by matching PR number in head_ref)
-          # Use regex anchors to ensure exact PR number match (e.g., pr-12- won't match pr-123-)
-          PREVIOUS_RUN_DATA=$(echo "$ALL_RUNS" | jq -c ".[] | select(.head_ref | test(\"(^|/)pr-${PR_NUM}-\")) | select(.conclusion == \"failure\" or .conclusion == \"cancelled\")" | head -1)
+          PREVIOUS_RUN_DATA=$(
+            echo "$RUNS_JSON" | jq -c \
+              --argjson current "$CURRENT_RUN_ID" \
+              --arg current_head_sha "$HEAD_SHA" \
+              --arg pr_num "$PR_NUM" '
+                .workflow_runs
+                | map(
+                    select(.id != $current)
+                    | select(.head_sha != $current_head_sha)
+                    | select(.conclusion == "failure" or .conclusion == "cancelled")
+                    | select(.head_branch | test("(^|/)pr-" + $pr_num + "-"))
+                  )
+                | sort_by(.created_at)
+                | reverse
+                | .[0] // empty
+              '
+          )
 
           if [[ -z "$PREVIOUS_RUN_DATA" ]]; then
-            echo "No previous failed/cancelled runs found for PR #$PR_NUM"
-            echo "resubmit=false" >> $GITHUB_OUTPUT
+            echo "No previous failed/cancelled validation runs found for PR #$PR_NUM"
+            echo "resubmit=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          PREVIOUS_RUN_ID=$(echo "$PREVIOUS_RUN_DATA" | jq -r '.id // empty')
-          echo "Found previous failed/cancelled run ID: $PREVIOUS_RUN_ID"
+          PREVIOUS_RUN_ID=$(echo "$PREVIOUS_RUN_DATA" | jq -r '.id')
+          echo "Found previous failed/cancelled run: $PREVIOUS_RUN_ID"
 
-          # Now check if the PR's head SHA has changed since that previous run
-          # Get the PR's head SHA at the time of the previous run by fetching the run details
-          PREVIOUS_RUN_DETAILS=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/$REPO/actions/runs/$PREVIOUS_RUN_ID")
+          PREVIOUS_RUN_DETAILS=$(gh api "/repos/$REPO/actions/runs/$PREVIOUS_RUN_ID")
+          PREVIOUS_PR_HEAD_SHA=$(
+            echo "$PREVIOUS_RUN_DETAILS" | jq -r \
+              --argjson pr_num "$PR_NUM" \
+              '.pull_requests[]?
+                | select(.number == $pr_num)
+                | .head.sha' | head -1
+          )
 
-          # Extract the PR head SHA from the previous run's jobs
-          # The merge queue creates a merge commit, but we need to check the actual PR commits
-          # We'll get the commit list from the previous run and find the PR's head commit
-          PREVIOUS_RUN_CREATED_AT=$(echo "$PREVIOUS_RUN_DETAILS" | jq -r '.created_at')
-          echo "Previous run was created at: $PREVIOUS_RUN_CREATED_AT"
-
-          # Get the PR's commit history and find what the head SHA was at the time of the previous run
-          # We'll check if the current PR head SHA existed before the previous run
-          COMMIT_DATE=$(gh api "/repos/$REPO/commits/$PR_HEAD_SHA" --jq '.commit.committer.date')
-          echo "Current PR HEAD commit date: $COMMIT_DATE"
-
-          # Compare dates: if the current PR head commit is newer than the previous run, there were new commits
-          if [[ "$COMMIT_DATE" > "$PREVIOUS_RUN_CREATED_AT" ]]; then
-            echo "New commits detected! Current HEAD ($PR_HEAD_SHA) was committed after the previous run."
-            echo "resubmit=false" >> $GITHUB_OUTPUT
+          if [[ -n "$PREVIOUS_PR_HEAD_SHA" && "$PREVIOUS_PR_HEAD_SHA" != "null" ]]; then
+            echo "Previous run observed PR head SHA: $PREVIOUS_PR_HEAD_SHA"
+            if [[ "$PREVIOUS_PR_HEAD_SHA" != "$PR_HEAD_SHA" ]]; then
+              echo "PR head SHA changed since previous failed/cancelled run."
+              echo "resubmit=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            echo "Previous run did not expose PR head SHA. Skipping resubmission alert to avoid false positives."
+            echo "resubmit=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Found previous failed/cancelled run for PR #$PR_NUM"
-          echo "Previous run ID: $PREVIOUS_RUN_ID"
-          echo "No new commits detected since the previous run!"
-          echo "This is a resubmission without new commits!"
-          echo "resubmit=true" >> $GITHUB_OUTPUT
-          echo "pr_number=$PR_NUM" >> $GITHUB_OUTPUT
-
-          # Get PR details for the notification
-          PR_TITLE=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.title')
-          PR_URL=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.html_url')
-          PR_AUTHOR=$(gh api "/repos/$REPO/pulls/$PR_NUM" --jq '.user.login')
-
-          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+          echo "resubmit=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$(echo "$PR_JSON" | jq -r '.html_url')" >> "$GITHUB_OUTPUT"
+          echo "pr_title=$(echo "$PR_JSON" | jq -r '.title')" >> "$GITHUB_OUTPUT"
+          echo "pr_author=$(echo "$PR_JSON" | jq -r '.user.login')" >> "$GITHUB_OUTPUT"
+          echo "previous_run_id=$PREVIOUS_RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Notify Slack about resubmission
         if: steps.check.outputs.resubmit == 'true'
@@ -124,5 +112,493 @@ jobs:
               "PR": ${{ toJson(steps.check.outputs.pr_url) }},
               "Title": ${{ toJson(steps.check.outputs.pr_title) }},
               "Author": ${{ toJson(steps.check.outputs.pr_author) }},
-              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              "Workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "PreviousValidationRunId": "${{ steps.check.outputs.previous_run_id }}"
             }
+
+  recover-stuck-merge-group:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    concurrency:
+      group: mq-auto-recover-${{ github.event.merge_group.head_ref }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - name: Recover stuck merge-group run
+        id: recover
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          CURRENT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AUTO_REQUEUE_ENABLED: ${{ vars.AUTO_REQUEUE_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+
+          MAX_POLLS=15
+          POLL_INTERVAL_SECONDS=60
+          SIBLING_LOOKUP_ATTEMPTS=6
+          SIBLING_LOOKUP_INTERVAL_SECONDS=10
+          CIRCUIT_WINDOW_SECONDS=1800
+          CIRCUIT_THRESHOLD=3
+          MARKER_TAG="mq-auto-requeue:v1"
+          STATUS_MARKER_CONTEXT="mq-auto-requeue"
+
+          OWNER="${REPO%%/*}"
+          REPO_NAME="${REPO#*/}"
+
+          ACTION_TAKEN="none"
+          REASON="no-action"
+          PR_NUM=""
+          PR_URL=""
+          PR_AUTHOR=""
+          PR_HEAD_SHA=""
+          PR_BASE_REF=""
+          STUCK_RUN_URL=""
+
+          write_output() {
+            local key="$1"
+            local value="$2"
+            echo "${key}=${value}" >> "$GITHUB_OUTPUT"
+          }
+
+          summary() {
+            echo "$1" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          finalize() {
+            write_output "action_taken" "$ACTION_TAKEN"
+            write_output "reason" "$REASON"
+            write_output "pr_number" "$PR_NUM"
+            write_output "pr_url" "$PR_URL"
+            write_output "pr_author" "$PR_AUTHOR"
+            write_output "pr_head_sha" "$PR_HEAD_SHA"
+            write_output "stuck_run_url" "$STUCK_RUN_URL"
+
+            summary "### Merge Queue Auto-Recovery Decision"
+            summary "- action: \`$ACTION_TAKEN\`"
+            summary "- reason: \`$REASON\`"
+            summary "- PR: \`#$PR_NUM\`"
+            summary "- PR head SHA: \`$PR_HEAD_SHA\`"
+            summary "- merge-group SHA: \`$MERGE_GROUP_HEAD_SHA\`"
+            summary "- sibling validation run: $STUCK_RUN_URL"
+            summary "- auto requeue enabled: \`${AUTO_REQUEUE_ENABLED}\`"
+            if [[ "$ACTION_TAKEN" == "mutation-failed" ]]; then
+              exit 1
+            fi
+            exit 0
+          }
+
+          get_pr_validation_state_for_sha() {
+            local sha="$1"
+            local check_json check_status check_conclusion status_state terminal
+
+            check_json=$(gh api "/repos/$REPO/commits/$sha/check-runs?per_page=100")
+            check_status=$(echo "$check_json" | jq -r '[.check_runs[] | select(.name == "pr-validation")] | sort_by(.id) | reverse | .[0].status // "missing"')
+            check_conclusion=$(echo "$check_json" | jq -r '[.check_runs[] | select(.name == "pr-validation")] | sort_by(.id) | reverse | .[0].conclusion // "missing"')
+            status_state=$(gh api "/repos/$REPO/commits/$sha/status" --jq '[.statuses[] | select(.context == "pr-validation")] | sort_by(.id) | reverse | .[0].state // "missing"')
+
+            terminal="false"
+            if [[ "$check_status" == "completed" ]]; then
+              terminal="true"
+            fi
+            if [[ "$status_state" == "success" || "$status_state" == "failure" || "$status_state" == "error" ]]; then
+              terminal="true"
+            fi
+            echo "${check_status}|${check_conclusion}|${status_state}|${terminal}"
+          }
+
+          get_merge_queue_entry_id() {
+            local entry_id
+            if ! entry_id=$(
+              gh api graphql \
+                -f query='query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { mergeQueueEntry { id } } } }' \
+                -F owner="$OWNER" \
+                -F repo="$REPO_NAME" \
+                -F number="$PR_NUM" \
+                --jq '.data.repository.pullRequest.mergeQueueEntry.id // empty' 2>/dev/null
+            ); then
+              echo "__error__"
+              return 0
+            fi
+            echo "$entry_id"
+          }
+
+          did_real_validation_job_start() {
+            local run_id="$1"
+            local jobs_json
+            jobs_json=$(gh api "/repos/$REPO/actions/runs/$run_id/jobs?per_page=100")
+            echo "$jobs_json" | jq -r '[.jobs[]
+              # `get-latest-redis-tag` is currently a fast bootstrap/dummy job and
+              # should not be treated as real validation progress for stuck-run detection.
+              | select(.name | test("^(lint|test-matrix)"))
+              | select((.status == "in_progress") or (.started_at != null))
+            ] | length > 0'
+          }
+
+          has_newer_validation_run_for_pr() {
+            local sibling_created_at="$1"
+            local sibling_run_id="$2"
+            local runs_json candidate_ids run_id run_details
+
+            runs_json=$(gh api "/repos/$REPO/actions/workflows/event-merge-to-queue.yml/runs?event=merge_group&per_page=100")
+            candidate_ids=$(
+              echo "$runs_json" | jq -r \
+                --arg pr_num "$PR_NUM" \
+                --arg sibling_created_at "$sibling_created_at" \
+                --argjson sibling_run_id "$sibling_run_id" '
+                  .workflow_runs
+                  | map(
+                      select(.id != $sibling_run_id)
+                      | select(.head_branch | test("(^|/)pr-" + $pr_num + "-"))
+                      | select(.created_at > $sibling_created_at)
+                    )
+                  | sort_by(.created_at)
+                  | reverse
+                  | .[0:20]
+                  | .[].id
+                '
+            )
+            while IFS= read -r run_id; do
+              [[ -z "$run_id" ]] && continue
+              run_details=$(gh api "/repos/$REPO/actions/runs/$run_id")
+              if echo "$run_details" | jq -e \
+                --argjson pr_num "$PR_NUM" \
+                --arg pr_head_sha "$PR_HEAD_SHA" \
+                '.pull_requests[]? | select(.number == $pr_num and .head.sha == $pr_head_sha)' >/dev/null; then
+                return 0
+              fi
+            done <<<"$candidate_ids"
+            return 1
+          }
+
+          has_comment_marker_for_current_head() {
+            local comments_json
+            comments_json=$(gh api "/repos/$REPO/issues/$PR_NUM/comments?per_page=100" --paginate)
+            if echo "$comments_json" | jq -e \
+              --arg marker_tag "$MARKER_TAG" \
+              --arg pr_head_sha "$PR_HEAD_SHA" '
+                .[]
+                | (.body // "") as $body
+                | select($body | contains($marker_tag))
+                | select($body | contains("head=" + $pr_head_sha))
+              ' >/dev/null; then
+              return 0
+            fi
+            return 1
+          }
+
+          has_status_marker_for_current_head() {
+            local status_json
+            status_json=$(gh api "/repos/$REPO/commits/$PR_HEAD_SHA/status")
+            if echo "$status_json" | jq -e \
+              --arg status_context "$STATUS_MARKER_CONTEXT" '
+                .statuses[]
+                | select(.context == $status_context)
+              ' >/dev/null; then
+              return 0
+            fi
+            return 1
+          }
+
+          has_idempotency_marker_for_current_head() {
+            if has_comment_marker_for_current_head; then
+              return 0
+            fi
+            if has_status_marker_for_current_head; then
+              return 0
+            fi
+            return 1
+          }
+
+          write_marker_comment() {
+            local marker_time marker_body
+            marker_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            marker_body=$(
+              cat <<EOF
+          Merge queue auto-recovery requeued this PR once for head \`$PR_HEAD_SHA\`.
+          <!-- $MARKER_TAG pr=$PR_NUM head=$PR_HEAD_SHA run=$CURRENT_RUN_URL at=$marker_time -->
+          EOF
+            )
+            for _ in 1 2 3; do
+              if gh api "/repos/$REPO/issues/$PR_NUM/comments" -X POST -f body="$marker_body" >/dev/null; then
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+
+          write_status_marker() {
+            gh api "/repos/$REPO/statuses/$PR_HEAD_SHA" -X POST \
+              -f state="success" \
+              -f context="$STATUS_MARKER_CONTEXT" \
+              -f description="Merge queue auto-requeue already attempted for this head SHA" \
+              -f target_url="$CURRENT_RUN_URL" >/dev/null
+          }
+
+          write_idempotency_markers() {
+            local comment_ok status_ok
+            comment_ok="false"
+            status_ok="false"
+
+            if write_marker_comment; then
+              comment_ok="true"
+            fi
+            if write_status_marker; then
+              status_ok="true"
+            fi
+
+            if [[ "$comment_ok" == "true" || "$status_ok" == "true" ]]; then
+              return 0
+            fi
+            return 1
+          }
+
+          is_circuit_open() {
+            local now_epoch cutoff_epoch runs_json candidate_shas non_terminal_count state_line terminal
+            now_epoch=$(date -u +%s)
+            cutoff_epoch=$((now_epoch - CIRCUIT_WINDOW_SECONDS))
+            non_terminal_count=0
+
+            runs_json=$(gh api "/repos/$REPO/actions/workflows/event-merge-to-queue.yml/runs?event=merge_group&per_page=50")
+            candidate_shas=$(echo "$runs_json" | jq -r --argjson cutoff "$cutoff_epoch" '
+              [
+                .workflow_runs[]
+                | select(.conclusion == "failure" or .conclusion == "cancelled")
+                | select((.created_at | fromdateiso8601) >= $cutoff)
+                | .head_sha
+              ]
+              | unique[]
+            ')
+
+            while IFS= read -r sha; do
+              [[ -z "$sha" ]] && continue
+              state_line=$(get_pr_validation_state_for_sha "$sha")
+              IFS='|' read -r _ _ _ terminal <<<"$state_line"
+              if [[ "$terminal" == "false" ]]; then
+                non_terminal_count=$((non_terminal_count + 1))
+              fi
+              if (( non_terminal_count >= CIRCUIT_THRESHOLD )); then
+                echo "true|$non_terminal_count"
+                return 0
+              fi
+            done <<<"$candidate_shas"
+
+            echo "false|$non_terminal_count"
+          }
+
+          if [[ "$HEAD_REF" =~ refs/pull/([0-9]+)/merge ]]; then
+            PR_NUM="${BASH_REMATCH[1]}"
+          elif [[ "$HEAD_REF" =~ pr-([0-9]+)- ]]; then
+            PR_NUM="${BASH_REMATCH[1]}"
+          else
+            ACTION_TAKEN="none"
+            REASON="cannot-parse-pr-number"
+            finalize
+          fi
+
+          PR_JSON=$(gh api "/repos/$REPO/pulls/$PR_NUM")
+          PR_STATE=$(echo "$PR_JSON" | jq -r '.state')
+          PR_BASE_REF=$(echo "$PR_JSON" | jq -r '.base.ref')
+          PR_HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+          PR_NODE_ID=$(echo "$PR_JSON" | jq -r '.node_id')
+          PR_URL=$(echo "$PR_JSON" | jq -r '.html_url')
+          PR_AUTHOR=$(echo "$PR_JSON" | jq -r '.user.login')
+
+          if [[ "$PR_STATE" != "open" ]]; then
+            ACTION_TAKEN="none"
+            REASON="pr-not-open"
+            finalize
+          fi
+
+          SIBLING_RUN=""
+          for ((attempt = 1; attempt <= SIBLING_LOOKUP_ATTEMPTS; attempt++)); do
+            RUNS_JSON=$(gh api "/repos/$REPO/actions/workflows/event-merge-to-queue.yml/runs?event=merge_group&branch=$REF_NAME&per_page=50")
+            SIBLING_RUN=$(echo "$RUNS_JSON" | jq -c \
+              --argjson current_run "$CURRENT_RUN_ID" \
+              --arg merge_group_head_sha "$MERGE_GROUP_HEAD_SHA" \
+              --arg ref_name "$REF_NAME" '
+                .workflow_runs
+                | map(
+                    select(.id != $current_run)
+                    | select(.head_sha == $merge_group_head_sha)
+                    | select(.head_branch == $ref_name)
+                  )
+                | sort_by(.created_at)
+                | reverse
+                | .[0] // empty
+              ')
+            if [[ -n "$SIBLING_RUN" ]]; then
+              break
+            fi
+            if (( attempt < SIBLING_LOOKUP_ATTEMPTS )); then
+              sleep "$SIBLING_LOOKUP_INTERVAL_SECONDS"
+            fi
+          done
+
+          if [[ -z "$SIBLING_RUN" ]]; then
+            ACTION_TAKEN="none"
+            REASON="sibling-validation-run-not-found"
+            finalize
+          fi
+
+          SIBLING_RUN_ID=$(echo "$SIBLING_RUN" | jq -r '.id')
+          STUCK_RUN_URL=$(echo "$SIBLING_RUN" | jq -r '.html_url')
+          SIBLING_RUN_CREATED_AT=$(echo "$SIBLING_RUN" | jq -r '.created_at')
+
+          consecutive_stuck=0
+          saw_real_validation_job_started="false"
+          stuck_detected="false"
+
+          for ((poll = 1; poll <= MAX_POLLS; poll++)); do
+            RUN_JSON=$(gh api "/repos/$REPO/actions/runs/$SIBLING_RUN_ID")
+            RUN_STATUS=$(echo "$RUN_JSON" | jq -r '.status')
+            RUN_CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion // "missing"')
+
+            if [[ "$RUN_STATUS" != "completed" ]]; then
+              consecutive_stuck=0
+              if (( poll < MAX_POLLS )); then
+                sleep "$POLL_INTERVAL_SECONDS"
+              fi
+              continue
+            fi
+
+            if [[ "$RUN_CONCLUSION" != "failure" && "$RUN_CONCLUSION" != "cancelled" ]]; then
+              ACTION_TAKEN="none"
+              REASON="sibling-run-conclusion-$RUN_CONCLUSION"
+              finalize
+            fi
+
+            if [[ "$(did_real_validation_job_start "$SIBLING_RUN_ID")" == "true" ]]; then
+              saw_real_validation_job_started="true"
+            fi
+
+            IFS='|' read -r PR_VALIDATION_STATUS PR_VALIDATION_CONCLUSION PR_VALIDATION_STATUS_CONTEXT PR_VALIDATION_TERMINAL <<<"$(get_pr_validation_state_for_sha "$MERGE_GROUP_HEAD_SHA")"
+
+            if [[ "$PR_VALIDATION_TERMINAL" == "true" ]]; then
+              ACTION_TAKEN="none"
+              REASON="pr-validation-terminal-$PR_VALIDATION_CONCLUSION"
+              finalize
+            fi
+
+            if [[ "$saw_real_validation_job_started" == "true" ]]; then
+              ACTION_TAKEN="none"
+              REASON="real-validation-jobs-started"
+              finalize
+            fi
+
+            PR_LIVE_JSON=$(gh api "/repos/$REPO/pulls/$PR_NUM")
+            PR_LIVE_STATE=$(echo "$PR_LIVE_JSON" | jq -r '.state')
+            PR_LIVE_BASE_REF=$(echo "$PR_LIVE_JSON" | jq -r '.base.ref')
+            PR_LIVE_HEAD_SHA=$(echo "$PR_LIVE_JSON" | jq -r '.head.sha')
+
+            if [[ "$PR_LIVE_STATE" != "open" ]]; then
+              ACTION_TAKEN="none"
+              REASON="pr-closed-during-watchdog"
+              finalize
+            fi
+
+            if [[ "$PR_LIVE_BASE_REF" != "$PR_BASE_REF" ]]; then
+              ACTION_TAKEN="none"
+              REASON="pr-base-changed-during-watchdog"
+              finalize
+            fi
+
+            if [[ "$PR_LIVE_HEAD_SHA" != "$PR_HEAD_SHA" ]]; then
+              ACTION_TAKEN="none"
+              REASON="pr-head-changed-during-watchdog"
+              finalize
+            fi
+
+            MERGE_QUEUE_ENTRY_ID=$(get_merge_queue_entry_id)
+            if [[ "$MERGE_QUEUE_ENTRY_ID" == "__error__" ]]; then
+              ACTION_TAKEN="none"
+              REASON="merge-queue-state-unknown"
+              finalize
+            fi
+            if [[ -z "$MERGE_QUEUE_ENTRY_ID" ]]; then
+              ACTION_TAKEN="none"
+              REASON="pr-not-in-merge-queue"
+              finalize
+            fi
+
+            if has_newer_validation_run_for_pr "$SIBLING_RUN_CREATED_AT" "$SIBLING_RUN_ID"; then
+              ACTION_TAKEN="none"
+              REASON="sibling-run-superseded"
+              finalize
+            fi
+
+            consecutive_stuck=$((consecutive_stuck + 1))
+            if (( consecutive_stuck >= 3 )); then
+              stuck_detected="true"
+              break
+            fi
+
+            if (( poll < MAX_POLLS )); then
+              sleep "$POLL_INTERVAL_SECONDS"
+            fi
+          done
+
+          if [[ "$stuck_detected" != "true" ]]; then
+            ACTION_TAKEN="none"
+            REASON="watchdog-timeout"
+            finalize
+          fi
+
+          if has_idempotency_marker_for_current_head; then
+            ACTION_TAKEN="skipped-limit"
+            REASON="existing-requeue-marker-for-head"
+            finalize
+          fi
+
+          IFS='|' read -r CIRCUIT_OPEN CIRCUIT_COUNT <<<"$(is_circuit_open)"
+          if [[ "$CIRCUIT_OPEN" == "true" ]]; then
+            ACTION_TAKEN="circuit-open"
+            REASON="recent-stuck-count-$CIRCUIT_COUNT"
+            finalize
+          fi
+
+          if [[ "${AUTO_REQUEUE_ENABLED,,}" != "true" ]]; then
+            ACTION_TAKEN="dry-run"
+            REASON="auto-requeue-disabled"
+            finalize
+          fi
+
+          CLIENT_MUTATION_ID="mq-recover-pr-${PR_NUM}-${PR_HEAD_SHA:0:12}"
+          if ! gh api graphql \
+            -f query='mutation($pullRequestId: ID!, $clientMutationId: String!) { dequeuePullRequest(input: {pullRequestId: $pullRequestId, clientMutationId: $clientMutationId}) { mergeQueueEntry { id } } }' \
+            -F pullRequestId="$PR_NODE_ID" \
+            -F clientMutationId="${CLIENT_MUTATION_ID}-dequeue" >/dev/null 2>&1; then
+            ACTION_TAKEN="mutation-failed"
+            REASON="dequeue-failed"
+            finalize
+          fi
+
+          if ! gh api graphql \
+            -f query='mutation($pullRequestId: ID!, $expectedHeadOid: GitObjectID!, $clientMutationId: String!) { enqueuePullRequest(input: {pullRequestId: $pullRequestId, expectedHeadOid: $expectedHeadOid, jump: false, clientMutationId: $clientMutationId}) { mergeQueueEntry { id } } }' \
+            -F pullRequestId="$PR_NODE_ID" \
+            -F expectedHeadOid="$PR_HEAD_SHA" \
+            -F clientMutationId="${CLIENT_MUTATION_ID}-enqueue" >/dev/null 2>&1; then
+            ACTION_TAKEN="mutation-failed"
+            REASON="enqueue-failed"
+            finalize
+          fi
+
+          if ! write_idempotency_markers; then
+            ACTION_TAKEN="mutation-failed"
+            REASON="requeued-but-idempotency-marker-write-failed"
+            finalize
+          fi
+
+          ACTION_TAKEN="requeued"
+          REASON="stuck-signature-matched"
+          finalize
