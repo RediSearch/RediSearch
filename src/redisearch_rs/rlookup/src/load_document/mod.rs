@@ -34,6 +34,12 @@ impl Display for LoadDocumentError {
 
 impl Error for LoadDocumentError {}
 
+impl From<redis_json_api::SerializeError> for LoadDocumentError {
+    fn from(_: redis_json_api::SerializeError) -> Self {
+        LoadDocumentError {}
+    }
+}
+
 pub struct DocumentLoader<'env, 'a> {
     rlookup: &'env mut RLookup<'a>,
     dst_row: &'env mut RLookupRow<'a>,
