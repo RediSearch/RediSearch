@@ -49,6 +49,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 static int prepareExecutionPlan(AREQ *req, QueryError *status);
 static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+// Wrapper for AREQ_DecrRef to match BlockedClientFreePrivDataCB signature
+static void AREQ_DecrRefWrapper(void *privdata) {
+  AREQ_DecrRef((AREQ *)privdata);
+}
+
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
@@ -1410,18 +1415,23 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   if (RunInThread()) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    BlockedClientTimeoutCB timeoutCB = NULL;
-    BlockedClientReplyCB replyCB = NULL;
-    int blockedClientTimeoutMS = 0;
+    BlockClientCtx blockClientCtx = {0};
+
+    // Take a reference for BlockedQueryNode to access in timeout/reply callbacks.
+    AREQ_IncrRef(r);
+    blockClientCtx.freePrivData = AREQ_DecrRefWrapper;
+    blockClientCtx.privdata = r;
+    blockClientCtx.ast = &r->ast;
+
     // Determine timeout and reply callbacks based on policy.
     if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      timeoutCB = QueryTimeoutFailCallback;
-      replyCB = QueryReplyCallback;
-      blockedClientTimeoutMS = r->reqConfig.queryTimeoutMS;
+      blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
+      blockClientCtx.replyCallback = QueryReplyCallback;
+      blockClientCtx.timeoutMS = r->reqConfig.queryTimeoutMS;
       r->useReplyCallback = true;
     }
 
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, r, blockedClientTimeoutMS, replyCB, timeoutCB);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
