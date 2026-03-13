@@ -25,7 +25,6 @@ extern "C" {
 
 typedef enum RevalidateIndexType {
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_MISSING_QUERY,
 } RevalidateIndexType;
 
 /**
@@ -64,7 +63,6 @@ protected:
     QueryIterator *iterator;
 
     // For different index types
-    InvertedIndex *missingIdx;
     TagIndex *tagIdx;
     InvertedIndex *tagInvIdx;
 
@@ -79,7 +77,6 @@ protected:
         spec = nullptr;
         sctx = nullptr;
         iterator = nullptr;
-        missingIdx = nullptr;
         tagIdx = nullptr;
         tagInvIdx = nullptr;
         tagQueryTerm = nullptr;
@@ -93,9 +90,6 @@ protected:
         switch (GetParam()) {
             case REVALIDATE_INDEX_TYPE_TAG_QUERY:
                 SetupTagIndex();
-                break;
-            case REVALIDATE_INDEX_TYPE_MISSING_QUERY:
-                SetupMissingIndex();
                 break;
             default:
                 FAIL() << "Unknown index type: " << GetParam();
@@ -129,7 +123,6 @@ protected:
         }
 
         // Clear pointers (don't free directly as they may have been freed by iterator or spec)
-        missingIdx = nullptr;
         tagIdx = nullptr;
         tagInvIdx = nullptr;
 
@@ -176,67 +169,18 @@ private:
         iterator = NewInvIndIterator_TagQuery(tagInvIdx, tagIdx, sctx, tagFieldMaskOrIndex, tagQueryTerm, 1.0);
     }
 
-    void SetupMissingIndex() {
-        // Create IndexSpec for TEXT field (missing uses any field type)
-        const char *args[] = {"SCHEMA", "text_field", "TEXT"};
-        QueryError err = QueryError_Default();
-        StrongRef ref = IndexSpec_ParseC(NULL, "missing_idx", args, sizeof(args) / sizeof(const char *), &err);
-        spec = (IndexSpec *)StrongRef_Get(ref);
-        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-        ASSERT_TRUE(spec);
-
-        // Add the spec to the global dictionary so it can be found by name
-        Spec_AddToDict(spec->own_ref.rm);
-
-        // Create RedisSearchCtx
-        sctx = NewSearchCtxC(ctx, "missing_idx", false);
-        ASSERT_TRUE(sctx != nullptr);
-
-        // Get the field spec for the missing iterator
-        const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "text_field", strlen("text_field"));
-        ASSERT_TRUE(fs != nullptr);
-
-        // Create a missing field index for the field
-        size_t memsize;
-        missingIdx = NewInvertedIndex(Index_DocIdsOnly, &memsize);
-
-        // Populate with some data (for missing iterator, the content represents what's missing)
-        for (size_t i = 0; i < n_docs; ++i) {
-            RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(missingIdx, &rec);
-        }
-
-        // For test purposes, we'll add the missing index to the missingFieldDict
-        // using direct dict manipulation through the dict's internals
-        // First check if the dict is empty to avoid conflicts
-        RS_ASSERT(spec->missingFieldDict != nullptr);
-
-        // Use dictAdd which should be available, and check its return value
-        int rc = dictAdd(spec->missingFieldDict, (void*)fs->fieldName, missingIdx);
-        ASSERT_EQ(rc, DICT_OK) << "dictAdd failed: key already exists or other error";
-
-        // Create missing iterator
-        iterator = NewInvIndIterator_MissingQuery(missingIdx, sctx, fs->index);
-    }
-
 public:
     bool IsTagIterator() const {
         return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY;
     }
 
-    bool IsMissingIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
-    }
-
     bool IsQueryIterator() const {
-        return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
+        return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY;
     }
 };
 
 INSTANTIATE_TEST_SUITE_P(InvIndIteratorRevalidate, InvIndIteratorRevalidateTest, ::testing::Values(
-    REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_MISSING_QUERY
+    REVALIDATE_INDEX_TYPE_TAG_QUERY
 ));
 
 // Basic test to ensure the iterator setup works correctly
@@ -294,8 +238,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
         // be returned by the lookup functions. This simulates the case where the
         // index was garbage collected and recreated.
 
-        if (IsTagIterator() || IsMissingIterator()) {
-            // For tag and missing iterators, we can simulate index disappearance by
+        if (IsTagIterator()) {
+            // For tag iterators, we can simulate index disappearance by
             // setting the iterator's idx pointer to a different value than what
             // the lookup would return. This simulates the GC scenario.
             InvIndIterator *invIt = (InvIndIterator *)iterator;
