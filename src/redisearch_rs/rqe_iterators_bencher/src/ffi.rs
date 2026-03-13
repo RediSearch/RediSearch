@@ -11,10 +11,11 @@ pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
-    RedisModule_Alloc, RedisModule_Free, ValidateStatus,
+    RedisModule_Alloc, RedisModule_Free, ValidateStatus, t_docId,
 };
+use inverted_index::RSIndexResult;
 use inverted_index::RSQueryTerm;
-use inverted_index::{RSIndexResult, t_docId};
+use iterators_ffi::intersection::NewIntersectionIterator;
 use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -72,7 +73,7 @@ impl QueryIterator {
     /// Used when passing the iterator to a C function that takes ownership
     /// (e.g. `NewIntersectionIterator`), so that the C side is responsible for freeing it.
     #[inline(always)]
-    pub const fn into_raw(self) -> *mut ffi::QueryIterator {
+    pub fn into_raw(self) -> *mut ffi::QueryIterator {
         self.0
     }
 
@@ -94,7 +95,7 @@ impl QueryIterator {
             *children_ptr.add(0) = child1.into_raw();
             *children_ptr.add(1) = child2.into_raw();
         }
-        Self(unsafe { ffi::NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
+        Self(unsafe { NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
     }
 
     #[inline(always)]
@@ -200,7 +201,7 @@ impl QueryIterator {
 
         // Create intersection iterator (takes ownership of children array)
         Self(unsafe {
-            ffi::NewIntersectionIterator(
+            NewIntersectionIterator(
                 children_ptr,
                 num_children,
                 -1,    // max_slop: -1 means no slop validation
