@@ -66,6 +66,42 @@ static inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookup
     }
 }
 
+/** The index into the array where the value resides  */
+static inline uint16_t RLookupKey_GetDstIdx(const RLookupKey* key) {
+    return key->dstidx;
+}
+
+/**
+ * If the source of this value points to a sort vector, then this is the
+ * index within the sort vector that the value is located
+ */
+static inline uint16_t RLookupKey_GetSvIdx(const RLookupKey* key) {
+    return key->svidx;
+}
+
+/** The name of this field. */
+static inline const char * RLookupKey_GetName(const RLookupKey* key) {
+    return key->name;
+}
+
+/** The path of this field. */
+static inline const char * RLookupKey_GetPath(const RLookupKey* key) {
+    return key->path;
+}
+
+/** The length of the name field in bytes. */
+static inline size_t RLookupKey_GetNameLen(const RLookupKey* key) {
+    return key->name_len;
+}
+
+/**
+ * Indicate the type and other attributes
+ * Can be F_SVSRC which means the target array is a sorting vector
+ */
+static inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
+    return key->flags;
+}
+
 #ifdef __cplusplus
 }
 #endif
