@@ -91,6 +91,22 @@ bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
 void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool StoreResultsDebugCtx_IsPaused(void);
 void StoreResultsDebugCtx_SetPause(bool pause);
+
+// Struct used for debugging hybrid cursor storage ONLY (pause before/after cursor creation)
+// Separate from StoreResultsDebugCtx to allow independent control
+typedef struct HybridStoreCursorsDebugCtx {
+  atomic_bool pauseBeforeEnabled;   // Whether pause before cursor storage is enabled
+  atomic_bool pauseAfterEnabled;    // Whether pause after cursor storage is enabled
+  atomic_bool pause;                // Atomic bool to wait for the resume command
+} HybridStoreCursorsDebugCtx;
+
+// HybridStoreCursorsDebugCtx API function declarations
+bool HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled(void);
+void HybridStoreCursorsDebugCtx_SetPauseBeforeEnabled(bool enabled);
+bool HybridStoreCursorsDebugCtx_IsPauseAfterEnabled(void);
+void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
+bool HybridStoreCursorsDebugCtx_IsPaused(void);
+void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 #endif
 
 // Yield counter functions

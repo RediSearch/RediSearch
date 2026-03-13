@@ -1027,6 +1027,29 @@ def resetStoreResultsDebug(env):
     except Exception:
         pass  # Ignore error if not paused
 
+# Hybrid Store Cursors Pause helpers (only available when built with ENABLE_ASSERT)
+# These are separate from Store Results and only affect cursor storage in HybridRequest_StartCursors
+def setPauseBeforeHybridStoreCursors(env, enabled):
+    """Enable/disable pausing before hybrid cursor storage (HybridRequest_StartCursors)."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS', 'true' if enabled else 'false').ok()
+
+def setPauseAfterHybridStoreCursors(env, enabled):
+    """Enable/disable pausing after hybrid cursor storage (HybridRequest_StartCursors)."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'true' if enabled else 'false').ok()
+
+def getIsHybridStoreCursorsPaused(env):
+    """Check if the hybrid is currently paused during cursor storage."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_HYBRID_STORE_CURSORS_PAUSED')
+
+def resetHybridStoreCursorsDebug(env):
+    """Reset the hybrid store cursors debug context (disable pauses and resume)."""
+    setPauseBeforeHybridStoreCursors(env, False)
+    setPauseAfterHybridStoreCursors(env, False)
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_HYBRID_STORE_CURSORS_RESUME')
+    except Exception:
+        pass  # Ignore error if not paused
+
 def isEnableAssertEnabled(env):
     """
     Check if ENABLE_ASSERT is enabled in the build.

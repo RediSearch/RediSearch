@@ -94,7 +94,6 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
         while True:
             client_id = get_query_client(env, query, msg)
             if client_id:
-                env.debugPrint(f"Found client {client_id} for query {query}", force=True)
                 return client_id
             time.sleep(0.1)
 
@@ -661,11 +660,11 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
-        # Enable pause before/after store results on coordinator shard
+        # Enable pause before/after hybrid cursor storage on ALL shards
         if before:
-            setPauseBeforeStoreResults(env, True)
+            setPauseBeforeHybridStoreCursors(env, True)
         else:
-            setPauseAfterStoreResults(env, True)
+            setPauseAfterHybridStoreCursors(env, True)
 
         query_args = [
             'FT.HYBRID', 'hybrid_idx',
@@ -685,7 +684,7 @@ class TestCoordinatorTimeout:
 
         # Wait for shard to be paused during store cursors
         wait_for_condition(
-            lambda: (getIsStoreResultsPaused(env) == 1, {'paused': getIsStoreResultsPaused(env)}),
+            lambda: (getIsHybridStoreCursorsPaused(env) == 1, {'paused': getIsHybridStoreCursorsPaused(env)}),
             'Timeout while waiting for shard to pause during store cursors'
         )
 
@@ -697,8 +696,8 @@ class TestCoordinatorTimeout:
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-        # Cleanup
-        resetStoreResultsDebug(env)
+        # Cleanup - reset hybrid store cursors debug
+        resetHybridStoreCursorsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
     def test_fail_timeout_before_shard_store_cursors_hybrid(self):

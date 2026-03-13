@@ -344,9 +344,28 @@ static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before
     }
   }
 }
+
+// Helper function to pause before/after hybrid cursor storage ONLY (separate command)
+static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before) {
+  bool enabled = before ? HybridStoreCursorsDebugCtx_IsPauseBeforeEnabled()
+                        : HybridStoreCursorsDebugCtx_IsPauseAfterEnabled();
+  if (enabled) {
+    HybridStoreCursorsDebugCtx_SetPause(true);
+    while (HybridStoreCursorsDebugCtx_IsPaused()) {
+      if (HybridRequest_TimedOut(hreq)) {
+        HybridStoreCursorsDebugCtx_SetPause(false);
+        break;
+      }
+      usleep(1000);
+    }
+  }
+}
 #else
-// Compiler eliminates the function completely in release builds - zero overhead
 static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before) {
+  UNUSED(hreq);
+  UNUSED(before);
+}
+static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before) {
   UNUSED(hreq);
   UNUSED(before);
 }
@@ -604,8 +623,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       depleters = array_new(ResultProcessor *, req->nrequests);
     }
 
-    // Pause before store cursors
-    debugPauseStoreResultsHybrid(req, true);  // pause before
+    // Pause before store cursors (hybrid cursors only)
+    debugPauseHybridStoreCursors(req, true);
 
     // Lock cursor creation to synchronize with timeout callback.
     // This ensures that if timeout fires:
@@ -677,8 +696,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     HybridRequest_UnlockCursors(req);
 
-    // Pause after store cursors
-    debugPauseStoreResultsHybrid(req, false);  // pause after
+    // Pause after store cursors (hybrid cursors only)
+    debugPauseHybridStoreCursors(req, false);
 
     if (!req->useReplyCallback) {
       // If we are not using reply callback, we should reply with the cursors here
