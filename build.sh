@@ -373,10 +373,10 @@ prepare_cmake_arguments() {
       fi
     else
       C_COMPILER="$CC"
-      if [[ ! "$C_COMPILER" =~ ^clang ]]; then
+      if [[ ! "$C_COMPILER" =~ clang(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires clang as the C compiler"
         echo "Current CC: $C_COMPILER"
-        echo "Please set CC to a clang-based compiler (e.g., clang, clang-21)"
+        echo "Please set CC to a clang-based compiler (e.g. clang, clang-nn)"
         exit 1
       fi
     fi
@@ -388,10 +388,10 @@ prepare_cmake_arguments() {
       fi
     else
       CXX_COMPILER="$CXX"
-      if [[ ! "$CXX_COMPILER" =~ ^clang ]]; then
+      if [[ ! "$CXX_COMPILER" =~ clang([+][+])?(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires clang++ as the C++ compiler"
         echo "Current CXX: $CXX_COMPILER"
-        echo "Please set CXX to a clang-based compiler (e.g., clang++, clang++-21)"
+        echo "Please set CXX to a clang-based compiler (e.g. clang++, clang++-nn)"
         exit 1
       fi
     fi
@@ -403,19 +403,20 @@ prepare_cmake_arguments() {
       fi
     else
       LINKER="$LD"
-      if [[ ! "$LINKER" =~ ^lld ]]; then
+      if [[ ! "$LINKER" =~ lld(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires lld as the linker"
         echo "Current LD: $LINKER"
-        echo "Please set LD to lld or a versioned lld (e.g., lld, lld-21)"
+        echo "Please set LD to lld (e.g. lld, lld-nn)"
         exit 1
       fi
     fi
 
-    # Check LLVM version compatibility between Rust and Clang
-    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -n 's/.*version \([0-9]\+\).*/\1/p' | head -n1)
+    # Check LLVM version compatibility between rustc and clang
+    # Use 'sed -E' for compatibility with both GNU sed and BSD sed
+    CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: Could not detect LLVM versions for Rust and Clang."
+        echo "Error: Could not detect LLVM versions for rustc and clang."
         echo "Cross-language LTO requires matching LLVM major versions."
         echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
         echo "Clang LLVM version: $CLANG_LLVM_VERSION"
@@ -423,7 +424,7 @@ prepare_cmake_arguments() {
     fi
 
     if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: LLVM version mismatch between Rust and Clang"
+        echo "Error: LLVM version mismatch between rustc and clang"
         echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
         echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
         echo ""
