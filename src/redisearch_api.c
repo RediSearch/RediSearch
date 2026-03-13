@@ -303,7 +303,7 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldName, doubl
     Document_AddNumericField(d, fieldName, val, as);
   } else {
     char buf[512];
-    size_t len = sprintf(buf, "%lf", val);
+    size_t len = snprintf(buf, sizeof(buf), "%lf", val);
     Document_AddFieldC(d, fieldName, buf, len, as);
   }
 }
@@ -319,7 +319,7 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldName,
     Document_AddGeoField(d, fieldName, lon, lat, as);
   } else {
     char buf[24];
-    size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
+    size_t len = snprintf(buf, sizeof(buf), "%.6lf,%.6lf", lon, lat);
     Document_AddFieldC(d, fieldName, buf, len, as);
   }
 

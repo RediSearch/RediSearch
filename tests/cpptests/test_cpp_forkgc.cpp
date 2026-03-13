@@ -354,7 +354,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   // Measure the memory added by the last block.
   size_t lastBlockMemory = 0;
   while (InvertedIndex_NumBlocks(iv) < 2) {
-    size_t n = sprintf(buf, "doc%u", curId++);
+    size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     lastBlockMemory = this->addDocumentWrapper(buf, "f1", "hello");
   }
 
@@ -363,7 +363,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   FGC_WaitBeforeFork(fgc);
   // Delete all.
   for (unsigned i = 1; i < curId; i++) {
-    size_t n = sprintf(buf, "doc%u", i);
+    size_t n = snprintf(buf, sizeof(buf), "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
   }
 
@@ -378,7 +378,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
 
   size_t invertedSizeBeforeApply = sctx.spec->stats.invertedSize;
   // Add a new document so the last block's is different from the the one copied to the fork.
-  size_t n = sprintf(buf, "doc%u", curId);
+  size_t n = snprintf(buf, sizeof(buf), "doc%u", curId);
   lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
 
   // Save the pointer to the original last block data.
@@ -425,7 +425,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // Add 2 full blocks + 1 block with1 entry.
   unsigned middleBlockFirstId = 0;
   while (InvertedIndex_NumBlocks(iv) < 3) {
-    size_t n = sprintf(buf, "doc%u", curId++);
+    size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
     // A new block had opened
     if (InvertedIndex_NumBlocks(iv) == 2 && !middleBlockFirstId) {
@@ -442,7 +442,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
    * but we want to delete the second entry while appending more documents to it.
    * The block will remain unchanged.
    **/
-  sprintf(buf, "doc%u", curId++);
+  snprintf(buf, sizeof(buf), "doc%u", curId++);
   RS::addDocument(ctx, ism, buf, "f1", "hello");
 
   // Wait before we fork so the next updates will copied to the child memory.
@@ -456,7 +456,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
 
   // Delete the second block (out of 3 blocks)
   for (unsigned i = middleBlockFirstId; i < lastBlockFirstId; ++i) {
-    sprintf(buf, "doc%u", i);
+    snprintf(buf, sizeof(buf), "doc%u", i);
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
     ++total_deletions;
   }
@@ -469,7 +469,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   FGC_ForkAndWaitBeforeApply(fgc);
 
   // Add a document -- this one is to keep
-  sprintf(buf, "doc%u", curId);
+  snprintf(buf, sizeof(buf), "doc%u", curId);
   RS::addDocument(ctx, ism, buf, "f1", "hello");
   ++valid_docs;
   FGC_Apply(fgc);
@@ -500,7 +500,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (InvertedIndex_NumBlocks(iv) < 2) {
     char buf[1024];
-    size_t n = sprintf(buf, "doc%u", curId++);
+    size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
   }
   /**
@@ -510,7 +510,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
 
   //add another document. now the last block has 2 entries.
   char buf[1024];
-  sprintf(buf, "doc%u", curId++);
+  snprintf(buf, sizeof(buf), "doc%u", curId++);
   RS::addDocument(ctx, ism, buf, "f1", "hello");
 
   FGC_WaitBeforeFork(fgc);
@@ -521,7 +521,7 @@ TEST_F(FGCTestTag, testRepairLastBlock) {
   FGC_ForkAndWaitBeforeApply(fgc);
 
   // Add a document to the last block. This change is not known to the child.
-  sprintf(buf, "doc%u", curId);
+  snprintf(buf, sizeof(buf), "doc%u", curId);
   RS::addDocument(ctx, ism, buf, "f1", "hello");
   FGC_Apply(fgc);
   // since the block size in the main process doesn't equal to its original size as seen by the child,
@@ -542,12 +542,12 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   auto iv = getTagInvidx(&sctx, "f1", "hello");
   while (InvertedIndex_NumBlocks(iv) < 3) {
     char buf[1024];
-    size_t n = sprintf(buf, "doc%u", curId++);
+    size_t n = snprintf(buf, sizeof(buf), "doc%u", curId++);
     ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
   }
 
   char buf[1024];
-  sprintf(buf, "doc%u", curId);
+  snprintf(buf, sizeof(buf), "doc%u", curId);
   ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
   unsigned next_id = curId + 1;
 
@@ -558,13 +558,13 @@ TEST_F(FGCTestTag, testRepairMiddleRemoveLast) {
   FGC_WaitBeforeFork(fgc);
 
   while (curId > 100) {
-    sprintf(buf, "doc%u", --curId);
+    snprintf(buf, sizeof(buf), "doc%u", --curId);
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, buf));
   }
 
   FGC_ForkAndWaitBeforeApply(fgc);
 
-  sprintf(buf, "doc%u", next_id);
+  snprintf(buf, sizeof(buf), "doc%u", next_id);
   ASSERT_TRUE(RS::addDocument(ctx, ism, buf, "f1", "hello"));
 
   FGC_Apply(fgc);
