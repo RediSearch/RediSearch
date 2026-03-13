@@ -64,9 +64,10 @@ typedef struct MRConn MRConn;
 typedef struct {
   dict *map;
   int nodeConns;
+  long long commandTimeoutMS;  // Timeout for commands sent on connections (0 = no timeout)
 } MRConnManager;
 
-void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
+void MRConnManager_Init(MRConnManager *mgr, int nodeConns, long long commandTimeoutMS);
 
 /*
  * Gets the stateDict filled with connection pool states of different IORuntimes and

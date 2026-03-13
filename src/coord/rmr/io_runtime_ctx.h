@@ -64,7 +64,7 @@ struct UpdateTopologyCtx {
   struct MRClusterTopology *new_topo;
 };
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership);
+IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership, long long commandTimeoutMS);
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);

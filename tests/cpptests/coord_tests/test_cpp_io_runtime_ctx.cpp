@@ -56,7 +56,7 @@ protected:
 
   void SetUp() override {
     struct MRClusterTopology *topo = getDummyTopology(4096);
-    ctx = IORuntimeCtx_Create(2, topo, 1, true);
+    ctx = IORuntimeCtx_Create(2, topo, 1, true, 5000);  // 5 second command timeout
   }
 
   void TearDown() override {
@@ -217,7 +217,7 @@ TEST_F(IORuntimeCtxCommonTest, ClearPendingTopo) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
-  IORuntimeCtx *io_runtime_ctx = IORuntimeCtx_Create(2, NULL, 1, false);
+  IORuntimeCtx *io_runtime_ctx = IORuntimeCtx_Create(2, NULL, 1, false, 5000);
   int counter = 0;
 
   MRClusterTopology *newTopo = getDummyTopology(4097);
@@ -384,7 +384,7 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesAddRemove) {
   MRClusterTopology *topo_v1 = getTopology(hosts_v1);
   ASSERT_NE(topo_v1, nullptr);
 
-  IORuntimeCtx *io = IORuntimeCtx_Create(2, topo_v1, 11, true);
+  IORuntimeCtx *io = IORuntimeCtx_Create(2, topo_v1, 11, true, 5000);
   IORuntimeCtx_UpdateNodes(io);
 
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
@@ -408,7 +408,7 @@ TEST_F(IORuntimeCtxCommonTest, UpdateNodesResizesConnectionMap) {
   MRClusterTopology *topo_v1 = getTopology(hosts_v1);
   ASSERT_NE(topo_v1, nullptr);
 
-  IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 12, true);
+  IORuntimeCtx *io = IORuntimeCtx_Create(1, topo_v1, 12, true, 5000);
   IORuntimeCtx_UpdateNodes(io);
   ASSERT_EQ(dictSize(io->conn_mgr.map), 3);
   assertConnMapContains(io, {"localhost:6379", "localhost:6389", "localhost:6399"});
