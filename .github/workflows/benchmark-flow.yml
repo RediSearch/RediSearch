@@ -57,7 +57,7 @@ jobs:
         run: ./install_boost.sh
 
       - name: Build RediSearch
-        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}} LTO=1
       - name: Install Python dependencies
         run: |
           pip3 install --upgrade pip
