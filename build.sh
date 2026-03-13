@@ -388,7 +388,7 @@ prepare_cmake_arguments() {
       fi
     else
       CXX_COMPILER="$CXX"
-      if [[ ! "$CXX_COMPILER" =~ clang(++)?(-[0-9]+)?$ ]]; then
+      if [[ ! "$CXX_COMPILER" =~ clang([+][+])?(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires clang++ as the C++ compiler"
         echo "Current CXX: $CXX_COMPILER"
         echo "Please set CXX to a clang-based compiler (e.g. clang++, clang++-nn)"
