@@ -111,58 +111,6 @@ impl QueryIterator {
         })
     }
 
-    /// Creates a new missing-field inverted index iterator via the C path.
-    ///
-    /// # Safety
-    ///
-    /// `idx` must be a valid pointer to a DocIdsOnly inverted index.
-    /// `sctx` must be a valid pointer to a `RedisSearchCtx` with valid `spec`
-    /// and `missingFieldDict`.
-    /// `field_index` must be a valid index into `sctx.spec.fields`.
-    #[inline(always)]
-    pub unsafe fn new_missing(
-        idx: *const ffi::InvertedIndex,
-        sctx: *const ffi::RedisSearchCtx,
-        field_index: ffi::t_fieldIndex,
-    ) -> Self {
-        Self(unsafe { ffi::NewInvIndIterator_MissingQuery(idx, sctx, field_index) })
-    }
-
-    /// Creates a new tag inverted index iterator via the C path.
-    ///
-    /// # Safety
-    ///
-    /// `idx` must be a valid pointer to a [`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly) inverted index.
-    /// `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex).
-    /// `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) with valid `spec`.
-    /// `term` must be a heap-allocated [`RSQueryTerm`] (e.g. created by [`RSQueryTerm::new`]).
-    #[inline(always)]
-    pub unsafe fn new_tag(
-        idx: *const ffi::InvertedIndex,
-        tag_idx: *const ffi::TagIndex,
-        sctx: *const ffi::RedisSearchCtx,
-        term: *mut RSQueryTerm,
-        weight: f64,
-    ) -> Self {
-        // SAFETY: `field::FieldMaskOrIndex` and `ffi::FieldMaskOrIndex` have the
-        // same binary representation.
-        let field_mask_or_index: ffi::FieldMaskOrIndex =
-            unsafe { std::mem::transmute(field::FieldMaskOrIndex::mask_all()) };
-
-        // SAFETY: The caller guarantees that `idx`, `tag_idx`, `sctx`, and
-        // `term` are valid pointers with the required properties.
-        Self(unsafe {
-            ffi::NewInvIndIterator_TagQuery(
-                idx,
-                tag_idx,
-                sctx,
-                field_mask_or_index,
-                term.cast(),
-                weight,
-            )
-        })
-    }
-
     /// Creates a new intersection iterator from child ID list iterators.
     ///
     /// # Arguments
