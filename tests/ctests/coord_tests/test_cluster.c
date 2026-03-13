@@ -141,7 +141,7 @@ void testCluster() {
       mu_check(!strcmp(sh->node.id, hosts[j]));
     }
 
-    MRCluster *cl = MR_NewCluster(topo, 2, num_io_threads);
+    MRCluster *cl = MR_NewCluster(topo, 2, num_io_threads, 0);
     mu_check(cl != NULL);
     //  mu_check(cl->tp == tp);
     for (int i = 0; i < cl->num_io_threads; i++) {

@@ -19,7 +19,7 @@ typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterTy
 
 typedef struct {
   MRClusterType type;
-  int timeoutMS;
+  uint32_t timeoutMS;
   size_t connPerShard;
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool

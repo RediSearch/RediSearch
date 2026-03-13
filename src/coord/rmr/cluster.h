@@ -41,7 +41,7 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallba
 int MRCluster_SendCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
 /* Create a new cluster using a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads);
+MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads, uint32_t commandTimeoutMS);
 
 void MRCluster_Free(MRCluster *cl);
 

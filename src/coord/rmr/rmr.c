@@ -56,9 +56,6 @@ extern size_t NumShards;
 // thread upon replying to a query - hence it is synchronized reference counting)
 static NodeIdRef *local_node_id_g = NULL;
 
-/* Coordination request timeout */
-long long timeout_g = 5000; // unused value. will be set in MR_Init
-
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
   int numReplied;
@@ -276,9 +273,8 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 }
 
 /* Initialize the MapReduce engine with a node provider */
-void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) {
-  cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads);
-  timeout_g = timeoutMS;
+void MR_Init(size_t num_io_threads, size_t conn_pool_size, uint32_t timeoutMS) {
+  cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads, timeoutMS);
 }
 
 /* The fanout request received in the event loop in a thread safe manner */
@@ -302,13 +298,12 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   if (block) {
     RS_ASSERT(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
-        mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+        mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0);
     RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
   }
-  //Is possible that mrctx->fn may already be there and reducer to be null
+  // Is possible that mrctx->fn may already be there and reducer to be null
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
-
 
   IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, mrctx);
   return REDIS_OK;
