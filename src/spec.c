@@ -129,7 +129,7 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
 // It will stop the background scan process
 static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   char* error;
-  rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
+  rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan", RSGlobalConfig.indexingMemoryLimit);
   RedisModule_Log(ctx, "warning", "%s", error);
 
     // We need to report the error message besides the log, so we can show it in FT.INFO
@@ -3525,7 +3525,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   if (SearchDisk_IsEnabled()) {
-    RS_ASSERT(disk_db);
+    RS_ASSERT(SearchDisk_IsInitialized());
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);

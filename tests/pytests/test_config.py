@@ -165,6 +165,8 @@ def testSetConfigOptionsErrors(env):
     # Test _TRIMMING_STATE_CHECK_DELAY_MS validation
     env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', '_TRIMMING_STATE_CHECK_DELAY_MS', -1).contains('Value is outside acceptable bounds')
+    # Test DISK_BUFFER_PERCENTAGE - should always fail when disk mode is not enabled
+    env.expect(config_cmd(), 'set', 'DISK_BUFFER_PERCENTAGE', 20).error().contains('DISK_BUFFER_PERCENTAGE is only valid when disk mode is enabled')
 
 @skip(cluster=True)
 def testAllConfig(env):

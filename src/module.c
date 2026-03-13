@@ -1690,26 +1690,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  if (SearchDisk_IsEnabled()) {
-    bool disk_initialized = SearchDisk_Initialize(ctx);
-    if (!disk_initialized) {
-      RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
-      return REDISMODULE_ERR;
-    }
-
-    // Register BigModule callbacks for disk usage reporting
-    if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
-      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
-      return REDISMODULE_ERR;
-    }
-
-    if (RSGlobalConfig.numWorkerThreads == 0) {
-      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
-      workersThreadPool_SetNumWorkers();
-      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
-    }
-  }
-
   // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
 
@@ -4619,6 +4599,13 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Register the module configuration parameters
   GetRedisVersion(ctx);
 
+  // Disk-based indexes cannot be enabled after server startup
+  if (SearchDisk_IsEnabled() &&
+      !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP)) {
+    RedisModule_Log(ctx, "error", "Cannot load module with disk indexes after server startup");
+    return REDISMODULE_ERR;
+  }
+
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
 
@@ -4745,7 +4732,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RSGlobalConfig.defaultScorer = NULL;
   }
 
-  SearchDisk_Close();
+  SearchDisk_Close(ctx);
 
   return REDISMODULE_OK;
 }

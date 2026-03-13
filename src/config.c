@@ -200,6 +200,23 @@ static int set_uint8_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
+static int set_search_disk_buffer_percentage_config(const char *name, long long val,
+  void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  if (val > 100) {
+    if (err) {
+      *err = RedisModule_CreateStringPrintf(NULL, "search-disk-buffer-percentage must be between 1 and 100, but got %lld", val);
+    }
+    return REDISMODULE_ERR;
+  }
+  *(uint8_t *)privdata = (uint8_t) val;
+  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
+    SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
+  }
+  return REDISMODULE_OK;
+}
+
 static long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(uint8_t *)privdata);
@@ -546,6 +563,7 @@ static inline int errorMemoryLimitG100(QueryError *status) {
   QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
+
 // SET MEMORY LIMIT PERCENTAGE
 CONFIG_SETTER(setIndexingMemoryLimit) {
   uint8_t newLimit;
@@ -1248,6 +1266,34 @@ static int get_on_oom(const char *name, void *privdata){
   return *((RSOomPolicy *)privdata);
 }
 
+// DISK_BUFFER_PERCENTAGE
+CONFIG_SETTER(setDiskBufferPercentage) {
+  // This config is only valid when disk mode is enabled
+  if (!SearchDisk_IsEnabled()) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_OPTION,
+      "DISK_BUFFER_PERCENTAGE is only valid when disk mode is enabled");
+    return REDISMODULE_ERR;
+  }
+  RS_ASSERT(SearchDisk_IsInitialized());
+  uint8_t newPercentage;
+  int acrc = AC_GetU8(ac, &newPercentage, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newPercentage > 100) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "DISK_BUFFER_PERCENTAGE must be between 1 and 100");
+    return REDISMODULE_ERR;
+  }
+  config->diskBufferPercentage = newPercentage;
+  // If disk is already initialized, update the buffer budget
+  SearchDisk_UpdateBufferBudget(RSDummyContext, (int)newPercentage);
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getDiskBufferPercentage) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%d", config->diskBufferPercentage);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1604,6 +1650,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setDebugSimulateInFlex,
          .getValue = getDebugSimulateInFlex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "DISK_BUFFER_PERCENTAGE",
+         .helpText = "Percentage of available memory to use for disk write buffer (1-100)",
+         .setValue = setDiskBufferPercentage,
+         .getValue = getDiskBufferPercentage},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -2302,6 +2352,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.infoEmitOnZeroIndexes)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
+      (void *)&(RSGlobalConfig.diskBufferPercentage)
     )
   )
 

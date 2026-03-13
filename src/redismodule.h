@@ -596,8 +596,9 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_SST_REPLICATION 20
 #define _REDISMODULE_EVENT_NEXT 21 /* Next event flag, should be updated if a new event added. */
 
-/* RL Extension: */
+/* RL Extension: Use IDs >= 1000 to maintain ABI compatibility with OSS Redis */
 #define REDISMODULE_EVENT_SHARDING 1000
+#define REDISMODULE_EVENT_SERVER_READY 1010
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -735,6 +736,10 @@ static const RedisModuleEvent
     },
     RedisModuleEvent_SSTReplication = {
         REDISMODULE_EVENT_SST_REPLICATION,
+        1
+    },
+    RedisModuleEvent_ServerReady = {
+        REDISMODULE_EVENT_SERVER_READY,
         1
     };
 
