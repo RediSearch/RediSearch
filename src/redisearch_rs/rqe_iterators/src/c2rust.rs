@@ -10,10 +10,12 @@
 //   this shim.
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, IteratorType_INV_IDX_WILDCARD_ITERATOR,
+    IteratorStatus_ITERATOR_TIMEOUT, IteratorType_EMPTY_ITERATOR,
+    IteratorType_INV_IDX_WILDCARD_ITERATOR, IteratorType_UNION_ITERATOR,
     IteratorType_WILDCARD_ITERATOR, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
     ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
 };
+
 use inverted_index::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
@@ -309,11 +311,39 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         }
     }
 
+    fn is_empty(&self) -> bool {
+        self.type_ == IteratorType_EMPTY_ITERATOR
+    }
+
     #[expect(non_upper_case_globals)]
     fn is_wildcard(&self) -> bool {
         matches!(
             self.type_,
             IteratorType_WILDCARD_ITERATOR | IteratorType_INV_IDX_WILDCARD_ITERATOR
         )
+    }
+
+    fn sort_weight(&self) -> f64 {
+        if let Some(callback) = self.SortWeight {
+            // Rust iterators wrapped in `RQEIteratorWrapper` set `SortWeight` via the
+            // interop callback, so we can delegate directly without type-specific logic.
+            // SAFETY: The callback was set by `RQEIteratorWrapper::boxed_new` and is valid
+            // to call with a shared pointer to this iterator.
+            unsafe { callback(self.header.as_ptr()) }
+        } else if self.type_ == IteratorType_UNION_ITERATOR {
+            // C UNION_ITERATOR does not yet set `SortWeight`; mirror its weight manually.
+            // SAFETY: A UNION_ITERATOR typed pointer always points to a `UnionIterator` whose
+            // `base` field is a `QueryIterator`. The cast is therefore valid.
+            let ui =
+                unsafe { &*(self.as_ref() as *const QueryIterator).cast::<ffi::UnionIterator>() };
+            // SAFETY: `RSGlobalConfig` is a valid extern C global, initialised before any query.
+            if unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren } {
+                ui.num as f64
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        }
     }
 }
