@@ -73,8 +73,19 @@ env:
       fi
     done
     [ $SUCCESS -eq 1 ] || exit 1
+  UID: $RANDOM$RANDOM
 
 jobs:
+  print-uid:
+    name: Print UID
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      uid: ${{ steps.print-uid.outputs.uid }}
+    steps:
+      - name: Print UID
+        id: print-uid
+        run: |
+          echo "uid=${{ env.UID }}"
   # Get configuration for this specific platform and architecture
   get-config:
     name: Get build configurations for platform
@@ -189,7 +200,7 @@ jobs:
 
   common-flow:
     needs: [get-config, build-image, start-runner]
-    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}
+    name: Test ${{ needs.get-config.outputs.name }}, Redis ${{ inputs.get-redis || 'unstable' }}, UID ${{ needs.print-uid.outputs.uid }}
     # Run if get-config succeeded and at least one test type is enabled
     if: |
       !cancelled() &&
