@@ -145,7 +145,7 @@ pub struct NumericRangeTree {
     ///
     /// When `revision_id != 0`, it indicates the tree nodes have changed and
     /// concurrent iteration may not be safe. Iterators like
-    /// [`NumericRangeTreeIterator`](crate::NumericRangeTreeIterator) should check this value and abort if it
+    /// `NumericRangeTreeIterator` should check this value and abort if it
     /// changes during iteration, as the tree structure they were traversing
     /// may no longer be valid.
     revision_id: u32,

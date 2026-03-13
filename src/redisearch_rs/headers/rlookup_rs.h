@@ -343,6 +343,8 @@ void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
  *     1. The entire memory range of this cstr must be contained within a single allocation!
  *     2. `name` must be non-null even for a zero-length cstr.
  * 4. The nul terminator must be within `isize::MAX` from `name`
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
 
@@ -736,6 +738,8 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup,
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
  *
+ * Ownership of `name` remains with the caller, this function will make a copy if required.
+ *
  * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
  *
  * # Safety
@@ -763,6 +767,8 @@ void RLookupRow_WriteByName(struct RLookup *lookup,
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
+ *
+ * Ownership of `name` remains with the caller, this function will make a copy if required.
  *
  * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
  *
