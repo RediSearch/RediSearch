@@ -532,6 +532,17 @@ def testconfigMultiTextOffsetDeltaSlop0():
         .expect_when(True, lambda q: q.equal([1, 'doc:1'])) \
         .expect_when(False, expect_undef_order)
 
+@skip(cluster=True, asan=True, no_json=True)
+def testconfigMultiTextOffsetDeltaSlopNeg():
+    """ test ft.config `MULTI_TEXT_SLOP` rejects negative values """
+    try:
+        env = Env(moduleArgs='MULTI_TEXT_SLOP -1')
+        assert not env.isUp()
+    except Exception as e:
+        # It sometimes captures the error of it not being up (PID dead and sometimes not).
+        # We cannot have a false positive that env.isUp but we still pass the test
+        assert not isinstance(e, AssertionError)
+
 @skip(no_json=True)
 def testMultiNoHighlight(env):
     """ highlight is not supported with multiple TEXT """
