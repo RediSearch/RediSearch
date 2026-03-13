@@ -373,10 +373,10 @@ prepare_cmake_arguments() {
       fi
     else
       C_COMPILER="$CC"
-      if [[ ! "$C_COMPILER" =~ ^clang ]]; then
+      if [[ ! "$C_COMPILER" =~ clang(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires clang as the C compiler"
         echo "Current CC: $C_COMPILER"
-        echo "Please set CC to a clang-based compiler (e.g., clang, clang-21)"
+        echo "Please set CC to a clang-based compiler (e.g. clang, clang-nn)"
         exit 1
       fi
     fi
