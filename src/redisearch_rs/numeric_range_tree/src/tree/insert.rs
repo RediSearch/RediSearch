@@ -441,7 +441,7 @@ impl NumericRangeTree {
 ///
 /// Captures the new depth and any delta changes caused by a rotation
 /// (e.g. dropped ranges). Callers apply the relevant fields to their
-/// own result type ([`AddResult`] or [`TrimEmptyLeavesResult`]).
+/// own result type ([`AddResult`] or [`super::TrimEmptyLeavesResult`]).
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct BalanceResult {
     /// The new `max_depth` for the balanced node.

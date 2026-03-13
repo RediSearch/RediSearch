@@ -8,12 +8,6 @@
 */
 
 //! Integration tests for the Intersection iterator.
-//!
-//! C-Code: These tests are ported from the C++ tests in
-//! `tests/cpptests/test_cpp_iterator_intersection.cpp`.
-//!
-//! C-Code: Tests for `max_slop` and `in_order` are not included in this first
-//! version since those features are not yet implemented in the Rust port.
 
 use ffi::t_docId;
 use rqe_iterators::{
@@ -1059,6 +1053,27 @@ fn num_estimated_is_minimum() {
     );
 }
 
+/// Test: `num_estimated` is the minimum of all children even when `in_order=true` prevents sorting.
+///
+/// When `in_order=true`, children are NOT re-sorted by estimated count (their order is
+/// semantically meaningful for positional checks). The minimum must still be computed
+/// explicitly rather than relying on sort order as a side effect.
+#[test]
+fn num_estimated_is_minimum_in_order() {
+    // Deliberately pass the LARGEST child first — proves we don't rely on sort order.
+    let child1 = IdListSorted::new(vec![1, 2, 3, 4, 5]); // 5 elements — first, but NOT minimum
+    let child2 = IdListSorted::new(vec![1, 2, 3]); // 3 elements — minimum
+    let child3 = IdListSorted::new(vec![1, 2, 3, 4]); // 4 elements
+
+    let ii = Intersection::new_with_slop_order(vec![child1, child2, child3], None, true);
+
+    assert_eq!(
+        ii.num_estimated(),
+        3,
+        "num_estimated must be the minimum of all children, even when in_order=true prevents sorting"
+    );
+}
+
 /// Test: Children are processed in order of estimated count (smallest first)
 /// We can infer this indirectly by checking behavior with asymmetric children
 #[test]
@@ -1162,4 +1177,213 @@ fn revalidate_moved_skip_to_returns_none() {
 
     // Further reads should return EOF
     assert!(matches!(ii.read(), Ok(None)));
+}
+
+// =============================================================================
+// C-Code: Slop and InOrder tests - from IntersectionIteratorTest
+// (Slop, InOrder, SlopAndOrder test cases)
+// =============================================================================
+
+/// Tests for the intersection iterator's `max_slop` and `in_order` proximity constraints.
+///
+/// C-Code: These tests are ported from `IntersectionIteratorTest` in
+/// `tests/cpptests/test_cpp_iterator_intersection.cpp`.
+// Because of `ffi::IndexResult_IsWithinRange`
+#[cfg(not(miri))]
+mod slop_and_order {
+    use crate::utils::Mock;
+    use rqe_iterators::{RQEIterator, SkipToOutcome, intersection::Intersection};
+
+    /// Build the shared foo/bar intersection used by slop/order tests.
+    ///
+    /// | doc | foo pos | bar pos | notes                            |
+    /// |-----|---------|---------|----------------------------------|
+    /// |  1  |    1    |    2    | adjacent, foo before bar         |
+    /// |  2  |    1    |    —    | no bar — excluded by intersection|
+    /// |  3  |    2    |    1    | adjacent, bar before foo         |
+    /// |  4  |    1    |    3    | slop 1, foo before bar           |
+    fn make_intersection(
+        max_slop: Option<u32>,
+        in_order: bool,
+    ) -> Intersection<'static, Box<dyn RQEIterator<'static> + 'static>> {
+        let foo: Mock<'static, 4> = Mock::new_with_positions([1, 2, 3, 4], [1, 1, 2, 1]);
+        let bar: Mock<'static, 3> = Mock::new_with_positions([1, 3, 4], [2, 1, 3]);
+        Intersection::new_with_slop_order(vec![Box::new(foo), Box::new(bar)], max_slop, in_order)
+    }
+
+    /// max_slop=0, in_order=false: only documents where foo and bar appear adjacent
+    /// (in any order) are returned.
+    ///
+    /// Expected results: docs 1 and 3.
+    #[test]
+    fn slop() {
+        let mut ii = make_intersection(Some(0), false);
+
+        // num_estimated = min(foo=4, bar=3) = 3
+        assert_eq!(ii.num_estimated(), 3);
+
+        // Read all results: expected docs 1 and 3
+        let r = ii.read().expect("read failed").expect("expected doc 1");
+        assert_eq!(r.doc_id, 1);
+        assert_eq!(ii.last_doc_id(), 1);
+
+        let r = ii.read().expect("read failed").expect("expected doc 3");
+        assert_eq!(r.doc_id, 3);
+        assert_eq!(ii.last_doc_id(), 3);
+
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must remain at the last *successfully returned* doc (3), not the
+        // non-relevant candidate (4) that was scanned internally before hitting EOF.
+        assert_eq!(ii.last_doc_id(), 3);
+        // Reading after EOF should return EOF again
+        assert!(matches!(ii.read(), Ok(None)));
+
+        // Rewind and test SkipTo
+        ii.rewind();
+        assert_eq!(ii.last_doc_id(), 0);
+        assert!(!ii.at_eof());
+
+        // SkipTo(1) → Found
+        let outcome = ii.skip_to(1).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(r)) if r.doc_id == 1));
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo(2) → NotFound, lands on 3 (doc 2 is not in bar, doc 3 is next valid)
+        let outcome = ii.skip_to(2).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::NotFound(r)) if r.doc_id == 3));
+        assert_eq!(ii.last_doc_id(), 3);
+
+        // SkipTo(4) → EOF (doc 4 is in both but fails slop=0)
+        assert!(matches!(ii.skip_to(4), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must stay at 3, not advance to the non-relevant candidate 4.
+        assert_eq!(ii.last_doc_id(), 3);
+
+        // SkipTo beyond EOF → still EOF
+        assert!(matches!(ii.skip_to(5), Ok(None)));
+        assert!(ii.at_eof());
+    }
+
+    /// C-Code: Equivalent to C++ `TEST_F(IntersectionIteratorTest, InOrder)`
+    ///
+    /// max_slop=None, in_order=true: only documents where foo appears before bar
+    /// (any distance) are returned.
+    ///
+    /// Expected results: docs 1 and 4.
+    #[test]
+    fn in_order() {
+        let mut ii = make_intersection(None, true);
+
+        assert_eq!(ii.num_estimated(), 3); // min(foo=4, bar=3) = 3
+
+        // Read all results: expected docs 1 and 4
+        let r = ii.read().expect("read failed").expect("expected doc 1");
+        assert_eq!(r.doc_id, 1);
+        assert_eq!(ii.last_doc_id(), 1);
+
+        let r = ii.read().expect("read failed").expect("expected doc 4");
+        assert_eq!(r.doc_id, 4);
+        assert_eq!(ii.last_doc_id(), 4);
+
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+        // Reading after EOF should return EOF again
+        assert!(matches!(ii.read(), Ok(None)));
+
+        // Rewind and test SkipTo
+        ii.rewind();
+        assert_eq!(ii.last_doc_id(), 0);
+        assert!(!ii.at_eof());
+
+        // SkipTo(1) → Found
+        let outcome = ii.skip_to(1).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(r)) if r.doc_id == 1));
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo(2) → NotFound, lands on 4 (doc 2 not in bar, doc 3 fails in_order)
+        let outcome = ii.skip_to(2).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::NotFound(r)) if r.doc_id == 4));
+        assert_eq!(ii.last_doc_id(), 4);
+
+        // SkipTo(5) → EOF
+        assert!(matches!(ii.skip_to(5), Ok(None)));
+        assert!(ii.at_eof());
+
+        // SkipTo beyond EOF → still EOF
+        assert!(matches!(ii.skip_to(6), Ok(None)));
+        assert!(ii.at_eof());
+    }
+
+    /// C-Code: Equivalent to C++ `TEST_F(IntersectionIteratorTest, SlopAndOrder)`
+    ///
+    /// max_slop=0, in_order=true: only documents where foo immediately precedes
+    /// bar (adjacent and in order) are returned.
+    ///
+    /// Expected results: doc 1 only.
+    #[test]
+    fn slop_and_order() {
+        let mut ii = make_intersection(Some(0), true);
+
+        // num_estimated = min(foo=4, bar=3) = 3
+        assert_eq!(ii.num_estimated(), 3);
+
+        // Read all results: expected doc 1 only
+        let r = ii.read().expect("read failed").expect("expected doc 1");
+        assert_eq!(r.doc_id, 1);
+        assert_eq!(ii.last_doc_id(), 1);
+
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must remain at the last *successfully returned* doc (1), not the
+        // non-relevant candidates (3, 4) scanned internally before hitting EOF.
+        assert_eq!(ii.last_doc_id(), 1);
+        // Reading after EOF should return EOF again
+        assert!(matches!(ii.read(), Ok(None)));
+
+        // Rewind and test SkipTo
+        ii.rewind();
+        assert_eq!(ii.last_doc_id(), 0);
+        assert!(!ii.at_eof());
+
+        // SkipTo(1) → Found
+        let outcome = ii.skip_to(1).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(r)) if r.doc_id == 1));
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo(2) → EOF (no more docs pass slop=0 and in_order)
+        assert!(matches!(ii.skip_to(2), Ok(None)));
+        assert!(ii.at_eof());
+        // last_doc_id must stay at 1, not advance to the non-relevant candidates 3 and 4.
+        assert_eq!(ii.last_doc_id(), 1);
+
+        // SkipTo beyond EOF → still EOF
+        assert!(matches!(ii.skip_to(3), Ok(None)));
+        assert!(ii.at_eof());
+    }
+
+    /// When no doc satisfies the relevancy constraint and the second child runs out of
+    /// docs before the first child does, the iterator must return EOF cleanly.
+    ///
+    /// - foo (first child): doc 1 (pos 3), doc 2 (pos 1)
+    /// - bar (second child): doc 1 (pos 1) only
+    /// - in_order=true (prevents child sorting, so foo stays first): doc 1 fails because
+    ///   bar@1 comes before foo@3; foo then tries doc 2, but bar has no doc ≥ 2 → EOF.
+    #[test]
+    fn relevancy_retry_hits_eof_in_second_consensus() {
+        let foo: Mock<'static, 2> = Mock::new_with_positions([1, 2], [3, 1]);
+        let bar: Mock<'static, 1> = Mock::new_with_positions([1], [1]);
+        let mut ii = Intersection::new_with_slop_order(
+            vec![
+                Box::new(foo) as Box<dyn RQEIterator<'static> + 'static>,
+                Box::new(bar),
+            ],
+            None,
+            true,
+        );
+
+        // No doc satisfies in_order: doc 1 fails (bar@1 < foo@3), doc 2 is only in foo.
+        assert!(matches!(ii.read(), Ok(None)));
+        assert!(ii.at_eof());
+    }
 }

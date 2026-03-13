@@ -11,6 +11,12 @@ use std::{mem, ptr::NonNull};
 
 pub type SearchResult = search_result::SearchResult<'static>;
 
+/// Returns a newly created [`SearchResult`].
+#[unsafe(no_mangle)]
+pub const extern "C" fn SearchResult_New() -> SearchResult {
+    SearchResult::new()
+}
+
 /// Overrides the contents of `dst` with those from `src` taking ownership of `src`.
 /// Ensures proper cleanup of any existing data in `dst`.
 ///
