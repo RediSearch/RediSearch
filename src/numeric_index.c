@@ -17,7 +17,7 @@
 #include "redis_index.h"
 #include "iterators/inverted_index_iterator.h"
 #include "iterators/union_iterator.h"
-#include "redisearch_rs/headers/iterators_rs.h"
+#include "iterators_rs.h"
 #include "sys/param.h"
 #include "rmutil/util.h"
 #include "util/arr.h"

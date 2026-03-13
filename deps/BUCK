@@ -1,0 +1,1213 @@
+load(":utils.bzl", "export_headers_map", "subdir_glob")
+load("@buck2tf//rust:bindgen.bzl", "rust_bindgen")
+
+export_file(
+    name = "redismodule.h",
+    src = "RedisModulesSDK/redismodule.h",
+    visibility = ["PUBLIC"],
+)
+
+export_file(
+    name = "rmutil/vector.h",
+    src = "rmutil/vector.h",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= RedisModulesSDK ======================================
+
+cxx_library(
+    name = "RedisModulesSDK",
+    exported_headers = export_headers_map(glob(["RedisModulesSDK/*.h"]), "RedisModulesSDK/"),
+    header_namespace = "",
+    exported_preprocessor_flags = [
+        "-DREDIS_MODULE_TARGET",
+        "-DREDISMODULE_SDK_RLEC",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= rmalloc ======================================
+
+cxx_library(
+    name = "rmalloc",
+    exported_headers = {
+        "rmalloc.h": "rmalloc/rmalloc.h",
+    },
+    header_namespace = "",
+    exported_deps = [
+        ":RedisModulesSDK",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# ================================= OpenSSL ======================================
+
+# genrule(
+#     name = "openssl-make",
+#     srcs = ["openssl"],
+#     bash = """
+#     CONFIGURE=\$(realpath -s $SRCDIR/openssl/Configure)
+#     OUTDIR=\$(realpath -s $OUT)
+#     echo $CONFIGURE
+#     cd $TMP
+#     $CONFIGURE --prefix=$OUTDIR no-comp no-idea no-weak-ssl-ciphers no-shared no-apps no-deprecated no-docs
+#     make
+#     make install
+#     """,
+#     outs = {
+#         "include": ["include"],
+#         "libcrypto-static": ["lib/libcrypto.a"],
+#         "libcrypto-shared": ["lib/libcrypto.dylib"],
+#         "libssl-static": ["lib/libssl.a"],
+#         "libssl-shared": ["lib/libssl.dylib"],
+#     }
+# )
+
+genrule(
+    name = "openssl.sys",
+    cmd = select({
+        "prelude//os:macos": "cp -r /opt/homebrew/opt/openssl/include ${OUT}/include; cp -r /opt/homebrew/opt/openssl/lib ${OUT}/lib",
+        "DEFAULT": "cp -r /usr/local/opt/openssl/include ${OUT}/include; cp -r /usr/local/opt/openssl/lib ${OUT}/lib"
+    }),
+    outs = {
+        "include": ["include"],
+        "libssl.a": ["lib/libssl.a"],
+        "libssl.dylib": ["lib/libssl.dylib"],
+        "libcrypto.a": ["lib/libcrypto.a"],
+        "libcrypto.dylib": ["lib/libcrypto.dylib"],
+    }
+)
+
+prebuilt_cxx_library(
+    name = "openssl-libcrypto",
+    header_dirs = [
+        ":openssl.sys[include]",
+    ],
+    static_lib = ":openssl.sys[libcrypto.a]",
+    shared_lib = ":openssl.sys[libcrypto.dylib]",
+)
+
+prebuilt_cxx_library(
+    name = "openssl",
+    header_dirs = [
+        ":openssl.sys[include]",
+    ],
+    static_lib = ":openssl.sys[libssl.a]",
+    shared_lib = ":openssl.sys[libssl.dylib]",
+    exported_deps = [":openssl-libcrypto"],
+    visibility = ["PUBLIC"],
+)
+
+# ================================= hiredis ======================================
+
+cxx_library(
+    name = "hiredis",
+    srcs = glob(["hiredis/*.c"]),
+    headers = glob(["hiredis/*.h", "hiredis/adapters/*.h"]),
+    exported_headers = glob(["hiredis/*.h", "hiredis/adapters/*.h"]),
+    header_namespace = "",
+    compiler_flags = [
+        "-std=c99",
+        "-pedantic",
+        "-Wall",
+        "-Wextra",
+        "-Wstrict-prototypes",
+        "-Wwrite-strings",
+        "-Wno-missing-field-initializers",
+    ],
+    deps = [":openssl"],
+    visibility = ["PUBLIC"],
+)
+
+# ================================= rmutil ======================================
+
+cxx_library(
+    name = "rmutil",
+    srcs = glob(["rmutil/*.c"]),
+    headers = glob(["rmutil/*.h"]),
+    exported_headers = export_headers_map(glob(["rmutil/*.h"]), "rmutil/"),
+    header_namespace = "rmutil",
+    deps = [
+        ":hiredis",
+        ":rmalloc"
+    ],
+    preferred_linkage = "static",
+    compiler_flags = ["-g", "-fPIC", "-O3", "-std=gnu99", "-Wall", "-Wno-unused-function"],
+    visibility = ["PUBLIC"],
+)
+
+# ================================= friso ======================================
+
+cxx_library(
+    name = "friso",
+    srcs = glob(["friso/*.c"]),
+    headers = glob(["friso/*.h"]),
+    exported_headers = export_headers_map(glob(["friso/*.h"]), "friso/"),
+    header_namespace = "friso",
+    compiler_flags = [
+        "-Wno-tautological-compare",
+    ],
+    exported_deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= cndict ======================================
+
+cxx_library(
+    name = "cndict",
+    srcs = [
+        "cndict/cndict_data.c",
+    ],
+    header_namespace = "",
+    deps = [
+        ":friso"
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= snowball ======================================
+
+cxx_library(
+    name = "snowball",
+    srcs = glob(["snowball/**/*.c"]),
+    headers = glob(["snowball/**/*.h"]),
+    exported_headers = export_headers_map(glob(["snowball/include/*.h"]), "snowball/include/"),
+    header_namespace = "snowball",
+    include_directories = [
+        "snowball/include",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= phonetics ======================================
+
+cxx_library(
+    name = "phonetics",
+    srcs = [
+        "phonetics/double_metaphone.c",
+    ],
+    headers = [
+        "phonetics/double_metaphone.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "phonetics/double_metaphone.h",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= miniz ======================================
+
+cxx_library(
+    name = "miniz",
+    srcs = [
+        "miniz/miniz.c",
+    ],
+    headers = [
+        "miniz/miniz.h",
+    ],
+    header_namespace = "",
+    exported_headers = [
+        "miniz/miniz.h",
+    ],
+    deps = [
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= thpool ======================================
+
+cxx_library(
+    name = "thpool",
+    srcs = glob(["thpool/*.c"]),
+    headers = glob(["thpool/*.h"]),
+    exported_headers = export_headers_map(glob(["thpool/*.h"]), "thpool/"),
+    header_namespace = "thpool",
+    deps = [
+        ":rmutil",
+        ":rmalloc",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= thpool ======================================
+
+cxx_library(
+    name = "geohash",
+    srcs = glob(["geohash/*.c"]),
+    headers = glob(["geohash/*.h"]),
+    exported_headers = export_headers_map(glob(["geohash/*.h"]), "geohash/"),
+    header_namespace = "geohash",
+    visibility = ["PUBLIC"],
+)
+
+# ================================= fast_float ======================================
+
+cxx_library(
+    name = "fast_float",
+    srcs = [
+        "fast_float/fast_float_strtod.cpp",
+    ],
+    headers = [
+        "fast_float/fast_float.h",
+        "fast_float/fast_float_strtod.h",
+    ],
+    exported_headers = {
+        "fast_float_strtod.h": "fast_float/fast_float_strtod.h",
+    },
+    header_namespace = "fast_float",
+    preprocessor_flags = [
+        "-DFASTFLOAT_SKIP_WHITE_SPACE",
+        "-DFASTFLOAT_ALLOWS_LEADING_PLUS",
+    ],
+    visibility = ["PUBLIC"],
+)
+
+# ================================= libuv ======================================
+
+cxx_library(
+    name = "libuv",
+    srcs = [
+        # Common (cross-platform) sources
+        "libuv/src/fs-poll.c",
+        "libuv/src/idna.c",
+        "libuv/src/inet.c",
+        "libuv/src/random.c",
+        "libuv/src/strscpy.c",
+        "libuv/src/strtok.c",
+        "libuv/src/thread-common.c",
+        "libuv/src/threadpool.c",
+        "libuv/src/timer.c",
+        "libuv/src/uv-common.c",
+        "libuv/src/uv-data-getter-setters.c",
+        "libuv/src/version.c",
+        # Unix sources (shared across all Unix platforms)
+        "libuv/src/unix/async.c",
+        "libuv/src/unix/core.c",
+        "libuv/src/unix/dl.c",
+        "libuv/src/unix/fs.c",
+        "libuv/src/unix/getaddrinfo.c",
+        "libuv/src/unix/getnameinfo.c",
+        "libuv/src/unix/loop-watcher.c",
+        "libuv/src/unix/loop.c",
+        "libuv/src/unix/pipe.c",
+        "libuv/src/unix/poll.c",
+        "libuv/src/unix/process.c",
+        "libuv/src/unix/random-devurandom.c",
+        "libuv/src/unix/signal.c",
+        "libuv/src/unix/stream.c",
+        "libuv/src/unix/tcp.c",
+        "libuv/src/unix/thread.c",
+        "libuv/src/unix/tty.c",
+        "libuv/src/unix/udp.c",
+    ] + select({
+        "prelude//os:macos": [
+            "libuv/src/unix/bsd-ifaddrs.c",
+            "libuv/src/unix/darwin-proctitle.c",
+            "libuv/src/unix/darwin.c",
+            "libuv/src/unix/fsevents.c",
+            "libuv/src/unix/kqueue.c",
+            "libuv/src/unix/proctitle.c",
+            "libuv/src/unix/random-getentropy.c",
+        ],
+        "prelude//os:linux": [
+            "libuv/src/unix/linux.c",
+            "libuv/src/unix/procfs-exepath.c",
+            "libuv/src/unix/proctitle.c",
+            "libuv/src/unix/random-getrandom.c",
+            "libuv/src/unix/random-sysctl-linux.c",
+        ],
+    }),
+    headers = glob([
+        "libuv/src/*.h",
+        "libuv/src/unix/*.h",
+    ]),
+    include_directories = [
+        "libuv/include",
+        "libuv/src",
+    ],
+    exported_headers = export_headers_map(glob(["libuv/include/**/*.h"]), "libuv/include/"),
+    header_namespace = "",
+    preprocessor_flags = [
+        "-D_FILE_OFFSET_BITS=64",
+        "-D_LARGEFILE_SOURCE",
+    ] + select({
+        "prelude//os:macos": [
+            "-D_DARWIN_UNLIMITED_SELECT=1",
+            "-D_DARWIN_USE_64_BIT_INODE=1",
+        ],
+        "prelude//os:linux": [
+            "-D_GNU_SOURCE",
+            "-D_POSIX_C_SOURCE=200112",
+        ],
+    }),
+    compiler_flags = [
+        "-Wall",
+        "-Wextra",
+        "-Wstrict-prototypes",
+        "-Wno-unused-parameter",
+        "-fno-strict-aliasing",
+        "-std=gnu90",
+    ],
+    exported_linker_flags = select({
+        "prelude//os:macos": ["-lpthread"],
+        "prelude//os:linux": ["-lpthread", "-ldl", "-lrt"],
+    }),
+    visibility = ["PUBLIC"],
+)
+
+# ================================= libnu ======================================
+
+cxx_library(
+    name = "libnu",
+    srcs = glob(["libnu/*.c"]),
+    headers = glob(["libnu/*.h"]),
+    header_namespace = "",
+    exported_headers = glob(["libnu/*.h"]),
+    visibility = ["PUBLIC"],
+)
+
+# ================================= cpu_features ======================================
+
+cxx_library(
+    name = "cpu_features",
+    srcs = glob(["cpu_features/src/*.c"]),
+    headers = glob(["cpu_features/src/*.h"]),
+    include_directories = ["cpu_features/include", "cpu_features/src"],
+    exported_headers = export_headers_map(glob(["cpu_features/include/*.h"]), "cpu_features/include/"),
+    header_namespace = "",
+    preprocessor_flags = [
+        "-DSTACK_LINE_READER_BUFFER_SIZE=1024",
+    ] + select({
+        "prelude//os:macos": ["-DHAVE_SYSCTLBYNAME"],
+        "DEFAULT": [],
+    }),
+    exported_linker_flags = select({
+        "prelude//os:linux": ["-ldl"],
+        "DEFAULT": [],
+    }),
+    visibility = ["PUBLIC"],
+)
+
+
+# ================================= ScalableVectorSearch ======================================
+
+git_fetch(
+    name = "eve-v2023.02.15.git",
+    repo = "https://github.com/jfalcou/eve",
+    rev = "3d5821fe770a62c01328b78bb55880b39b8a0a26",
+    sub_targets = ["include"],
+)
+
+cxx_library(
+    name = "_svs_eve",
+    exported_headers = {},
+    header_namespace = "",
+    include_directories = [":eve-v2023.02.15.git[include]"],
+    preferred_linkage = "static",
+)
+
+git_fetch(
+    name = "fmt-11.2.0.git",
+    repo = "https://github.com/fmtlib/fmt",
+    rev = "40626af88bd7df9a5fb80be7b25ac85b122d6c21",
+    sub_targets = [
+        "include",
+        "src",
+        "include/fmt/args.h",
+        "include/fmt/base.h",
+        "include/fmt/chrono.h",
+        "include/fmt/color.h",
+        "include/fmt/compile.h",
+        "include/fmt/core.h",
+        "include/fmt/format.h",
+        "include/fmt/format-inl.h",
+        "include/fmt/os.h",
+        "include/fmt/ostream.h",
+        "include/fmt/printf.h",
+        "include/fmt/ranges.h",
+        "include/fmt/std.h",
+        "include/fmt/xchar.h",
+        "src/format.cc",
+        "src/os.cc"
+    ],
+)
+
+cxx_library(
+    name = "_svs_fmt",
+    srcs = [
+        ":fmt-11.2.0.git[src/format.cc]",
+        ":fmt-11.2.0.git[src/os.cc]"
+    ],
+    exported_headers = {
+        "fmt/args.h": ":fmt-11.2.0.git[include/fmt/args.h]",
+        "fmt/base.h": ":fmt-11.2.0.git[include/fmt/base.h]",
+        "fmt/chrono.h": ":fmt-11.2.0.git[include/fmt/chrono.h]",
+        "fmt/color.h": ":fmt-11.2.0.git[include/fmt/color.h]",
+        "fmt/compile.h": ":fmt-11.2.0.git[include/fmt/compile.h]",
+        "fmt/core.h": ":fmt-11.2.0.git[include/fmt/core.h]",
+        "fmt/format.h": ":fmt-11.2.0.git[include/fmt/format.h]",
+        "fmt/format-inl.h": ":fmt-11.2.0.git[include/fmt/format-inl.h]",
+        "fmt/os.h": ":fmt-11.2.0.git[include/fmt/os.h]",
+        "fmt/ostream.h": ":fmt-11.2.0.git[include/fmt/ostream.h]",
+        "fmt/printf.h": ":fmt-11.2.0.git[include/fmt/printf.h]",
+        "fmt/ranges.h": ":fmt-11.2.0.git[include/fmt/ranges.h]",
+        "fmt/std.h": ":fmt-11.2.0.git[include/fmt/std.h]",
+        "fmt/xchar.h": ":fmt-11.2.0.git[include/fmt/xchar.h]",
+    },
+    header_namespace = "",
+    include_directories = [":fmt-11.2.0.git[include]"],
+    exported_preprocessor_flags = ["-DFMT_HEADER_ONLY=1"],
+    preferred_linkage = "static",
+)
+
+# ---- SVS dependency: spdlog (logging library, header-only mode) ----
+
+git_fetch(
+    name = "spdlog-v1.15.3.git",
+    repo = "https://github.com/gabime/spdlog",
+    rev = "6fa36017cfd5731d617e1a934f0e5ea9c4445b13",
+    sub_targets = [
+        "include",
+        "src",
+
+        "include/spdlog/sinks/basic_file_sink.h",
+        "include/spdlog/sinks/basic_file_sink-inl.h",
+        "include/spdlog/sinks/sink.h",
+        "include/spdlog/sinks/sink-inl.h",
+        "include/spdlog/sinks/ansicolor_sink.h",
+        "include/spdlog/sinks/ansicolor_sink-inl.h",
+        "include/spdlog/sinks/base_sink.h",
+        "include/spdlog/sinks/base_sink-inl.h",
+        "include/spdlog/sinks/null_sink.h",
+        "include/spdlog/sinks/stdout_sinks.h",
+        "include/spdlog/sinks/stdout_sinks-inl.h",
+        "include/spdlog/sinks/callback_sink.h",
+        "include/spdlog/details/file_helper.h",
+        "include/spdlog/details/file_helper-inl.h",
+        "include/spdlog/details/null_mutex.h",
+        "include/spdlog/details/os.h",
+        "include/spdlog/details/os-inl.h",
+        "include/spdlog/details/synchronous_factory.h",
+        "include/spdlog/details/registry.h",
+        "include/spdlog/details/registry-inl.h",
+        "include/spdlog/details/periodic_worker.h",
+        "include/spdlog/details/periodic_worker-inl.h",
+        "include/spdlog/details/backtracer.h",
+        "include/spdlog/details/backtracer-inl.h",
+        "include/spdlog/details/circular_q.h",
+        "include/spdlog/details/log_msg_buffer.h",
+        "include/spdlog/details/log_msg_buffer-inl.h",
+        "include/spdlog/details/log_msg.h",
+        "include/spdlog/details/log_msg-inl.h",
+        "include/spdlog/details/fmt_helper.h",
+        "include/spdlog/details/console_globals.h",
+        "include/spdlog/fmt/fmt.h",
+        "include/spdlog/fmt/bundled/base.h",
+        "include/spdlog/fmt/bundled/format.h",
+        "include/spdlog/common.h",
+        "include/spdlog/common-inl.h",
+        "include/spdlog/tweakme.h",
+        "include/spdlog/logger.h",
+        "include/spdlog/logger-inl.h",
+        "include/spdlog/pattern_formatter.h",
+        "include/spdlog/pattern_formatter-inl.h",
+        "include/spdlog/formatter.h",
+        "include/spdlog/mdc.h",
+        "include/spdlog/spdlog.h",
+        "include/spdlog/spdlog-inl.h",
+        "include/spdlog/version.h",
+    ],
+)
+
+prebuilt_cxx_library(
+    name = "_svs_spdlog",
+    header_only = True,
+    exported_headers = {
+        "spdlog/sinks/basic_file_sink.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/basic_file_sink.h]",
+        "spdlog/sinks/basic_file_sink-inl.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/basic_file_sink-inl.h]",
+        "spdlog/sinks/sink.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/sink.h]",
+        "spdlog/sinks/sink-inl.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/sink-inl.h]",
+        "spdlog/sinks/ansicolor_sink.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/ansicolor_sink.h]",
+        "spdlog/sinks/ansicolor_sink-inl.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/ansicolor_sink-inl.h]",
+        "spdlog/sinks/base_sink.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/base_sink.h]",
+        "spdlog/sinks/base_sink-inl.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/base_sink-inl.h]",
+        "spdlog/sinks/null_sink.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/null_sink.h]",
+        "spdlog/sinks/stdout_sinks.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/stdout_sinks.h]",
+        "spdlog/sinks/stdout_sinks-inl.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/stdout_sinks-inl.h]",
+        "spdlog/sinks/callback_sink.h": ":spdlog-v1.15.3.git[include/spdlog/sinks/callback_sink.h]",
+        "spdlog/details/file_helper.h": ":spdlog-v1.15.3.git[include/spdlog/details/file_helper.h]",
+        "spdlog/details/file_helper-inl.h": ":spdlog-v1.15.3.git[include/spdlog/details/file_helper-inl.h]",
+        "spdlog/details/null_mutex.h": ":spdlog-v1.15.3.git[include/spdlog/details/null_mutex.h]",
+        "spdlog/details/os.h": ":spdlog-v1.15.3.git[include/spdlog/details/os.h]",
+        "spdlog/details/os-inl.h": ":spdlog-v1.15.3.git[include/spdlog/details/os-inl.h]",
+        "spdlog/details/synchronous_factory.h": ":spdlog-v1.15.3.git[include/spdlog/details/synchronous_factory.h]",
+        "spdlog/details/registry.h": ":spdlog-v1.15.3.git[include/spdlog/details/registry.h]",
+        "spdlog/details/registry-inl.h": ":spdlog-v1.15.3.git[include/spdlog/details/registry-inl.h]",
+        "spdlog/details/periodic_worker.h": ":spdlog-v1.15.3.git[include/spdlog/details/periodic_worker.h]",
+        "spdlog/details/periodic_worker-inl.h": ":spdlog-v1.15.3.git[include/spdlog/details/periodic_worker-inl.h]",
+        "spdlog/details/backtracer.h": ":spdlog-v1.15.3.git[include/spdlog/details/backtracer.h]",
+        "spdlog/details/backtracer-inl.h": ":spdlog-v1.15.3.git[include/spdlog/details/backtracer-inl.h]",
+        "spdlog/details/circular_q.h": ":spdlog-v1.15.3.git[include/spdlog/details/circular_q.h]",
+        "spdlog/details/log_msg_buffer.h": ":spdlog-v1.15.3.git[include/spdlog/details/log_msg_buffer.h]",
+        "spdlog/details/log_msg_buffer-inl.h": ":spdlog-v1.15.3.git[include/spdlog/details/log_msg_buffer-inl.h]",
+        "spdlog/details/log_msg.h": ":spdlog-v1.15.3.git[include/spdlog/details/log_msg.h]",
+        "spdlog/details/log_msg-inl.h": ":spdlog-v1.15.3.git[include/spdlog/details/log_msg-inl.h]",
+        "spdlog/details/fmt_helper.h": ":spdlog-v1.15.3.git[include/spdlog/details/fmt_helper.h]",
+        "spdlog/details/console_globals.h": ":spdlog-v1.15.3.git[include/spdlog/details/console_globals.h]",
+        "spdlog/fmt/fmt.h": ":spdlog-v1.15.3.git[include/spdlog/fmt/fmt.h]",
+        "spdlog/fmt/bundled/base.h": ":spdlog-v1.15.3.git[include/spdlog/fmt/bundled/base.h]",
+        "spdlog/fmt/bundled/format.h": ":spdlog-v1.15.3.git[include/spdlog/fmt/bundled/format.h]",
+        "spdlog/common.h": ":spdlog-v1.15.3.git[include/spdlog/common.h]",
+        "spdlog/common-inl.h": ":spdlog-v1.15.3.git[include/spdlog/common-inl.h]",
+        "spdlog/tweakme.h": ":spdlog-v1.15.3.git[include/spdlog/tweakme.h]",
+        "spdlog/logger.h": ":spdlog-v1.15.3.git[include/spdlog/logger.h]",
+        "spdlog/logger-inl.h": ":spdlog-v1.15.3.git[include/spdlog/logger-inl.h]",
+        "spdlog/pattern_formatter.h": ":spdlog-v1.15.3.git[include/spdlog/pattern_formatter.h]",
+        "spdlog/pattern_formatter-inl.h": ":spdlog-v1.15.3.git[include/spdlog/pattern_formatter-inl.h]",
+        "spdlog/formatter.h": ":spdlog-v1.15.3.git[include/spdlog/formatter.h]",
+        "spdlog/mdc.h": ":spdlog-v1.15.3.git[include/spdlog/mdc.h]",
+        "spdlog/spdlog.h": ":spdlog-v1.15.3.git[include/spdlog/spdlog.h]",
+        "spdlog/spdlog-inl.h": ":spdlog-v1.15.3.git[include/spdlog/spdlog-inl.h]",
+        "spdlog/version.h": ":spdlog-v1.15.3.git[include/spdlog/version.h]"
+    },
+    header_namespace = "",
+    exported_preprocessor_flags = [
+        "-DSPDLOG_HEADER_ONLY=1",
+        "-DSPDLOG_FMT_EXTERNAL_HO=1",
+    ],
+    exported_deps = [":_svs_fmt"],
+)
+
+git_fetch(
+    name = "robin-map-v1.4.0.git",
+    repo = "https://github.com/Tessil/robin-map",
+    rev = "4ec1bf19c6a96125ea22062f38c2cf5b958e448e",
+    sub_targets = [
+        "include/tsl/robin_map.h",
+        "include/tsl/robin_hash.h",
+        "include/tsl/robin_growth_policy.h",
+        "include/tsl/robin_set.h"
+    ],
+)
+
+prebuilt_cxx_library(
+    name = "_svs_robin_map",
+    header_only = True,
+    exported_headers = {
+        "tsl/robin_map.h": ":robin-map-v1.4.0.git[include/tsl/robin_map.h]",
+        "tsl/robin_hash.h": ":robin-map-v1.4.0.git[include/tsl/robin_hash.h]",
+        "tsl/robin_growth_policy.h": ":robin-map-v1.4.0.git[include/tsl/robin_growth_policy.h]",
+        "tsl/robin_set.h": ":robin-map-v1.4.0.git[include/tsl/robin_set.h]",
+    },
+    header_namespace = "",
+)
+
+git_fetch(
+    name = "tomlplusplus-v3.3.0.git",
+    repo = "https://github.com/marzer/tomlplusplus",
+    rev = "c635f218c0aefc801d9748841930365e54fe3089",
+    sub_targets = [
+        "include/toml++/toml.h",
+        "include/toml++/impl/preprocessor.h",
+        "include/toml++/impl/std_new.h",
+        "include/toml++/impl/std_string.h",
+        "include/toml++/impl/std_string.inl",
+        "include/toml++/impl/std_optional.h",
+        "include/toml++/impl/forward_declarations.h",
+        "include/toml++/impl/print_to_stream.h",
+        "include/toml++/impl/print_to_stream.inl",
+        "include/toml++/impl/source_region.h",
+        "include/toml++/impl/date_time.h",
+        "include/toml++/impl/at_path.h",
+        "include/toml++/impl/at_path.inl",
+        "include/toml++/impl/path.h",
+        "include/toml++/impl/path.inl",
+        "include/toml++/impl/node.h",
+        "include/toml++/impl/node.inl",
+        "include/toml++/impl/node_view.h",
+        "include/toml++/impl/value.h",
+        "include/toml++/impl/make_node.h",
+        "include/toml++/impl/array.h",
+        "include/toml++/impl/array.inl",
+        "include/toml++/impl/key.h",
+        "include/toml++/impl/table.h",
+        "include/toml++/impl/table.inl",
+        "include/toml++/impl/unicode_autogenerated.h",
+        "include/toml++/impl/unicode.h",
+        "include/toml++/impl/unicode.inl",
+        "include/toml++/impl/parse_error.h",
+        "include/toml++/impl/parse_result.h",
+        "include/toml++/impl/parser.h",
+        "include/toml++/impl/parser.inl",
+        "include/toml++/impl/formatter.h",
+        "include/toml++/impl/formatter.inl",
+        "include/toml++/impl/toml_formatter.h",
+        "include/toml++/impl/toml_formatter.inl",
+        "include/toml++/impl/json_formatter.h",
+        "include/toml++/impl/json_formatter.inl",
+        "include/toml++/impl/yaml_formatter.h",
+        "include/toml++/impl/yaml_formatter.inl",
+        "include/toml++/impl/header_start.h",
+        "include/toml++/impl/header_end.h",
+        "include/toml++/impl/std_vector.h",
+        "include/toml++/impl/std_utility.h",
+        "include/toml++/impl/std_initializer_list.h",
+        "include/toml++/impl/std_map.h",
+        "include/toml++/impl/std_except.h",
+        "include/toml++/impl/simd.h",
+        "include/toml++/impl/version.h",
+    ],
+)
+
+prebuilt_cxx_library(
+    name = "_svs_tomlplusplus",
+    header_only = True,
+    exported_headers = {
+        "toml++/toml.h": ":tomlplusplus-v3.3.0.git[include/toml++/toml.h]",
+        "impl/preprocessor.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/preprocessor.h]",
+        "impl/std_new.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_new.h]",
+        "impl/std_string.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_string.h]",
+        "impl/std_string.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_string.inl]",
+        "impl/std_optional.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_optional.h]",
+        "impl/forward_declarations.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/forward_declarations.h]",
+        "impl/header_start.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/header_start.h]",
+        "impl/header_end.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/header_end.h]",
+        "impl/print_to_stream.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/print_to_stream.h]",
+        "impl/print_to_stream.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/print_to_stream.inl]",
+        "impl/source_region.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/source_region.h]",
+        "impl/date_time.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/date_time.h]",
+        "impl/at_path.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/at_path.h]",
+        "impl/at_path.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/at_path.inl]",
+        "impl/path.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/path.h]",
+        "impl/path.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/path.inl]",
+        "impl/std_vector.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_vector.h]",
+        "impl/node.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/node.h]",
+        "impl/node.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/node.inl]",
+        "impl/std_utility.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_utility.h]",
+        "impl/node_view.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/node_view.h]",
+        "impl/std_initializer_list.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_initializer_list.h]",
+        "impl/value.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/value.h]",
+        "impl/make_node.h": "patches/tomlplusplus_make_node.h",
+        "impl/array.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/array.h]",
+        "impl/array.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/array.inl]",
+        "impl/key.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/key.h]",
+        "impl/table.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/table.h]",
+        "impl/table.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/table.inl]",
+        "impl/std_map.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_map.h]",
+        "impl/unicode_autogenerated.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/unicode_autogenerated.h]",
+        "impl/unicode.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/unicode.h]",
+        "impl/unicode.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/unicode.inl]",
+        "impl/parse_error.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/parse_error.h]",
+        "impl/parse_result.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/parse_result.h]",
+        "impl/parser.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/parser.h]",
+        "impl/parser.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/parser.inl]",
+        "impl/formatter.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/formatter.h]",
+        "impl/formatter.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/formatter.inl]",
+        "impl/toml_formatter.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/toml_formatter.h]",
+        "impl/toml_formatter.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/toml_formatter.inl]",
+        "impl/json_formatter.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/json_formatter.h]",
+        "impl/json_formatter.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/json_formatter.inl]",
+        "impl/yaml_formatter.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/yaml_formatter.h]",
+        "impl/yaml_formatter.inl": ":tomlplusplus-v3.3.0.git[include/toml++/impl/yaml_formatter.inl]",
+        "impl/std_except.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/std_except.h]",
+        "impl/simd.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/simd.h]",
+        "impl/version.h": ":tomlplusplus-v3.3.0.git[include/toml++/impl/version.h]",
+    },
+    header_namespace = "",
+)
+
+_SVS_COMPILER_FLAGS = [
+    "-std=gnu++20",
+    "-fPIC",
+    "-fexceptions",
+]
+
+_SVS_PREPROCESSOR_FLAGS = [
+    "-DSVS_VERSION_MAJOR=0",
+    "-DSVS_VERSION_MINOR=1",
+    "-DSVS_VERSION_PATCH=0",
+    "-DSVS_CHECK_BOUNDS=0",
+    "-DSVS_ENABLE_NUMA=0",
+    "-DSVS_INITIALIZE_LOGGER=1",
+    "-DSVS_ENABLE_IVF=0",
+]
+
+_SVS_ROOT = "VectorSimilarity/deps/ScalableVectorSearch"
+
+cxx_library(
+    name = "_svs_core",
+    exported_headers = export_headers_map(glob([_SVS_ROOT + "/include/svs/**/*.h"]), _SVS_ROOT + "/include/svs/"),
+    header_namespace = "svs",
+    include_directories = [_SVS_ROOT + "/include/"],
+    compiler_flags = _SVS_COMPILER_FLAGS,
+    exported_preprocessor_flags = _SVS_PREPROCESSOR_FLAGS,
+    exported_linker_flags = ["-lpthread"],
+    preferred_linkage = "static",
+    exported_deps = [
+        ":_svs_eve",
+        ":_svs_fmt",
+        ":_svs_spdlog",
+        ":_svs_robin_map",
+        ":_svs_tomlplusplus",
+    ],
+)
+
+cxx_library(
+    name = "_svs_x86_avx2",
+    srcs = [_SVS_ROOT + "/include/svs/multi-arch/x86/avx2.cpp"],
+    headers = glob([_SVS_ROOT + "/include/**/*.h"]),
+    header_namespace = "",
+    include_directories = [_SVS_ROOT + "/include"],
+    compiler_flags = _SVS_COMPILER_FLAGS + ["-march=haswell", "-mtune=haswell", "-O3"],
+    preprocessor_flags = _SVS_PREPROCESSOR_FLAGS,
+    deps = [":_svs_core"],
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"],
+)
+
+cxx_library(
+    name = "_svs_x86_avx512",
+    srcs = [_SVS_ROOT + "/include/svs/multi-arch/x86/avx512.cpp"],
+    headers = glob([_SVS_ROOT + "/include/**/*.h"]),
+    header_namespace = "",
+    include_directories = [_SVS_ROOT + "/include"],
+    compiler_flags = _SVS_COMPILER_FLAGS + ["-march=cascadelake", "-mtune=cascadelake", "-O3"],
+    preprocessor_flags = _SVS_PREPROCESSOR_FLAGS,
+    deps = [":_svs_core"],
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"],
+)
+
+cxx_library(
+    name = "_vecsim_svs",
+    exported_deps = [":_svs_core"],
+    deps = select({
+        "prelude//cpu/constraints:x86_64": [
+            ":_svs_x86_avx2",
+            ":_svs_x86_avx512",
+        ],
+        "DEFAULT": [],
+    }),
+    visibility = ["PUBLIC"],
+)
+
+# ================================= VectorSimilarity ======================================
+
+_VECSIM_SRC = "VectorSimilarity/src"
+
+_VECSIM_HEADERS = glob([
+    "VectorSimilarity/src/VecSim/**/*.h",
+])
+
+_VECSIM_COMPILER_FLAGS = [
+    "-std=gnu++20",
+    "-fexceptions",
+    "-fPIC",
+]
+
+_VECSIM_PREPROCESSOR_FLAGS = [
+    "-DHAVE_SVS=1",
+    "-DHAVE_SVS_LVQ=0",
+]
+
+# ---- VectorSimilaritySpaces_no_optimization ----
+# Baseline (non-optimized) L2 and IP distance implementations.
+
+cxx_library(
+    name = "VectorSimilaritySpaces_no_optimization",
+    srcs = [
+        "VectorSimilarity/src/VecSim/spaces/L2/L2.cpp",
+        "VectorSimilarity/src/VecSim/spaces/IP/IP.cpp",
+    ],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS,
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+# --- ARM aarch64 SIMD optimizations ---
+
+cxx_library(
+    name = "_vecsim_simd_neon",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8-a"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:arm64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_neon_hp",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON_HP.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+fp16fml"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:arm64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_neon_bf16",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON_BF16.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+bf16"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:arm64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_neon_dotprod",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/NEON_DOTPROD.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+dotprod"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:arm64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_sve",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SVE.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8-a+sve"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:arm64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_sve_bf16",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SVE_BF16.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv8.2-a+sve+bf16"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:arm64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_sve2",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SVE2.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-march=armv9-a+sve2"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:arm64"]
+)
+
+# --- x86_64 SIMD optimizations ---
+
+cxx_library(
+    name = "_vecsim_simd_sse",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SSE.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-msse"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_sse3",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SSE3.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-msse3"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_sse4",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/SSE4.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-msse4.1"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx2",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX2.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx2"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx2_fma",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX2_FMA.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx2", "-mfma"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_f16c",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/F16C.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mf16c", "-mfma", "-mavx"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+     target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512f",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512F.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512f"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512f_bw_vl_vnni",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512F_BW_VL_VNNI.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512f", "-mavx512bw", "-mavx512vl", "-mavx512vnni"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512bw_vbmi2",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512BW_VBMI2.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512bw", "-mavx512vbmi2"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512bf16_vl",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512BF16_VL.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512bf16", "-mavx512vl"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+cxx_library(
+    name = "_vecsim_simd_avx512fp16_vl",
+    deps = [":cpu_features"],
+    srcs = ["VectorSimilarity/src/VecSim/spaces/functions/AVX512FP16_VL.cpp"],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-mavx512fp16", "-mavx512vl"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    preferred_linkage = "static",
+    target_compatible_with = ["prelude//cpu/constraints:x86_64"]
+)
+
+# ---- VectorSimilaritySpaces ----
+# Combines the space selector logic with all platform-appropriate SIMD
+# optimization libraries. The preprocessor defines (OPT_*) tell the space
+# selector which SIMD implementations are available at runtime.
+
+cxx_library(
+    name = "VectorSimilaritySpaces",
+    srcs = [
+        "VectorSimilarity/src/VecSim/spaces/L2_space.cpp",
+        "VectorSimilarity/src/VecSim/spaces/IP_space.cpp",
+        "VectorSimilarity/src/VecSim/spaces/spaces.cpp",
+        "VectorSimilarity/src/VecSim/spaces/computer/preprocessor_container.cpp",
+    ],
+    headers = _VECSIM_HEADERS,
+    header_namespace = "",
+    include_directories = [_VECSIM_SRC],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-Werror", "-Wall"],
+    # The OPT_* defines must match exactly what the CMake build detects.
+    # On aarch64 macOS: NEON, NEON_HP, NEON_BF16, NEON_DOTPROD are typical.
+    # On x86_64 Linux: SSE through AVX512 depending on compiler support.
+    # We define all — the space selector checks cpu_features at runtime anyway,
+    # and the SIMD function files are compiled with their respective flags above.
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS + select({
+        "prelude//os:macos": [
+            "-DOPT_NEON",
+            "-DOPT_NEON_HP",
+            "-DOPT_NEON_BF16",
+            "-DOPT_NEON_DOTPROD",
+            # SVE/SVE2 not available on Apple Silicon
+        ],
+        "prelude//os:linux": [
+            # On x86_64 Linux, define all — runtime detection picks the right one.
+            # If building on aarch64 Linux, these x86 defines are harmless (guarded).
+            "-DOPT_SSE",
+            "-DOPT_SSE3",
+            "-DOPT_SSE4",
+            "-DOPT_AVX",
+            "-DOPT_AVX2",
+            "-DOPT_AVX2_FMA",
+            "-DOPT_F16C",
+            "-DOPT_AVX512F",
+            "-DOPT_AVX512_F_BW_VL_VNNI",
+            "-DOPT_AVX512_BW_VBMI2",
+            "-DOPT_AVX512_BF16_VL",
+            "-DOPT_AVX512_FP16_VL",
+            "-DOPT_NEON",
+            "-DOPT_NEON_HP",
+            "-DOPT_NEON_BF16",
+            "-DOPT_NEON_DOTPROD",
+            "-DOPT_SVE",
+            "-DOPT_SVE_BF16",
+            "-DOPT_SVE2",
+        ],
+    }),
+    exported_deps = [
+        ":cpu_features",
+    ],
+    deps = [
+        ":VectorSimilaritySpaces_no_optimization",
+    ] + select({
+        "prelude//os:macos": [
+            ":_vecsim_simd_neon",
+            ":_vecsim_simd_neon_hp",
+            ":_vecsim_simd_neon_bf16",
+            ":_vecsim_simd_neon_dotprod",
+        ],
+        "prelude//os:linux": [
+            # Include both ARM and x86 targets — Buck2 will skip incompatible ones
+            ":_vecsim_simd_sse",
+            ":_vecsim_simd_sse3",
+            ":_vecsim_simd_sse4",
+            ":_vecsim_simd_avx",
+            ":_vecsim_simd_avx2",
+            ":_vecsim_simd_avx2_fma",
+            ":_vecsim_simd_f16c",
+            ":_vecsim_simd_avx512f",
+            ":_vecsim_simd_avx512f_bw_vl_vnni",
+            ":_vecsim_simd_avx512bw_vbmi2",
+            ":_vecsim_simd_avx512bf16_vl",
+            ":_vecsim_simd_avx512fp16_vl",
+            ":_vecsim_simd_neon",
+            ":_vecsim_simd_neon_hp",
+            ":_vecsim_simd_neon_bf16",
+            ":_vecsim_simd_neon_dotprod",
+            ":_vecsim_simd_sve",
+            ":_vecsim_simd_sve_bf16",
+            ":_vecsim_simd_sve2",
+        ],
+    }),
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)
+
+cxx_library(
+    name = "VectorSimilarity",
+    srcs = glob([
+        "VectorSimilarity/src/VecSim/*.cpp",
+        "VectorSimilarity/src/VecSim/containers/*.cpp",
+        "VectorSimilarity/src/VecSim/utils/*.cpp",
+        "VectorSimilarity/src/VecSim/memory/*.cpp",
+        "VectorSimilarity/src/VecSim/algorithms/**/*.cpp",
+        "VectorSimilarity/src/VecSim/index_factories/*.cpp",
+    ]),
+    exported_headers = export_headers_map(glob(["VectorSimilarity/src/VecSim/*.h"]), "VectorSimilarity/src/VecSim/"),
+    header_namespace = "VecSim",
+    include_directories = [_VECSIM_SRC, "VectorSimilarity/src/VecSim"],
+    compiler_flags = _VECSIM_COMPILER_FLAGS + ["-Werror", "-Wall"],
+    preprocessor_flags = _VECSIM_PREPROCESSOR_FLAGS,
+    deps = [
+        ":_vecsim_svs",
+        ":VectorSimilaritySpaces",
+    ],
+    preferred_linkage = "static",
+    visibility = ["PUBLIC"],
+)

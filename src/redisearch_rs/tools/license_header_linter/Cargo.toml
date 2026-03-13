@@ -11,7 +11,6 @@ name = "license_header_linter"
 bench = false
 
 [dependencies]
-workspace_hack.workspace = true
 
 [lints]
 workspace = true

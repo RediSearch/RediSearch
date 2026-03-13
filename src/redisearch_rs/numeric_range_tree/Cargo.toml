@@ -28,7 +28,6 @@ inverted_index.workspace = true
 redis_reply.workspace = true
 generational_slab.workspace = true
 tracing.workspace = true
-workspace_hack.workspace = true
 
 [[bench]]
 name = "add"

@@ -14,7 +14,6 @@ bench = false
 ffi.workspace = true
 tracing.workspace = true
 value.workspace = true
-workspace_hack.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

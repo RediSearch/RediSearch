@@ -9,7 +9,6 @@ publish.workspace = true
 c_ffi_utils.workspace = true
 query_error.workspace = true
 strum.workspace = true
-workspace_hack.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

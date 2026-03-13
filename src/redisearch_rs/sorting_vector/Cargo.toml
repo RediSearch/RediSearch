@@ -9,7 +9,6 @@ publish.workspace = true
 ffi.workspace = true
 icu_casemap.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
-workspace_hack.workspace = true
 
 [dev-dependencies]
 value.workspace = true

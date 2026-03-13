@@ -18,7 +18,6 @@ workspace = true
 
 [dependencies]
 memchr.workspace = true
-workspace_hack.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
