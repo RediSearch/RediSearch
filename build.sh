@@ -411,12 +411,12 @@ prepare_cmake_arguments() {
       fi
     fi
 
-    # Check LLVM version compatibility between Rustc and Clang
+    # Check LLVM version compatibility between rustc and clang
     # Use 'sed -E' for compatibility with both GNU sed and BSD sed
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: Could not detect LLVM versions for Rust and Clang."
+        echo "Error: Could not detect LLVM versions for rustc and clang."
         echo "Cross-language LTO requires matching LLVM major versions."
         echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
         echo "Clang LLVM version: $CLANG_LLVM_VERSION"
@@ -424,7 +424,7 @@ prepare_cmake_arguments() {
     fi
 
     if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: LLVM version mismatch between Rust and Clang"
+        echo "Error: LLVM version mismatch between rustc and clang"
         echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
         echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
         echo ""
