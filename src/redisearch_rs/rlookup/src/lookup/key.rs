@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use libc::size_t;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
-    ffi::{CStr, c_char},
+    ffi::{CStr, c_char, c_void},
+    hint::black_box,
     mem,
     ops::{Deref, DerefMut},
     pin::Pin,
@@ -338,8 +340,8 @@ impl<'a> RLookupKey<'a> {
         *me._path = Some(path);
     }
 
-    pub fn make_tombstone(self: Pin<&mut Self>) -> (Cow<'a, CStr>, Option<Cow<'a, CStr>>) {
-        let mut me = self.project();
+    pub fn make_tombstone(mut self: Pin<&mut Self>) -> (Cow<'a, CStr>, Option<Cow<'a, CStr>>) {
+        let mut me = self.as_mut().project();
 
         me.header.name = ptr::null();
         me.header.name_len = usize::MAX;
@@ -362,6 +364,17 @@ impl<'a> RLookupKey<'a> {
 
         // this will exclude it from iteration
         me.header.flags |= RLookupKeyFlag::Hidden;
+
+        unsafe extern "C" {
+            fn __asan_poison_memory_region(addr: *const c_void, size: size_t);
+        }
+
+        unsafe {
+            __asan_poison_memory_region(
+                ptr::from_mut(unsafe { Pin::into_inner_unchecked(self) }).cast(),
+                size_of::<Self>(),
+            );
+        }
 
         (name, path)
     }

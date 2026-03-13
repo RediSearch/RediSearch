@@ -10,6 +10,7 @@
 #include "json.h"
 #include "module.h"
 #include "document.h"
+#include "rlookup.h"
 #include "rmutil/rm_assert.h"
 #include "doc_types.h"
 #include "value.h"
@@ -163,6 +164,11 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
+
+      if (RLookupKey_IsTombstone(kk)) {
+        continue;
+      }
+
       if (getKey(kk, dst, options, &key) != REDISMODULE_OK) {
         goto done;
       }
@@ -171,6 +177,10 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
     RLookupIterator iter = RLookup_Iter(it);
     const RLookupKey* kk;
     while (RLookupIterator_Next(&iter, &kk)) {
+      if (RLookupKey_IsTombstone(kk)) {
+        continue;
+      }
+
       /* key is not part of document schema. no need/impossible to 'load' it */
       if (!(RLookupKey_GetFlags(kk) & RLOOKUP_F_SCHEMASRC)) {
         continue;

@@ -55,6 +55,11 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   const RSSortingVector* sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
+
+  if (RLookupKey_IsTombstone(kk)) {
+      return NULL;
+  }
+
   if ((RLookupKey_GetFlags(kk) & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > RLookupKey_GetSvIdx(kk))) {
     return RSSortingVector_Get(sv, RLookupKey_GetSvIdx(kk));
   } else {
@@ -249,7 +254,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_Map(reply);
       int i = 0;
       RLOOKUP_FOREACH(kk, lk, {
-        if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
+        if (RLookupKey_IsTombstone(kk) || !skipFieldIndex[i++]) {
           continue;
         }
         const RSValue *v = RLookupRow_Get(kk, SearchResult_GetRowData(r));

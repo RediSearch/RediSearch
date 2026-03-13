@@ -747,6 +747,7 @@ run_rust_tests() {
     RUST_TEST_COMMAND="miri nextest run"
     RUST_TEST_OPTIONS="--cargo-profile=$RUST_PROFILE"
   elif [[ "$SAN" == "address" ]]; then
+
     # We must rebuild the Rust standard library to get sanitizer coverage
     # for its functions.
     # Since --build-std is a cargo flag (not rustc), we set it separately

@@ -14,6 +14,7 @@
 #include "doc_types.h"
 #include "value.h"
 #include "util/arr.h"
+#include <sanitizer/asan_interface.h>
 
 typedef struct RLookupKey {
   uint16_t _dstidx;
@@ -57,6 +58,18 @@ inline size_t RLookupKey_GetNameLen(const RLookupKey* key) {
     return key->_name_len;
 }
 
+inline bool RLookupKey_IsTombstone(const RLookupKey* key) {
+    __asan_unpoison_memory_region(key, sizeof(RLookupKey));
+
+    bool IsTombstone = key->_name == NULL;
+
+    if (IsTombstone) {
+        __asan_poison_memory_region(key, sizeof(RLookupKey));
+    }
+
+    return IsTombstone;
+}
+
 /**
  * Indicate the type and other attributes
  * Can be F_SVSRC which means the target array is a sorting vector)
@@ -73,6 +86,29 @@ void RLookupKey_SetPath(RLookupKey* key, const char * path) {
     key->_path = path;
 }
 
+RLookupKey* RLookupKey_GetNext(const RLookupKey* key) {
+    __asan_unpoison_memory_region(key, sizeof(RLookupKey));
+    uint32_t flags = key->_flags;
+    RLookupKey* next = key->_next;
+
+    if (RLookupKey_IsTombstone(key)) {
+        __asan_poison_memory_region(key, sizeof(RLookupKey));
+    }
+
+    return next;
+}
+
+RLookupKey* RLookupKey_SetNext(RLookupKey* key, RLookupKey* next) {
+    __asan_unpoison_memory_region(key, sizeof(RLookupKey));
+
+    uint32_t flags = key->_flags;
+    key->_next = next;
+
+    if (RLookupKey_IsTombstone(key)) {
+        __asan_poison_memory_region(key, sizeof(RLookupKey));
+    }
+}
+
 // Allocate a new RLookupKey and add it to the RLookup table.
 RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
@@ -80,7 +116,7 @@ RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uin
   if (!lookup->_head) {
     lookup->_head = lookup->_tail = ret;
   } else {
-    lookup->_tail->_next = ret;
+    RLookupKey_SetNext(lookup->_tail, ret);
     lookup->_tail = ret;
   }
 
@@ -131,6 +167,8 @@ static RLookupKey *overrideKey(RLookup *lk, RLookupKey *old, uint32_t flags) {
     lk->_tail = new;
   }
 
+  __asan_poison_memory_region(old, sizeof(RLookupKey));
+
   return new;
 }
 
@@ -154,6 +192,7 @@ static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
 }
 
 static void RLookupKey_Cleanup(RLookupKey *k) {
+  __asan_unpoison_memory_region(k, sizeof(RLookupKey));
   if (k->_flags & RLOOKUP_F_NAMEALLOC) {
     if (RLookupKey_GetName(k) != k->_path) {
       rm_free((void *)k->_path);
@@ -204,11 +243,16 @@ RLookupKey *RLookup_FindKey(RLookup *lookup, const char *name, size_t name_len) 
   RLookupKey* key;
 
   while (RLookupIteratorMut_Next(&iter, &key)) {
+    if (RLookupKey_IsTombstone(key)) {
+        continue;
+    }
+
     // match `name` to the name of the key
     if (RLookupKey_GetNameLen(key) == name_len && !strncmp(RLookupKey_GetName(key), name, name_len)) {
       return key;
     }
   }
+
   return NULL;
 }
 
@@ -224,8 +268,7 @@ inline bool RLookupIterator_Next(RLookupIterator* iterator, const RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = current->_next;
-
+        iterator->current = RLookupKey_GetNext(current);
         return true;
     }
 }
@@ -242,7 +285,7 @@ inline bool RLookupIteratorMut_Next(RLookupIteratorMut* iterator, RLookupKey** k
         return false;
     } else {
         *key = current;
-        iterator->current = current->_next;
+        iterator->current = RLookupKey_GetNext(current);
 
         return true;
     }
@@ -297,6 +340,8 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
       // overrides the key, and sets the new key according to the flags.
       key = overrideKey(lookup, key, flags);
     }
+
+    RS_LOG_ASSERT(!RLookupKey_IsTombstone(key), "");
 
     // At this point we know for sure that it is not marked as loaded.
     fs = RLookup_FindFieldInSpecCache(lookup, field_name);
@@ -397,7 +442,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, bool *skipF
   int i = 0;
   size_t nfields = 0;
   RLOOKUP_FOREACH(kk, lookup, {
-    if (RLookupKey_GetName(kk) == NULL) {
+    if (RLookupKey_IsTombstone(kk)) {
         // Overridden key. Skip without incrementing the index
         continue;
     }
@@ -502,7 +547,7 @@ void RLookupRow_MoveFieldsFrom(const RLookup *lk, RLookupRow *src, RLookupRow *d
 void RLookup_Cleanup(RLookup *lk) {
   RLookupKey *next, *cur = lk->_head;
   while (cur) {
-    next = cur->_next;
+    next = RLookupKey_GetNext(cur);
     RLookupKey_Free(cur);
     cur = next;
   }
@@ -521,8 +566,8 @@ void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
   RLookupIterator iter = RLookup_Iter(src);
   const RLookupKey* src_key;
   while (RLookupIterator_Next(&iter, &src_key)) {
-    if (!RLookupKey_GetName(src_key)) {
-      // Skip overridden keys (they have name == NULL)
+    if (RLookupKey_IsTombstone(src_key)) {
+      // Skip overridden keys
       continue;
     }
 
@@ -544,7 +589,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
   RLookupIterator iter = RLookup_Iter(srcLookup);
   const RLookupKey* src_key;
   while (RLookupIterator_Next(&iter, &src_key)) {
-    if (!RLookupKey_GetName(src_key)) {
+    if (RLookupKey_IsTombstone(src_key)) {
       // Skip overridden keys
       continue;
     }
