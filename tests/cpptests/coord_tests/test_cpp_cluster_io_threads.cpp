@@ -75,7 +75,8 @@ static void UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
           cl->io_runtimes_pool[0]->conn_mgr.nodeConns,
           NULL,
           i + 1,
-          false);
+          false,
+          0);
       if (cl->io_runtimes_pool[0]->topo) {
         //TODO(Joan): We should make sure this is the last topology from user, so the UpdateTopology request should wait to return
         cl->io_runtimes_pool[i]->topo = MRClusterTopology_Clone(cl->io_runtimes_pool[0]->topo);
@@ -88,7 +89,7 @@ static void UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
 
 TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   // Create a cluster with 3 IO threads initially
-  MRCluster *cluster = MR_NewCluster(nullptr, 2, 3);
+  MRCluster *cluster = MR_NewCluster(nullptr, 2, 3, 0);
   ASSERT_EQ(cluster->num_io_threads, 3);
 
   size_t first_num_io_threads = cluster->num_io_threads;

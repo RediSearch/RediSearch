@@ -39,7 +39,7 @@ typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
-void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
+void MR_Init(size_t num_io_threads, size_t conn_pool_size, uint32_t timeoutMS);
 
 /* @brief Set a new topology for the cluster and refresh local slots information.
  * @param newTopology The new cluster topology, consumed by this function.

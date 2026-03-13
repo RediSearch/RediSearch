@@ -273,7 +273,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 }
 
 /* Initialize the MapReduce engine with a node provider */
-void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) {
+void MR_Init(size_t num_io_threads, size_t conn_pool_size, uint32_t timeoutMS) {
   cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads, timeoutMS);
 }
 
