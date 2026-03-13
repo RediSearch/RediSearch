@@ -13,6 +13,7 @@ mod key_list;
 use crate::{
     IndexSpec, RLookupRow,
     bindings::{FieldSpec, FieldSpecOption, FieldSpecOptions, IndexSpecCache},
+    lookup::key_list::{Iter, IterMut},
 };
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
@@ -152,19 +153,27 @@ impl<'a> RLookup<'a> {
     }
 
     /// Returns a [`Cursor`] starting at the first key.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
     #[inline(always)]
     pub fn cursor(&self) -> Cursor<'_, 'a> {
         self.keys.cursor_front()
     }
 
     /// Returns a [`Cursor`] starting at the first key.
-    ///
-    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
     #[inline(always)]
     pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
         self.keys.cursor_front_mut()
+    }
+
+    /// Returns an [`Iter`] starting at the first key.
+    #[inline(always)]
+    pub fn iter(&self) -> Iter<'_, 'a> {
+        self.keys.iter()
+    }
+
+    /// Returns an [`IterMut`] starting at the first key.
+    #[inline(always)]
+    pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        self.keys.iter_mut()
     }
 
     // ===== Get key for reading (create only if in schema and sortable) =====
