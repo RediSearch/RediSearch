@@ -56,7 +56,7 @@ def call_and_store(func, args, results_list):
         results_list.append(e)
 
 
-def run_query_with_delayed_shard(env, cmd, query_result, sleep_duration):
+def run_query_with_delayed_shard(env, cmd, query_result, sleep_duration, initial_wait):
     """Execute query where shard 1 is delayed (the one with 0 docs)"""
     conn = getConnectionByEnv(env)
     try:
@@ -71,8 +71,10 @@ def run_query_with_delayed_shard(env, cmd, query_result, sleep_duration):
         sleep_thread = threading.Thread(target=block_shard, daemon=True)
         sleep_thread.start()
 
-        # Wait a bit to ensure DEBUG SLEEP has started
-        time.sleep(0.5)
+        # Wait to ensure DEBUG SLEEP has started on the shard.
+        # This needs to be long enough for the thread to start, establish
+        # connection, and begin executing DEBUG SLEEP.
+        time.sleep(initial_wait)
 
         # Now send the query from coordinator
         # Shards 0 and 2 will respond quickly and start sending data
@@ -211,7 +213,9 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # We delay shard 1 (connection index 2) which has 0 docs
     # This tests that the coordinator waits for ALL shards even while
     # receiving lots of data from the fast shards (0 and 2)
-    sleep_duration = 3  # seconds
+    initial_wait = 3   # Time for thread to connect and start DEBUG SLEEP
+    shard_delay = 6    # How long query should wait for the shard (must exceed TIMEOUT in Cases 2&3)
+    sleep_duration = initial_wait + shard_delay
 
     # --------------------------------------------------------------------------
     # Case 1: No timeout
@@ -221,11 +225,11 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # Run the query
     t_query = threading.Thread(
         target=run_query_with_delayed_shard,
-        args=(env, cmd, query_result, sleep_duration),
+        args=(env, cmd, query_result, sleep_duration, initial_wait),
         daemon=True
     )
     t_query.start()
-    # Wait for query to complete (should take ~sleep_duration seconds)
+    # Wait for query to complete (should take ~shard_delay seconds after initial_wait)
     t_query.join(timeout=sleep_duration + 5)
 
     expected = 3
@@ -241,8 +245,8 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
         len(_get_results(result)), expected,
         message=f"Expected {expected} results, got {len(_get_results(result))}")
     env.assertGreaterEqual(
-        elapsed, sleep_duration - 1,
-        message=f"Query should take ~{sleep_duration} seconds, took {elapsed}")
+        elapsed, shard_delay - 1,
+        message=f"Query should take ~{shard_delay} seconds, took {elapsed}")
 
     # --------------------------------------------------------------------------
     # Case 2: Timeout - ON_TIMEOUT FAIL
@@ -254,11 +258,11 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # Run the query
     t_query = threading.Thread(
         target=run_query_with_delayed_shard,
-        args=(env, cmd, query_result, sleep_duration),
+        args=(env, cmd, query_result, sleep_duration, initial_wait),
         daemon=True
     )
     t_query.start()
-    # Wait for query to complete (should take ~sleep_duration seconds)
+    # Wait for query to complete (should timeout after ~1 second + initial_wait)
     t_query.join(timeout=sleep_duration + 5)
 
     # Verify query completed with error
@@ -278,11 +282,11 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # Run the query
     t_query = threading.Thread(
         target=run_query_with_delayed_shard,
-        args=(env, cmd, query_result, sleep_duration),
+        args=(env, cmd, query_result, sleep_duration, initial_wait),
         daemon=True
     )
     t_query.start()
-    # Wait for query to complete (should take ~sleep_duration seconds)
+    # Wait for query to complete (should timeout after ~1 second + initial_wait)
     t_query.join(timeout=sleep_duration + 5)
 
     expected = 0
@@ -300,15 +304,15 @@ def _test_barrier_waits_for_delayed_unbalanced_shard(protocol):
     # Verify we got a timeout warning in the response
     if isinstance(result, dict):
         env.assertEqual(result.get('warning', []),
-                        ['Timeout limit was reached'])
+                        ['ShardResponseBarrier: Timeout while waiting for first responses from all shards'])
 
 
-@skip() # Flaky test
+@skip(cluster=False)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp2():
     _test_barrier_waits_for_delayed_unbalanced_shard(2)
 
 
-@skip() # Flaky test
+@skip(cluster=False)
 def test_barrier_waits_for_delayed_unbalanced_shard_resp3():
     _test_barrier_waits_for_delayed_unbalanced_shard(3)
 
