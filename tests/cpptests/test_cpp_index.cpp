@@ -23,7 +23,6 @@ extern "C" {
 #include "iterators_rs.h"
 #include "src/iterators/union_iterator.h"
 #include "src/iterators/intersection_iterator.h"
-#include "src/iterators/not_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
 #include "types_rs.h"

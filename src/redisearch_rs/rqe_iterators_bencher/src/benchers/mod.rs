@@ -13,5 +13,6 @@ pub mod intersection;
 pub mod inverted_index;
 pub mod metric;
 pub mod not;
+pub mod not_optimized;
 pub mod optional;
 pub mod wildcard;

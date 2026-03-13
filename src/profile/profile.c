@@ -9,7 +9,6 @@
 #include "profile.h"
 #include "iterators/iterator_api.h"
 #include "iterators/inverted_index_iterator.h"
-#include "iterators/not_iterator.h"
 #include "iterators/optional_iterator.h"
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
@@ -372,8 +371,7 @@ void Profile_AddIters(QueryIterator **root) {
 
   // Add profile iterator before child iterators
   switch((*root)->type) {
-    case NOT_ITERATOR:
-    case NOT_ITERATOR_OPTIMIZED: {
+    case NOT_ITERATOR: {
       QueryIterator *child = TakeNotIteratorChild(*root);
       Profile_AddIters(&child);
       SetNotIteratorChild(*root, child);
@@ -639,8 +637,7 @@ void printIteratorProfile(RedisModule_Reply *reply, const QueryIterator *root, c
     case UNION_ITERATOR:                    { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);                 break; }
     case INTERSECT_ITERATOR:                { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);             break; }
     // Single value
-    case NOT_ITERATOR: // fallthrough
-    case NOT_ITERATOR_OPTIMIZED:            { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
+    case NOT_ITERATOR:                      { printNotIt(reply, root, counters, cpuTime, depth, limited, config);                   break; }
     case OPTIONAL_ITERATOR: // fallthrough
     case OPTIONAL_OPTIMIZED_ITERATOR:       { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);              break; }
     case WILDCARD_ITERATOR:                 { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);              break; }

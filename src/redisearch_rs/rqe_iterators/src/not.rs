@@ -7,16 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Supporting types for [`Not`].
+//! Supporting types for [`Not`] and [`NotOptimized`].
 
-use std::time::Duration;
+use std::{ptr::NonNull, time::Duration};
 
-use ffi::{RS_FIELDMASK_ALL, t_docId};
+use ffi::{IteratorType, IteratorType_NOT_ITERATOR, RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    util::TimeoutContext,
+    Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    maybe_empty::MaybeEmpty, util::TimeoutContext, wildcard::new_wildcard_iterator,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -98,27 +98,6 @@ where
         if let Some(ctx) = self.timeout_ctx.as_mut() {
             ctx.reset_counter();
         }
-    }
-
-    /// Get a shared reference to the _child_ iterator
-    /// wrapped by this [`Not`] iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
-    }
-
-    /// Set the child of this [`Not`] iterator.
-    pub fn set_child(&mut self, new_child: I) {
-        self.child = MaybeEmpty::new(new_child);
-    }
-
-    /// Unset the child of this [`Not`] iterator (make it `None`).
-    pub fn unset_child(&mut self) {
-        self.child = MaybeEmpty::new_empty();
-    }
-
-    /// Take the child of this [`Not`] iterator if it exists.
-    pub fn take_child(&mut self) -> Option<I> {
-        self.child.take_iterator()
     }
 }
 
@@ -265,5 +244,587 @@ where
                 Ok(RQEValidateStatus::Ok)
             }
         }
+    }
+}
+
+/// An optimized NOT iterator that uses a wildcard inverted index iterator.
+///
+/// Unlike [`Not`] which iterates sequentially from 1 to
+/// `max_doc_id`, this variant uses a wildcard iterator (`wcii`) that reads
+/// from the existing-documents inverted index. It yields all documents
+/// present in the wildcard iterator that are **not** present in the child
+/// iterator.
+///
+/// This is applicable when the index has an `existingDocs` inverted index
+/// (e.g. `index_all` is enabled or disk-based specs), providing better
+/// performance by only visiting documents that actually exist.
+pub struct NotOptimized<'index, W, I> {
+    /// The wildcard iterator over all existing documents.
+    wcii: W,
+    /// The child iterator whose results are negated.
+    child: MaybeEmpty<I>,
+    /// The maximum document ID (used as upper bound guard).
+    max_doc_id: t_docId,
+    /// Sticky EOF flag, set on timeout or when iteration completes.
+    forced_eof: bool,
+    /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
+    result: RSIndexResult<'index>,
+    /// Tracks the execution deadline for this iterator.
+    timeout_ctx: Option<TimeoutContext>,
+}
+
+impl<'index, W, I> NotOptimized<'index, W, I>
+where
+    W: RQEIterator<'index>,
+    I: RQEIterator<'index>,
+{
+    /// Create a new optimized NOT iterator.
+    ///
+    /// `wcii` is the wildcard iterator over all existing documents.
+    /// `child` is the iterator whose documents will be excluded.
+    /// `max_doc_id` is the upper bound for document IDs.
+    /// `weight` is the score weight applied to every returned result.
+    /// `timeout` and `skip_timeout_checks` control the amortized timeout.
+    pub fn new(
+        wcii: W,
+        child: I,
+        max_doc_id: t_docId,
+        weight: f64,
+        timeout: Duration,
+        skip_timeout_checks: bool,
+    ) -> Self {
+        Self {
+            wcii,
+            child: MaybeEmpty::new(child),
+            max_doc_id,
+            forced_eof: false,
+            result: RSIndexResult::build_virt()
+                .weight(weight)
+                .field_mask(RS_FIELDMASK_ALL)
+                .build(),
+            timeout_ctx: if skip_timeout_checks {
+                None
+            } else {
+                Some(TimeoutContext::new(timeout, 5_000, false))
+            },
+        }
+    }
+
+    /// Wrapper around [`TimeoutContext::check_timeout`] that sets `forced_eof`
+    /// on timeout.
+    #[inline(always)]
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        let Some(result) = self.timeout_ctx.as_mut().map(|ctx| ctx.check_timeout()) else {
+            return Ok(());
+        };
+        if matches!(result, Err(RQEIteratorError::TimedOut)) {
+            self.forced_eof = true;
+        }
+        result
+    }
+
+    /// Get a shared reference to the _child_ iterator.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+
+    /// Set the child of this iterator.
+    pub fn set_child(&mut self, new_child: I) {
+        self.child = MaybeEmpty::new(new_child);
+    }
+
+    /// Unset the child (make it empty).
+    pub fn unset_child(&mut self) {
+        self.child = MaybeEmpty::new_empty();
+    }
+
+    /// Take the child if it exists.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
+    }
+
+    /// Get a shared reference to the wildcard iterator.
+    pub const fn wcii(&self) -> &W {
+        &self.wcii
+    }
+
+    /// Replace the wildcard iterator.
+    pub fn set_wcii(&mut self, wcii: W) {
+        self.wcii = wcii;
+    }
+
+    /// Check whether the child iterator does **not** contain a document
+    /// with the given `doc_id`.
+    ///
+    /// In Rust, `at_eof()` becomes `true` immediately after consuming the
+    /// last element (eager EOF), while in C it is set lazily on the _next_
+    /// read. We therefore cannot use `child.at_eof()` alone as proof that
+    /// `doc_id` is absent—we must also confirm it is past the child's last
+    /// known document.
+    #[inline(always)]
+    fn child_does_not_have(&self, doc_id: t_docId) -> bool {
+        doc_id < self.child.last_doc_id()
+            || (self.child.at_eof() && doc_id > self.child.last_doc_id())
+    }
+
+    /// Internal read logic shared by [`read`](RQEIterator::read) and
+    /// [`skip_to`](RQEIterator::skip_to).
+    ///
+    /// Returns `Ok(true)` if a valid result was found (stored in
+    /// `self.result.doc_id`), `Ok(false)` if EOF was reached.
+    fn read_inner(&mut self) -> Result<bool, RQEIteratorError> {
+        if self.at_eof() {
+            return Ok(false);
+        }
+
+        // Advance the wildcard iterator to the next document.
+        // We check the return value (not `at_eof`) because in Rust iterators
+        // may report `at_eof() == true` immediately after returning the last
+        // element, while the returned value is still valid.
+        if self.wcii.read()?.is_none() {
+            self.forced_eof = true;
+            return Ok(false);
+        }
+
+        loop {
+            let wcii_last = self.wcii.last_doc_id();
+
+            if self.child_does_not_have(wcii_last) {
+                // Case 1: The wildcard document is not in the child.
+                self.result.doc_id = wcii_last;
+                return Ok(true);
+            } else if wcii_last == self.child.last_doc_id() {
+                // Case 2: Both iterators at the same position, advance both.
+                self.child.read()?;
+                if self.wcii.read()?.is_none() {
+                    self.forced_eof = true;
+                    return Ok(false);
+                }
+            } else {
+                // Case 3: Child is behind, advance it until it catches up.
+                while !self.child.at_eof() && self.child.last_doc_id() < wcii_last {
+                    self.child.read()?;
+                }
+            }
+            self.check_timeout()?;
+        }
+    }
+}
+
+impl<'index, W, I> RQEIterator<'index> for NotOptimized<'index, W, I>
+where
+    W: RQEIterator<'index>,
+    I: RQEIterator<'index>,
+{
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        Some(&mut self.result)
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.at_eof() || self.result.doc_id >= self.max_doc_id {
+            self.forced_eof = true;
+            return Ok(None);
+        }
+
+        if self.read_inner()? {
+            Ok(Some(&mut self.result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        debug_assert!(self.last_doc_id() < doc_id);
+
+        if self.at_eof() {
+            return Ok(None);
+        }
+        if doc_id > self.max_doc_id {
+            self.forced_eof = true;
+            return Ok(None);
+        }
+
+        // Skip wcii to docId.
+        let wcii_outcome = self.wcii.skip_to(doc_id)?;
+        if wcii_outcome.is_none() {
+            self.forced_eof = true;
+            return Ok(None);
+        }
+
+        let wcii_last = self.wcii.last_doc_id();
+
+        if self.child_does_not_have(wcii_last) {
+            // Case 1: Wildcard document is not in the child.
+            self.result.doc_id = wcii_last;
+        } else if wcii_last == self.child.last_doc_id() {
+            // Case 2: Both at same position. The target (or closest doc)
+            // is in child, so find the next valid result.
+            if self.read_inner()? {
+                return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
+            } else {
+                return Ok(None);
+            }
+        } else {
+            // Case 3: Wildcard is ahead of child.
+            // Check if child also has the document at wcii's position.
+            let child_outcome = self.child.skip_to(wcii_last)?;
+            match child_outcome {
+                Some(SkipToOutcome::Found(_)) => {
+                    // Child has this document, find next valid result.
+                    if self.read_inner()? {
+                        return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                None | Some(SkipToOutcome::NotFound(_)) => {
+                    // Child doesn't have this document, it's a valid result.
+                    self.result.doc_id = wcii_last;
+                }
+            }
+        }
+
+        // Determine Found vs NotFound based on whether we're at the exact target.
+        if self.result.doc_id == doc_id {
+            Ok(Some(SkipToOutcome::Found(&mut self.result)))
+        } else {
+            Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+        }
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        self.forced_eof = false;
+        self.result.doc_id = 0;
+        self.wcii.rewind();
+        self.child.rewind();
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        self.wcii.num_estimated()
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        self.result.doc_id
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        self.forced_eof
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // 1. Revalidate the wildcard iterator first.
+        let wcii_status = self.wcii.revalidate()?;
+        if matches!(wcii_status, RQEValidateStatus::Aborted) {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
+        // 2. Revalidate the child iterator.
+        if matches!(self.child.revalidate()?, RQEValidateStatus::Aborted) {
+            // When child is aborted, NOT becomes "NOT nothing" = everything
+            // from the wildcard iterator.
+            self.child = MaybeEmpty::new_empty();
+        }
+
+        // 3. If the wildcard moved, sync state.
+        if matches!(wcii_status, RQEValidateStatus::Moved { .. }) {
+            if self.wcii.at_eof() {
+                self.forced_eof = true;
+            } else {
+                self.result.doc_id = self.wcii.last_doc_id();
+
+                // If child is behind, skip it forward.
+                if self.child.last_doc_id() < self.result.doc_id {
+                    let _ = self.child.skip_to(self.result.doc_id)?;
+                }
+
+                // If child landed on the same position, advance to next valid.
+                if self.child.last_doc_id() == self.result.doc_id {
+                    self.read_inner()?;
+                }
+            }
+
+            Ok(RQEValidateStatus::Moved {
+                current: if self.at_eof() {
+                    None
+                } else {
+                    Some(&mut self.result)
+                },
+            })
+        } else {
+            Ok(RQEValidateStatus::Ok)
+        }
+    }
+}
+
+/// Trait for NOT iterators ([`Not`] and [`NotOptimized`]).
+pub trait NotIterator<'index>: RQEIterator<'index> {
+    /// Get a shared reference to the child iterator, or `None` if unset.
+    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
+
+    /// Replace the child iterator.
+    fn set_child(&mut self, child: Box<dyn RQEIterator<'index> + 'index>);
+
+    /// Take ownership of the child iterator, leaving it unset.
+    fn take_child(&mut self) -> Option<Box<dyn RQEIterator<'index> + 'index>>;
+}
+
+type BoxedChild<'index> = Box<dyn RQEIterator<'index> + 'index>;
+
+impl<'index> NotIterator<'index> for Not<'index, BoxedChild<'index>> {
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        self.child
+            .as_ref()
+            .map(|c| &**c as &dyn RQEIterator<'index>)
+    }
+
+    fn set_child(&mut self, child: BoxedChild<'index>) {
+        self.child = MaybeEmpty::new(child);
+    }
+
+    fn take_child(&mut self) -> Option<BoxedChild<'index>> {
+        self.child.take_iterator()
+    }
+}
+
+impl<'index, W> NotIterator<'index> for NotOptimized<'index, W, BoxedChild<'index>>
+where
+    W: RQEIterator<'index>,
+{
+    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
+        self.child
+            .as_ref()
+            .map(|c| &**c as &dyn RQEIterator<'index>)
+    }
+
+    fn set_child(&mut self, child: BoxedChild<'index>) {
+        self.child = MaybeEmpty::new(child);
+    }
+
+    fn take_child(&mut self) -> Option<BoxedChild<'index>> {
+        self.child.take_iterator()
+    }
+}
+
+/// Implement [`RQEIterator`] for `Box<dyn NotIterator>` so that it can be
+/// stored inside an `RQEIteratorWrapper`.
+impl<'index> RQEIterator<'index> for Box<dyn NotIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        (**self).is_wildcard()
+    }
+
+    fn as_c_header_ptr(&self) -> Option<NonNull<ffi::QueryIterator>> {
+        (**self).as_c_header_ptr()
+    }
+
+    fn into_c_header_ptr(self: Box<Self>) -> Option<NonNull<ffi::QueryIterator>> {
+        (*self).into_c_header_ptr()
+    }
+}
+
+/// The result of [`not_iterator_reducer`].
+enum NotReduction<'index, I> {
+    /// The NOT was reduced to a simpler iterator (e.g. wildcard or empty).
+    Reduced(Box<dyn RQEIterator<'index> + 'index>, IteratorType),
+    /// No reduction was possible. The child is returned unchanged.
+    NotReduced(I),
+}
+
+/// Attempt to reduce a NOT iterator into a simpler form.
+///
+/// Applies the following reduction rules:
+/// 1. If the child is empty, the NOT matches everything — return a wildcard.
+/// 2. If the child is a wildcard, the NOT matches nothing — return empty.
+///
+/// # Safety
+///
+/// When the child is empty (rule 1), this function calls
+/// [`new_wildcard_iterator`] — all its safety preconditions on `query` must
+/// hold.
+unsafe fn not_iterator_reducer<'index, I>(
+    child: I,
+    weight: f64,
+    query: NonNull<ffi::QueryEvalCtx>,
+) -> NotReduction<'index, I>
+where
+    I: RQEIterator<'index> + 'index,
+{
+    if child.is_empty() {
+        // Rule 1: child is empty → NOT matches everything → wildcard.
+        drop(child);
+        // SAFETY: Caller guarantees the preconditions of `new_wildcard_iterator`.
+        let (mut wc, wc_type) = unsafe { new_wildcard_iterator(query, weight) };
+        if let Some(result) = wc.current() {
+            result.freq = 0;
+        }
+        NotReduction::Reduced(wc, wc_type)
+    } else if child.is_wildcard() {
+        // Rule 2: child is wildcard → NOT matches nothing → empty.
+        drop(child);
+        NotReduction::Reduced(Box::new(Empty), ffi::IteratorType_EMPTY_ITERATOR)
+    } else {
+        // No reduction applicable.
+        NotReduction::NotReduced(child)
+    }
+}
+
+/// The result of [`new_not_iterator`].
+pub enum NewNotIterator<'index> {
+    /// The child was trivially reducible; the NOT was replaced by a simpler
+    /// iterator via [`not_iterator_reducer`]:
+    ///
+    /// - Child is [`Empty`] → returns a [`WildcardIterator`](crate::WildcardIterator)
+    ///   (NOT nothing = everything).
+    /// - Child is a [`WildcardIterator`](crate::WildcardIterator) → returns
+    ///   [`Empty`] (NOT everything = nothing).
+    Reduced(Box<dyn RQEIterator<'index> + 'index>, IteratorType),
+    /// No reduction was possible; a proper NOT iterator was created:
+    ///
+    /// - [`Not`] when the index does not have an `existingDocs` inverted
+    ///   index (sequential scan from 1 to `max_doc_id`).
+    /// - [`NotOptimized`] when the index has an `existingDocs` inverted
+    ///   index (backed by a [`WildcardIterator`](crate::WildcardIterator)).
+    NotReduced(Box<dyn NotIterator<'index> + 'index>, IteratorType),
+}
+
+/// Construct a NOT iterator, choosing between [`Not`] (sequential) and
+/// [`NotOptimized`] (wildcard-backed) based on the query evaluation context.
+///
+/// If the child is trivially reducible (empty or wildcard), the reducer is
+/// applied first and a simplified iterator is returned directly as
+/// [`NewNotIterator::Reduced`].
+///
+/// # Safety
+///
+/// 1. `query` must point to a valid [`QueryEvalCtx`](ffi::QueryEvalCtx)
+///    that remains valid for `'index`.
+/// 2. `query.sctx` must be a non-null pointer to a valid
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for `'index`.
+/// 3. `query.sctx.spec` must be a non-null pointer to a valid
+///    [`IndexSpec`](ffi::IndexSpec) that remains valid for `'index`.
+/// 4. `query.sctx.spec.rule`, when non-null, must point to a valid
+///    [`SchemaRule`](ffi::SchemaRule).
+/// 5. When the optimized path is taken, all preconditions of
+///    [`new_wildcard_iterator`] must also hold.
+pub unsafe fn new_not_iterator<'index, I>(
+    child: I,
+    max_doc_id: t_docId,
+    weight: f64,
+    timeout: Duration,
+    skip_timeout_checks: bool,
+    query: NonNull<ffi::QueryEvalCtx>,
+) -> NewNotIterator<'index>
+where
+    I: RQEIterator<'index> + 'index,
+{
+    // SAFETY: Caller guarantees the preconditions for `new_wildcard_iterator`
+    // (used by the reducer when the child is empty).
+    let child = match unsafe { not_iterator_reducer(child, weight, query) } {
+        NotReduction::Reduced(reduced, iter_type) => {
+            return NewNotIterator::Reduced(reduced, iter_type);
+        }
+        NotReduction::NotReduced(child) => child,
+    };
+
+    // Box the child for type-erased child access via `NotIterator`.
+    let child: BoxedChild<'index> = Box::new(child);
+
+    // SAFETY: Caller guarantees `query` points to a valid `QueryEvalCtx` (1).
+    let query_ref = unsafe { query.as_ref() };
+    let sctx = NonNull::new(query_ref.sctx).expect("query.sctx is null");
+    // SAFETY: Caller guarantees `query.sctx` is a valid, non-null pointer (2).
+    let sctx_ref = unsafe { sctx.as_ref() };
+    // SAFETY: Caller guarantees `query.sctx.spec` is a valid, non-null pointer (3).
+    let spec = unsafe { &*sctx_ref.spec };
+
+    let has_disk_spec = !spec.diskSpec.is_null();
+    let index_all = NonNull::new(spec.rule)
+        .map(|rule| {
+            // SAFETY: Caller guarantees `spec.rule`, when non-null, points to
+            // a valid `SchemaRule` (4).
+            unsafe { rule.as_ref() }.index_all
+        })
+        .unwrap_or(false);
+
+    let optimized = index_all || has_disk_spec;
+
+    if optimized {
+        // SAFETY: Caller guarantees the preconditions of
+        // `new_wildcard_iterator` hold when the optimized path is taken (5).
+        let (wcii, _) = unsafe { new_wildcard_iterator(query, weight) };
+        // Upcast to `Box<dyn RQEIterator>` since `Box<dyn WildcardIterator>`
+        // does not directly implement `RQEIterator`.
+        let wcii: Box<dyn RQEIterator<'index> + 'index> = wcii;
+        NewNotIterator::NotReduced(
+            Box::new(NotOptimized::new(
+                wcii,
+                child,
+                max_doc_id,
+                weight,
+                timeout,
+                skip_timeout_checks,
+            )),
+            IteratorType_NOT_ITERATOR,
+        )
+    } else {
+        NewNotIterator::NotReduced(
+            Box::new(Not::new(
+                child,
+                max_doc_id,
+                weight,
+                timeout,
+                skip_timeout_checks,
+            )),
+            IteratorType_NOT_ITERATOR,
+        )
     }
 }

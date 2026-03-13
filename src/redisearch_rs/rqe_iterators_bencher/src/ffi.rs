@@ -60,8 +60,9 @@ impl QueryIterator {
             tv_nsec: 0,
         };
 
-        let it =
-            unsafe { ffi::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx) };
+        let it = unsafe {
+            iterators_ffi::not::NewNotIterator(child.0, max_doc_id, weight, timeout, query_eval_ctx)
+        };
 
         free_redis_search_ctx(query_eval_ctx);
         Self(it)
