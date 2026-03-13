@@ -651,6 +651,7 @@ pub unsafe extern "C" fn RLookupIterator_Next<'a>(
         return false;
     }
     // Safety: current is non-null and valid per iterator invariant (3.)
+    #[expect(clippy::multiple_unsafe_ops_per_block)]
     let next = unsafe { *(&*current).next.get() };
     // Safety: ensured by caller (2.)
     unsafe { *key.unwrap().as_ptr() = current };
@@ -682,6 +683,7 @@ pub unsafe extern "C" fn RLookupIteratorMut_Next<'a>(
         return false;
     }
     // Safety: current is non-null and valid per iterator invariant (3.)
+    #[expect(clippy::multiple_unsafe_ops_per_block)]
     let next = unsafe { *(&*current).next.get() };
     // Safety: ensured by caller (2.)
     unsafe { *key.unwrap().as_ptr() = current };
