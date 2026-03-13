@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ::inverted_index::RSIndexResult;
 use ffi::t_docId;
 use thiserror::Error;
-
-use ::inverted_index::RSIndexResult;
 
 pub mod c2rust;
 pub mod empty;
@@ -31,7 +30,7 @@ pub mod util;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
-pub use intersection::Intersection;
+pub use intersection::{Intersection, ReducedIntersection};
 pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
 pub use wildcard::{Wildcard, WildcardIterator};
@@ -130,9 +129,29 @@ pub trait RQEIterator<'index> {
     /// when [`read`](Self::read) would return `Ok(None)`.
     fn at_eof(&self) -> bool;
 
+    /// Returns `true` if this iterator is known to be empty at construction time.
+    ///
+    /// Implementers should only override this when the iterator is structurally
+    /// empty (e.g. [`Empty`]) — not when it happens to be exhausted after reads.
+    fn is_empty(&self) -> bool {
+        false
+    }
+
     /// Returns `true` if this iterator matches all documents.
     fn is_wildcard(&self) -> bool {
         false
+    }
+
+    /// Heuristic weight used by [`Intersection`] to order children.
+    ///
+    /// A *lower* value means the child is placed first and acts as the pivot, minimising
+    /// the number of `SkipTo` calls during query execution. The final sort key is
+    /// `num_estimated() * sort_weight()`.
+    ///
+    /// Returns `1.0` by default (no adjustment). Compound iterators override this to
+    /// reflect their internal cost (e.g. `Intersection` returns `1 / n_children`).
+    fn sort_weight(&self) -> f64 {
+        1.0
     }
 }
 
@@ -173,7 +192,15 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
         (**self).at_eof()
     }
 
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
+
     fn is_wildcard(&self) -> bool {
         (**self).is_wildcard()
+    }
+
+    fn sort_weight(&self) -> f64 {
+        (**self).sort_weight()
     }
 }

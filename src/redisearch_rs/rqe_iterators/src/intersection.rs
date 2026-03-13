@@ -14,7 +14,7 @@
 //! - `in_order`: Require terms to appear in order
 
 use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use inverted_index::{RSIndexResult, ResultMetrics_Reset_func, is_within_range};
 
 use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
@@ -37,8 +37,6 @@ pub struct Intersection<'index, I> {
     is_eof: bool,
     /// Maximum allowed slop (distance) between term positions. `None` disables proximity
     /// validation entirely.
-    ///
-    /// Capped to [`i32::MAX`] because of [`ffi::IndexResult_IsWithinRange`]
     max_slop: Option<u32>,
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
@@ -65,14 +63,17 @@ where
     /// Every document matching all children is yielded. Children are sorted by estimated result
     /// count (smallest first) to minimize iterations.
     ///
+    /// - `weight`: Weight to apply to the term results.
+    ///
     /// If `children` is empty, returns an iterator immediately at EOF.
     #[must_use]
-    pub fn new(children: Vec<I>) -> Self {
-        Self::new_with_slop_order(children, None, false)
+    pub fn new(children: Vec<I>, weight: f64) -> Self {
+        Self::new_with_slop_order(children, weight, None, false)
     }
 
     /// Creates a new intersection iterator with proximity constraints.
     ///
+    /// - `weight`: Weight to apply to the term results.
     /// - `max_slop`: Maximum allowed distance between term positions. `None` disables proximity
     ///   validation (every document matching all children is yielded).
     /// - `in_order`: When `true`, terms must appear in the order of the child iterators and
@@ -81,16 +82,45 @@ where
     /// If `children` is empty, returns an iterator immediately at EOF.
     #[must_use]
     pub fn new_with_slop_order(
-        mut children: Vec<I>,
+        children: Vec<I>,
+        weight: f64,
         max_slop: Option<u32>,
         in_order: bool,
     ) -> Self {
-        // Only sort by estimated count when order doesn't matter for proximity checks.
+        Self::new_sorted_by(
+            children,
+            weight,
+            |a, b| {
+                let wa = a.num_estimated() as f64 * a.sort_weight();
+                let wb = b.num_estimated() as f64 * b.sort_weight();
+                wa.total_cmp(&wb)
+            },
+            max_slop,
+            in_order,
+        )
+    }
+
+    /// Creates a new intersection iterator, sorting children with a custom comparator.
+    ///
+    /// Identical to [`Intersection::new_with_slop_order`] but sorts children using the provided
+    /// `compare` function instead of by estimated count. Use this when the caller has a
+    /// domain-specific sort key (e.g. a weighted heuristic based on iterator type).
+    ///
+    /// When `in_order` is `true`, sorting is skipped because child order is semantically
+    /// significant for proximity checks.
+    ///
+    /// If `children` is empty, returns an iterator immediately at EOF.
+    #[must_use]
+    fn new_sorted_by(
+        mut children: Vec<I>,
+        weight: f64,
+        compare: impl FnMut(&I, &I) -> std::cmp::Ordering,
+        max_slop: Option<u32>,
+        in_order: bool,
+    ) -> Self {
         if !in_order {
-            children.sort_by_cached_key(|c| c.num_estimated());
+            children.sort_by(compare);
         }
-        // FIXME: Capped because of `ffi::IndexResult_IsWithinRange`
-        let max_slop = max_slop.map(|v| v.min(i32::MAX as u32));
         let Some(num_expected) = children.iter().map(|c| c.num_estimated()).min() else {
             return Self {
                 children,
@@ -99,7 +129,7 @@ where
                 is_eof: true,
                 max_slop,
                 in_order,
-                result: RSIndexResult::build_intersect(0).build(),
+                result: RSIndexResult::build_intersect(0).weight(weight).build(),
             };
         };
         let num_children = children.len();
@@ -110,8 +140,36 @@ where
             is_eof: false,
             max_slop,
             in_order,
-            result: RSIndexResult::build_intersect(num_children).build(),
+            result: RSIndexResult::build_intersect(num_children)
+                .weight(weight)
+                .build(),
         }
+    }
+
+    /// Dynamically append a new child iterator.
+    ///
+    /// Updates `num_expected` if the new child has a lower estimate than the current minimum.
+    pub fn push_child(&mut self, child: I) {
+        let est = child.num_estimated();
+        if est < self.num_expected {
+            self.num_expected = est;
+        }
+        self.children.push(child);
+    }
+
+    /// Returns the number of child iterators.
+    pub const fn num_children(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns a shared reference to the child at `idx`.
+    pub fn child_at(&self, idx: usize) -> &I {
+        &self.children[idx]
+    }
+
+    /// Returns a mutable iterator over all child iterators.
+    pub fn children_mut(&mut self) -> impl Iterator<Item = &mut I> {
+        self.children.iter_mut()
     }
 
     /// Returns `true` if the current result needs a proximity check after consensus.
@@ -123,21 +181,11 @@ where
     }
 
     /// Check if the current aggregate result satisfies the proximity constraints.
+    ///
+    /// Delegates to [`is_within_range`], which handles union children (e.g. stemmed/synonym
+    /// expansions) by recursively merging offset positions across synonyms.
     fn current_is_relevant(&self) -> bool {
-        // SAFETY:
-        // - `self.result` is a valid, fully initialised `RSIndexResult`.
-        // - The C function reads from `r` without taking ownership or storing the pointer.
-        // - `from_ref` gives a `*const` pointer; `cast_mut` is required by the C API, which
-        //   uses a non-const pointer even though it only reads; no mutation occurs.
-        unsafe {
-            ffi::IndexResult_IsWithinRange(
-                std::ptr::from_ref(&self.result).cast_mut().cast(),
-                // `v as i32` is lossless: the constructor caps `max_slop` to
-                // `i32::MAX as u32`, so `v` always fits in `i32`.
-                self.max_slop.map_or(i32::MAX, |v| v as i32),
-                self.in_order as std::ffi::c_int,
-            ) != 0
-        }
+        is_within_range(&self.result, self.max_slop, self.in_order)
     }
 
     /// Find consensus on a doc_id and verify that the result satisfies the proximity constraints.
@@ -237,6 +285,11 @@ where
     /// - Restructure [`RSAggregateResult`](inverted_index::RSAggregateResult) to not require `'index` on stored references
     /// - Use a different aggregate pattern that doesn't store child references
     fn build_aggregate_result(&mut self, doc_id: t_docId) {
+        // Reset all per-document accumulating fields before building the new aggregate.
+        self.result.freq = 0;
+        self.result.field_mask = 0;
+        // SAFETY: `self.result` is a valid, initialized `RSIndexResult`.
+        unsafe { ResultMetrics_Reset_func(&mut self.result) };
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }
@@ -257,6 +310,80 @@ where
                 self.result.push_borrowed(child_ref);
             }
         }
+    }
+}
+
+/// Outcome of [`Intersection::reduce`].
+pub enum ReducedIntersection<I> {
+    /// One child was empty — the intersection is trivially empty.
+    /// All other children have already been dropped.
+    Empty,
+    /// Exactly one child survived (or all children were wildcards —
+    /// the last one is returned). No intersection wrapper is needed.
+    Single(I),
+    /// Two or more real, non-wildcard children: build a full [`Intersection`].
+    Proceed(Vec<I>),
+}
+
+impl<'index, I> Intersection<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    /// Reduce `children` before constructing an intersection.
+    ///
+    /// 0. No children → `Empty`.
+    /// 1. Strip wildcards. If all were wildcards → `Single(last_wildcard)`.
+    /// 2. Any empty child → `Empty` (all others are dropped).
+    /// 3. Exactly one non-wildcard child → `Single(child)`.
+    /// 4. Two or more real children → `Proceed(children)`.
+    pub fn reduce(children: Vec<I>) -> ReducedIntersection<I> {
+        // Rule 0
+        if children.is_empty() {
+            return ReducedIntersection::Empty;
+        }
+
+        // Rule 1: strip wildcards, keep track of the last one seen before any non-wildcard
+        let mut last_wildcard: Option<I> = None;
+        let mut kept: Vec<I> = Vec::with_capacity(children.len());
+        let mut seen_non_wildcard = false;
+
+        for child in children {
+            if child.is_wildcard() {
+                if seen_non_wildcard {
+                    drop(child); // wildcard after non-wildcard: discard immediately
+                } else {
+                    last_wildcard = Some(child); // Drop evicts the previous wildcard
+                }
+            } else {
+                seen_non_wildcard = true;
+                if let Some(wc) = last_wildcard.take() {
+                    drop(wc); // first non-wildcard: discard saved wildcard
+                }
+                kept.push(child);
+            }
+        }
+
+        if kept.is_empty() {
+            // All were wildcards
+            return match last_wildcard {
+                Some(wc) => ReducedIntersection::Single(wc),
+                None => ReducedIntersection::Empty, // defensive: empty input already handled above
+            };
+        }
+
+        // Rule 2: empty child detection
+        if kept.iter().any(|c| c.is_empty()) {
+            // Drop all kept children (including the empty one); intersection is empty
+            return ReducedIntersection::Empty;
+        }
+
+        // Rule 3
+        if kept.len() == 1 {
+            return ReducedIntersection::Single(kept.remove(0));
+        }
+
+        // Rule 4
+        ReducedIntersection::Proceed(kept)
     }
 }
 
@@ -372,6 +499,11 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.is_eof
+    }
+
+    fn sort_weight(&self) -> f64 {
+        let n = self.num_children();
+        if n == 0 { 1.0 } else { 1.0 / n as f64 }
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
