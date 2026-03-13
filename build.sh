@@ -403,10 +403,10 @@ prepare_cmake_arguments() {
       fi
     else
       LINKER="$LD"
-      if [[ ! "$LINKER" =~ ^lld ]]; then
+      if [[ ! "$LINKER" =~ lld(-[0-9]+)?$ ]]; then
         echo "Error: LTO requires lld as the linker"
         echo "Current LD: $LINKER"
-        echo "Please set LD to lld or a versioned lld (e.g., lld, lld-21)"
+        echo "Please set LD to lld (e.g. lld, lld-nn)"
         exit 1
       fi
     fi
