@@ -163,6 +163,22 @@ impl QueryIterator {
         })
     }
 
+    /// Create a C `OptionalOptimized` iterator.
+    ///
+    /// `qctx` must point to a `QueryEvalCtx` whose `sctx.spec.rule.index_all`
+    /// is `true` and whose `sctx.spec.existingDocs` points to a valid
+    /// `DocIdsOnly` inverted index. The `qctx` (and the `existingDocs` it
+    /// transitively references) **must outlive the returned iterator**, because
+    /// the iterator's internal wildcard holds a raw pointer into `sctx`.
+    #[inline(always)]
+    pub fn new_optional_optimized(
+        child: Self,
+        qctx: *mut ffi::QueryEvalCtx,
+        weight: f64,
+    ) -> Self {
+        Self(unsafe { ffi::NewOptionalIterator(child.into_raw(), qctx, weight) })
+    }
+
     /// Creates a new intersection iterator from child ID list iterators.
     ///
     /// # Arguments
@@ -400,6 +416,18 @@ impl InvertedIndex {
             inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
                 self.ii.cast(),
                 &record as *const _ as *mut _,
+            );
+        }
+    }
+
+    /// Write a bare document ID into a `DocIdsOnly`-encoded inverted index.
+    #[inline(always)]
+    pub fn write_doc_id(&self, doc_id: u64) {
+        let record = inverted_index::RSIndexResult::build_virt().doc_id(doc_id).build();
+        unsafe {
+            inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
+                self.ii.cast(),
+                &record as *const inverted_index::RSIndexResult,
             );
         }
     }
