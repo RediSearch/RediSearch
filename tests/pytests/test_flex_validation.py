@@ -319,6 +319,18 @@ def test_flex_blocks_dict_commands(env):
     env.expect('FT.DICTDUMP', 'dict') \
         .error().contains('FT.DICTDUMP is not supported in disk mode')
 
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_alter_command(env):
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 't2', 'TEXT') \
+        .error().contains('FT.ALTER is not supported in disk mode')
+    env.expect('FT._ALTERIFNX', 'idx', 'SCHEMA', 'ADD', 't2', 'TEXT') \
+        .error().contains('FT._ALTERIFNX is not supported in disk mode')
+
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_cursor_commands(env):
