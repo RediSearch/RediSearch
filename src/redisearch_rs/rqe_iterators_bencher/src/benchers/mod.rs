@@ -14,4 +14,5 @@ pub mod inverted_index;
 pub mod metric;
 pub mod not;
 pub mod optional;
+pub mod union;
 pub mod wildcard;
