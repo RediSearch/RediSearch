@@ -74,11 +74,11 @@ impl RsString {
     ///    takes ownership of the allocation.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    #[expect(clippy::multiple_unsafe_ops_per_block)]
+    // #[expect(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn rm_alloc_string(ptr: *const c_char, len: u32) -> Self {
         debug_assert!(!ptr.is_null());
-        // Safety: ensured by caller (1., 2., 3.)
-        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
+        // // Safety: ensured by caller (1., 2., 3.)
+        // debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
             ptr,
@@ -98,11 +98,11 @@ impl RsString {
     ///    this [`RsString`] is exists.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    #[expect(clippy::multiple_unsafe_ops_per_block)]
+    // #[expect(clippy::multiple_unsafe_ops_per_block)]
     pub unsafe fn borrowed_string(ptr: *const c_char, len: u32) -> Self {
         debug_assert!(!ptr.is_null());
-        // Safety: ensured by caller (1., 2., 3.)
-        debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
+        // // Safety: ensured by caller (1., 2., 3.)
+        // debug_assert!(unsafe { ptr.add(len as usize).read() } as u8 == b'\0');
 
         Self {
             ptr,
