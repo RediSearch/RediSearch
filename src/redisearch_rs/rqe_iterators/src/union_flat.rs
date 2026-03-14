@@ -193,20 +193,27 @@ where
 
     /// Full mode skip_to - scans all active children and aggregates all matches.
     /// Removes exhausted children via swap-remove.
+    ///
+    /// Uses `t_docId::MAX` sentinel instead of `Option<t_docId>` to avoid unwrap overhead.
     fn skip_to_full(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let mut min_id: Option<t_docId> = None;
+        // Use MAX as sentinel like C uses DOCID_MAX - avoids Option overhead
+        let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
 
         while i < self.num_active {
             let child = &mut self.children[i];
 
+            // Cache last_doc_id to avoid redundant calls
+            let child_last_id = child.last_doc_id();
+
             // Already at or past target doc_id
-            if child.last_doc_id() >= doc_id {
-                let id = child.last_doc_id();
-                min_id = Some(min_id.map_or(id, |m| m.min(id)));
+            if child_last_id >= doc_id {
+                if child_last_id < min_id {
+                    min_id = child_last_id;
+                }
                 i += 1;
                 continue;
             }
@@ -216,7 +223,9 @@ where
                 match child.skip_to(doc_id)? {
                     Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => {
                         let id = r.doc_id;
-                        min_id = Some(min_id.map_or(id, |m| m.min(id)));
+                        if id < min_id {
+                            min_id = id;
+                        }
                     }
                     None => {
                         // Child exhausted - swap-remove and continue without incrementing i
@@ -232,10 +241,10 @@ where
             i += 1;
         }
 
-        let Some(min_id) = min_id else {
+        if min_id == t_docId::MAX {
             self.is_eof = true;
             return Ok(None);
-        };
+        }
 
         self.build_aggregate_result(min_id);
 
@@ -249,82 +258,81 @@ where
     /// Quick mode skip_to - returns immediately on first exact match.
     /// Tracks minimum doc_id among non-matches for NotFound case.
     /// Removes exhausted children via swap-remove.
+    ///
+    /// Optimizations vs naive implementation:
+    /// - Uses `t_docId::MAX` sentinel instead of `Option<t_docId>` to avoid unwrap overhead
+    /// - Caches `last_doc_id()` result to avoid redundant calls (C accesses a struct field directly)
+    /// - Uses a single comparison chain like C's implementation
     fn skip_to_quick(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let mut min_id: Option<t_docId> = None;
-        let mut min_child_idx: Option<usize> = None;
+        // Use MAX as sentinel like C uses DOCID_MAX - avoids Option overhead
+        let mut min_id: t_docId = t_docId::MAX;
+        let mut min_child_idx: usize = 0;
         let mut i = 0;
 
         while i < self.num_active {
             let child = &mut self.children[i];
 
-            // Check if child already has the exact match
-            if child.last_doc_id() == doc_id {
-                // Found exact match - set result and return immediately
-                self.quick_set_from_child(i);
-                return Ok(Some(SkipToOutcome::Found(&mut self.result)));
-            }
+            // Cache last_doc_id to avoid multiple calls (matches C's direct field access pattern)
+            let child_last_id = child.last_doc_id();
 
-            if child.last_doc_id() > doc_id {
-                // Child is ahead - track as potential minimum
-                let id = child.last_doc_id();
-                if min_id.is_none() || id < min_id.unwrap() {
-                    min_id = Some(id);
-                    min_child_idx = Some(i);
-                }
-                i += 1;
-                continue;
-            }
-
-            // Child is behind (last_doc_id < doc_id) - need to skip
-            // If child is at EOF, it cannot be skipped further, so remove it
-            if child.at_eof() {
-                // Update min_child_idx if it points to the child being swapped in
-                if min_child_idx == Some(self.num_active - 1) {
-                    min_child_idx = Some(i);
-                }
-                self.swap_remove_child(i);
-                continue;
-            }
-
-            match child.skip_to(doc_id)? {
-                Some(SkipToOutcome::Found(_)) => {
-                    // Found exact match - set result and return immediately
-                    self.quick_set_from_child(i);
-                    return Ok(Some(SkipToOutcome::Found(&mut self.result)));
-                }
-                Some(SkipToOutcome::NotFound(r)) => {
-                    // Track as potential minimum
-                    let id = r.doc_id;
-                    if min_id.is_none() || id < min_id.unwrap() {
-                        min_id = Some(id);
-                        min_child_idx = Some(i);
-                    }
-                }
-                None => {
-                    // Child reached EOF - swap-remove
-                    if min_child_idx == Some(self.num_active - 1) {
-                        min_child_idx = Some(i);
+            if child_last_id < doc_id {
+                // Child is behind - need to skip (or remove if at EOF)
+                if child.at_eof() {
+                    // Update min_child_idx if it points to the child being swapped in
+                    if min_child_idx == self.num_active - 1 {
+                        min_child_idx = i;
                     }
                     self.swap_remove_child(i);
                     continue;
+                }
+
+                match child.skip_to(doc_id)? {
+                    Some(SkipToOutcome::Found(_)) => {
+                        // Found exact match - set result and return immediately
+                        self.quick_set_from_child(i);
+                        return Ok(Some(SkipToOutcome::Found(&mut self.result)));
+                    }
+                    Some(SkipToOutcome::NotFound(r)) => {
+                        // Track as potential minimum
+                        let id = r.doc_id;
+                        if id < min_id {
+                            min_id = id;
+                            min_child_idx = i;
+                        }
+                    }
+                    None => {
+                        // Child reached EOF - swap-remove
+                        if min_child_idx == self.num_active - 1 {
+                            min_child_idx = i;
+                        }
+                        self.swap_remove_child(i);
+                        continue;
+                    }
+                }
+            } else if child_last_id == doc_id {
+                // Found exact match - set result and return immediately
+                self.quick_set_from_child(i);
+                return Ok(Some(SkipToOutcome::Found(&mut self.result)));
+            } else {
+                // child_last_id > doc_id: Child is ahead - track as potential minimum
+                if child_last_id < min_id {
+                    min_id = child_last_id;
+                    min_child_idx = i;
                 }
             }
             i += 1;
         }
 
         // No exact match found - use minimum if available
-        match (min_id, min_child_idx) {
-            (Some(_), Some(idx)) => {
-                self.quick_set_from_child(idx);
-                Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
-            }
-            _ => {
-                self.is_eof = true;
-                Ok(None)
-            }
+        if min_id != t_docId::MAX {
+            self.quick_set_from_child(min_child_idx);
+            Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
+        } else {
+            self.is_eof = true;
+            Ok(None)
         }
     }
 
