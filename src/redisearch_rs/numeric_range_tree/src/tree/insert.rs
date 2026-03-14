@@ -313,7 +313,7 @@ impl NumericRangeTree {
 
         // Redistribute entries to children
         let mut reader = parent_range.reader();
-        let mut result = inverted_index::RSIndexResult::numeric(0.0);
+        let mut result = inverted_index::RSIndexResult::build_numeric(0.0).build();
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let entry_value = unsafe { result.as_numeric_unchecked() };
@@ -354,7 +354,7 @@ impl NumericRangeTree {
 
         let mut values: Vec<f64> = Vec::with_capacity(num_entries);
         let mut reader = range.reader();
-        let mut result = RSIndexResult::numeric(0.0);
+        let mut result = RSIndexResult::build_numeric(0.0).build();
 
         // Collect all values
         while reader.next_record(&mut result).unwrap_or(false) {
@@ -441,7 +441,7 @@ impl NumericRangeTree {
 ///
 /// Captures the new depth and any delta changes caused by a rotation
 /// (e.g. dropped ranges). Callers apply the relevant fields to their
-/// own result type ([`AddResult`] or [`TrimEmptyLeavesResult`]).
+/// own result type ([`AddResult`] or [`super::TrimEmptyLeavesResult`]).
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct BalanceResult {
     /// The new `max_depth` for the balanced node.

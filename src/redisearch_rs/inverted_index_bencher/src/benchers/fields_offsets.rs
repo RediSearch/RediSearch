@@ -128,7 +128,12 @@ impl Bencher {
         c.bench_function(&id, |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = if self.wide {
                             FieldsOffsetsWide::decode(cursor, 100, result)

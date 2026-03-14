@@ -13,11 +13,15 @@ use std::time::Duration;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 
+mod missing;
 mod numeric;
+mod tag;
 mod term;
 mod wildcard;
 
+pub use missing::MissingBencher;
 pub use numeric::NumericBencher;
+pub use tag::TagBencher;
 pub use term::TermBencher;
 pub use wildcard::WildcardBencher;
 

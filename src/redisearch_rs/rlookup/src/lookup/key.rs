@@ -81,7 +81,7 @@ pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 pub const GET_KEY_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
 
-/// Flags do not persist to the key, they are just options to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
+/// Flags do not persist to the key, they are just options to [`super::RLookup::get_key_read`], [`super::RLookup::get_key_write`], or [`super::RLookup::get_key_load`].
 pub const TRANSIENT_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | ForceLoad | NameAlloc});
 
@@ -245,7 +245,7 @@ impl<'a> RLookupKey<'a> {
     /// Constructs a `Pin<Box<RLookupKey>>` from a raw pointer.
     ///
     /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
-    /// will deallocate the `RLookupKey`. This function should only be used by [`RLookup::drop`].
+    /// will deallocate the `RLookupKey`. This function should only be used by [`super::key_list::KeyList`]'s `drop` implementation.
     ///
     /// # Safety
     ///
@@ -301,7 +301,6 @@ impl<'a> RLookupKey<'a> {
         #[cfg(any(debug_assertions, test))]
         if is_tombstone {
             debug_assert!(self.name_len == usize::MAX);
-            debug_assert!(self.path.is_null());
             debug_assert!(self.flags.contains(RLookupKeyFlag::Hidden))
         }
 
@@ -346,7 +345,19 @@ impl<'a> RLookupKey<'a> {
         me.header.name_len = usize::MAX;
         let name = mem::take(me._name.deref_mut());
 
-        me.header.path = ptr::null();
+        // We intentionally do NOT null `header.path` here.
+        //
+        // C callers may hold raw pointers to keys that later get tombstoned (e.g. a LOAD
+        // step stores a key pointer, then an APPLY with the same name overrides/tombstones it).
+        // Those callers still need a valid path string to continue working (e.g. to load the
+        // field value from the document before the APPLY overwrites it).
+        //
+        // The backing memory for `header.path` transfers to the new key's `_name` or `_path`
+        // via `override_current`, and both the tombstone and the new key share the same
+        // `RLookup` lifetime, so the pointer remains valid.
+        //
+        // This mirrors the original C behaviour: `overrideKey` never cleared `_path`.
+
         let path = mem::take(me._path.deref_mut());
 
         // this will exclude it from iteration

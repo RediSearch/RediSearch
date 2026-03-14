@@ -60,7 +60,7 @@ impl Decoder for FieldsOnly {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(
@@ -132,7 +132,7 @@ impl Decoder for FieldsOnlyWide {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(

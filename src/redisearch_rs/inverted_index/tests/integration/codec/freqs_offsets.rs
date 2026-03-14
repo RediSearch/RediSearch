@@ -71,7 +71,7 @@ fn test_encode_freqs_offsets_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::term();
+    let record = inverted_index::RSIndexResult::build_term().build();
 
     let res = FreqsOffsets::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
@@ -115,7 +115,7 @@ fn test_seek_freqs_offsets() {
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let mut record_decoded = RSIndexResult::term();
+    let mut record_decoded = RSIndexResult::build_term().build();
 
     let found = FreqsOffsets::seek(&mut buf, 10, 30, &mut record_decoded)
         .expect("to decode freqs offsets record");
