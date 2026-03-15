@@ -18,4 +18,4 @@ parse_deps = true
 include = ["rlookup", "search_result"]
 
 [export]
-exclude = ["Option_DocumentMetadata", "SearchResultFlags"]
+exclude = ["Option_DocumentMetadata", "RLookupRow", "SearchResultFlags"]

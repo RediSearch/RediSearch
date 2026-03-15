@@ -619,6 +619,38 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx,
                                QueryError *status);
 
 /**
+ * Advances the iterator to the next key, placing a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys, or `false` when exhausted
+ * (the caller should not call this function again after `false` is returned).
+ *
+ * # Safety
+ *
+ * 1. `iterator` must be a [valid], non-null pointer to an `RLookupIterator`.
+ * 2. `key` must be a [valid], non-null pointer for writes of one `*const RLookupKey`.
+ * 3. The iterator must not outlive the `RLookup` it was created from.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookupIterator_Next(struct RLookupIterator *iterator, const struct RLookupKey **key);
+
+/**
+ * Advances the mutable iterator to the next key, placing a pointer to it into `key`.
+ *
+ * Returns `true` while there are more keys, or `false` when exhausted
+ * (the caller should not call this function again after `false` is returned).
+ *
+ * # Safety
+ *
+ * 1. `iterator` must be a [valid], non-null pointer to an `RLookupIteratorMut`.
+ * 2. `key` must be a [valid], non-null pointer for writes of one `*mut RLookupKey`.
+ * 3. The iterator must not outlive the `RLookup` it was created from.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookupIteratorMut_Next(struct RLookupIteratorMut *iterator, struct RLookupKey **key);
+
+/**
  * Return an iterator over an [`RLookup`]'s key list.
  *
  * # Safety
@@ -644,19 +676,6 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
-
-#if defined(ENABLE_ASSERT)
-/**
- * Run internal assertions on an [`RLookup`].
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void __RLookup_AssertValid(const struct RLookup *lookup);
-#endif
 
 /**
  * Returns a newly created [`RLookupRow`].
