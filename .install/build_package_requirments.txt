@@ -1,4 +1,5 @@
 addict
 toml
 jinja2
+setuptools>=65.0.0
 ramp-packer==2.5.10

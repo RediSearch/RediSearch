@@ -325,12 +325,132 @@ def testDumpHNSW(env):
         .contains("The given key does not exist in index")
 
     # Test valid scenarios - with and without specifying a specific document (dump for all if doc is not provided).
+    # Note: Each level array now includes incoming edges count at the end
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_doc1').\
-        equal(['Doc id', 1, ['Neighbors in level 0', 2]])
+        equal(['Doc id', 1, ['Neighbors in level 0', 2, 'Incoming edges: 0']])
 
     env.expect('FT.DEBUG', 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
-        equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]],
+        equal([['Doc id', 1, ['Neighbors in level 0', 2, 'Incoming edges: 0']], ['Doc id', 2, ['Neighbors in level 0', 1, 'Incoming edges: 0']],
                "Doc id 3 doesn't contain the given field"])
+
+@skip(cluster=True)
+def testDumpHNSW_ZeroVectors_IncomingEdges(env: Env):
+    """
+    Test that DUMP_HNSW correctly reports incoming edges counts.
+    This is particularly important for debugging memory growth issues with zero vectors,
+    where nodes may have 0 outgoing neighbors but many incoming edges.
+    """
+    import struct
+
+    # Create index with HNSW
+    dim = 4
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'TYPE', 'FLOAT32')
+    waitForIndex(env, 'idx')
+
+    # Insert zero vectors - these all have distance 0 from each other
+    # Use a larger count to trigger unidirectional edge accumulation
+    num_vectors = 1000
+    zero_vec = struct.pack('ffff', 0.0, 0.0, 0.0, 0.0)
+    for i in range(num_vectors):
+        env.cmd('HSET', f'doc{i}', 'v', zero_vec)
+
+    # Dump the HNSW graph and verify incoming edges are reported
+    result = env.cmd('FT.DEBUG', 'DUMP_HNSW', 'idx', 'v')
+
+    # Each document should have a response with incoming edges info
+    env.assertEqual(len(result), num_vectors)
+
+    total_incoming = 0
+    for doc_result in result:
+        # Each doc_result should be: ['Doc id', <id>, ['Neighbors in level 0', <n1>, ..., 'Incoming edges: X']]
+        env.assertEqual(doc_result[0], 'Doc id')
+        level_data = doc_result[2]  # The level 0 neighbors array
+        env.assertEqual(level_data[0], 'Neighbors in level 0')
+        # Last element should be incoming edges info
+        incoming_info = level_data[-1]
+        env.assertTrue(incoming_info.startswith('Incoming edges:'),
+                       message=f"Expected 'Incoming edges:' but got '{incoming_info}'")
+        # Parse the count
+        incoming_count = int(incoming_info.split(': ')[1])
+        total_incoming += incoming_count
+
+    # With zero vectors, the heuristic may reject neighbors, leading to unidirectional edges
+    # Print detailed statistics to help debug memory growth issues
+    env.debugPrint(f"=== ZERO VECTORS ===", force=True)
+    env.debugPrint(f"Total incoming edges across all nodes: {total_incoming}", force=True)
+
+    # Count nodes with 0 outgoing neighbors and track max incoming edges
+    zero_outgoing_count = 0
+    max_incoming = 0
+    incoming_distribution = {}
+
+    for doc_result in result:
+        level_data = doc_result[2]
+        # Count outgoing neighbors (all elements except first label and last incoming info)
+        outgoing_count = len(level_data) - 2  # Exclude 'Neighbors in level 0' and 'Incoming edges: X'
+        if outgoing_count == 0:
+            zero_outgoing_count += 1
+
+        # Parse incoming count
+        incoming_info = level_data[-1]
+        incoming_count = int(incoming_info.split(': ')[1])
+        max_incoming = max(max_incoming, incoming_count)
+        incoming_distribution[incoming_count] = incoming_distribution.get(incoming_count, 0) + 1
+
+    env.debugPrint(f"Nodes with 0 outgoing neighbors: {zero_outgoing_count}/{num_vectors}", force=True)
+    env.debugPrint(f"Max incoming edges on any node: {max_incoming}", force=True)
+    env.debugPrint(f"Incoming edges distribution (count: num_nodes): {dict(sorted(incoming_distribution.items()))}", force=True)
+
+@skip(cluster=True)
+def testDumpHNSW_RandomVectors_IncomingEdges(env: Env):
+    """
+    Compare incoming edges distribution with random vectors vs zero vectors.
+    Random vectors should have a more balanced distribution.
+    """
+    import struct
+    import random
+
+    random.seed(42)  # For reproducibility
+
+    # Create index with HNSW
+    dim = 4
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'TYPE', 'FLOAT32')
+    waitForIndex(env, 'idx')
+
+    # Insert random vectors
+    num_vectors = 1000
+    for i in range(num_vectors):
+        vec = struct.pack('ffff', random.random(), random.random(), random.random(), random.random())
+        env.cmd('HSET', f'doc{i}', 'v', vec)
+
+    # Dump the HNSW graph
+    result = env.cmd('FT.DEBUG', 'DUMP_HNSW', 'idx', 'v')
+    env.assertEqual(len(result), num_vectors)
+
+    total_incoming = 0
+    zero_outgoing_count = 0
+    max_incoming = 0
+    incoming_distribution = {}
+
+    for doc_result in result:
+        level_data = doc_result[2]
+        outgoing_count = len(level_data) - 2
+        if outgoing_count == 0:
+            zero_outgoing_count += 1
+
+        incoming_info = level_data[-1]
+        incoming_count = int(incoming_info.split(': ')[1])
+        total_incoming += incoming_count
+        max_incoming = max(max_incoming, incoming_count)
+        incoming_distribution[incoming_count] = incoming_distribution.get(incoming_count, 0) + 1
+
+    env.debugPrint(f"=== RANDOM VECTORS ===", force=True)
+    env.debugPrint(f"Total incoming edges across all nodes: {total_incoming}", force=True)
+    env.debugPrint(f"Nodes with 0 outgoing neighbors: {zero_outgoing_count}/{num_vectors}", force=True)
+    env.debugPrint(f"Max incoming edges on any node: {max_incoming}", force=True)
+    env.debugPrint(f"Incoming edges distribution (count: num_nodes): {dict(sorted(incoming_distribution.items()))}", force=True)
 
 @skip(cluster=False)
 def testCoordDebug(env: Env):
