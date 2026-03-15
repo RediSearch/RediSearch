@@ -112,7 +112,9 @@ jobs:
       - name: Setup test dependencies
         run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
-        run: pip install -q -r .install/build_package_requirments.txt
+        run: |
+          source venv/bin/activate
+          pip install -q -r .install/build_package_requirments.txt
 
       # Get Redis
       - name: Get Redis (node20)
