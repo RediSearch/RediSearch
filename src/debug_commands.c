@@ -119,6 +119,85 @@ bool StoreResultsDebugCtx_IsPaused(void) {
 void StoreResultsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalStoreResultsDebugCtx.pause, pause);
 }
+
+// ============================================================================
+// Named Sync Points Implementation
+// ============================================================================
+static SyncPointCtx globalSyncPointCtx = {0};
+
+// Internal helper: find sync point by name
+static SyncPointState* SyncPoint_FindByName(const char *name) {
+  // Use acquire semantics to synchronize with the release fence in SyncPoint_Arm,
+  // ensuring we see fully initialized slots when iterating.
+  uint32_t count = atomic_load_explicit(&globalSyncPointCtx.count, memory_order_acquire);
+  for (uint32_t i = 0; i < count; i++) {
+    if (strcmp(globalSyncPointCtx.points[i].name, name) == 0) {
+      return &globalSyncPointCtx.points[i];
+    }
+  }
+  return NULL;
+}
+
+bool SyncPoint_Arm(const char *name) {
+  SyncPointState *existing = SyncPoint_FindByName(name);
+  if (existing) {
+    atomic_store(&existing->armed, true);
+    return true;
+  }
+  // Reserve a slot atomically. We use a simple counter since ARM is only called
+  // from the main thread (via FT.DEBUG command), so no concurrent ARMs occur.
+  uint32_t idx = atomic_load(&globalSyncPointCtx.count);
+  if (idx >= SYNC_POINT_MAX_ARMED) {
+    return false;
+  }
+  // Initialize the slot BEFORE making it visible to avoid data race:
+  // Other threads calling SyncPoint_FindByName iterate up to `count`,
+  // so we must fully initialize before incrementing count.
+  SyncPointState *sp = &globalSyncPointCtx.points[idx];
+  strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
+  sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
+  atomic_store(&sp->armed, true);
+  atomic_store(&sp->waiting, false);
+  // Memory fence: ensure all writes above are visible before incrementing count
+  atomic_thread_fence(memory_order_release);
+  atomic_fetch_add(&globalSyncPointCtx.count, 1);
+  return true;
+}
+
+void SyncPoint_Signal(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (sp) atomic_store(&sp->armed, false);  // Disarm to release waiting thread
+}
+
+bool SyncPoint_IsWaiting(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->waiting) : false;
+}
+
+bool SyncPoint_IsArmed(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  return sp ? atomic_load(&sp->armed) : false;
+}
+
+void SyncPoint_ClearAll(void) {
+  uint32_t count = atomic_load(&globalSyncPointCtx.count);
+  for (uint32_t i = 0; i < count; i++) {
+    atomic_store(&globalSyncPointCtx.points[i].armed, false);
+    atomic_store(&globalSyncPointCtx.points[i].waiting, false);
+  }
+  atomic_store(&globalSyncPointCtx.count, 0);
+}
+
+void SyncPoint_Wait(const char *name) {
+  SyncPointState *sp = SyncPoint_FindByName(name);
+  if (!sp || !atomic_load(&sp->armed)) return;
+
+  atomic_store(&sp->waiting, true);
+  while (atomic_load(&sp->armed)) {
+    usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
+  }
+  atomic_store(&sp->waiting, false);
+}
 #endif
 
 void validateDebugMode(DebugCTX *debugCtx) {
@@ -2212,6 +2291,64 @@ DEBUG_COMMAND(printRPStream) {
   return REDISMODULE_OK;
 }
 
+#ifdef ENABLE_ASSERT
+// Subcommand constants for SYNC_POINT
+#define SYNC_POINT_SUBCMD_ARM        "ARM"
+#define SYNC_POINT_SUBCMD_SIGNAL     "SIGNAL"
+#define SYNC_POINT_SUBCMD_IS_WAITING "IS_WAITING"
+#define SYNC_POINT_SUBCMD_IS_ARMED   "IS_ARMED"
+#define SYNC_POINT_SUBCMD_CLEAR      "CLEAR"
+
+/**
+ * FT.DEBUG SYNC_POINT <subcommand> [point_name]
+ *
+ * Subcommands:
+ *   ARM <name>        - Enable a sync point (queries will pause when reaching it)
+ *   SIGNAL <name>     - Resume execution at a sync point
+ *   IS_WAITING <name> - Check if a query is paused at a sync point
+ *   IS_ARMED <name>   - Check if a sync point is armed
+ *   CLEAR             - Reset all sync points
+ */
+DEBUG_COMMAND(syncPoint) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  // argc layout: FT.DEBUG SYNC_POINT <subcommand> [<point_name>]
+  // argv[0] = FT.DEBUG, argv[1] = SYNC_POINT, argv[2] = subcommand, argv[3] = point_name
+  if (argc < 3) return RedisModule_WrongArity(ctx);
+
+  const char *subOp = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcmp(SYNC_POINT_SUBCMD_ARM, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    if (!SyncPoint_Arm(name)) {
+      return RedisModule_ReplyWithError(ctx, "ERR max sync points reached");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (!strcmp(SYNC_POINT_SUBCMD_SIGNAL, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    SyncPoint_Signal(name);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  if (!strcmp(SYNC_POINT_SUBCMD_IS_WAITING, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithBool(ctx, SyncPoint_IsWaiting(name));
+  }
+  if (!strcmp(SYNC_POINT_SUBCMD_IS_ARMED, subOp)) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    const char *name = RedisModule_StringPtrLen(argv[3], NULL);
+    return RedisModule_ReplyWithBool(ctx, SyncPoint_IsArmed(name));
+  }
+  if (!strcmp(SYNC_POINT_SUBCMD_CLEAR, subOp)) {
+    SyncPoint_ClearAll();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  return RedisModule_ReplyWithError(ctx, "Unknown SYNC_POINT subcommand. Valid: ARM, SIGNAL, IS_WAITING, IS_ARMED, CLEAR");
+}
+#endif
+
 /**
  * FT.DEBUG QUERY_CONTROLLER <command> [options]
  */
@@ -2550,6 +2687,13 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
+#ifdef ENABLE_ASSERT
+  // Register SYNC_POINT command (only available with ENABLE_ASSERT)
+  int rc = RedisModule_CreateSubcommand(debugCommand, "SYNC_POINT", syncPoint,
+            IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+            RS_DEBUG_FLAGS);
+  if (rc != REDISMODULE_OK) return rc;
+#endif
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand,
           IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
           RS_DEBUG_FLAGS);
