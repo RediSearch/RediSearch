@@ -28,6 +28,9 @@ jobs:
   lint:
     needs: check-what-changed
     if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
@@ -57,6 +60,9 @@ jobs:
       # in the case of pull requests we want to run all jobs, even if one fails
       # we aren't blocking anybody from merging, and we want to see all failures
       fail-fast: false
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
