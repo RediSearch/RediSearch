@@ -65,7 +65,7 @@ where
                 last_doc_id: 0,
                 num_estimated: 0,
                 is_eof: true,
-                result: RSIndexResult::union(0),
+                result: RSIndexResult::build_union(0).build(),
             };
         }
 
@@ -75,7 +75,7 @@ where
             last_doc_id: 0,
             num_estimated,
             is_eof: false,
-            result: RSIndexResult::union(num_children),
+            result: RSIndexResult::build_union(num_children).build(),
         }
     }
 

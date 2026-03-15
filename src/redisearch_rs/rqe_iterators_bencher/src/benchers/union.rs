@@ -231,14 +231,14 @@ impl Bencher {
     }
 
     /// Benchmark Union iterator read() operation.
-    /// Compares C Full, C Quick, Rust Full, and Rust Quick variants.
+    /// Compares C Flat, C Heap, and Rust Flat variants (both Full and Quick modes).
     fn bench_read<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
     where
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C Full implementation benchmark (aggregates all matching children)
-        group.bench_function("C Full", |b| {
+        // C Flat Full implementation benchmark (aggregates all matching children)
+        group.bench_function("C Flat Full", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, false),
                 |it| {
@@ -251,8 +251,8 @@ impl Bencher {
             );
         });
 
-        // C Quick implementation benchmark (returns after first match)
-        group.bench_function("C Quick", |b| {
+        // C Flat Quick implementation benchmark (returns after first match)
+        group.bench_function("C Flat Quick", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
                 |it| {
@@ -265,8 +265,36 @@ impl Bencher {
             );
         });
 
-        // Rust Full variant (aggregates all matching children)
-        group.bench_function("Rust Full", |b| {
+        // C Heap Full implementation benchmark (aggregates all matching children)
+        group.bench_function("C Heap Full", |b| {
+            b.iter_batched_ref(
+                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, false),
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // C Heap Quick implementation benchmark (returns after first match)
+        group.bench_function("C Heap Quick", |b| {
+            b.iter_batched_ref(
+                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, true),
+                |it| {
+                    while it.read() == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // Rust Flat Full variant (aggregates all matching children)
+        group.bench_function("Rust Flat Full", |b| {
             b.iter_batched_ref(
                 || UnionFullFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
@@ -278,8 +306,8 @@ impl Bencher {
             );
         });
 
-        // Rust Quick variant (returns after first match)
-        group.bench_function("Rust Quick", |b| {
+        // Rust Flat Quick variant (returns after first match)
+        group.bench_function("Rust Flat Quick", |b| {
             b.iter_batched_ref(
                 || UnionQuickFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
@@ -293,14 +321,14 @@ impl Bencher {
     }
 
     /// Benchmark Union iterator skip_to() operation.
-    /// Compares C Full, C Quick, Rust Full, and Rust Quick variants.
+    /// Compares C Flat, C Heap, and Rust Flat variants (both Full and Quick modes).
     fn bench_skip_to<M, F>(&self, group: &mut BenchmarkGroup<'_, M>, make_ids: F)
     where
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C Full implementation benchmark (aggregates all matching children)
-        group.bench_function("C Full", |b| {
+        // C Flat Full implementation benchmark (aggregates all matching children)
+        group.bench_function("C Flat Full", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, false),
                 |it| {
@@ -313,8 +341,8 @@ impl Bencher {
             );
         });
 
-        // C Quick implementation benchmark (returns after first match)
-        group.bench_function("C Quick", |b| {
+        // C Flat Quick implementation benchmark (returns after first match)
+        group.bench_function("C Flat Quick", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
                 |it| {
@@ -327,8 +355,36 @@ impl Bencher {
             );
         });
 
-        // Rust Full variant (aggregates all matching children)
-        group.bench_function("Rust Full", |b| {
+        // C Heap Full implementation benchmark (aggregates all matching children)
+        group.bench_function("C Heap Full", |b| {
+            b.iter_batched_ref(
+                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, false),
+                |it| {
+                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // C Heap Quick implementation benchmark (returns after first match)
+        group.bench_function("C Heap Quick", |b| {
+            b.iter_batched_ref(
+                || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, true),
+                |it| {
+                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
+                        black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        });
+
+        // Rust Flat Full variant (aggregates all matching children)
+        group.bench_function("Rust Flat Full", |b| {
             b.iter_batched_ref(
                 || UnionFullFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
@@ -340,8 +396,8 @@ impl Bencher {
             );
         });
 
-        // Rust Quick variant (returns after first match)
-        group.bench_function("Rust Quick", |b| {
+        // Rust Flat Quick variant (returns after first match)
+        group.bench_function("Rust Flat Quick", |b| {
             b.iter_batched_ref(
                 || UnionQuickFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
