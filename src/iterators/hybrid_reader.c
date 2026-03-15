@@ -156,12 +156,137 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 int (*vecsimTimeoutCallback)(TimeoutCtx *ctx) = TimedOut_WithCtx;
 
-static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
+// Updates both locations where scores are stored:
+// 1. IndexResult numeric value (used by VECTOR_SCORE macro for heap ordering)
+// 2. metrics array entry (used downstream for $score in queries)
+static inline void updateResultScore(RSIndexResult *res, double score, RLookupKey *scoreKey) {
+  // Update IndexResult numeric value (handles both Metric and HybridMetric).
+  if (res->data.tag == RSResultData_Metric) {
+    IndexResult_SetNumValue(res, score);
+  } else {
+    // HybridMetric - score is stored in first child.
+    RSIndexResult *child = (RSIndexResult *)AggregateResult_Get(IndexResult_AggregateRef(res), 0);
+    IndexResult_SetNumValue(child, score);
+  }
+
+  // Update metrics array entry for downstream $score access.
+  for (size_t i = 0; i < array_len(res->metrics); i++) {
+    if (res->metrics[i].key == scoreKey) {
+      RSValue_DecrRef(res->metrics[i].value);
+      res->metrics[i].value = RSValue_NewNumber(score);
+      break;
+    }
+  }
+}
+
+// Comparison function for qsort (ascending by score - lower distance is better).
+static int cmpResultsByScore(const void *a, const void *b) {
+  const RSIndexResult *r1 = *(const RSIndexResult **)a;
+  const RSIndexResult *r2 = *(const RSIndexResult **)b;
+  double s1 = VECTOR_SCORE(r1), s2 = VECTOR_SCORE(r2);
+  if (s1 < s2) return -1;
+  if (s1 > s2) return 1;
+  return 0;
+}
+
+// Disk path: iterate child results, compute SQ8 distances via ad-hoc BF context.
+// The context preprocesses the query once (FP32 + SQ8) and registers a query marker
+// to ensure ID stability during the search.
+static VecSimQueryReply_Code computeDistances_Disk(HybridIterator *hr) {
+  double upper_bound = INFINITY;
+  VecSimQueryReply_Code rc = VecSim_QueryReply_OK;
+  RSIndexResult *cur_vec_res = NewMetricResult();
+
+  // Create ad-hoc BF context - preprocesses query (handles normalization internally),
+  // registers query marker to prevent ID recycling during search.
+  VecSimAdhocBfCtx *ctx = VecSimIndex_AdhocBfCtx_New(hr->index, hr->query.vector);
+  RS_ASSERT(ctx); // Disk indexes must always return a valid context
+
+  IteratorStatus child_status;
+  while ((child_status = hr->child->Read(hr->child)) != ITERATOR_EOF) {
+    // Check for timeout.
+    if (child_status == ITERATOR_TIMEOUT || vecsimTimeoutCallback(&hr->timeoutCtx)) {
+      rc = VecSim_QueryReply_TimedOut;
+      break;
+    }
+    RS_ASSERT(child_status == ITERATOR_OK);
+
+    // Get distance: tries flat buffer first (exact FP32), then backend (SQ8 approximate).
+    // Returns NaN if label not found (deleted during query).
+    double metric = VecSimIndex_AdhocBfCtx_GetDistanceFrom(ctx, hr->child->lastDocId);
+    if (isnan(metric)) {
+      continue;
+    }
+
+    if (hr->topResults->count < hr->query.k || metric < upper_bound) {
+      // Populate the vector result.
+      cur_vec_res->docId = hr->child->lastDocId;
+      IndexResult_SetNumValue(cur_vec_res, metric);
+      insertResultToHeap(hr, hr->child->current, &cur_vec_res, &upper_bound);
+    }
+  }
+
+  // Reranking: fetch exact FP32 distances from disk and recompute scores.
+  // This improves accuracy when initial distances were computed using SQ8 quantization.
+  if (hr->runtimeParams.hnswDiskRuntimeParams.shouldRerank == VecSimBool_TRUE &&
+      hr->topResults->count > 0) {
+    size_t count = hr->topResults->count;
+
+    // Access heap's data array (encapsulates 1-indexed internal layout).
+    RSIndexResult **results = (RSIndexResult **)mmh_get_data(hr->topResults);
+
+    // Heap-allocate arrays (safer than VLAs for potentially large k).
+    size_t *labels = rm_malloc(count * sizeof(size_t));
+    double *exactDistances = rm_malloc(count * sizeof(double));
+
+    // Build labels array from heap data.
+    for (size_t i = 0; i < count; i++) {
+      labels[i] = results[i]->docId;
+    }
+
+    // Batch fetch exact FP32 distances from disk.
+    VecSimIndex_AdhocBfCtx_GetExactDistances(ctx, labels, exactDistances, count);
+
+    // Update scores in-place (both IndexResult value and metrics array).
+    for (size_t i = 0; i < count; i++) {
+      if (!isnan(exactDistances[i])) {
+        updateResultScore(results[i], exactDistances[i], hr->ownKey);
+      }
+      // else: keep original approximate distance
+    }
+
+    // Sort by updated scores (ascending - lower distance is better).
+    qsort(results, count, sizeof(RSIndexResult *), cmpResultsByScore);
+
+    // Clear heap and re-insert top-k (maintains heap property for mmh_pop_min).
+    size_t keepCount = (count < hr->query.k) ? count : hr->query.k;
+    hr->topResults->count = 0;  // Clear without freeing (we still own pointers)
+    for (size_t i = 0; i < keepCount; i++) {
+      mmh_insert(hr->topResults, results[i]);
+    }
+
+    // Free excess results beyond top-k.
+    for (size_t i = keepCount; i < count; i++) {
+      IndexResult_Free(results[i]);
+    }
+
+    rm_free(labels);
+    rm_free(exactDistances);
+  }
+
+  VecSimIndex_AdhocBfCtx_Free(ctx);
+  IndexResult_Free(cur_vec_res);
+  return rc;
+}
+
+// RAM path: iterate child results, compute distances using shared locks.
+static VecSimQueryReply_Code computeDistances_RAM(HybridIterator *hr) {
   double upper_bound = INFINITY;
   VecSimQueryReply_Code rc = VecSim_QueryReply_OK;
   RSIndexResult *cur_vec_res = NewMetricResult();
   void *qvector = hr->query.vector;
 
+  // Normalize query vector for cosine metric (RAM path only - disk handles this internally).
   if (hr->indexMetric == VecSimMetric_Cosine) {
     qvector = rm_malloc(hr->dimension * VecSimType_sizeof(hr->vecType));
     memcpy(qvector, hr->query.vector, hr->dimension * VecSimType_sizeof(hr->vecType));
@@ -190,11 +315,20 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
     }
   }
   VecSimTieredIndex_ReleaseSharedLocks(hr->index);
+
   if (qvector != hr->query.vector) {
     rm_free(qvector);
   }
   IndexResult_Free(cur_vec_res);
   return rc;
+}
+
+// Main entry point - branches based on index type.
+static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
+  if (hr->sctx->spec->diskSpec) {
+    return computeDistances_Disk(hr);
+  }
+  return computeDistances_RAM(hr);
 }
 
 // Review the estimated child results num, and returns true if hybrid policy should change.

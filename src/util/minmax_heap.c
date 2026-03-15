@@ -344,3 +344,7 @@ void mmh_clear(mm_heap_t* h) {
   }
   h->count = 0;
 }
+
+void** mmh_get_data(mm_heap_t* h) {
+  return &h->data[1];
+}
