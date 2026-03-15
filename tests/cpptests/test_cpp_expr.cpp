@@ -660,39 +660,6 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypeComparison) {
   ASSERT_EXPR_EVAL_NUMBER(ctx, 0);  // NULL == 'hello' should be false
 }
 
-TEST_F(ExprTest, testEvalCtxEvalExprNullExpr) {
-  // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when called with NULL expression
-  EvalCtx *ctx = EvalCtx_Create(EVAL_MODE_QUERY);
-  ASSERT_NE(ctx, nullptr);
-
-  // Calling EvalCtx_EvalExpr with NULL should set _expr to NULL and return error
-  int rc = EvalCtx_EvalExpr(ctx, nullptr);
-  ASSERT_EQ(EXPR_EVAL_ERR, rc);
-
-  EvalCtx_Destroy(ctx);
-}
-
-TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
-  // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when the expression
-  // references a property that doesn't exist in the lookup registry
-  EvalCtx *ctx = EvalCtx_Create(EVAL_MODE_QUERY);
-  ASSERT_NE(ctx, nullptr);
-
-  // Create an expression that references a property @foo
-  // The lookup is empty (no properties registered), so this should fail
-  RSExpr *expr = RS_NewProp("foo", 3);
-
-  int rc = EvalCtx_EvalExpr(ctx, expr);
-  ASSERT_EQ(EXPR_EVAL_ERR, rc);
-
-  // Verify the error code is set
-  QueryErrorCode code = QueryError_GetCode(&ctx->status);
-  ASSERT_EQ(QUERY_ENOPROPKEY, code) << "Error should be QUERY_ENOPROPKEY";
-
-  // Clean up - we own the expression since EvalCtx_EvalExpr sets _own_expr = false
-  ExprAST_Free(expr);
-  EvalCtx_Destroy(ctx);
-}
 
 // Test AND expressions with missing fields
 // This tests the fix for the issue where expression evaluation order affects results

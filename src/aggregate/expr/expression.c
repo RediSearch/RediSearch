@@ -412,11 +412,11 @@ void EvalCtx_Destroy(EvalCtx *r) {
 
 int EvalCtx_Eval(EvalCtx *r) {
   if (!r->_expr) {
-    return EXPR_EVAL_ERR;
+    return REDISMODULE_ERR;
   }
   r->ee.root = r->_expr;
   if (ExprAST_GetLookupKeys((RSExpr *) r->ee.root, (RLookup *) r->ee.lookup, r->ee.err) != EXPR_EVAL_OK) {
-    return EXPR_EVAL_ERR;
+    return REDISMODULE_ERR;
   }
   return ExprEval_Eval(&r->ee, &r->res);
 }
