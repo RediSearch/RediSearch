@@ -403,6 +403,7 @@ void EvalCtx_Destroy(EvalCtx *r) {
   if (r->_expr && r->_own_expr) {
     ExprAST_Free((RSExpr *) r->_expr);
   }
+  QueryError_ClearError(&r->status);
   RLookupRow_Reset(&r->row);
   RLookup_Cleanup(&r->lk);
   rm_free(r);
