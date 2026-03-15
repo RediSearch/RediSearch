@@ -1157,6 +1157,7 @@ DEBUG_COMMAND(DeleteCursors) {
 
 void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 	int **neighbours_data = NULL;
+	int *incoming_edges_counts = NULL;
 	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
 	RedisModule_Reply reply = RedisModule_NewReply(ctx);
 	if (res == VecSimDebugCommandCode_LabelNotExists){
@@ -1164,20 +1165,31 @@ void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 		RedisModule_EndReply(&reply);
 		return;
 	}
+	// Also get incoming edges counts
+	VecSimDebug_GetElementIncomingEdgesInHNSWGraph(index, doc_id, &incoming_edges_counts);
+
 	START_POSTPONED_LEN_ARRAY(response);
 	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
 
 	size_t level = 0;
 	while (neighbours_data[level]) {
-		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
+		// Output neighbors + incoming edges count for this level
+		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 2); // +2: header + incoming count
 		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
 		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
 			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
+		}
+		// Add incoming edges count as last element
+		if (incoming_edges_counts && incoming_edges_counts[level] != -1) {
+			RedisModule_Reply_Stringf(&reply, "Incoming edges: %d", incoming_edges_counts[level]);
+		} else {
+			RedisModule_Reply_SimpleString(&reply, "Incoming edges: N/A");
 		}
     level++; ARRAY_LEN_VAR(response)++;
 	}
 	END_POSTPONED_LEN_ARRAY(response);
 	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
+	VecSimDebug_ReleaseElementIncomingEdgesInHNSWGraph(incoming_edges_counts);
 	RedisModule_EndReply(&reply);
 }
 
