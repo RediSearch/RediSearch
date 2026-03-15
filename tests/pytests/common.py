@@ -292,6 +292,11 @@ def getWorkersThpoolStats(env):
 def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
+def set_workers(env, workers):
+    """Set the worker thread count and verify that the change took effect."""
+    env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
+    env.assertEqual(getWorkersThpoolNumThreads(env), workers)
+
 
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))

@@ -1688,3 +1688,157 @@ def test_dump_deleted_ids(env):
 
     # Test error handling - non-existent index
     env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'nonexistent').error().contains('Can not create a search ctx')
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_basic_commands(env):
+    """Verify the basic SYNC_POINT command lifecycle and error handling."""
+    sync_point = 'BeforeFirstRead'
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT').error().contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM').error().contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'UNKNOWN', sync_point).error() \
+        .contains('Unknown SYNC_POINT subcommand')
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_max_armed_limit(env):
+    """Verify that the sync point registry enforces its fixed capacity."""
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+    for i in range(16):
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', f'point-{i}').ok()
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-overflow').error() \
+        .contains('max sync points reached')
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-after-clear').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', 'point-after-clear').equal(True)
+
+
+def _run_sync_point_query(conn, result_holder, error_holder, *query):
+    try:
+        result_holder.append(conn.execute_command(*query))
+    except Exception as e:
+        error_holder.append(e)
+
+
+def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *query):
+    """Run a query in the background, wait for the sync point, then release it."""
+    conn = env.getConnection()
+    result_holder = []
+    error_holder = []
+    query_thread = threading.Thread(
+        target=_run_sync_point_query,
+        args=(conn, result_holder, error_holder, *query),
+        daemon=True
+    )
+    query_thread.start()
+
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point} sync point')
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(True)
+    env.expect(*release_cmd).ok()
+
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
+        f'Timeout waiting for {sync_point} sync point to resume')
+
+    query_thread.join(timeout=10)
+    env.assertFalse(query_thread.is_alive(), message='Query thread is still blocked after release')
+    env.assertEqual(len(error_holder), 0, message=str(error_holder[0]) if error_holder else None)
+    env.assertEqual(result_holder[0], [1, 'doc1', ['t', 'hello']])
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_before_first_read_blocks_and_resumes(env):
+    """Verify that BeforeFirstRead blocks query execution until explicitly signaled."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+    waitForIndex(env, 'idx')
+    set_workers(env, 1)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'BeforeFirstRead').ok()
+    _assert_sync_point_query_blocks_and_resumes(
+        env,
+        'BeforeFirstRead',
+        (debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'BeforeFirstRead'),
+        'FT.SEARCH', 'idx', '*'
+    )
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_after_iterator_create_blocks_and_resumes(env):
+    """Verify that AfterIteratorCreate blocks query execution until explicitly signaled."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+    waitForIndex(env, 'idx')
+    set_workers(env, 1)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'AfterIteratorCreate').ok()
+    _assert_sync_point_query_blocks_and_resumes(
+        env,
+        'AfterIteratorCreate',
+        (debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'AfterIteratorCreate'),
+        'FT.SEARCH', 'idx', '*'
+    )
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_duplicate_arm_does_not_consume_extra_slot(env):
+    """Verify that re-arming the same named sync point is idempotent for capacity."""
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+    for _ in range(32):
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-0').ok()
+
+    for i in range(1, 16):
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', f'point-{i}').ok()
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-overflow').error() \
+        .contains('max sync points reached')
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_clear_releases_waiting_query(env):
+    """Verify that CLEAR disarms sync points and releases any blocked query."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+    waitForIndex(env, 'idx')
+    set_workers(env, 1)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'BeforeFirstRead').ok()
+    _assert_sync_point_query_blocks_and_resumes(
+        env,
+        'BeforeFirstRead',
+        (debug_cmd(), 'SYNC_POINT', 'CLEAR'),
+        'FT.SEARCH', 'idx', '*'
+    )
