@@ -531,7 +531,6 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
     RLookup_LoadRuleFields(RSDummyContext, &r->lk, &r->row, sp, keyCstr);
 
     ret = SchemaRule_FilterPasses(r, rule->filter_exp);
-    QueryError_ClearError(r->ee.err);
     EvalCtx_Destroy(r);
   }
 
