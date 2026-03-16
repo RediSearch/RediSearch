@@ -54,7 +54,7 @@ typedef struct ForkGC {
   volatile uint32_t execState;
 
   struct timespec retryInterval;
-  volatile atomic_size_t deletedOrUpdatedDocsFromLastRun;
+  atomic_size_t deletedOrUpdatedDocsFromLastRun;
 
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
