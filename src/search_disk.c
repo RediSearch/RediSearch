@@ -10,7 +10,6 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
-#include "trie/trie_type.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
@@ -111,9 +110,19 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk_db && index && ctx);
+    disk->basic.registerDb(ctx, index);
+}
+
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk_db && index && ctx);
+    disk->basic.unregisterDb(ctx, index);
+}
+
+void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk_db && index);
-    disk->basic.closeIndexSpec(ctx, disk_db, index);
+    disk->basic.closeIndexSpec(disk_db, index);
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {

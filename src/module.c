@@ -692,6 +692,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
+    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
@@ -1807,7 +1808,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
 extern dict *legacySpecDict, *legacySpecRules;
 
-void RediSearch_CleanupModule(void) {
+void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
@@ -1815,7 +1816,7 @@ void RediSearch_CleanupModule(void) {
   invoked = 1;
 
   // First free all indexes
-  Indexes_Free(specDict_g, false);
+  Indexes_Free(ctx, specDict_g, false);
   dictRelease(specDict_g);
   specDict_g = NULL;
 
@@ -4540,7 +4541,7 @@ void setHiredisAllocators(){
 
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  RediSearch_CleanupModule(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
