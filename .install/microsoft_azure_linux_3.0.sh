@@ -4,7 +4,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 $MODE tdnf install -q -y build-essential git wget ca-certificates tar unzip \
-                         rsync openssl-devel \
+                         rsync openssl-devel xz \
                          which clang libxcrypt-devel clang-devel gdb
 
 # We need Python headers to build psutil@5.x.y from

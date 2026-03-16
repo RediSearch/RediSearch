@@ -327,7 +327,7 @@ jobs:
         with:
           command: .install/test_deps/install_python_deps.sh ${{ needs.get-config.outputs.install_mode }}
       - name: Install LLVM for sanitizer
-        if: inputs.san == 'address' && needs.build-image.outputs.succeeded != 'true'
+        if: (inputs.san == 'address' || env.LTO == '1') && needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
         with:
           command: ./install_llvm.sh ${{ needs.get-config.outputs.install_mode }}
