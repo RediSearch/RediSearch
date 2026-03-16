@@ -213,8 +213,6 @@ static int set_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-
-
 static int set_inverted_bool_config(const char *name, int val, void *privdata,
                              RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);

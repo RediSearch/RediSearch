@@ -64,17 +64,12 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
  *
- * Also marks the index name as "being deleted" to prevent race conditions when
- * recreating an index with the same name before the async cleanup completes.
- *
  * @param index Pointer to the index
  */
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
- *
- * Also removes the index from the "being deleted" tracking set.
  *
  * @param ctx Redis module context for BigModule APIs (may be NULL)
  * @param index Pointer to the index to close
