@@ -10,14 +10,20 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
-#include "trie/trie_type.h"
 #include "redismodule.h"
+#include <pthread.h>
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 // Global flag to control async I/O (enabled by default, can be toggled via debug command)
 static bool asyncIOEnabled = true;
+
+// Thread-safe tracking of indexes being deleted asynchronously.
+// This prevents race conditions when dropping and recreating an index with the same name.
+// We use a dict as a simple set (values are NULL, we only care about key presence).
+static dict *indexesBeingDeleted = NULL;
+static pthread_mutex_t indexesBeingDeletedLock = PTHREAD_MUTEX_INITIALIZER;
 
 // Throttle callbacks for vector disk tiered indexes
 static int VecSim_EnableThrottle(void);
@@ -52,6 +58,9 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   disk_db = disk->basic.open();
+
+  // Initialize the tracking set for indexes being deleted (uses dict as a simple set)
+  indexesBeingDeleted = dictCreate(&dictTypeHeapStrings, NULL);
 
   return disk_db != NULL;
 }
@@ -106,14 +115,40 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *
     return disk->basic.openIndexSpec(ctx, disk_db, indexName, indexNameLen, type, deleteBeforeOpen);
 }
 
-void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
+void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index, const char *indexName, size_t indexNameLen) {
     RS_ASSERT(disk_db);
+
+    // Add index name to the "being deleted" set.
+    // dictAdd duplicates the key, so we need a null-terminated copy.
+    char *key = rm_strndup(indexName, indexNameLen);
+    pthread_mutex_lock(&indexesBeingDeletedLock);
+    // Value is NULL since we only care about key presence (using dict as a set).
+    dictAdd(indexesBeingDeleted, key, NULL);
+    pthread_mutex_unlock(&indexesBeingDeletedLock);
+    rm_free(key);
+
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char *indexName, size_t indexNameLen) {
     RS_ASSERT(disk_db && index);
     disk->basic.closeIndexSpec(ctx, disk_db, index);
+
+    // Remove index name from the "being deleted" set after close completes.
+    char *key = rm_strndup(indexName, indexNameLen);
+    pthread_mutex_lock(&indexesBeingDeletedLock);
+    dictDelete(indexesBeingDeleted, key);
+    pthread_mutex_unlock(&indexesBeingDeletedLock);
+    rm_free(key);
+}
+
+bool SearchDisk_IsIndexBeingDeleted(const char *indexName, size_t indexNameLen) {
+    char *key = rm_strndup(indexName, indexNameLen);
+    pthread_mutex_lock(&indexesBeingDeletedLock);
+    bool found = dictFind(indexesBeingDeleted, key) != NULL;
+    pthread_mutex_unlock(&indexesBeingDeletedLock);
+    rm_free(key);
+    return found;
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
