@@ -23,13 +23,6 @@
 extern "C" {
 #endif
 
-typedef enum {
-  RLOOKUP_C_STR = 0,
-  RLOOKUP_C_INT = 1,
-  RLOOKUP_C_DBL = 2,
-  RLOOKUP_C_BOOL = 3
-} RLookupCoerceType;
-
 #define RLOOKUP_FOREACH(key, rlookup, block) \
     RLookupIterator iter = RLookup_Iter(rlookup); \
     const RLookupKey* key; \

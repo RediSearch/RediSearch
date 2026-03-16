@@ -15,6 +15,13 @@
 #include "value.h"
 #include "util/arr.h"
 
+typedef enum {
+  RLOOKUP_C_STR = 0,
+  RLOOKUP_C_INT = 1,
+  RLOOKUP_C_DBL = 2,
+  RLOOKUP_C_BOOL = 3
+} RLookupCoerceType;
+
 static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
