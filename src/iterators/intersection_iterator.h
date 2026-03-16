@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #pragma once
 
@@ -25,7 +25,8 @@ extern "C" {
  *     (or a fresh empty iterator for a NULL slot) is returned.
  *  3. If exactly one non-wildcard child remains, it is returned directly.
  *  4. Otherwise NULL is returned and *num is updated to the compacted count —
- *     the caller should build a real intersection from its[0..*num].
+ *     the caller should build a real intersection from `its[0..*num]`
+ *     (wildcards beyond that index are already freed).
  *
  * When non-NULL is returned, `its` has already been freed.
  * When NULL is returned, `its` is still valid and owned by the caller.

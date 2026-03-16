@@ -142,6 +142,10 @@ const QueryIterator *GetIntersectionIteratorChild(const QueryIterator *header, s
  * Transfers ownership of `child` to the intersection. Updates the estimated result count
  * if the new child has a lower estimate than the current minimum.
  *
+ * # Note
+ *
+ * Unlike the constructor, this method does **not** re-sort the child list after insertion.
+ *
  * # Safety
  *
  * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator`].

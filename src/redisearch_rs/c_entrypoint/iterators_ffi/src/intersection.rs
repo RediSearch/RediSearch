@@ -10,9 +10,9 @@
 use std::ptr::NonNull;
 
 use ffi::{IteratorType, QueryIterator};
-use rqe_iterators::c2rust::CRQEIterator;
-use rqe_iterators::interop::RQEIteratorWrapper;
-use rqe_iterators::intersection::Intersection;
+use rqe_iterators::{
+    c2rust::CRQEIterator, interop::RQEIteratorWrapper, intersection::Intersection,
+};
 
 /// Free the C-allocated `its` array using the Redis allocator.
 ///
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
         return reduced; // `its` already freed by the C reducer
     }
 
-    // NULL return: num_filtered >= 2, its[0..num_filtered] are valid non-wildcard iterators.
+    // NULL returned from the reducer: num_filtered >= 2, its[0..num_filtered] are valid non-wildcard iterators.
     // SAFETY: `its` is still valid and `num_filtered` elements are initialised non-null pointers.
     let slice = unsafe { std::slice::from_raw_parts(its, num_filtered) };
     let children: Vec<CRQEIterator> = slice
@@ -71,7 +71,15 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     } else {
         Some(max_slop as u32)
     };
-    let intersection = Intersection::new_with_slop_order(children, weight, max_slop, in_order);
+    // SAFETY: `ffi::RSGlobalConfig` is the global config instance, read-only here.
+    let prioritize_union_children = unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+    let intersection = Intersection::new_with_slop_order(
+        children,
+        weight,
+        prioritize_union_children,
+        max_slop,
+        in_order,
+    );
     let wrapper = RQEIteratorWrapper::boxed_new(IteratorType::Intersect, intersection);
 
     // Free the `its` array (iterators are now owned by the intersection).
@@ -133,6 +141,10 @@ pub unsafe extern "C" fn GetIntersectionIteratorChild(
 ///
 /// Transfers ownership of `child` to the intersection. Updates the estimated result count
 /// if the new child has a lower estimate than the current minimum.
+///
+/// # Note
+///
+/// Unlike the constructor, this method does **not** re-sort the child list after insertion.
 ///
 /// # Safety
 ///

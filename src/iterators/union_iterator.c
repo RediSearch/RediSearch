@@ -484,14 +484,6 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
   return (base->lastDocId != original_lastDocId) ? VALIDATE_MOVED : VALIDATE_OK;
 }
 
-static double UI_SortWeight(const QueryIterator *base) {
-  if (RSGlobalConfig.prioritizeIntersectUnionChildren) {
-    const UnionIterator *ui = (const UnionIterator *)base;
-    return (double)ui->num;
-  }
-  return 1.0;
-}
-
 QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
                                 double weight, QueryNodeType type, const char *q_str, const IteratorsConfig *config) {
 
@@ -518,7 +510,6 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
   ret->Free = UI_Free;
   ret->Rewind = UI_Rewind;
   ret->Revalidate = UI_Revalidate;
-  ret->SortWeight = UI_SortWeight;
 
   // Choose `Read` and `SkipTo` implementations.
   // We have 2 factors for the choice:

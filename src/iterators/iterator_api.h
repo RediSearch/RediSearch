@@ -86,15 +86,6 @@ typedef struct QueryIterator {
 
   /* Rewind the iterator to the beginning and reset its state (including `atEOF` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
-
-
-  /** Returns a heuristic weight used by compound iterators (e.g. Intersection)
-   *  to order their children. A *lower* value means the child is placed first.
-   *  The final sort key is: num_estimated * sort_weight.
-   *  NULL means the iterator uses the default weight of 1.0.
-   *  FIXME: remove once all iterators are ported to Rust and CRQEIterator is gone. */
-  double (*SortWeight)(const struct QueryIterator *self);
-
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
