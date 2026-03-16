@@ -692,9 +692,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
-    size_t nameLen;
-    const char *name = HiddenString_GetUnsafe(sp->specName, &nameLen);
-    SearchDisk_MarkIndexForDeletion(sp->diskSpec, name, nameLen);
+    SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
   if((delDocs || sp->flags & Index_Temporary)) {

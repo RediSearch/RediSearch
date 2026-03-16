@@ -1799,13 +1799,6 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
 
-    // Check if this index is still being deleted asynchronously (race condition prevention)
-    if (SearchDisk_IsIndexBeingDeleted(name, len)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-        "Index with this name is still being deleted.");
-      goto failure;
-    }
-
     spec->diskSpec = SearchDisk_OpenIndex(ctx, name, len, spec->rule->type, false);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
@@ -2022,11 +2015,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
 
   // Close disk index before freeing spec name (needs the name for tracking)
-  if (spec->diskSpec) {
-    size_t nameLen;
-    const char *name = HiddenString_GetUnsafe(spec->specName, &nameLen);
-    SearchDisk_CloseIndex(NULL, spec->diskSpec, name, nameLen);
-  }
+  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
 
   // Free spec name (after disk close, which needs the name)
   HiddenString_Free(spec->specName, true);
@@ -2165,9 +2154,7 @@ void Indexes_Free(dict *d, bool deleteDiskData) {
     // Delete disk index before removing from globals
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (deleteDiskData && spec && spec->diskSpec) {
-      size_t nameLen;
-      const char *name = HiddenString_GetUnsafe(spec->specName, &nameLen);
-      SearchDisk_MarkIndexForDeletion(spec->diskSpec, name, nameLen);
+      SearchDisk_MarkIndexForDeletion(spec->diskSpec);
     }
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }
@@ -3364,13 +3351,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
 
-    // Check if this index is still being deleted asynchronously (shouldn't happen during RDB load)
-    if (SearchDisk_IsIndexBeingDeleted(name, len)) {
-      RedisModule_LogIOError(rdb, "warning",
-        "Index with this name is still being deleted");
-      goto cleanup;
-    }
-
     sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, !useSst);
     IndexSpec_PopulateVectorDiskParams(sp);
     if (!sp->diskSpec) {
@@ -3553,14 +3533,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-
-    // Check if this index is still being deleted asynchronously (shouldn't happen during RDB load)
-    if (SearchDisk_IsIndexBeingDeleted(name, len)) {
-      RedisModule_LogIOError(rdb, "warning",
-        "Index with this name is still being deleted");
-      StrongRef_Release(spec_ref);
-      return NULL;
-    }
 
     // Legacy RDB does not have SST persistence, so always delete before opening.
     sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);

@@ -68,22 +68,8 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *
  * recreating an index with the same name before the async cleanup completes.
  *
  * @param index Pointer to the index
- * @param indexName Name of the index (for tracking pending deletions)
- * @param indexNameLen Length of the index name
  */
-void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index, const char *indexName, size_t indexNameLen);
-
-/**
- * @brief Check if an index with the given name is currently being deleted
- *
- * This is used to prevent race conditions when recreating an index with the same name
- * before the async cleanup (cleanPool) completes.
- *
- * @param indexName Name of the index
- * @param indexNameLen Length of the index name
- * @return true if the index is being deleted, false otherwise
- */
-bool SearchDisk_IsIndexBeingDeleted(const char *indexName, size_t indexNameLen);
+void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
@@ -92,10 +78,8 @@ bool SearchDisk_IsIndexBeingDeleted(const char *indexName, size_t indexNameLen);
  *
  * @param ctx Redis module context for BigModule APIs (may be NULL)
  * @param index Pointer to the index to close
- * @param indexName Name of the index (for tracking pending deletions)
- * @param indexNameLen Length of the index name
  */
-void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char *indexName, size_t indexNameLen);
+void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
