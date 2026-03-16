@@ -1091,7 +1091,8 @@ void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
-  IndexsGlobalStats_DecreaseLogicallyDeleted(gc->deletedOrUpdatedDocsFromLastRun);
+  size_t deleted_or_updated_docs = atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(deleted_or_updated_docs);
   WeakRef_Release(gc->index);
   RedisModule_FreeThreadSafeContext(gc->ctx);
   rm_free(gc);

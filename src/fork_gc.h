@@ -14,6 +14,7 @@
 #include "gc.h"
 #include "VecSim/vec_sim.h"
 #include <poll.h>
+#include <stdatomic.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,7 +54,7 @@ typedef struct ForkGC {
   volatile uint32_t execState;
 
   struct timespec retryInterval;
-  volatile size_t deletedOrUpdatedDocsFromLastRun;
+  volatile atomic_size_t deletedOrUpdatedDocsFromLastRun;
 
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.

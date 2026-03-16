@@ -54,8 +54,8 @@ static bool periodicCb(void *privdata, bool force) {
 
 static void onTerminateCb(void *privdata) {
   DiskGC *gc = privdata;
-  size_t updates = atomic_load(&gc->updatesFromLastRun);
-  size_t deletes = atomic_load(&gc->deletesFromLastRun);
+  size_t updates = atomic_exchange(&gc->updatesFromLastRun, 0);
+  size_t deletes = atomic_exchange(&gc->deletesFromLastRun, 0);
   IndexsGlobalStats_DecreaseLogicallyDeleted(updates + deletes);
   WeakRef_Release(gc->index);
   rm_free(gc);
