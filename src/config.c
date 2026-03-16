@@ -206,7 +206,7 @@ static int set_search_disk_buffer_percentage_config(const char *name, long long 
   REDISMODULE_NOT_USED(err);
   if (val > 100) {
     if (err) {
-      *err = RedisModule_CreateStringPrintf(NULL, "search-disk-buffer-percentage must be between 1 and 100, but got %lld", val);
+      *err = RedisModule_CreateStringPrintf(NULL, "search-disk-buffer-percentage must be between 0 and 100, but got %lld", val);
     }
     return REDISMODULE_ERR;
   }
