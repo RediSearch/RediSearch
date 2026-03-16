@@ -648,16 +648,17 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
 end:
 
   if (QueryError_HasError(&status)) {
+    /* Resume rehashing on error path since iter->sp was not set,
+     * so RediSearch_ResultsIteratorFree won't do it.
+     * Must be done BEFORE RediSearch_ResultsIteratorFree which releases the lock. */
+    dictResumeRehashing(sp->keysDict);
+    if (sp->docs.ttl) {
+      dictResumeRehashing(sp->docs.ttl);
+    }
     RediSearch_ResultsIteratorFree(it);
     it = NULL;
     if (error) {
       *error = rm_strdup(QueryError_GetUserError(&status));
-    }
-    /* Resume rehashing on error path since iter->sp was not set,
-     * so RediSearch_ResultsIteratorFree won't do it */
-    dictResumeRehashing(sp->keysDict);
-    if (sp->docs.ttl) {
-      dictResumeRehashing(sp->docs.ttl);
     }
   }
   QueryError_ClearError(&status);

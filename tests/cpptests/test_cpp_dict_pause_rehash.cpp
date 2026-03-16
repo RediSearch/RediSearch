@@ -21,7 +21,7 @@ extern "C" {
 class DictPauseRehashTest : public ::testing::Test {
   // Hash function required by dictType - signature is dictated by C API
   static uint64_t hashFunc(const void *key) {
-    return reinterpret_cast<uint64_t>(reinterpret_cast<uintptr_t>(key));
+    return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(key));
   }
 
 protected:
