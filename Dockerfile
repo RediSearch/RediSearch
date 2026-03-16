@@ -7,6 +7,7 @@
 # ---------------------------------------------------------
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
+ARG SAN=none
 
 ENV GITHUB_ACTIONS=true
 WORKDIR /project
@@ -24,6 +25,9 @@ WORKDIR /project/.install
 RUN bash retry.sh bash -l -eo pipefail install_script.sh
 WORKDIR /project
 RUN bash .install/retry.sh bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
+WORKDIR /project/.install
+# Bake sanitizer-only toolchain dependencies into the sanitizer image variant.
+RUN if [ "$SAN" = "address" ]; then bash retry.sh bash -l -eo pipefail ./install_llvm.sh; fi
 # Expose newly-installed Rust and Python tools via PATH
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
