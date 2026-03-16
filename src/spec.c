@@ -1804,7 +1804,6 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
-    // Register the disk index with Redis BigModule APIs (must be on main thread with valid ctx)
     SearchDisk_RegisterIndex(ctx, spec->diskSpec);
   }
 
@@ -1843,7 +1842,6 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
-  // Unregister disk index if it was registered before the failure
   if (spec->diskSpec) {
     SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
   }
@@ -3359,7 +3357,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (!sp->diskSpec) {
       goto cleanup;
     }
-    // Register the disk index with Redis BigModule APIs (must be on main thread with valid ctx)
     SearchDisk_RegisterIndex(ctx, sp->diskSpec);
   }
 
