@@ -126,58 +126,41 @@ jobs:
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
-      - name: Get Installation Mode
-        id: mode
-        run: |
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          [[ -z "$CONTAINER" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
-      - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
-        run: |
-          CONTAINER="${{ needs.get-config.outputs.container }}"
-          for platform in amazonlinux:2; do
-            if [[ "$CONTAINER" == "$platform" ]]; then
-              echo "supported=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-          echo "supported=true" >> $GITHUB_OUTPUT
       - name: checkout (node20)
-        if: steps.node20.outputs.supported == 'true'
+        if: needs.get-config.outputs.node20_supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-      - name: checkout (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
+      - name: checkout (legacy)
+        # Manual checkout path for platforms where Node 20-based actions are unavailable.
+        if: needs.get-config.outputs.node20_supported != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
         run: |
-          # Execute the logic based on the detected platform
           CONTAINER="${{ needs.get-config.outputs.container }}"
           echo "Detected platform: $CONTAINER"
           case "$CONTAINER" in
             amazonlinux:2)
-
-              # Configure the safe directory
+              # Configure the safe directory.
               git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-              # Checkout
+              # Checkout.
               REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
 
-              # Initialize a Git repository
+              # Initialize a Git repository.
               git init
               git remote add origin "$REPO_URL"
 
-              # Fetch and checkout ref
+              # Fetch the requested ref, then check it out and initialize submodules.
               git fetch origin "$REF" || {
                 echo "Failed to fetch ref: '$REF'";
                 exit 1;
               }
-              git checkout FETCH_HEAD  # Check out the fetched ref
-
-              # Update submodules
+              # Check out the fetched ref.
+              git checkout FETCH_HEAD
+              # Update submodules.
               git submodule update --init --recursive
               ;;
             *)
@@ -187,46 +170,34 @@ jobs:
           esac
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
-        working-directory: .install
-        env:
-          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, './install_script.sh $INSTALL_MODE') }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
       - name: Install aws cli
-        working-directory: .install
-        env:
-          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, './install_aws.sh $INSTALL_MODE') }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
       - name: Setup test dependencies
-        env:
-          INSTALL_MODE: ${{ steps.mode.outputs.mode }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, '.install/test_deps/common_installations.sh $INSTALL_MODE') }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
       - name: install build artifacts req
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'uv pip install -q -r .install/build_package_requirments.txt') }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: uv pip install -q -r .install/build_package_requirments.txt
 
       # Get Redis
-      - name: Get Redis (node20)
-        if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
+      - name: Get Redis
+        uses: ./.github/actions/get-redis
         with:
-          repository: redis/redis
           ref: ${{ inputs.redis-ref }}
-          path: redis
-      - name: Get Redis (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
-        run: |
-            REPO_URL="https://github.com/redis/redis.git"
-            DEST_DIR="redis"  # Directory to clone into
+          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
 
-            # Clone the repository (shallow clone without tags)
-            git clone $REPO_URL $DEST_DIR
-            cd $DEST_DIR
-
-            # Checkout the REF
-            git fetch origin ${{ inputs.redis-ref }}
-            git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install
+        run: ${{ needs.get-config.outputs.install_mode }} make install
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS
@@ -235,95 +206,15 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
-      - name: Configure AWS Credentials Using Role (node20)
-        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws-credentials
         with:
-          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials Using Role (node20 not supported)
-        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
-        env:
-          ROLE_ARN: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-          AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-        run: |
-          if ! command -v jq &> /dev/null; then
-            echo "Error: jq is not installed."
-            exit 1
-          fi
-
-          echo "Requesting GitHub OIDC token..."
-          OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value // empty') || {
-            echo "Failed to get OIDC token from GitHub"
-            exit 1
-          }
-
-          if [ -z "$OIDC_TOKEN" ]; then
-            echo "Failed to get OIDC token from GitHub"
-            exit 1
-          fi
-
-          echo "Assuming AWS role using OIDC..."
-          CREDS_JSON=$(aws sts assume-role-with-web-identity \
-            --role-arn "$ROLE_ARN" \
-            --role-session-name "GitHubActions" \
-            --web-identity-token "$OIDC_TOKEN" \
-            --region "$AWS_REGION") || {
-            echo "Failed to assume AWS role using OIDC"
-            exit 1
-          }
-
-          AWS_ACCESS_KEY_ID=$(echo "$CREDS_JSON" | jq -r '.Credentials.AccessKeyId')
-          AWS_SECRET_ACCESS_KEY=$(echo "$CREDS_JSON" | jq -r '.Credentials.SecretAccessKey')
-          AWS_SESSION_TOKEN=$(echo "$CREDS_JSON" | jq -r '.Credentials.SessionToken')
-
-          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_SESSION_TOKEN" ]; then
-            echo "Failed to parse AWS credentials from assume-role response"
-            exit 1
-          fi
-
-          echo "::add-mask::$AWS_ACCESS_KEY_ID"
-          echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
-          echo "::add-mask::$AWS_SESSION_TOKEN"
-
-          {
-            echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
-            echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
-            echo "AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN"
-            echo "AWS_REGION=$AWS_REGION"
-          } >> "$GITHUB_ENV"
-
-          echo "AWS credentials configured successfully using OIDC."
-      - name: Configure AWS Credentials Using Keys (node20)
-        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials Using Keys (node20 not supported)
-        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'false'
-        run: |
-          AWS_ACCESS_KEY_ID="${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY="${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}"
-          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
-
-          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_REGION" ]; then
-            echo "Missing AWS credentials or region configuration."
-            exit 1
-          fi
-
-          echo "::add-mask::$AWS_ACCESS_KEY_ID"
-          echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
-
-          {
-            echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
-            echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
-            echo "AWS_REGION=$AWS_REGION"
-          } >> "$GITHUB_ENV"
-
-          echo "AWS credentials configured successfully using access keys."
+          use_role: ${{ vars.USE_AWS_ROLE }}
+          role_to_assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws_access_key_id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws_region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
       - name: Set Version identifier
         id: set-versions
         run: |
