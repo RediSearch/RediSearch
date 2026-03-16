@@ -1457,12 +1457,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       RedisSearchCtx_UnlockSpec(sctx);
     }
 
-#ifdef ENABLE_ASSERT
-    // Sync point: pause after acquiring the spec lock
-    // The snapshot is now established
-    SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
-#endif
-
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Since we are still in the main thread, and we already validated the
       // spec'c existence, it is safe to directly get the strong reference from the spec
