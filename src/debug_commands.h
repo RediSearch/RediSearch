@@ -97,32 +97,15 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Named Sync Points for deterministic concurrency testing
 // ============================================================================
 
-// Maximum number of named sync points that can be armed simultaneously
-#define SYNC_POINT_MAX_ARMED 16
-// Maximum length of a sync point name
-#define SYNC_POINT_NAME_MAX_LEN 64
-
 // Predefined sync point names for query execution
 // These correspond to specific locations in the query execution path
 #define SYNC_POINT_AFTER_ITERATOR_CREATE  "AfterIteratorCreate"
 #define SYNC_POINT_BEFORE_FIRST_READ      "BeforeFirstRead"
 
-// State of a single sync point
-typedef struct SyncPointState {
-  char name[SYNC_POINT_NAME_MAX_LEN];   // Name of the sync point
-  atomic_bool armed;                    // Whether this sync point is armed (will block)
-  atomic_bool waiting;                  // Whether a thread is currently waiting at this point
-} SyncPointState;
-
-// Container for all sync point states
-typedef struct SyncPointCtx {
-  SyncPointState points[SYNC_POINT_MAX_ARMED];   // Array of sync points
-  _Atomic uint32_t count;                        // Number of armed sync points
-} SyncPointCtx;
-
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
 // Returns true on success, false if max sync points reached
+// NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);

@@ -123,6 +123,25 @@ void StoreResultsDebugCtx_SetPause(bool pause) {
 // ============================================================================
 // Named Sync Points Implementation
 // ============================================================================
+
+// Maximum number of named sync points that can be armed simultaneously
+#define SYNC_POINT_MAX_ARMED 16
+// Maximum length of a sync point name
+#define SYNC_POINT_NAME_MAX_LEN 64
+
+// State of a single sync point
+typedef struct SyncPointState {
+  char name[SYNC_POINT_NAME_MAX_LEN];   // Name of the sync point
+  atomic_bool armed;                    // Whether this sync point is armed (will block)
+  _Atomic uint32_t waiting;             // Number of threads currently waiting at this point
+} SyncPointState;
+
+// Container for all sync point states
+typedef struct SyncPointCtx {
+  SyncPointState points[SYNC_POINT_MAX_ARMED];   // Array of sync points
+  _Atomic uint32_t count;                        // Number of armed sync points
+} SyncPointCtx;
+
 static SyncPointCtx globalSyncPointCtx = {0};
 
 // Internal helper: find sync point by name
@@ -157,7 +176,7 @@ bool SyncPoint_Arm(const char *name) {
   strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
   sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
   atomic_store(&sp->armed, true);
-  atomic_store(&sp->waiting, false);
+  atomic_store(&sp->waiting, 0);
   // Memory fence: ensure all writes above are visible before incrementing count
   atomic_thread_fence(memory_order_release);
   atomic_fetch_add(&globalSyncPointCtx.count, 1);
@@ -171,7 +190,7 @@ void SyncPoint_Signal(const char *name) {
 
 bool SyncPoint_IsWaiting(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
-  return sp ? atomic_load(&sp->waiting) : false;
+  return sp ? (atomic_load(&sp->waiting) > 0) : false;
 }
 
 bool SyncPoint_IsArmed(const char *name) {
@@ -182,8 +201,9 @@ bool SyncPoint_IsArmed(const char *name) {
 void SyncPoint_ClearAll(void) {
   uint32_t count = atomic_load(&globalSyncPointCtx.count);
   for (uint32_t i = 0; i < count; i++) {
+    // Only clear armed - waiting threads will decrement the counter themselves
+    // when they wake up and exit SyncPoint_Wait.
     atomic_store(&globalSyncPointCtx.points[i].armed, false);
-    atomic_store(&globalSyncPointCtx.points[i].waiting, false);
   }
   atomic_store(&globalSyncPointCtx.count, 0);
 }
@@ -192,11 +212,11 @@ void SyncPoint_Wait(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (!sp || !atomic_load(&sp->armed)) return;
 
-  atomic_store(&sp->waiting, true);
+  atomic_fetch_add(&sp->waiting, 1);  // Increment waiting counter
   while (atomic_load(&sp->armed)) {
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
   }
-  atomic_store(&sp->waiting, false);
+  atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
 #endif
 

@@ -1842,3 +1842,66 @@ def test_sync_point_clear_releases_waiting_query(env):
         (debug_cmd(), 'SYNC_POINT', 'CLEAR'),
         'FT.SEARCH', 'idx', '*'
     )
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_multiple_queries_waiting(env):
+    """Verify that multiple queries can wait at the same sync point simultaneously."""
+    set_workers(env, 2)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+    env.expect('HSET', 'doc2', 't', 'world').equal(1)
+
+    sync_point = 'BeforeFirstRead'
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+    # Start two queries in parallel
+    conn1 = env.getConnection()
+    conn2 = env.getConnection()
+    results1, errors1 = [], []
+    results2, errors2 = [], []
+
+    thread1 = threading.Thread(
+        target=_run_sync_point_query,
+        args=(conn1, results1, errors1, 'FT.SEARCH', 'idx', '*'),
+        daemon=True
+    )
+    thread2 = threading.Thread(
+        target=_run_sync_point_query,
+        args=(conn2, results2, errors2, 'FT.SEARCH', 'idx', '*'),
+        daemon=True
+    )
+
+    thread1.start()
+    thread2.start()
+
+    # Wait for both queries to reach the sync point
+    # The waiting counter should report 2 (true for IS_WAITING)
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        'Timeout waiting for first query to reach sync point')
+
+    # Give the second query time to also reach the sync point
+    time.sleep(0.1)
+
+    # Signal to release both queries
+    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+    # Wait for both queries to complete
+    thread1.join(timeout=10)
+    thread2.join(timeout=10)
+
+    env.assertFalse(thread1.is_alive(), message='Query thread 1 is still blocked after release')
+    env.assertFalse(thread2.is_alive(), message='Query thread 2 is still blocked after release')
+    env.assertEqual(len(errors1), 0, message=str(errors1[0]) if errors1 else None)
+    env.assertEqual(len(errors2), 0, message=str(errors2[0]) if errors2 else None)
+
+    # Both queries should have returned results (2 docs each)
+    env.assertEqual(results1[0][0], 2)
+    env.assertEqual(results2[0][0], 2)
+
+    # Sync point should no longer be armed and no queries should be waiting
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)

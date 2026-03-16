@@ -294,8 +294,8 @@ def getWorkersThpoolNumThreads(env):
 
 def set_workers(env, workers):
     """Set the worker thread count and verify that the change took effect."""
-    env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
-    env.assertEqual(getWorkersThpoolNumThreads(env), workers)
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
+    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
 
 
 def getWorkersThpoolStatsFromShard(shard_conn):
@@ -306,6 +306,9 @@ def getCoordThpoolStats(env):
 
 def getWorkersThpoolStatsFromAllShards(env):
     return [getWorkersThpoolStatsFromShard(shard_conn) for shard_conn in env.getOSSMasterNodesConnectionList()]
+
+def getWorkersThpoolNumThreadsFromAllShards(env):
+    return [shard_conn.execute_command(debug_cmd(), "WORKERS", "n_threads") for shard_conn in env.getOSSMasterNodesConnectionList()]
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
