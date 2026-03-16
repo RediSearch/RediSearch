@@ -32,6 +32,13 @@ extern RedisSearchDisk *disk_db;
 bool SearchDisk_Initialize(RedisModuleCtx *ctx);
 
 /**
+ * @brief Check if SearchDisk Is initialized and their APIs can be called
+ *
+ * @return true if it has been initialized
+ */
+bool SearchDisk_IsInitialized();
+
+/**
  * @brief Register BigModule callbacks for disk usage reporting
  *
  * Registers a getDiskUsage callback with Redis that iterates over all

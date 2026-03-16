@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetSlice, RSResultData, TermDecoder};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetSlice, TermDecoder};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -49,7 +49,7 @@ impl Encoder for Full {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.data, RSResultData::Term(_)));
+        assert!(record.is_term());
 
         let field_mask = record
                 .field_mask
@@ -135,7 +135,7 @@ impl Decoder for Full {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(
@@ -198,7 +198,7 @@ impl Encoder for FullWide {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.data, RSResultData::Term(_)));
+        assert!(record.is_term());
 
         let offsets = offsets(record);
         let offsets_sz = offsets.len() as u32;
@@ -227,7 +227,7 @@ impl Decoder for FullWide {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(

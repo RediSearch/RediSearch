@@ -37,11 +37,53 @@ extern "C" {
 
 #define DEFAULT_LIMIT 10
 
+// Forward declaration for cursor
+struct Cursor;
+
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
   RLookup *lastLookup;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
+
+/**
+ * State needed for reply serialization in reply_callback path.
+ * When using FAIL policy with workers, the background thread stores results here,
+ * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ *
+ * ## Cursor ↔ AREQ Ownership
+ *
+ * **Cursor owns AREQ** (not vice versa):
+ * - cursor->execState points to the AREQ
+ * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState)
+ *
+ * **AREQ does NOT own Cursor**:
+ * - The `cursor` field below is a NON-OWNING handle.
+ * - It exists solely so QueryReplyCallback knows which cursor to pause/free after
+ *   finishSendChunk completes.
+ * - In normal flow, QueryReplyCallback calls Cursor_Free/Cursor_Pause and clears this field.
+ */
+typedef struct {
+  SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
+  int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
+  QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
+  cachedVars cv;           // Cached lookup variables for result serialization
+  /**
+   * NON-OWNING cursor handle for reply_callback path.
+   * See ownership model above. This is set in runCursor() when useReplyCallback is true,
+   * and cleared by QueryReplyCallback after it handles cursor pause/free.
+   * If timeout fires first, ChunkReplyState_Destroy cleans this up.
+   */
+  struct Cursor *cursor;
+  size_t limit;            // Original limit passed to sendChunk (for RESP2 resultsLen calculation)
+} ChunkReplyState;
+
+/**
+ * Clean up all resources held by a ChunkReplyState.
+ * Handles the cursor ownership edge case (see struct documentation above).
+ */
+void ChunkReplyState_Destroy(ChunkReplyState *state);
 
 typedef struct Grouper Grouper;
 struct QOptimizer;
@@ -205,24 +247,13 @@ typedef enum {
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
-// Reply state for coordinating replies between main thread (timeout callback) and background thread
-// Transitions: NOT_REPLIED -> REPLYING -> REPLIED
-typedef enum {
-  ReplyState_NotReplied = 0,  // No reply has been started yet
-  ReplyState_Replying = 1,    // A reply is currently in progress
-  ReplyState_Replied = 2,     // A reply has been completed
-} ReplyState;
-
 /**
  * Common synchronization context for request types (AREQ, HybridRequest).
- * Provides thread-safe coordination between main thread (timeout callback)
- * and background thread (query execution).
+ * This context is used for timeout handling and synchronization between the main thread and the background thread.
  */
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
-  // Reply ownership state, coordinates reply between main and background thread
-  RS_Atomic(uint8_t) replyState;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 } RequestSyncCtx;
@@ -230,7 +261,6 @@ typedef struct RequestSyncCtx {
 // Initialize a RequestSyncCtx with default values
 static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
-  ctx->replyState = ReplyState_NotReplied;
   ctx->refcount = 1;
 }
 
@@ -317,11 +347,18 @@ typedef struct AREQ {
 
   ProfilePrinterCtx profileCtx;
 
-  // Synchronization context for timeout handling
+  // Synchronization context for timeout/reply callbacks
   RequestSyncCtx syncCtx;
 
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
+
+  bool useReplyCallback;
+
+  // State for reply_callback path (FAIL policy with workers)
+  // Background thread stores results here, then calls UnblockClient.
+  // The reply_callback reads from here to build the reply on the main thread.
+  ChunkReplyState storedReplyState;
 } AREQ;
 
 /**
@@ -358,14 +395,14 @@ AREQ *AREQ_New(void);
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..
  */
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status);
+int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status);
 
 /**
  * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
  * This function extracts the aggregate-specific parsing logic that was previously
  * part of AREQ_Compile, allowing it to be reused for merge plans in hybrid queries.
  */
-int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, QueryError *status);
+int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.
@@ -543,11 +580,6 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 bool AREQ_TimedOut(AREQ *req);
 void AREQ_SetTimedOut(AREQ *req);
-
-// Reply state management for coordinating replies between main thread (timeout callback) and background thread
-bool AREQ_TryClaimReply(AREQ *req);
-void AREQ_MarkReplied(AREQ *req);
-uint8_t AREQ_GetReplyState(AREQ *req);
 
 static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
   return !req->skipTimeoutChecks;

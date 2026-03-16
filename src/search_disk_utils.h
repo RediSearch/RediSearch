@@ -13,6 +13,7 @@
 #include <stddef.h>
 #include "field_spec.h"
 #include "query_error.h"
+#include "redismodule.h"
 
 #define FLEX_MAX_INDEX_COUNT 10
 
@@ -32,3 +33,12 @@ bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes);
  * @return true if the field type is supported, false otherwise
  */
 bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status);
+
+/**
+ * @brief Reply with unsupported-command error if disk mode is enabled.
+ *
+ * @param ctx Redis module context
+ * @param command Command name string
+ * @return true if the command was blocked, false otherwise
+ */
+bool SearchDisk_MarkUnsupportedCommandIfDiskEnabled(RedisModuleCtx *ctx, const char *command);

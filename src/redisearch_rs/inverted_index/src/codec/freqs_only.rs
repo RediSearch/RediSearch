@@ -49,7 +49,7 @@ impl Decoder for FreqsOnly {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::virt()
+        RSIndexResult::build_virt().build()
     }
 
     fn seek<'index>(

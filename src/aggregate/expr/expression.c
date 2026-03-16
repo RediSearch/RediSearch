@@ -381,8 +381,7 @@ char *ExprEval_Strndup(ExprEval *ctx, const char *str, size_t len) {
 EvalCtx *EvalCtx_Create(EvalMode mode) {
   EvalCtx *r = rm_calloc(1, sizeof(EvalCtx));
 
-  RLookup _lk = RLookup_New();
-  r->lk = _lk;
+  r->lk = RLookup_New();
 
   r->ee.lookup = &r->lk;
   r->ee.srcrow = &r->row;

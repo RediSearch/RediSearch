@@ -53,7 +53,22 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
 
   // Pass the disk buffer percentage from config
   disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+  bool disk_initialized = disk_db != NULL;
 
+  if (!disk_initialized) {
+    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+    return false;
+  }
+
+  // Register BigModule callbacks for disk usage reporting
+  if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
+    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
+    return false;
+  }
+  return disk_db != NULL;
+}
+
+bool SearchDisk_IsInitialized() {
   return disk_db != NULL;
 }
 
