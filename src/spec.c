@@ -2152,11 +2152,13 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
-    // Delete disk index before removing from globals
     IndexSpec *spec = StrongRef_Get(specs[i]);
-    if (deleteDiskData && spec && spec->diskSpec) {
+    if (spec && spec->diskSpec) {
+      // Unregister must always precede close (triggered by IndexSpec_RemoveFromGlobals)
       SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
-      SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+      if (deleteDiskData) {
+        SearchDisk_MarkIndexForDeletion(spec->diskSpec);
+      }
     }
     IndexSpec_RemoveFromGlobals(specs[i], false);
   }
@@ -3379,10 +3381,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   return sp;
 
 cleanup:
-  StrongRef_Release(spec_ref);
   if (sp->diskSpec) {
     SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
   }
+  StrongRef_Release(spec_ref);
 cleanup_no_index:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
   return NULL;
