@@ -726,4 +726,3 @@ fn quick_vs_full_with_skip_to() {
         "Quick mode skip_to should only take first matching child"
     );
 }
-

@@ -11,6 +11,17 @@
 //!
 //! Compares C and Rust implementations of the union iterator
 //! using SortedIdList as child iterators.
+//!
+//! ## ID Generation
+//!
+//! IDs are generated randomly within configurable ranges to simulate realistic
+//! workloads. The overlap between children is controlled by adjusting the ID
+//! range each child samples from:
+//!
+//! - **High overlap**: All children sample from the same range, creating natural
+//!   overlap through random collision.
+//! - **Low overlap**: Children sample from staggered ranges with partial overlap.
+//! - **Disjoint**: Each child samples from a completely separate range.
 
 use std::{hint::black_box, time::Duration};
 
@@ -18,6 +29,7 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat, id_list::IdListSorted};
 
 use crate::ffi::{self, IteratorStatus_ITERATOR_OK};
@@ -29,80 +41,188 @@ pub struct Bencher;
 const NUM_CHILDREN_FEW: usize = 5;
 /// Number of child iterators for union benchmarks (many children).
 const NUM_CHILDREN_MANY: usize = 50;
-/// Size of each child iterator's ID list.
-const CHILD_SIZE: u64 = 100_000;
+/// Number of IDs per child iterator.
+const IDS_PER_CHILD: u64 = 100_000;
 /// Step size for skip_to benchmarks.
 const STEP: u64 = 100;
+/// Seed for reproducible random number generation.
+const RNG_SEED: u64 = 42;
 
-/// Generate IDs for high overlap scenario with specified number of children.
-/// All children contain identical IDs (100% overlap).
-fn high_overlap_ids_n(num_children: usize) -> Vec<Vec<u64>> {
-    (0..num_children)
-        .map(|_| (1..=CHILD_SIZE).collect())
-        .collect()
+/// Parameters for generating benchmark data.
+#[derive(Clone, Copy)]
+struct DataGenParams {
+    /// Number of child iterators.
+    num_children: usize,
+    /// Number of IDs to generate per child.
+    ids_per_child: u64,
+    /// Maximum document ID in the range (controls density).
+    /// Lower values = denser data, higher values = sparser data.
+    id_range_max: u64,
+    /// Controls how child ID ranges overlap.
+    overlap: Overlap,
+    /// Seed for random number generation.
+    seed: u64,
 }
 
-/// Generate IDs for high overlap scenario (few children).
-fn high_overlap_ids() -> Vec<Vec<u64>> {
-    high_overlap_ids_n(NUM_CHILDREN_FEW)
+/// Controls how child iterator ID ranges overlap.
+#[derive(Clone, Copy)]
+enum Overlap {
+    /// All children sample from the same range `[1, id_range_max]`.
+    /// Creates high overlap through random collision.
+    High,
+    /// Each child samples from a staggered range with partial overlap.
+    /// Child `i` samples from `[i * stride, i * stride + id_range_max]`
+    /// where `stride = id_range_max / (2 * num_children)`.
+    Low,
+    /// Each child samples from a completely separate range.
+    /// Child `i` samples from `[i * id_range_max + 1, (i + 1) * id_range_max]`.
+    Disjoint,
 }
 
-/// Generate IDs for high overlap scenario (many children).
-fn high_overlap_ids_many() -> Vec<Vec<u64>> {
-    high_overlap_ids_n(NUM_CHILDREN_MANY)
+impl DataGenParams {
+    /// Create params for high overlap scenario.
+    fn high_overlap(num_children: usize) -> Self {
+        Self {
+            num_children,
+            ids_per_child: IDS_PER_CHILD,
+            // Sampling 100K IDs from 200K range creates ~40% overlap per pair
+            id_range_max: IDS_PER_CHILD * 2,
+            overlap: Overlap::High,
+            seed: RNG_SEED,
+        }
+    }
+
+    /// Create params for low overlap scenario.
+    fn low_overlap(num_children: usize) -> Self {
+        Self {
+            num_children,
+            ids_per_child: IDS_PER_CHILD,
+            // Larger range with staggered windows = less overlap
+            id_range_max: IDS_PER_CHILD * 2,
+            overlap: Overlap::Low,
+            seed: RNG_SEED,
+        }
+    }
+
+    /// Create params for disjoint scenario.
+    fn disjoint(num_children: usize) -> Self {
+        Self {
+            num_children,
+            ids_per_child: IDS_PER_CHILD,
+            // Each child gets its own range of this size
+            id_range_max: IDS_PER_CHILD * 2,
+            overlap: Overlap::Disjoint,
+            seed: RNG_SEED,
+        }
+    }
+
+    /// Create params for varying sizes scenario.
+    fn varying_sizes() -> Self {
+        Self {
+            num_children: NUM_CHILDREN_FEW,
+            ids_per_child: IDS_PER_CHILD,
+            id_range_max: IDS_PER_CHILD * 2,
+            overlap: Overlap::High,
+            seed: RNG_SEED,
+        }
+    }
 }
 
-/// Generate IDs for low overlap scenario with specified number of children.
-/// Children have staggered starting points with minimal overlap.
-fn low_overlap_ids_n(num_children: usize) -> Vec<Vec<u64>> {
-    (0..num_children)
-        .map(|i| {
-            let offset = (i as u64) * (CHILD_SIZE / 10);
-            (1..=CHILD_SIZE).map(|x| x + offset).collect()
+/// Generate random IDs for benchmark children based on parameters.
+///
+/// IDs are generated randomly, sorted, and deduplicated (matching C++ MockIterator behavior).
+fn generate_ids(params: DataGenParams) -> Vec<Vec<u64>> {
+    let mut rng = StdRng::seed_from_u64(params.seed);
+
+    (0..params.num_children)
+        .map(|child_idx| {
+            // Determine the ID range for this child based on overlap strategy
+            let (range_start, range_end) = match params.overlap {
+                Overlap::High => {
+                    // All children sample from the same range
+                    (1, params.id_range_max)
+                }
+                Overlap::Low => {
+                    // Staggered ranges with partial overlap
+                    let stride = params.id_range_max / (2 * params.num_children as u64).max(1);
+                    let start = (child_idx as u64) * stride + 1;
+                    let end = start + params.id_range_max - 1;
+                    (start, end)
+                }
+                Overlap::Disjoint => {
+                    // Completely separate ranges for each child
+                    let start = (child_idx as u64) * params.id_range_max + 1;
+                    let end = start + params.id_range_max - 1;
+                    (start, end)
+                }
+            };
+
+            // Generate random IDs within the range
+            let mut ids: Vec<u64> = (0..params.ids_per_child)
+                .map(|_| rng.random_range(range_start..=range_end))
+                .collect();
+
+            // Sort and deduplicate (matches C++ MockIterator::Init behavior)
+            ids.sort_unstable();
+            ids.dedup();
+
+            ids
         })
         .collect()
 }
 
-/// Generate IDs for low overlap scenario (few children).
-fn low_overlap_ids() -> Vec<Vec<u64>> {
-    low_overlap_ids_n(NUM_CHILDREN_FEW)
-}
-
-/// Generate IDs for low overlap scenario (many children).
-fn low_overlap_ids_many() -> Vec<Vec<u64>> {
-    low_overlap_ids_n(NUM_CHILDREN_MANY)
-}
-
-/// Generate IDs for disjoint scenario with specified number of children.
-/// Each child has completely unique IDs (0% overlap).
-fn disjoint_ids_n(num_children: usize) -> Vec<Vec<u64>> {
-    (0..num_children)
-        .map(|i| {
-            let start = (i as u64) * CHILD_SIZE + 1;
-            (start..=start + CHILD_SIZE - 1).collect()
-        })
-        .collect()
-}
-
-/// Generate IDs for disjoint scenario (few children).
-fn disjoint_ids() -> Vec<Vec<u64>> {
-    disjoint_ids_n(NUM_CHILDREN_FEW)
-}
-
-/// Generate IDs for disjoint scenario (many children).
-fn disjoint_ids_many() -> Vec<Vec<u64>> {
-    disjoint_ids_n(NUM_CHILDREN_MANY)
-}
-
-/// Generate IDs for varying sizes scenario (realistic workload).
+/// Generate IDs for varying sizes scenario.
 /// First child is smallest, others are progressively larger.
-fn varying_size_ids() -> Vec<Vec<u64>> {
-    (0..NUM_CHILDREN_FEW)
-        .map(|i| {
-            let size = CHILD_SIZE * (i as u64 + 1) / NUM_CHILDREN_FEW as u64;
-            (1..=size.max(1)).collect()
+fn generate_varying_size_ids(params: DataGenParams) -> Vec<Vec<u64>> {
+    let mut rng = StdRng::seed_from_u64(params.seed);
+
+    (0..params.num_children)
+        .map(|child_idx| {
+            // Progressive sizes: child 0 gets 1/N of ids_per_child, child N-1 gets full
+            let size = params.ids_per_child * (child_idx as u64 + 1) / params.num_children as u64;
+            let size = size.max(1);
+
+            // All children sample from the same range for high overlap
+            let mut ids: Vec<u64> = (0..size)
+                .map(|_| rng.random_range(1..=params.id_range_max))
+                .collect();
+
+            ids.sort_unstable();
+            ids.dedup();
+
+            ids
         })
         .collect()
+}
+
+// Convenience functions for benchmark scenarios
+
+fn high_overlap_ids() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::high_overlap(NUM_CHILDREN_FEW))
+}
+
+fn high_overlap_ids_many() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::high_overlap(NUM_CHILDREN_MANY))
+}
+
+fn low_overlap_ids() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::low_overlap(NUM_CHILDREN_FEW))
+}
+
+fn low_overlap_ids_many() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::low_overlap(NUM_CHILDREN_MANY))
+}
+
+fn disjoint_ids() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::disjoint(NUM_CHILDREN_FEW))
+}
+
+fn disjoint_ids_many() -> Vec<Vec<u64>> {
+    generate_ids(DataGenParams::disjoint(NUM_CHILDREN_MANY))
+}
+
+fn varying_size_ids() -> Vec<Vec<u64>> {
+    generate_varying_size_ids(DataGenParams::varying_sizes())
 }
 
 /// Convert ID vectors to Rust IdListSorted iterators.
@@ -193,7 +313,8 @@ impl Bencher {
     // SkipTo benchmarks - 5 children
 
     fn skip_to_high_overlap_few(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Union - SkipTo High Overlap 5 Children");
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - SkipTo High Overlap 5 Children");
         self.bench_skip_to(&mut group, high_overlap_ids);
         group.finish();
     }
@@ -213,13 +334,15 @@ impl Bencher {
     // SkipTo benchmarks - 50 children
 
     fn skip_to_high_overlap_many(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Union - SkipTo High Overlap 50 Children");
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - SkipTo High Overlap 50 Children");
         self.bench_skip_to(&mut group, high_overlap_ids_many);
         group.finish();
     }
 
     fn skip_to_low_overlap_many(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Union - SkipTo Low Overlap 50 Children");
+        let mut group =
+            self.benchmark_group(c, "Iterator - Union - SkipTo Low Overlap 50 Children");
         self.bench_skip_to(&mut group, low_overlap_ids_many);
         group.finish();
     }
@@ -388,8 +511,8 @@ impl Bencher {
             b.iter_batched_ref(
                 || UnionFullFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
-                    while let Ok(Some(_)) = it.skip_to(it.last_doc_id() + STEP) {
-                        black_box(it.current());
+                    while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + STEP) {
+                        black_box(outcome);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -401,8 +524,8 @@ impl Bencher {
             b.iter_batched_ref(
                 || UnionQuickFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
-                    while let Ok(Some(_)) = it.skip_to(it.last_doc_id() + STEP) {
-                        black_box(it.current());
+                    while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + STEP) {
+                        black_box(outcome);
                     }
                 },
                 criterion::BatchSize::SmallInput,

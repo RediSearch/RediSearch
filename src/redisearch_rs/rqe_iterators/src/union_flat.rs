@@ -23,7 +23,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 /// Uses O(n) min-finding by scanning all children. Best for small numbers of children
 /// (typically <20) due to minimal memory overhead and cache-friendly iteration.
 ///
-/// For large numbers of children, consider using [`crate::UnionHeap`] instead.
+/// For large numbers of children (>20), a heap-based variant may be more efficient.
 ///
 /// # Type Parameters
 ///
