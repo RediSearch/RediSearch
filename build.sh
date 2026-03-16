@@ -436,7 +436,49 @@ prepare_cmake_arguments() {
     fi
 
     echo "Enabling C/Rust LTO"
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+
+    # Pin clang to the system GCC's libstdc++ to avoid header/runtime mismatch.
+    # apt.llvm.org may install newer GCC packages as dependencies (e.g. gcc-14),
+    # whose headers reference symbols absent from the system's libstdc++.so.6.
+    # Using newer headers would also raise the minimum libstdc++ version for
+    # end users loading redisearch.so.
+    GCC_TOOLCHAIN_FLAGS=""
+    if command -v gcc &>/dev/null; then
+        GCC_INSTALL_DIR=$(gcc -print-search-dirs | sed -n 's/^install: //p')
+        if [[ -n "$GCC_INSTALL_DIR" ]]; then
+            GCC_TOOLCHAIN_FLAGS="--gcc-install-dir=${GCC_INSTALL_DIR}"
+        fi
+    fi
+
+    # --- Diagnostic: verify --gcc-install-dir actually pins C++ headers ---
+    echo ">>> GCC toolchain flags: ${GCC_TOOLCHAIN_FLAGS}"
+    echo ">>> Installed C++ header directories:"
+    ls -d /usr/include/c++/*/ 2>/dev/null || echo "  (none found)"
+
+    echo ">>> Clang C++ include search paths:"
+    $C_COMPILER ${GCC_TOOLCHAIN_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
+        | sed -n '/#include <\.\.\.>/,/^End/p'
+
+    # Fail if clang picks up C++ headers from a GCC newer than the system one
+    _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
+    if $C_COMPILER ${GCC_TOOLCHAIN_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
+        | grep -qP "/usr/include/c\+\+/(?!${_sys_gcc_major}(/|$))\d+"; then
+        echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}"
+        echo "       --gcc-install-dir is not fully pinning the C++ header search path."
+        echo "       This will cause GLIBCXX symbol mismatch at link time."
+        exit 1
+    fi
+
+    LTO_C_FLAGS="${GCC_TOOLCHAIN_FLAGS}"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
+        -DCMAKE_C_COMPILER=$C_COMPILER \
+        -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
+        ${LTO_C_FLAGS:+-DCMAKE_C_FLAGS=${LTO_C_FLAGS}} \
+        ${LTO_C_FLAGS:+-DCMAKE_CXX_FLAGS=${LTO_C_FLAGS}} \
+        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
     # Include LLVM bitcode information for cross-language LTO
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
   fi
