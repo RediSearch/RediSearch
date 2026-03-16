@@ -136,7 +136,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
 /** Assigns a document ID to a single document. Handles only RAM index */
 static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
-                                          int replace, QueryError *status, bool *removing) {
+                                          int replace, bool *updated) {
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
@@ -147,7 +147,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       --spec->stats.scoring.numDocuments;
       RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
       spec->stats.scoring.totalDocsLen -= dmd->docLen;
-      *removing = true;
+      *updated = true;
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
@@ -194,7 +194,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     }
 
     RS_ASSERT(cur->doc);
-    bool removing = false;
+    bool updated = false;
     if (spec->diskSpec) {
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
@@ -215,7 +215,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         spec->stats.scoring.numDocuments--;
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
-        removing = docId != 0; // If docId is 0, the document was not added
+        updated = docId != 0; // If docId is 0, the document was not added
       }
       if (docId) {
         cur->doc->docId = docId;
@@ -229,7 +229,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
-                                              cur->options & DOCUMENT_ADD_REPLACE, &cur->status, &removing);
+                                              cur->options & DOCUMENT_ADD_REPLACE, &updated);
       if (!md) {
         cur->stateFlags |= ACTX_F_ERRORED;
         continue;
@@ -257,7 +257,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
       DMD_Return(md);
     }
-    if (removing) {
+    if (updated) {
       if (spec->gc) {
         GCContext_OnUpdate(spec->gc);
       }

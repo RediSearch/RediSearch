@@ -14,10 +14,14 @@
 #include "gc.h"
 #include "VecSim/vec_sim.h"
 #include <poll.h>
-#include <stdatomic.h>
 
 #ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
 extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
+#include <stdatomic.h>
 #endif
 
 typedef struct {
@@ -54,7 +58,7 @@ typedef struct ForkGC {
   volatile uint32_t execState;
 
   struct timespec retryInterval;
-  atomic_size_t deletedOrUpdatedDocsFromLastRun;
+  RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
 
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
