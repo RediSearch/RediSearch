@@ -26,11 +26,17 @@ jobs:
     #   repo: redis/redis
 
   lint:
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/task-lint.yml
     secrets: inherit
 
   test-matrix:
     needs: [get-latest-redis-tag, lint]
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:

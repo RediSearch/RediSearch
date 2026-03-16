@@ -16,6 +16,8 @@ jobs:
       - name: Setup specific
         working-directory: .install
         run: ./install_script.sh sudo
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
         run: make build
       - name: Download Latest Baseline Artifact from master
@@ -49,6 +51,9 @@ jobs:
         if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success()
         run: cargo bench --workspace -- --save-baseline master
         working-directory: src/redisearch_rs
+
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Upload rust baseline benchmarks for master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'

@@ -13,3 +13,6 @@ $MODE apt install -yqq git wget build-essential lcov openssl libssl-dev \
 if [ "$(uname -m)" = "aarch64" ]; then
     $MODE apt install -y python3-dev
 fi
+
+# Need clang for LTO
+./install_llvm.sh $MODE

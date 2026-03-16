@@ -2771,6 +2771,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "fnv",
  "libc",
  "redis-module",
  "redis_mock",
@@ -2786,6 +2787,7 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "ffi",
+ "fnv",
  "libc",
  "redis_mock",
  "value",

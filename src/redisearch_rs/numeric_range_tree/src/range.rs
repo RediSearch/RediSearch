@@ -19,11 +19,30 @@ use inverted_index::{IndexReader as _, RSIndexResult};
 
 use crate::index::{NumericIndex, NumericIndexReader};
 
+/// Newtype around [`f64`] that hashes via native-endian bytes.
+///
+/// Ensures HLL cardinality estimation uses a consistent raw bit representation,
+/// so `-0.0` and `+0.0` are distinct and no float comparison is involved.
+#[derive(Debug, Clone, Copy)]
+pub struct NumericValue(f64);
+
+impl From<f64> for NumericValue {
+    fn from(value: f64) -> Self {
+        Self(value)
+    }
+}
+
+impl std::hash::Hash for NumericValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_ne_bytes().hash(state);
+    }
+}
+
 /// HyperLogLog type used for cardinality estimation.
 ///
 /// See the [crate-level documentation](crate#cardinality-estimation) for details
 /// on precision, error rate, and memory usage.
-pub type Hll = HyperLogLog6<[u8; 8], WyHasher>;
+pub type Hll = HyperLogLog6<NumericValue, WyHasher>;
 
 /// A numeric range is a leaf-level storage unit in the numeric range tree.
 ///
@@ -58,16 +77,6 @@ pub struct NumericRange {
     entries: NumericIndex,
 }
 
-/// Update the cardinality estimate of an HLL with a new float value.
-///
-/// This is the single source of truth for how numeric values are
-/// hashed into HyperLogLog registers. We hash the raw bytes (bit
-/// representation) rather than the numeric value — see
-/// [`NumericRange::update_cardinality`] for rationale.
-pub(crate) fn update_cardinality(hll: &mut Hll, value: f64) {
-    hll.add(&value.to_ne_bytes());
-}
-
 impl NumericRange {
     /// Create a new empty numeric range.
     ///
@@ -87,7 +96,7 @@ impl NumericRange {
     /// Updates min/max bounds and cardinality estimation.
     /// Returns the number of bytes the inverted index grew by.
     pub fn add(&mut self, doc_id: t_docId, value: f64) -> usize {
-        self.update_cardinality(value);
+        self.hll.add(&value.into());
         self.add_without_cardinality(doc_id, value)
     }
 
@@ -101,7 +110,7 @@ impl NumericRange {
     /// - **Internal node ranges**: When adding to a retained range in an internal
     ///   node, cardinality is already tracked at the leaf level.
     /// - **Splitting**: When redistributing entries during a split, the caller
-    ///   explicitly calls `update_cardinality` for each destination range.
+    ///   explicitly updates cardinality for each destination range.
     pub fn add_without_cardinality(&mut self, doc_id: t_docId, value: f64) -> usize {
         // Update bounds
         if value < self.min_val {
@@ -114,19 +123,6 @@ impl NumericRange {
         // Add to inverted index
         let record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
         self.entries.add_record(&record)
-    }
-
-    /// Update the cardinality estimate with a new value.
-    ///
-    /// # Implementation
-    ///
-    /// We hash the raw bytes (bit representation) of the f64 value rather than
-    /// its numeric value. This ensures:
-    /// - Bit-level uniqueness: Different bit patterns are always distinct.
-    /// - No floating-point comparison issues: -0.0 and +0.0 have different bits.
-    /// - Deterministic: Native-endian bytes produce consistent hashes.
-    pub(crate) fn update_cardinality(&mut self, value: f64) {
-        update_cardinality(&mut self.hll, value);
     }
 
     /// Get the estimated cardinality (number of distinct values).
@@ -241,7 +237,7 @@ impl NumericRange {
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let value = unsafe { result.as_numeric_unchecked() };
-            update_cardinality(&mut self.hll, value);
+            self.hll.add(&value.into());
         }
     }
 }
