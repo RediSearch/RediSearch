@@ -372,34 +372,3 @@ def test_flex_blocks_suggest_commands(env):
         .error().contains('FT.SUGDEL is not supported in disk mode')
     env.expect('FT.SUGLEN', 'idx') \
         .error().contains('FT.SUGLEN is not supported in disk mode')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_free_resource_on_thread_default_false(env):
-    """Test that _FREE_RESOURCE_ON_THREAD defaults to false when flex validation is enabled"""
-    # Verify via FT.CONFIG GET
-    env.expect(config_cmd(), 'GET', '_FREE_RESOURCE_ON_THREAD').equal([['_FREE_RESOURCE_ON_THREAD', 'false']])
-
-    # Verify via CONFIG GET
-    env.expect('CONFIG', 'GET', 'search-_free-resource-on-thread').equal(['search-_free-resource-on-thread', 'no'])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_free_resource_on_thread_cannot_be_enabled(env):
-    """Test that _FREE_RESOURCE_ON_THREAD cannot be set to true when flex validation is enabled"""
-    # Verify setting to true via FT.CONFIG SET fails
-    env.expect(config_cmd(), 'SET', '_FREE_RESOURCE_ON_THREAD', 'true') \
-        .error().contains('_FREE_RESOURCE_ON_THREAD cannot be enabled when disk index is enabled')
-
-    # Verify setting to true via CONFIG SET fails
-    env.expect('CONFIG', 'SET', 'search-_free-resource-on-thread', 'yes') \
-        .error().contains('search-free-resource-on-thread cannot be enabled when disk index is enabled')
-
-    # Verify the value is still false
-    env.expect(config_cmd(), 'GET', '_FREE_RESOURCE_ON_THREAD').equal([['_FREE_RESOURCE_ON_THREAD', 'false']])
-
-    # Verify setting to false still works
-    env.expect(config_cmd(), 'SET', '_FREE_RESOURCE_ON_THREAD', 'false').ok()
-    env.expect('CONFIG', 'SET', 'search-_free-resource-on-thread', 'no').ok()

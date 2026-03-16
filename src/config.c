@@ -213,21 +213,7 @@ static int set_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-static int set_free_resources_thread_config(const char *name, int val, void *privdata,
-  RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  if (SearchDisk_IsEnabledForValidation()) {
-    if (val) {
-      if (err) {
-        *err = RedisModule_CreateStringPrintf(NULL,
-          "search-free-resource-on-thread cannot be enabled when disk index is enabled");
-      }
-      return REDISMODULE_ERR;
-    }
-  }
-  *(bool *)privdata = val;
-  return REDISMODULE_OK;
-}
+
 
 static int set_inverted_bool_config(const char *name, int val, void *privdata,
                              RedisModuleString **err) {
@@ -922,24 +908,7 @@ CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
 
 // _FREE_RESOURCE_ON_THREAD
-CONFIG_SETTER(setFreeResourcesThread) {
-  const char *tf;
-  int acrc = AC_GetString(ac, &tf, NULL, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(tf, "true")) {
-    if (SearchDisk_IsEnabledForValidation()) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL,
-        "_FREE_RESOURCE_ON_THREAD cannot be enabled when disk index is enabled");
-      return REDISMODULE_ERR;
-    }
-    config->freeResourcesThread = 1;
-  } else if (!strcasecmp(tf, "false")) {
-    config->freeResourcesThread = 0;
-  } else {
-    acrc = AC_ERR_PARSE;
-  }
-  RETURN_STATUS(acrc);
-}
+CONFIG_BOOLEAN_SETTER(setFreeResourcesThread, freeResourcesThread)
 CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 
 // _PRINT_PROFILE_CLOCK
@@ -2241,9 +2210,9 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Boolean parameters
   RM_TRY(
     RedisModule_RegisterBoolConfig(
-      ctx, "search-_free-resource-on-thread", SearchDisk_IsEnabled() ? 0: 1,
+      ctx, "search-_free-resource-on-thread", 1,
       REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_free_resources_thread_config, NULL,
+      get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.freeResourcesThread)
     )
   )
