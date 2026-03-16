@@ -57,7 +57,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared' || '')
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
         )
       || null }}
 
