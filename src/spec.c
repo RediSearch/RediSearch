@@ -3416,6 +3416,10 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     // This is the only global structure that we added the new spec to at this point
     SchemaPrefixes_RemoveSpec(spec_ref);
     addPendingIndexDrop();
+    // Unregister must precede close (triggered by StrongRef_Release -> IndexSpec_Free)
+    if (sp->diskSpec) {
+      SearchDisk_UnregisterIndex(RSDummyContext, sp->diskSpec);
+    }
     StrongRef_Release(spec_ref);
   } else {
     IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
