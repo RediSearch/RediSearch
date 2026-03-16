@@ -40,8 +40,13 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallba
  * though we signal for success, the request may fail */
 int MRCluster_SendCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
-/* Create a new cluster using a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads, uint32_t commandTimeoutMS);
+/* Create a new cluster using a node provider.
+ *
+ * connectionTimeoutMS: Absolute timeout for TCP connection establishment (0 = no timeout).
+ * activityTimeoutMS: Timeout for activity during commands that resets on I/O events (0 = no timeout).
+ */
+MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads,
+                         uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS);
 
 void MRCluster_Free(MRCluster *cl);
 

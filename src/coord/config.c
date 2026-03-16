@@ -46,7 +46,7 @@ CONFIG_GETTER(getNumPartitions) {
 // CLUSTER_TIMEOUT
 CONFIG_SETTER(setClusterTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
+  int acrc = AC_GetU32(ac, &realConfig->timeoutMS, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 

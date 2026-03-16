@@ -28,7 +28,8 @@ typedef struct MRConn{
   uv_loop_t *loop;
   int protocol; // 0 (undetermined), 2, or 3
   MRConnState state;
-  uint32_t commandTimeoutMS;  // Timeout for commands (0 = no timeout)
+  uint32_t connectionTimeoutMS;  // Timeout for connection establishment (0 = no timeout)
+  uint32_t activityTimeoutMS;    // Timeout for activity during commands (0 = no timeout)
 } MRConn;
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
@@ -37,7 +38,7 @@ static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Disconnect(MRConn *conn);
 static void MRConn_Stop(MRConn *conn);
-static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t commandTimeoutMS);
+static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS);
 static int MRConn_StartNewConnection(MRConn *conn);
 static int MRConn_SendAuth(MRConn *conn);
 
@@ -84,7 +85,7 @@ static inline void MRConnPool_Disconnect(const MRConnPool *pool) {
   }
 }
 
-static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop, uint32_t commandTimeoutMS) {
+static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop, uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS) {
   MRConnPool *pool = rm_malloc(sizeof(*pool));
   *pool = (MRConnPool){
       .num = num,
@@ -94,7 +95,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num, uv_loop_t *loop, 
 
   /* Create the connection */
   for (size_t i = 0; i < num; i++) {
-    pool->conns[i] = MR_NewConn(ep, loop, commandTimeoutMS);
+    pool->conns[i] = MR_NewConn(ep, loop, connectionTimeoutMS, activityTimeoutMS);
   }
   return pool;
 }
@@ -176,11 +177,12 @@ static dictType nodeIdToConnPoolType = {
 };
 
 /* Init the connection manager */
-void MRConnManager_Init(MRConnManager *mgr, int nodeConns, uint32_t commandTimeoutMS) {
+void MRConnManager_Init(MRConnManager *mgr, int nodeConns, uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS) {
   /* Create the connection map */
   mgr->map = dictCreate(&nodeIdToConnPoolType, NULL);
   mgr->nodeConns = nodeConns;
-  mgr->commandTimeoutMS = commandTimeoutMS;
+  mgr->connectionTimeoutMS = connectionTimeoutMS;
+  mgr->activityTimeoutMS = activityTimeoutMS;
 }
 
 /* This is called when the IORuntime is being shut down. This is called from the uv thread*/
@@ -301,7 +303,7 @@ int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpo
     MRConnPool_Disconnect(pool);
   }
 
-  MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns, loop, m->commandTimeoutMS);
+  MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns, loop, m->connectionTimeoutMS, m->activityTimeoutMS);
   if (connect) {
     for (size_t i = 0; i < pool->num; i++) {
       MRConn_Connect(pool->conns[i]);
@@ -391,7 +393,7 @@ void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop) {
     // There should always be at least one connection in the pool
     MREndpoint *ep = &pool->conns[0]->ep;
     for (size_t i = pool->num; i < num; i++) {
-      pool->conns[i] = MR_NewConn(ep, loop, m->commandTimeoutMS);
+      pool->conns[i] = MR_NewConn(ep, loop, m->connectionTimeoutMS, m->activityTimeoutMS);
       MRConn_StartNewConnection(pool->conns[i]);
     }
     pool->num = num;
@@ -772,7 +774,7 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
   }
 }
 
-static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t commandTimeoutMS) {
+static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
   *conn = (MRConn){
     .state = MRConn_Disconnected,
@@ -780,7 +782,8 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t commandTimeo
     .protocol = 0,
     .loop = loop,
     .timer = NULL,
-    .commandTimeoutMS = commandTimeoutMS,
+    .connectionTimeoutMS = connectionTimeoutMS,
+    .activityTimeoutMS = activityTimeoutMS,
   };
   conn->timer = rm_malloc(sizeof(uv_timer_t));
   uv_timer_init(loop, conn->timer);
@@ -791,9 +794,21 @@ static MRConn *MR_NewConn(MREndpoint *ep, uv_loop_t *loop, uint32_t commandTimeo
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
-  redisOptions options = {.type = REDIS_CONN_TCP,
-                          .options = REDIS_OPT_NOAUTOFREEREPLIES,
-                          .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port}};
+  // Connection timeout: Absolute timeout for TCP connection establishment.
+  // If the connection isn't established within this time, the connection attempt fails.
+  // This is set via redisOptions and used by hiredis during the connect phase.
+  struct timeval connectTimeout = {0};
+  if (conn->connectionTimeoutMS > 0) {
+    connectTimeout.tv_sec = conn->connectionTimeoutMS / 1000;
+    connectTimeout.tv_usec = (conn->connectionTimeoutMS % 1000) * 1000;
+  }
+
+  redisOptions options = {
+    .type = REDIS_CONN_TCP,
+    .options = REDIS_OPT_NOAUTOFREEREPLIES,
+    .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port},
+    .connect_timeout = conn->connectionTimeoutMS > 0 ? &connectTimeout : NULL,
+  };
 
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
   if (!c) {
@@ -817,16 +832,21 @@ static int MRConn_Connect(MRConn *conn) {
     return REDIS_ERR;
   }
 
-  // Set command timeout to prevent hanging if a node stops responding.
+  // Activity timeout: Maximum time of inactivity before a command is considered failed.
   // When timeout fires, hiredis will call all pending callbacks with NULL reply
   // and disconnect the context.
-  if (conn->commandTimeoutMS > 0) {
+  //
+  // NOTE: This timeout resets after each I/O event (see refreshTimeout in hiredis
+  // async_private.h). A slow response that trickles data just before each timeout
+  // window expires could theoretically keep a command alive indefinitely. This is
+  // acceptable for our use case since such behavior would be extremely rare in practice.
+  if (conn->activityTimeoutMS > 0) {
     struct timeval tv = {
-        .tv_sec = conn->commandTimeoutMS / 1000,
-        .tv_usec = (conn->commandTimeoutMS % 1000) * 1000
+        .tv_sec = conn->activityTimeoutMS / 1000,
+        .tv_usec = (conn->activityTimeoutMS % 1000) * 1000
     };
     if (redisAsyncSetTimeout(conn->conn, tv) != REDIS_OK) {
-      CONN_LOG(conn, "Failed to set command timeout");
+      CONN_LOG(conn, "Failed to set activity timeout");
       // Non-fatal: continue without timeout protection
     }
   }

@@ -38,7 +38,12 @@ typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd, bool block);
 
-/* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
+/* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster.
+ *
+ * The timeoutMS parameter is used for both connection and activity timeouts:
+ * - Connection timeout: Absolute timeout for TCP connection establishment.
+ * - Activity timeout: Timeout for inactivity during commands (resets on I/O events).
+ */
 void MR_Init(size_t num_io_threads, size_t conn_pool_size, uint32_t timeoutMS);
 
 /* @brief Set a new topology for the cluster and refresh local slots information.

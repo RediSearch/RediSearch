@@ -64,10 +64,18 @@ typedef struct MRConn MRConn;
 typedef struct {
   dict *map;
   int nodeConns;
-  uint32_t commandTimeoutMS;  // Timeout for commands sent on connections (0 = no timeout)
+  // Connection timeout: Maximum time to wait for initial TCP connection establishment.
+  // This is an absolute timeout - if the connection isn't established within this time,
+  // the connection attempt fails. Set to 0 to disable (no timeout).
+  uint32_t connectionTimeoutMS;
+  // Activity timeout: Maximum time of inactivity before a command is considered failed.
+  // NOTE: This timeout resets after each I/O event (see refreshTimeout in hiredis
+  // async_private.h). A slow response that trickles data can theoretically keep a command
+  // alive indefinitely. Set to 0 to disable (no timeout).
+  uint32_t activityTimeoutMS;
 } MRConnManager;
 
-void MRConnManager_Init(MRConnManager *mgr, int nodeConns, uint32_t commandTimeoutMS);
+void MRConnManager_Init(MRConnManager *mgr, int nodeConns, uint32_t connectionTimeoutMS, uint32_t activityTimeoutMS);
 
 /*
  * Gets the stateDict filled with connection pool states of different IORuntimes and
