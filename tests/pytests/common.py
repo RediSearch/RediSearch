@@ -297,7 +297,6 @@ def set_workers(env, workers):
     verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
     env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
 
-
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 

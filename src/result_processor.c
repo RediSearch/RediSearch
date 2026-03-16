@@ -258,6 +258,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   it = self->iterator;
 
 #ifdef ENABLE_ASSERT
+  // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
   if (self->firstRead) {
     self->firstRead = false;
     SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);

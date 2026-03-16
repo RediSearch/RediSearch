@@ -13,7 +13,6 @@ class TestDebugCommands(object):
                         'age', 'NUMERIC', 'SORTABLE',
                         't', 'TAG', 'SORTABLE',
                         'v', 'VECTOR', 'HNSW', 6, 'DIM', 2, 'DISTANCE_METRIC', 'L2', 'TYPE', 'float32').ok()
-        waitForIndex(self.env, 'idx')
         self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test').equal(3)
         self.env.cmd('SET', 'foo', 'bar')
 
@@ -665,7 +664,6 @@ class TestQueryDebugCommands(object):
         conn = getConnectionByEnv(self.env)
 
         self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-        waitForIndex(self.env, 'idx')
         self.num_docs = 1500 * self.env.shardsCount
         for i in range(self.num_docs):
             conn.execute_command('HSET', f'doc{i}' ,'n', i)
@@ -1127,7 +1125,6 @@ def test_update_debug_scanner_config(env):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndex(env, 'idx')
 
     # When scan is done, the scanner is freed
     checkDebugScannerUpdateError(env, 'idx', 'Scanner is not initialized')
@@ -1630,14 +1627,11 @@ def test_max_doc_id(env):
     for i in range(10):
         env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
 
-    waitForIndex(env, 'idx')
-
     # The max doc id is now 10
     env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(10)
 
     # Delete some documents
     env.cmd('DEL', 'doc5', 'doc7')
-    waitForIndex(env, 'idx')
 
     # Max doc id should still be 10 (doesn't decrease on deletion)
     env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(10)
@@ -1645,8 +1639,6 @@ def test_max_doc_id(env):
     # Add more documents
     for i in range(10, 15):
         env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
-
-    waitForIndex(env, 'idx')
 
     # Max doc id should now be 15
     env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(15)
@@ -1671,8 +1663,6 @@ def test_dump_deleted_ids(env):
     # Add some documents
     for i in range(10):
         env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
-
-    waitForIndex(env, 'idx')
 
     # Still no deleted IDs
     env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
@@ -1775,10 +1765,9 @@ def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *q
 @require_enable_assert
 def test_sync_point_before_first_read_blocks_and_resumes(env):
     """Verify that BeforeFirstRead blocks query execution until explicitly signaled."""
+    set_workers(env, 1)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.expect('HSET', 'doc1', 't', 'hello').equal(1)
-    waitForIndex(env, 'idx')
-    set_workers(env, 1)
 
     env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'BeforeFirstRead').ok()
@@ -1794,10 +1783,9 @@ def test_sync_point_before_first_read_blocks_and_resumes(env):
 @require_enable_assert
 def test_sync_point_after_iterator_create_blocks_and_resumes(env):
     """Verify that AfterIteratorCreate blocks query execution until explicitly signaled."""
+    set_workers(env, 1)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.expect('HSET', 'doc1', 't', 'hello').equal(1)
-    waitForIndex(env, 'idx')
-    set_workers(env, 1)
 
     env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'AfterIteratorCreate').ok()
@@ -1829,10 +1817,9 @@ def test_sync_point_duplicate_arm_does_not_consume_extra_slot(env):
 @require_enable_assert
 def test_sync_point_clear_releases_waiting_query(env):
     """Verify that CLEAR disarms sync points and releases any blocked query."""
+    set_workers(env, 1)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.expect('HSET', 'doc1', 't', 'hello').equal(1)
-    waitForIndex(env, 'idx')
-    set_workers(env, 1)
 
     env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'BeforeFirstRead').ok()
