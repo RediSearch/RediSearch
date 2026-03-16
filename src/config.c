@@ -1255,7 +1255,7 @@ CONFIG_SETTER(setDiskBufferPercentage) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newPercentage > 100) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "DISK_BUFFER_PERCENTAGE must be between 1 and 100");
+      "DISK_BUFFER_PERCENTAGE must be between 0 and 100");
     return REDISMODULE_ERR;
   }
   config->diskBufferPercentage = newPercentage;

@@ -213,10 +213,6 @@ typedef struct {
   // Simulate working under Flex conditions. This is used for testing only.
   bool simulateInFlex;
   // Percentage of available memory to use for disk write buffer (0-100).
-  // Used by disk-based indexes for WriteBufferManager budget.
-  // Note: Using long long for Redis Module Config API compatibility.
-  // Redis writes 8 bytes directly to privdata after calling setters.
-  // See docs/design/redis-module-config-memory-corruption-bug.md
   uint8_t diskBufferPercentage;
 } RSConfig;
 
