@@ -653,6 +653,12 @@ end:
     if (error) {
       *error = rm_strdup(QueryError_GetUserError(&status));
     }
+    /* Resume rehashing on error path since iter->sp was not set,
+     * so RediSearch_ResultsIteratorFree won't do it */
+    dictResumeRehashing(sp->keysDict);
+    if (sp->docs.ttl) {
+      dictResumeRehashing(sp->docs.ttl);
+    }
   }
   QueryError_ClearError(&status);
   return it;
