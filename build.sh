@@ -517,17 +517,6 @@ prepare_cmake_arguments() {
   # Export RUSTFLAGS so it's available to the Rust build process
   export RUSTFLAGS
 
-  # Enable sccache for Rust if available.
-  # Prefer SCCACHE_PATH (set by sccache-action in CI with the full path), otherwise look on PATH.
-  if [[ -n "$SCCACHE_PATH" && -x "$SCCACHE_PATH" ]]; then
-    export RUSTC_WRAPPER="$SCCACHE_PATH"
-  elif command -v sccache &>/dev/null; then
-    export RUSTC_WRAPPER="sccache"
-  fi
-  if [[ -n "$RUSTC_WRAPPER" ]]; then
-    echo "Using sccache for Rust compilation caching"
-  fi
-
   # RUSTFLAGS will be passed as environment variable to avoid quoting issues
   # This prevents CMake argument parsing from truncating complex flag values
 
