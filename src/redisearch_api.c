@@ -598,6 +598,10 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
+  /* Also pause rehashing on the TTL table if it exists */
+  if (sp->docs.ttl) {
+    dictPauseRehashing(sp->docs.ttl);
+  }
 
   RSSearchOptions options = {0};
   QueryError status = QueryError_Default();
@@ -716,6 +720,10 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   DMD_Return(iter->lastmd);
   if (iter->sp && iter->sp->keysDict) {
     dictResumeRehashing(iter->sp->keysDict);
+    /* Also resume rehashing on the TTL table if it exists */
+    if (iter->sp->docs.ttl) {
+      dictResumeRehashing(iter->sp->docs.ttl);
+    }
   }
   rm_free(iter);
   RWLOCK_RELEASE();
@@ -867,6 +875,10 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
+  /* Also pause rehashing on the TTL table if it exists */
+  if (sp->docs.ttl) {
+    dictPauseRehashing(sp->docs.ttl);
+  }
 
   // Report fork when any GC is present
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
@@ -910,6 +922,10 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   }
 
   dictResumeRehashing(sp->keysDict);
+  /* Also resume rehashing on the TTL table if it exists */
+  if (sp->docs.ttl) {
+    dictResumeRehashing(sp->docs.ttl);
+  }
   RWLOCK_RELEASE();
 
   return REDISEARCH_OK;
