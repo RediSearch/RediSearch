@@ -14,6 +14,14 @@ use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueFFI;
 
+// Ensure that `Option<RSValueFFI>` has the same layout as `*mut ffi::RSValue`.
+// This is critical for the `RLookupRowView` to safely expose the `dyn_values` buffer
+// as a `*const *mut RSValue` to C callers.
+const _: () = {
+    assert!(size_of::<Option<RSValueFFI>>() == size_of::<*mut ffi::RSValue>());
+    assert!(align_of::<Option<RSValueFFI>>() == align_of::<*mut ffi::RSValue>());
+};
+
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
 /// or from dynamic values stored in the row during processing.
 #[derive(Debug)]
@@ -172,6 +180,27 @@ impl<'a> RLookupRow<'a> {
     /// Readonly access to [`RLookupRow::sorting_vector`], it may be `None` if no sorting vector was set.
     pub const fn sorting_vector(&self) -> Option<&RSSortingVector> {
         self.sorting_vector
+    }
+
+    /// Returns a snapshot of this row's internal pointers for use by C callers.
+    ///
+    /// The returned tuple contains:
+    /// - A pointer to the `dyn_values` buffer, cast to `*const *mut ffi::RSValue`.
+    ///   Each slot is either a valid `RSValue*` or NULL.
+    /// - The length of the `dyn_values` buffer.
+    /// - A pointer to the sorting vector, or NULL if none.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointers borrow from `self`. The caller must not mutate the row
+    /// while these pointers are in use.
+    pub fn as_view(&self) -> (*const *mut ffi::RSValue, usize, *const RSSortingVector) {
+        let dyn_ptr = self.dyn_values.as_ptr().cast::<*mut ffi::RSValue>();
+        let dyn_len = self.dyn_values.len();
+        let sv_ptr = self
+            .sorting_vector
+            .map_or(std::ptr::null(), std::ptr::from_ref);
+        (dyn_ptr, dyn_len, sv_ptr)
     }
 
     /// Borrow a sorting vector for the row.

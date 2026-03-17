@@ -731,9 +731,13 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     qerr = self->base.parent->err;
   }
 
+  RLookupRowView view1, view2;
+  RLookupRow_GetView(SearchResult_GetRowData(h1), &view1);
+  RLookupRow_GetView(SearchResult_GetRowData(h2), &view2);
+
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h1));
-    const RSValue *v2 = RLookupRow_Get(self->fieldcmp.keys[i], SearchResult_GetRowData(h2));
+    const RSValue *v1 = RLookupRowView_Get(self->fieldcmp.keys[i], &view1);
+    const RSValue *v2 = RLookupRowView_Get(self->fieldcmp.keys[i], &view2);
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {

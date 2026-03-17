@@ -208,6 +208,33 @@ typedef struct RLookupIteratorMut {
   struct RLookupKey *current;
 } RLookupIteratorMut;
 
+/**
+ * A lightweight, non-owning snapshot of an [`RLookupRow`]'s internal buffers.
+ *
+ * This allows C callers to perform per-field lookups with zero FFI overhead
+ * after a single [`RLookupRow_GetView`] call.
+ *
+ * # Lifetime
+ *
+ * The pointers in this struct borrow from the source [`RLookupRow`].
+ * The view must not be used after the row is mutated or destroyed.
+ */
+typedef struct RLookupRowView {
+  /**
+   * Pointer to the dynamic values buffer. Each slot is either a valid
+   * `RSValue*` or NULL. Indexed by `RLookupKey::dstidx`.
+   */
+  RSValue *const *dyn_values;
+  /**
+   * Number of slots in `dyn_values`.
+   */
+  uintptr_t dyn_len;
+  /**
+   * Pointer to the sorting vector, or NULL if none.
+   */
+  const struct RSSortingVector *sv;
+} RLookupRowView;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -755,6 +782,23 @@ void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row,
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSValue *RLookupRow_Get(const struct RLookupKey *key, const struct RLookupRow *row);
+
+/**
+ * Populates an [`RLookupRowView`] with pointers to the row's internal buffers.
+ *
+ * After this call, the caller can use the view's fields directly (e.g. via a
+ * `static inline` C function) to look up values by [`RLookupKey`] without
+ * further FFI calls.
+ *
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `out` must be a [valid], non-null pointer to an [`RLookupRowView`].
+ * 3. The row must not be mutated while the view is in use.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_GetView(const struct RLookupRow *row, struct RLookupRowView *out);
 
 /**
  * Returns the sorting vector for the row, or null if none exists.

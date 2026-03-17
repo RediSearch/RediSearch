@@ -102,6 +102,33 @@ static inline uint32_t RLookupKey_GetFlags(const RLookupKey* key) {
     return key->flags;
 }
 
+/**
+ * Inline per-field lookup using a pre-populated RLookupRowView.
+ *
+ * This performs the same logic as the FFI function RLookupRow_Get but
+ * without crossing the FFI boundary, by operating directly on the view's
+ * cached pointers.
+ *
+ * The caller must first populate the view via RLookupRow_GetView().
+ *
+ * For keys with RLOOKUP_F_SVSRC that are not found in dyn_values, this
+ * falls back to the FFI call RSSortingVector_Get + RSValue_IsNull.
+ */
+static inline RSValue *RLookupRowView_Get(const RLookupKey *key,
+                                           const RLookupRowView *view) {
+  // Fast path: dynamic values (covers the vast majority of lookups)
+  if (view->dyn_len > key->dstidx) {
+    RSValue *v = view->dyn_values[key->dstidx];
+    if (v) return v;
+  }
+  // Slow path: sorting vector (only for SVSRC keys)
+  if ((key->flags & RLOOKUP_F_SVSRC) && view->sv) {
+    RSValue *v = RSSortingVector_Get(view->sv, key->svidx);
+    if (v && !RSValue_IsNull(v)) return v;
+  }
+  return NULL;
+}
+
 #ifdef __cplusplus
 }
 #endif
