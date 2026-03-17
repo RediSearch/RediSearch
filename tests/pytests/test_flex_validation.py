@@ -322,6 +322,70 @@ def test_flex_blocks_dict_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rerank_requires_true_value(env):
+    env.expect(
+        'FT.CREATE', 'idx_ok', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    env.expect(
+        'FT.CREATE', 'idx_missing', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '12',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+    ).error().contains('Disk HNSW index requires RERANK parameter')
+
+    env.expect(
+        'FT.CREATE', 'idx_no_value', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '13',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK',
+    ).error().contains('RERANK requires an argument')
+
+    env.expect(
+        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'FALSE',
+    ).error().contains('Syntax error: RERANK only supports TRUE currently')
+
+    env.expect(
+        'FT.CREATE', 'idx_dup', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '16',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+        'RERANK', 'TRUE',
+    ).error().contains('Duplicate RERANK parameter')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_alter_command(env):
     _create_flex_search_fixture(env)
 
