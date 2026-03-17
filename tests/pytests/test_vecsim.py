@@ -59,6 +59,30 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
     return ret
 
 
+def create_disk_hnsw_query_fixture():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _SIMULATE_IN_FLEX true')
+    conn = getConnectionByEnv(env)
+
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        't', 'TEXT',
+        'v', 'VECTOR', 'HNSW', '13',
+        'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+        'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK'
+    ).ok()
+
+    docs = {
+        'doc:1': ([1.0, 1.0], 'hello'),
+        'doc:2': ([2.0, 2.0], 'hello'),
+        'doc:3': ([50.0, 50.0], 'goodbye'),
+    }
+    for doc_id, (vector, text) in docs.items():
+        conn.execute_command('HSET', doc_id, 'v', create_np_array_typed(vector, 'FLOAT32').tobytes(), 't', text)
+
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+    return env
+
+
 '''******************* vecsim tests *****************************'''
 
 
@@ -742,6 +766,35 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EPSILON: 2.71828}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_RANGE_ATTR_NON_RANGE range query attributes were sent for a non-range query (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$EPSILON: 0.1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_RANGE_ATTR_NON_RANGE range query attributes were sent for a non-range query (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', f'@{v_flat}:[vector_range 0.1 $b]=>{{$epsilon:0.1}}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').equal('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+
+
+@skip(cluster=True)
+def test_disk_vector_query_validation():
+    env = create_disk_hnsw_query_fixture()
+    try:
+        query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+
+        env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                   'PARAMS', '2', 'b', query_blob).error().contains(
+                       'vector range queries are not supported for disk indexes')
+
+        env.expect('FT.SEARCH', 'idx', '@t:hello=>[KNN 2 @v $b]', 'NOCONTENT',
+                   'PARAMS', '2', 'b', query_blob).error().contains(
+                       'Disk pre-filtered vector queries currently require explicit HYBRID_POLICY')
+
+        valid_queries = [
+            '@t:hello=>[KNN 2 @v $b HYBRID_POLICY BATCHES]',
+            '@t:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF]',
+            '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:BATCHES;}',
+            '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:ADHOC_BF;}',
+        ]
+
+        for query in valid_queries:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'PARAMS', '2', 'b', query_blob)
+            env.assertEqual(res[0], 2)
+            env.assertEqual(set(res[1:]), {'doc:1', 'doc:2'})
+    finally:
+        env.stop()
 
 
 def test_with_fields():
