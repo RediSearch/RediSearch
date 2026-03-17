@@ -466,6 +466,35 @@ size_t RLookup_GetLength(const struct RLookup *lookup,
                          const SchemaRule *rule);
 
 /**
+ * Returns the number of visible fields and their values in a single pass.
+ *
+ * This combines [`RLookup_GetLength`] and per-field [`RLookupRow_Get`] into one call,
+ * eliminating redundant lookups and reducing FFI crossings from `1 + N` to `1` per document.
+ *
+ * `out_values` is a parallel array to `skip_field_index`: for each field where
+ * `skip_field_index[i]` is set to `true`, `out_values[i]` will contain the corresponding
+ * `RSValue` pointer. Skipped slots are set to `NULL`.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+ * 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
+ * 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `array_len` boolean values
+ * 4. `out_values` must be a [valid] non-null pointer for writes of `array_len` `*const RSValue` values
+ * 5. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t RLookup_GetLengthAndValues(const struct RLookup *lookup,
+                                  const struct RLookupRow *row,
+                                  bool *skip_field_index,
+                                  const RSValue **out_values,
+                                  size_t array_len,
+                                  uint32_t required_flags,
+                                  uint32_t excluded_flags,
+                                  const SchemaRule *rule);
+
+/**
  * Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
  *
  * # Safety

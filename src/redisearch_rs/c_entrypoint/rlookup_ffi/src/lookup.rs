@@ -481,6 +481,88 @@ pub unsafe extern "C" fn RLookup_GetLength(
     )
 }
 
+/// Returns the number of visible fields and their values in a single pass.
+///
+/// This combines [`RLookup_GetLength`] and per-field [`RLookupRow_Get`] into one call,
+/// eliminating redundant lookups and reducing FFI crossings from `1 + N` to `1` per document.
+///
+/// `out_values` is a parallel array to `skip_field_index`: for each field where
+/// `skip_field_index[i]` is set to `true`, `out_values[i]` will contain the corresponding
+/// `RSValue` pointer. Skipped slots are set to `NULL`.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
+/// 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
+/// 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `array_len` boolean values
+/// 4. `out_values` must be a [valid] non-null pointer for writes of `array_len` `*const RSValue` values
+/// 5. `rule` must be a [valid], non-null pointer to a [`SchemaRule`] or a null pointer
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_GetLengthAndValues(
+    lookup: *const OpaqueRLookup,
+    row: *const OpaqueRLookupRow,
+    skip_field_index: Option<NonNull<bool>>,
+    out_values: Option<NonNull<*const ffi::RSValue>>,
+    array_len: size_t,
+    required_flags: u32,
+    excluded_flags: u32,
+    rule: *const ffi::SchemaRule,
+) -> size_t {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_ptr(lookup).unwrap() };
+    #[cfg(debug_assertions)]
+    lookup.assert_valid("RLookup_GetLengthAndValues");
+
+    // Safety: ensured by caller (2.)
+    let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
+
+    // Safety: ensured by caller (3.)
+    let skip_field_index = unsafe {
+        slice::from_raw_parts_mut(skip_field_index.unwrap().as_ptr(), array_len)
+    };
+
+    // Safety: ensured by caller (4.)
+    let out_values_raw = unsafe {
+        slice::from_raw_parts_mut(out_values.unwrap().as_ptr(), array_len)
+    };
+
+    // Initialize out_values to null
+    out_values_raw.fill(ptr::null());
+
+    let required_flags = RLookupKeyFlags::from_bits(required_flags).unwrap();
+    let excluded_flags = RLookupKeyFlags::from_bits(excluded_flags).unwrap();
+
+    let rule = if rule.is_null() {
+        None
+    } else {
+        // Safety: ensured by caller (5.)
+        Some(unsafe { SchemaRule::from_raw(rule) })
+    };
+
+    // Use a temporary slice of Option<&RSValueFFI> to collect values from Rust
+    let mut values_buf: Vec<Option<&value::RSValueFFI>> = vec![None; array_len];
+
+    let num_fields = row.get_length_and_values_no_alloc(
+        lookup,
+        required_flags,
+        excluded_flags,
+        rule,
+        skip_field_index,
+        Some(&mut values_buf),
+    );
+
+    // Convert Option<&RSValueFFI> to *const RSValue for C consumption
+    for (i, val) in values_buf.iter().enumerate() {
+        if let Some(v) = val {
+            out_values_raw[i] = v.as_ptr();
+        }
+    }
+
+    num_fields
+}
+
 /// Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
 ///
 /// # Safety

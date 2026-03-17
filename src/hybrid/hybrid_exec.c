@@ -134,17 +134,18 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       uint32_t excludeFlags = RLOOKUP_F_HIDDEN;
       uint32_t requiredFlags = RLOOKUP_F_NOFLAGS;  // Hybrid does not use RETURN fields; it uses LOAD fields instead
       size_t skipFieldIndex_len = RLookup_GetRowLen(lk);
-      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLength` will contain `false` for fields which we should skip below
+      bool skipFieldIndex[skipFieldIndex_len]; // After calling `RLookup_GetLengthAndValues` will contain `false` for fields which we should skip below
+      const RSValue *fieldValues[skipFieldIndex_len]; // Parallel array of value pointers
       memset(skipFieldIndex, 0, skipFieldIndex_len * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLengthAndValues(lk, SearchResult_GetRowData(r), skipFieldIndex, fieldValues, skipFieldIndex_len, requiredFlags, excludeFlags, rule);
 
       int i = 0;
       RLOOKUP_FOREACH(kk, lk, {
         if (!RLookupKey_GetName(kk) || !skipFieldIndex[i++]) {
           continue;
         }
-        const RSValue *v = RLookupRow_Get(kk, SearchResult_GetRowData(r));
-        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+        const RSValue *v = fieldValues[i - 1]; // Use pre-fetched value (i was already incremented)
+        RS_LOG_ASSERT(v, "v was found in RLookup_GetLengthAndValues iteration")
 
         RedisModule_Reply_StringBuffer(reply, RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
 

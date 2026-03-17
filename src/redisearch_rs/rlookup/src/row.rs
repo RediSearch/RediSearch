@@ -100,10 +100,42 @@ impl<'a> RLookupRow<'a> {
         rule: Option<&SchemaRule>,
         out_flags: &mut [bool],
     ) -> usize {
+        self.get_length_and_values_no_alloc(lookup, required_flags, excluded_flags, rule, out_flags, None)
+    }
+
+    /// Returns the number of visible fields and optionally collects their values in a single pass.
+    ///
+    /// This combines the work of [`RLookupRow::get_length_no_alloc`] and per-field [`RLookupRow::get`]
+    /// calls into one iteration, avoiding redundant lookups and reducing FFI crossings when called
+    /// from C.
+    ///
+    /// If `out_values` is `Some`, the value pointer for each included field is written at the
+    /// same index as the corresponding `true` entry in `out_flags`. Skipped slots are left
+    /// unchanged.
+    ///
+    /// # Panics
+    /// This function will panic if `out_flags` length is less than `lookup.get_row_len()`,
+    /// or if `out_values` is `Some` and its length is less than `out_flags`.
+    pub fn get_length_and_values_no_alloc<'b>(
+        &'b self,
+        lookup: &RLookup,
+        required_flags: RLookupKeyFlags,
+        excluded_flags: RLookupKeyFlags,
+        rule: Option<&SchemaRule>,
+        out_flags: &mut [bool],
+        mut out_values: Option<&mut [Option<&'b RSValueFFI>]>,
+    ) -> usize {
         debug_assert!(
             out_flags.len() >= lookup.get_row_len() as usize,
             "out_flags length must be at least equal to lookup.get_row_len()"
         );
+
+        if let Some(ref vals) = out_values {
+            debug_assert!(
+                vals.len() >= out_flags.len(),
+                "out_values length must be at least equal to out_flags length"
+            );
+        }
 
         debug_assert!(
             !required_flags.contains(RLookupKeyFlag::NameAlloc),
@@ -126,19 +158,22 @@ impl<'a> RLookupRow<'a> {
             let will_increment_idx = !key.is_tombstone();
             let key_matches_flag_requirements =
                 key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
-            let key_has_associated_value = self.get(key).is_some();
+            let value = self.get(key);
             // Is this key a "special key" according to the schema? If so, we skip it
             let key_allowed_by_rule = !rule.is_some_and(|rule| rule.is_special_key(key));
 
             let will_count = will_increment_idx
                 && key_matches_flag_requirements
-                && key_has_associated_value
+                && value.is_some()
                 && key_allowed_by_rule;
 
             cursor.move_next();
 
             if will_count {
                 out_flags[idx] = true;
+                if let Some(ref mut vals) = out_values {
+                    vals[idx] = value;
+                }
                 num_fields += 1;
             }
 
