@@ -150,6 +150,10 @@ jobs:
         )
       || null }}
 
+    env:
+      # LTO is disabled on coverage and sanitizer tasks
+      LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
+
     defaults:
       run:
         shell: bash -l -eo pipefail {0}

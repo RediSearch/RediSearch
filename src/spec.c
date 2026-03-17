@@ -2012,13 +2012,17 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
-  // Free spec name
-  HiddenString_Free(spec->specName, true);
-  rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
   }
+
+  // Close disk index before freeing spec name (needs the name for tracking)
+  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
+
+  // Free spec name (after disk close, which needs the name)
+  HiddenString_Free(spec->specName, true);
+  rm_free(spec->obfuscatedName);
 
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
@@ -2069,7 +2073,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   // Free unlinked index spec on a second thread
-  if (RSGlobalConfig.freeResourcesThread == false) {
+  if (RSGlobalConfig.freeResourcesThread == false || SearchDisk_IsEnabled()) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
