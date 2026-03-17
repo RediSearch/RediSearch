@@ -275,10 +275,6 @@ where
             if child_last_id < doc_id {
                 // Child is behind - need to skip (or remove if at EOF)
                 if child.at_eof() {
-                    // Update min_child_idx if it points to the child being swapped in
-                    if min_child_idx == self.num_active - 1 {
-                        min_child_idx = i;
-                    }
                     self.swap_remove_child(i);
                     continue;
                 }
@@ -299,9 +295,6 @@ where
                     }
                     None => {
                         // Child reached EOF - swap-remove
-                        if min_child_idx == self.num_active - 1 {
-                            min_child_idx = i;
-                        }
                         self.swap_remove_child(i);
                         continue;
                     }

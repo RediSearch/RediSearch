@@ -127,6 +127,7 @@ impl MockData {
             read_count: 0,
             error_at_done: None,
             delays: Vec::new(),
+            force_read_none: false,
         })))
     }
 
@@ -176,6 +177,19 @@ impl MockData {
         self.0.borrow().validation_count
     }
 
+    /// Force the next call to `read()` to return `None` even if not at EOF.
+    ///
+    /// This simulates an iterator that doesn't know it's at EOF until `read()` is called.
+    /// The Inverted Index iterator exhibits this behavior: `at_eof()` returns `false`
+    /// before a `read()` call, but `read()` discovers there are no more records and
+    /// returns `None` (then sets `at_eos = true`).
+    ///
+    /// The flag is automatically cleared after one use.
+    pub fn set_force_read_none(&mut self, force: bool) -> &mut Self {
+        self.0.borrow_mut().force_read_none = force;
+        self
+    }
+
     /// Number of times [`Mock::read`] was called.
     ///
     /// This counter is incremented whenever the owning iterator calls
@@ -197,6 +211,9 @@ struct MockDataInternal {
     read_count: usize,
     error_at_done: Option<MockIteratorError>,
     delays: Vec<(t_docId, Duration)>,
+    /// If true, the next call to `read()` will return `None` even if not at EOF.
+    /// Simulates Inverted Index iterators that discover EOF only when `read()` is called.
+    force_read_none: bool,
 }
 
 impl MockDataInternal {
@@ -306,6 +323,13 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         {
             let mut data = self.data.0.borrow_mut();
             data.read_count += 1;
+
+            // Check if we should force return None (simulating misbehaving iterator)
+            if data.force_read_none {
+                data.force_read_none = false; // Clear after one use
+                return Ok(None);
+            }
+
             if self.at_eof() {
                 return if let Some(err) = data.error_at_done {
                     Err(err.into_rqe_iterator_error())
