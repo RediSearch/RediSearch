@@ -10,8 +10,8 @@
 use std::ptr::NonNull;
 
 use ffi::{IteratorType_NOT_ITERATOR, QueryIterator, t_docId, timespec};
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::not::Not;
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 use rqe_iterators::c2rust::CRQEIterator;
 

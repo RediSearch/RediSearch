@@ -8,8 +8,8 @@
 */
 
 use ffi::{IteratorType_PROFILE_ITERATOR, QueryIterator};
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::profile::{Profile, ProfileCounters};
-use rqe_iterators_interop::RQEIteratorWrapper;
 use std::ptr::NonNull;
 
 use rqe_iterators::c2rust::CRQEIterator;
