@@ -163,11 +163,10 @@ static int set_min_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   if (val >= (long long)RSGlobalConfig.maxTrimDelayMS) {
-    if (err) {
-      *err = RedisModule_CreateStringPrintf(NULL,
-        "search-_min-trim-delay-ms (%lld) must be less than search-_max-trim-delay-ms (%u)",
-        val, RSGlobalConfig.maxTrimDelayMS);
-    }
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-_min-trim-delay-ms (%lld) must be less than search-_max-trim-delay-ms (%u)",
+      val, RSGlobalConfig.maxTrimDelayMS);
     return REDISMODULE_ERR;
   }
 
@@ -180,11 +179,10 @@ static int set_max_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   if (val <= (long long)RSGlobalConfig.minTrimDelayMS) {
-    if (err) {
-      *err = RedisModule_CreateStringPrintf(NULL,
-        "search-_max-trim-delay-ms (%lld) must be greater than search-_min-trim-delay-ms (%u)",
-        val, RSGlobalConfig.minTrimDelayMS);
-    }
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-_max-trim-delay-ms (%lld) must be greater than search-_min-trim-delay-ms (%u)",
+      val, RSGlobalConfig.minTrimDelayMS);
     return REDISMODULE_ERR;
   }
 
@@ -205,9 +203,8 @@ static int set_search_disk_buffer_percentage_config(const char *name, long long 
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   if (val > 100) {
-    if (err) {
-      *err = RedisModule_CreateStringPrintf(NULL, "search-disk-buffer-percentage must be between 0 and 100, but got %lld", val);
-    }
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "search-disk-buffer-percentage must be between 0 and 100, but got %lld", val);
     return REDISMODULE_ERR;
   }
   *(uint8_t *)privdata = (uint8_t) val;
@@ -278,9 +275,8 @@ static int set_default_scorer_config(const char *name, RedisModuleString *val, v
     // Validate the scorer name against registered scorers only when the extension system is initialized
     ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
     if (scoreCtx == NULL) {
-      if (err) {
-        *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
-      }
+      RS_ASSERT(err);
+      *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
       return REDISMODULE_ERR;
     }
   }
@@ -1265,35 +1261,6 @@ static int get_on_oom(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSOomPolicy *)privdata);
 }
-
-// DISK_BUFFER_PERCENTAGE
-CONFIG_SETTER(setDiskBufferPercentage) {
-  // This config is only valid when disk mode is enabled
-  if (!SearchDisk_IsEnabled()) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_OPTION,
-      "DISK_BUFFER_PERCENTAGE is only valid when disk mode is enabled");
-    return REDISMODULE_ERR;
-  }
-  RS_ASSERT(SearchDisk_IsInitialized());
-  uint8_t newPercentage;
-  int acrc = AC_GetU8(ac, &newPercentage, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (newPercentage > 100) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-      "DISK_BUFFER_PERCENTAGE must be between 0 and 100");
-    return REDISMODULE_ERR;
-  }
-  config->diskBufferPercentage = newPercentage;
-  // If disk is already initialized, update the buffer budget
-  SearchDisk_UpdateBufferBudget(RSDummyContext, (int)newPercentage);
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getDiskBufferPercentage) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%d", config->diskBufferPercentage);
-}
-
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1650,10 +1617,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setDebugSimulateInFlex,
          .getValue = getDebugSimulateInFlex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "DISK_BUFFER_PERCENTAGE",
-         .helpText = "Percentage of available memory to use for disk write buffer (1-100)",
-         .setValue = setDiskBufferPercentage,
-         .getValue = getDiskBufferPercentage},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
