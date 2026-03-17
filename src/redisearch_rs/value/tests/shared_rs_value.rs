@@ -163,26 +163,3 @@ fn set_value_panics_when_shared() {
     let _clone = v.clone();
     v.set_value(RsValue::Number(2.0));
 }
-
-#[test]
-fn fully_dereferenced_non_ref() {
-    let v = SharedRsValue::new(RsValue::Number(5.0));
-    assert!(SharedRsValue::ptr_eq(&v, v.fully_dereferenced()));
-}
-
-#[test]
-fn fully_dereferenced_single_ref() {
-    let inner = SharedRsValue::new(RsValue::Number(5.0));
-    let outer = SharedRsValue::new(RsValue::Ref(inner.clone()));
-    let deref = outer.fully_dereferenced();
-    assert!(SharedRsValue::ptr_eq(&inner, deref));
-}
-
-#[test]
-fn fully_dereferenced_nested_refs() {
-    let innermost = SharedRsValue::new(RsValue::Number(42.0));
-    let middle = SharedRsValue::new(RsValue::Ref(innermost.clone()));
-    let outer = SharedRsValue::new(RsValue::Ref(middle.clone()));
-    let deref = outer.fully_dereferenced();
-    assert!(SharedRsValue::ptr_eq(&innermost, deref));
-}

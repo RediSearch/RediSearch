@@ -81,22 +81,6 @@ impl SharedRsValue {
         std::ptr::eq(self.ptr, &NULL_VALUE)
     }
 
-    /// Follows the chain of [`RsValue::Ref`] indirections and returns the
-    /// innermost [`SharedRsValue`] that is not a [`RsValue::Ref`].
-    pub fn fully_dereferenced(&self) -> &Self {
-        if let RsValue::Ref(ref_value) = self.value() {
-            ref_value.fully_dereferenced()
-        } else {
-            self
-        }
-    }
-
-    /// Convenience wrapper around [`fully_dereferenced`](Self::fully_dereferenced)
-    /// that returns the inner [`RsValue`] directly.
-    pub fn fully_dereferenced_value(&self) -> &RsValue {
-        self.fully_dereferenced().value()
-    }
-
     /// Replaces the stored [`RsValue`] in place.
     ///
     /// # Panics
