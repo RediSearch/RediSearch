@@ -203,7 +203,7 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
 }
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
-QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight) {
+QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId maxDocId, double weight) {
   RS_ASSERT(q && q->sctx && q->sctx->spec && q->docTable);
   QueryIterator *ret = OptionalIteratorReducer(it, q, weight);
   if (ret != NULL) {
@@ -211,7 +211,6 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   }
 
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all && !q->sctx->spec->diskSpec;
-  t_docId maxDocId = q->docTable->maxDocId;
 
   if (optimized) {
     OptionalOptimizedIterator *oi = rm_calloc(1, sizeof(*oi));
