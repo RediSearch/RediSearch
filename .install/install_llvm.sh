@@ -12,6 +12,7 @@ APT_GET_LOCK_TIMEOUT_SECONDS="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}"
 
 apt_get_cmd() {
     $MODE apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" "$@"
+    return $?
 }
 
 if [[ $OS_TYPE == Darwin ]]; then
