@@ -25,12 +25,12 @@ fn test_fixed_array_zero_length() {
         replier.long_long(42);
     });
     // The zero-length array should be empty, followed by 42 as a separate reply.
-    insta::assert_debug_snapshot!(replies, @r"
-[
-    [],
-    42,
-]
-");
+    insta::assert_debug_snapshot!(replies, @"
+    [
+        [],
+        42,
+    ]
+    ");
 }
 
 #[test]
