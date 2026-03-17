@@ -125,7 +125,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
     ast.setContext(&ctx);
     ASSERT_FALSE(ast.parse(range_query, version));
     ASSERT_NE(ast.getError(), nullptr);
-    ASSERT_NE(strstr(ast.getError(), "vector range queries are not supported for disk indexes"),
+    ASSERT_NE(strstr(ast.getError(), "vector range queries are currently not supported for disk indexes"),
               nullptr)
         << ast.getError();
   }

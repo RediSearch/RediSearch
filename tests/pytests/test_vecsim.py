@@ -776,7 +776,7 @@ def test_disk_vector_query_validation():
 
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
                 'PARAMS', '2', 'b', query_blob).error().contains(
-                    'vector range queries are not supported for disk indexes')
+                    'vector range queries are currently not supported for disk indexes')
 
     env.expect('FT.SEARCH', 'idx', '@t:hello=>[KNN 2 @v $b]', 'NOCONTENT',
                 'PARAMS', '2', 'b', query_blob).error().contains(
