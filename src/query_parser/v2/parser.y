@@ -1130,6 +1130,9 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
     QueryNode_Free(C);
+  } else if (ctx->sctx->spec && ctx->sctx->spec->diskSpec) {
+    reportSyntaxError(ctx->status, &B.tok, "Syntax error: vector range queries are not supported for disk indexes");
+    QueryNode_Free(C);
   } else if (C) {
     C->vn.vq->field = B.fs;
     A = C;

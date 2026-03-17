@@ -2483,6 +2483,9 @@ static YYACTIONTYPE yy_reduce(
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-4].minor.yy150.fs, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_VECTOR_STR);
     QueryNode_Free(yymsp[-1].minor.yy3);
+  } else if (ctx->sctx->spec && ctx->sctx->spec->diskSpec) {
+    reportSyntaxError(ctx->status, &yymsp[-4].minor.yy150.tok, "Syntax error: vector range queries are not supported for disk indexes");
+    QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
     yymsp[-1].minor.yy3->vn.vq->field = yymsp[-4].minor.yy150.fs;
     yylhsminor.yy3 = yymsp[-1].minor.yy3;
