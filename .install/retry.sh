@@ -17,10 +17,9 @@ for i in 1 2 3 4 5; do
     break
   fi
   if [ $i -lt 5 ]; then
-    echo "Setup failed, retrying in 30 seconds..."
-    sleep 30
+    echo "Setup failed, retrying in 1 second..."
+    sleep 1
   fi
 done
 
 [ $SUCCESS -eq 1 ] || exit 1
-

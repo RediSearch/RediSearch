@@ -1,11 +1,8 @@
 # Ignore everything, except the scripts required to install dependencies
-# into our CI containers.
-*
-!.install
-!.install/**
-!.rust-nightly
-!rust-toolchain.toml
-!.github/workflows/task-get-config.yml
+# into our CI containers and the source files needed for diagnostic builds.
+bin/**
+.git
+.jj
 
 # Make sure we don't include the boost directory in the context.
 .install/boost/**

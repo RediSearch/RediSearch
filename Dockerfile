@@ -7,7 +7,6 @@
 # ---------------------------------------------------------
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
-ARG SAN=none
 
 ENV GITHUB_ACTIONS=true
 WORKDIR /project
@@ -19,7 +18,11 @@ RUN if ! command -v bash >/dev/null 2>&1; then \
         (apk add --no-cache bash); \
     fi
 
-COPY . .
+COPY .install .install
+COPY .rust-nightly .
+COPY .python-version .
+COPY rust-toolchain.toml .
+COPY uv.lock .
 
 WORKDIR /project/.install
 # Install base dependencies, Rust toolchain, and optionally LLVM for sanitizer builds.
@@ -30,4 +33,20 @@ WORKDIR /project
 # Expose newly-installed Rust and Python tools via PATH
 ENV PATH="/usr/local/llvm/bin:/root/.cargo/bin:/root/.local/bin:${PATH}"
 
-WORKDIR /project
+COPY . .
+RUN git init
+
+RUN bash -l -eo pipefail -c '\
+    ./build.sh LTO=1 TESTS=1 BUILD_INTEL_SVS_OPT=yes || true; \
+    echo "=== Scanning for problematic symbols ==="; \
+    BUILD_DIR=$(find bin -maxdepth 2 -name search-community -type d 2>/dev/null | head -1); \
+    if [ -z "$BUILD_DIR" ]; then echo "ERROR: build dir not found"; exit 1; fi; \
+    cd "$BUILD_DIR"; \
+    for f in $(find . -name "*.a"); do \
+        nm -C --print-file-name "$f" 2>/dev/null \
+            | grep -E "ios_base_library_init|_M_replace_cold" || true; \
+    done; \
+    echo "=== Undefined symbols in redisearch.so ==="; \
+    nm -uCD redisearch.so 2>/dev/null \
+        | grep -E "ios_base_library_init|_M_replace_cold" || echo "(none)"; \
+    '
