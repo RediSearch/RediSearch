@@ -11,13 +11,24 @@
 #include "src/query_parser/tokenizer.h"
 #include "src/param.h"
 #include "src/util/references.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "src/vector_index.h"
+#ifdef __cplusplus
+}
+#endif
 #include "common.h"
 #include "query_test_utils.h"
+#include "iterators_rs.h"
 
 #include "gtest/gtest.h"
 
 #include <array>
 #include <stdio.h>
+
+extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                   DocumentType type);
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 
@@ -99,18 +110,23 @@ TEST_F(QueryTest, testParser_delta) {
 }
 
 TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
-  RedisSearchCtx ctx;
+  RedisModuleCtx *redisCtx = RedisModule_GetThreadSafeContext(NULL);
+  const bool prevSimulateInFlex = RSGlobalConfig.simulateInFlex;
   std::array<const char *, 13> args = {
       "SCHEMA", "title",   "text", "vec_field", "vector",          "HNSW", "6",
       "TYPE",   "FLOAT32", "DIM",  "4",         "DISTANCE_METRIC", "L2"};
   QueryError err = QueryError_Default();
-  StrongRef ref = IndexSpec_ParseC(nullptr, "idx", args.data(), args.size(), &err);
-  ctx.spec = (IndexSpec *)StrongRef_Get(ref);
+  StrongRef ref = IndexSpec_ParseC(redisCtx, "idx", args.data(), args.size(), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx, (IndexSpec *)StrongRef_Get(ref));
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-  ASSERT_TRUE(RS::addDocument(nullptr, ref.rm, "doc:1", "title", "hello", "vec_field", "abcdefghijklmnop"));
+  ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));
+  ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "vec_field", "abcdefghijklmnop", false));
+  ASSERT_EQ(IndexSpec_UpdateDoc(ctx.spec, redisCtx, RMCK::RString("doc:1"), DocumentType_Hash), REDISMODULE_OK);
 
-  ctx.spec->diskSpec = (RedisSearchDiskIndexSpec *)0x1;
+  ASSERT_NE(openVectorIndex(redisCtx, &ctx.spec->fields[1], DONT_CREATE_INDEX), nullptr);
+
+  RSGlobalConfig.simulateInFlex = true;
   int version = 2;
   const char *range_query = "@vec_field:[VECTOR_RANGE 0.01 $BLOB]";
   const char *prefilter_knn_query = "@title:hello=>[KNN 2 @vec_field $BLOB]";
@@ -232,8 +248,9 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   Param_DictFree(opts_attrs.params);
   QueryError_ClearError(&iterErrAttrs);
 
-  ctx.spec->diskSpec = nullptr;
   IndexSpec_RemoveFromGlobals(ref, false);
+  RSGlobalConfig.simulateInFlex = prevSimulateInFlex;
+  RedisModule_FreeThreadSafeContext(redisCtx);
 }
 
 TEST_F(QueryTest, testParser_v1) {
