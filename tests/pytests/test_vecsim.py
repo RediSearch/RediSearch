@@ -771,30 +771,28 @@ def test_search_errors():
 @skip(cluster=True)
 def test_disk_vector_query_validation():
     env = create_disk_hnsw_query_fixture()
-    try:
-        query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
 
-        env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
-                   'PARAMS', '2', 'b', query_blob).error().contains(
-                       'vector range queries are not supported for disk indexes')
+    query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
 
-        env.expect('FT.SEARCH', 'idx', '@t:hello=>[KNN 2 @v $b]', 'NOCONTENT',
-                   'PARAMS', '2', 'b', query_blob).error().contains(
-                       'Disk pre-filtered vector queries currently require explicit HYBRID_POLICY')
+    env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                'PARAMS', '2', 'b', query_blob).error().contains(
+                    'vector range queries are not supported for disk indexes')
 
-        valid_queries = [
-            '@t:hello=>[KNN 2 @v $b HYBRID_POLICY BATCHES]',
-            '@t:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF]',
-            '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:BATCHES;}',
-            '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:ADHOC_BF;}',
-        ]
+    env.expect('FT.SEARCH', 'idx', '@t:hello=>[KNN 2 @v $b]', 'NOCONTENT',
+                'PARAMS', '2', 'b', query_blob).error().contains(
+                    'Disk pre-filtered vector queries currently require explicit HYBRID_POLICY')
 
-        for query in valid_queries:
-            res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'PARAMS', '2', 'b', query_blob)
-            env.assertEqual(res[0], 2)
-            env.assertEqual(set(res[1:]), {'doc:1', 'doc:2'})
-    finally:
-        env.stop()
+    valid_queries = [
+        '@t:hello=>[KNN 2 @v $b HYBRID_POLICY BATCHES]',
+        '@t:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF]',
+        '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:BATCHES;}',
+        '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:ADHOC_BF;}',
+    ]
+
+    for query in valid_queries:
+        res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'PARAMS', '2', 'b', query_blob)
+        env.assertEqual(res[0], 2, message=f'Expected 2 results for query "{query}"')
+        env.assertEqual(set(res[1:]), {'doc:1', 'doc:2'}, message=f'Expected results doc:1 and doc:2 for query "{query}"')
 
 
 def test_with_fields():
