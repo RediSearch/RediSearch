@@ -10,7 +10,6 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
-#include "trie/trie_type.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
@@ -51,8 +50,24 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  disk_db = disk->basic.open();
+  // Pass the disk buffer percentage from config
+  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+  bool disk_initialized = disk_db != NULL;
 
+  if (!disk_initialized) {
+    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+    return false;
+  }
+
+  // Register BigModule callbacks for disk usage reporting
+  if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
+    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
+    return false;
+  }
+  return disk_db != NULL;
+}
+
+bool SearchDisk_IsInitialized() {
   return disk_db != NULL;
 }
 
@@ -93,9 +108,9 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   return true;
 }
 
-void SearchDisk_Close() {
+void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
-    disk->basic.close(disk_db);
+    disk->basic.close(ctx, disk_db);
     disk_db = NULL;
   }
 }
@@ -315,4 +330,9 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.flush(index);
+}
+
+void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
+  RS_ASSERT(disk && disk_db);
+  disk->basic.updateBufferBudget(ctx, disk_db, percentage);
 }

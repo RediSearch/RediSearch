@@ -674,6 +674,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
                RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
   bool delDocs = dropCommand;
+  if (SearchDisk_IsEnabledForValidation() && dropCommand) {
+    return RedisModule_ReplyWithError(ctx, "FT.DROP is not supported in Redis Flex");
+  }
   if (argc == 3){
     if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
       delDocs = false;
@@ -681,10 +684,15 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       delDocs = false;
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
+      if (SearchDisk_IsEnabledForValidation()) {
+        return RedisModule_ReplyWithError(ctx, "DD is not supported in Redis Flex");
+      }
     } else {
       return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
     }
   }
+
+  RS_ASSERT(!(delDocs && SearchDisk_IsEnabledForValidation()));
 
   CurrentThread_SetIndexSpec(global_ref);
 
@@ -1479,7 +1487,7 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
 static int DiskDisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argc);
   const char *command = RedisModule_StringPtrLen(argv[0], NULL);
-  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in disk mode", command);
+  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in Redis Flex", command);
 }
 
 static RedisModuleCmdFunc DiskDisabledCmd(RedisModuleCmdFunc f) {
@@ -1688,26 +1696,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
-  }
-
-  if (SearchDisk_IsEnabled()) {
-    bool disk_initialized = SearchDisk_Initialize(ctx);
-    if (!disk_initialized) {
-      RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
-      return REDISMODULE_ERR;
-    }
-
-    // Register BigModule callbacks for disk usage reporting
-    if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
-      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
-      return REDISMODULE_ERR;
-    }
-
-    if (RSGlobalConfig.numWorkerThreads == 0) {
-      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
-      workersThreadPool_SetNumWorkers();
-      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
-    }
   }
 
   // register trie-dictionary type
@@ -4619,6 +4607,13 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Register the module configuration parameters
   GetRedisVersion(ctx);
 
+  // Disk-based indexes cannot be enabled after server startup
+  if (SearchDisk_IsEnabled() &&
+      !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP)) {
+    RedisModule_Log(ctx, "error", "Cannot load module with disk indexes after server startup");
+    return REDISMODULE_ERR;
+  }
+
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
 
@@ -4745,7 +4740,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RSGlobalConfig.defaultScorer = NULL;
   }
 
-  SearchDisk_Close();
+  SearchDisk_Close(ctx);
 
   return REDISMODULE_OK;
 }

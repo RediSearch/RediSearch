@@ -357,7 +357,7 @@ TEST_F(TrieTest, testbenchmark) {
   int count = 1024 * 1024 * 8;
   for (size_t i = 0; i < count; ++i) {
     int random = rand() % (count / 5);
-    sprintf(buf, "%x", random);
+    snprintf(buf, sizeof(buf), "%x", random);
     Trie_InsertStringBuffer(t, buf, strlen(buf), 1, 0,10 NULL);
   }
 

@@ -29,16 +29,22 @@ static bool periodicCb(void *privdata, bool force) {
     return true;
   }
 
-  size_t num_docs_to_clean = atomic_load(&gc->deletedDocsFromLastRun);
-  if (!force && num_docs_to_clean < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  // Check total changes (deletes + adds + updates) to decide whether to run GC
+  size_t num_writes = atomic_load(&gc->writesFromLastRun);
+  size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
+  size_t num_updates = atomic_load(&gc->updatesFromLastRun);
+  size_t num_changes = num_writes + num_deletes + num_updates;
+  if (!force && num_changes < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return true;
   }
+  // Reset counters before running GC
+  atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
+  atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);
+  atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
-  size_t num_docs_cleaned = SearchDisk_RunGC(sp->diskSpec, sp);
-
-  IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_cleaned);
-  atomic_fetch_sub(&gc->deletedDocsFromLastRun, num_docs_cleaned);
+  size_t num_cleaned = SearchDisk_RunGC(sp->diskSpec, sp);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(num_cleaned);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
@@ -48,8 +54,9 @@ static bool periodicCb(void *privdata, bool force) {
 
 static void onTerminateCb(void *privdata) {
   DiskGC *gc = privdata;
-  size_t remaining = atomic_exchange(&gc->deletedDocsFromLastRun, 0);
-  IndexsGlobalStats_DecreaseLogicallyDeleted(remaining);
+  size_t updates = atomic_exchange(&gc->updatesFromLastRun, 0);
+  size_t deletes = atomic_exchange(&gc->deletesFromLastRun, 0);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(updates + deletes);
   WeakRef_Release(gc->index);
   rm_free(gc);
 }
@@ -67,8 +74,19 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 
 static void deleteCb(void *ctx) {
   DiskGC *gc = ctx;
-  atomic_fetch_add(&gc->deletedDocsFromLastRun, 1);
+  atomic_fetch_add(&gc->deletesFromLastRun, 1);
   IndexsGlobalStats_IncreaseLogicallyDeleted(1);
+}
+
+static void updateCb(void *ctx) {
+  DiskGC *gc = ctx;
+  atomic_fetch_add(&gc->updatesFromLastRun, 1);
+  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
+}
+
+static void writeCb(void *ctx) {
+  DiskGC *gc = ctx;
+  atomic_fetch_add(&gc->writesFromLastRun, 1);
 }
 
 // Stats are maintained in disk info.
@@ -87,10 +105,13 @@ static struct timespec getIntervalCb(void *ctx) {
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   RS_LOG_ASSERT(SearchDisk_IsEnabled(), "Disk GC is not enabled");
+  RS_LOG_ASSERT(SearchDisk_IsInitialized(), "Search Disk is not initialized");
   DiskGC *gc = rm_calloc(1, sizeof(*gc));
   *gc = (DiskGC){
       .index = StrongRef_Demote(spec_ref),
-      .deletedDocsFromLastRun = 0,
+      .writesFromLastRun = 0,
+      .deletesFromLastRun = 0,
+      .updatesFromLastRun = 0,
   };
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
@@ -100,6 +121,8 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
   callbacks->onDelete = deleteCb;
+  callbacks->onWrite = writeCb;
+  callbacks->onUpdate = updateCb;
   callbacks->getStats = getStatsCb;
 
   return gc;

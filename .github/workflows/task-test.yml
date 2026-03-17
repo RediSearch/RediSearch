@@ -150,6 +150,10 @@ jobs:
         )
       || null }}
 
+    env:
+      # LTO is disabled on coverage and sanitizer tasks
+      LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
+
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -291,6 +295,10 @@ jobs:
           echo "Runner OS: $RUNNER_OS"
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
+      - name: Setup sccache
+        # sccache-action is a JavaScript action requiring Node.js 20+
+        if: needs.get-config.outputs.node20_supported == 'true'
+        uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
@@ -319,7 +327,7 @@ jobs:
         with:
           command: .install/test_deps/install_python_deps.sh ${{ needs.get-config.outputs.install_mode }}
       - name: Install LLVM for sanitizer
-        if: inputs.san == 'address'
+        if: inputs.san == 'address' && needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
         with:
           command: ./install_llvm.sh ${{ needs.get-config.outputs.install_mode }}
@@ -328,6 +336,10 @@ jobs:
         if: inputs.san == 'address'
         run: |
           CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+          if [[ -z "$CLANG_BIN" ]]; then
+            echo "Failed to locate clang after sanitizer setup"
+            exit 1
+          fi
           CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
           echo "Using LLVM version: $CLANG_VERSION"
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
@@ -439,6 +451,10 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make rust-tests
+
+      - name: Show sccache stats
+        if: needs.get-config.outputs.node20_supported == 'true'
+        run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Check test logs folder size
         if: always()

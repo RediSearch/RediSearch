@@ -129,7 +129,7 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
 // It will stop the background scan process
 static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   char* error;
-  rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
+  rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan", RSGlobalConfig.indexingMemoryLimit);
   RedisModule_Log(ctx, "warning", "%s", error);
 
     // We need to report the error message besides the log, so we can show it in FT.INFO
@@ -1771,6 +1771,8 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   }
 
   if (timeout != -1) {
+    // When disk validation is active, argopts is set to flex_argopts, which does not include SPEC_TEMPORARY_STR
+    RS_ASSERT(!SearchDisk_IsEnabled());
     spec->flags |= Index_Temporary;
   }
   spec->timeout = timeout * 1000;  // convert to ms
@@ -1798,6 +1800,7 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(spec->specName, &len);
+
     spec->diskSpec = SearchDisk_OpenIndex(ctx, name, len, spec->rule->type, false);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
     if (!spec->diskSpec) {
@@ -2008,18 +2011,20 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     }
     rm_free(spec->fields);
   }
-  // Free spec name
-  HiddenString_Free(spec->specName, true);
-  rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
   }
 
+  // Close disk index before freeing spec name (needs the name for tracking)
+  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
+
+  // Free spec name (after disk close, which needs the name)
+  HiddenString_Free(spec->specName, true);
+  rm_free(spec->obfuscatedName);
+
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
-
-  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
 
   // Free spec struct
   rm_free(spec);
@@ -2065,7 +2070,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   // Free unlinked index spec on a second thread
-  if (RSGlobalConfig.freeResourcesThread == false) {
+  if (RSGlobalConfig.freeResourcesThread == false || SearchDisk_IsEnabled()) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
@@ -3013,7 +3018,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = sp->fields + i;
     char title[28];
-    sprintf(title, "%s_%d", "field", (i+1));
+    snprintf(title, sizeof(title), "%s_%d", "field", (i+1));
     RedisModule_InfoBeginDictField(ctx, title);
 
     // if we can't perform allocation then use a local buffer to format the field name
@@ -3038,7 +3043,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
       RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[4];
-      sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
+      snprintf(buf, sizeof(buf), "\"%c\"", fs->tagOpts.tagSep);
       RedisModule_InfoAddFieldCString(ctx, SPEC_TAG_SEPARATOR_STR, buf);
     }
     if (FieldSpec_IsSortable(fs))
@@ -3348,6 +3353,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+
     sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, !useSst);
     IndexSpec_PopulateVectorDiskParams(sp);
     if (!sp->diskSpec) {
@@ -3526,10 +3532,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   if (SearchDisk_IsEnabled()) {
-    RS_ASSERT(disk_db);
+    RS_ASSERT(SearchDisk_IsInitialized());
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
     RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
+
     // Legacy RDB does not have SST persistence, so always delete before opening.
     sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
     // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related

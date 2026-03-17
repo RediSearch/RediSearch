@@ -2000,3 +2000,21 @@ def testDefaultScorerConfig(env):
     env.expect('CONFIG', 'SET', 'search-default-scorer', 'NOTHING2').error().contains('Invalid default scorer value')
 
     env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'HAMMING']])  # Should still be the last valid value
+
+@skip(cluster=True)
+def test_flex_search_disk_buffer_percentage(env):
+    """Test search-disk-buffer-percentage validation in Flex mode"""
+    # Valid values should be accepted
+    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '50').ok()
+    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '50'])
+
+    # Boundary values
+    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '0').ok()
+    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '0'])
+
+    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '100').ok()
+    env.expect('CONFIG', 'GET', 'search-disk-buffer-percentage').equal(['search-disk-buffer-percentage', '100'])
+
+    # Values above 100 should be rejected
+    env.expect('CONFIG', 'SET', 'search-disk-buffer-percentage', '101').error()\
+        .contains('argument must be between 0 and 100')

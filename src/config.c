@@ -163,11 +163,10 @@ static int set_min_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   if (val >= (long long)RSGlobalConfig.maxTrimDelayMS) {
-    if (err) {
-      *err = RedisModule_CreateStringPrintf(NULL,
-        "search-_min-trim-delay-ms (%lld) must be less than search-_max-trim-delay-ms (%u)",
-        val, RSGlobalConfig.maxTrimDelayMS);
-    }
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-_min-trim-delay-ms (%lld) must be less than search-_max-trim-delay-ms (%u)",
+      val, RSGlobalConfig.maxTrimDelayMS);
     return REDISMODULE_ERR;
   }
 
@@ -180,11 +179,10 @@ static int set_max_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   if (val <= (long long)RSGlobalConfig.minTrimDelayMS) {
-    if (err) {
-      *err = RedisModule_CreateStringPrintf(NULL,
-        "search-_max-trim-delay-ms (%lld) must be greater than search-_min-trim-delay-ms (%u)",
-        val, RSGlobalConfig.minTrimDelayMS);
-    }
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-_max-trim-delay-ms (%lld) must be greater than search-_min-trim-delay-ms (%u)",
+      val, RSGlobalConfig.minTrimDelayMS);
     return REDISMODULE_ERR;
   }
 
@@ -197,6 +195,17 @@ static int set_uint8_numeric_config(const char *name, long long val,
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *(uint8_t *)privdata = (uint8_t) val;
+  return REDISMODULE_OK;
+}
+
+static int set_search_disk_buffer_percentage_config(const char *name, long long val,
+  void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(uint8_t *)privdata = (uint8_t) val;
+  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
+    SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
+  }
   return REDISMODULE_OK;
 }
 
@@ -301,9 +310,8 @@ static int set_default_scorer_config(const char *name, RedisModuleString *val, v
     // Validate the scorer name against registered scorers only when the extension system is initialized
     ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
     if (scoreCtx == NULL) {
-      if (err) {
-        *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
-      }
+      RS_ASSERT(err);
+      *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
       return REDISMODULE_ERR;
     }
   }
@@ -586,6 +594,7 @@ static inline int errorMemoryLimitG100(QueryError *status) {
   QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
+
 // SET MEMORY LIMIT PERCENTAGE
 CONFIG_SETTER(setIndexingMemoryLimit) {
   uint8_t newLimit;
@@ -1287,7 +1296,6 @@ static int get_on_oom(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSOomPolicy *)privdata);
 }
-
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -2351,6 +2359,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_monitor_expiration, NULL,
       (void *)&(RSGlobalConfig.monitorExpiration)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
+      (void *)&(RSGlobalConfig.diskBufferPercentage)
     )
   )
 
