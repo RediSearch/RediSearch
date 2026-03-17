@@ -18,8 +18,23 @@ pub type SearchResult = search_result::SearchResult<'static>;
 // Due to cbindgen limitations we need to put the `expect` attribute on the method itself, rather than on the return type.
 #[expect(improper_ctypes_definitions)]
 #[unsafe(no_mangle)]
-pub const extern "C" fn SearchResult_New() -> SearchResult {
+pub extern "C" fn SearchResult_New() -> SearchResult {
     SearchResult::new()
+}
+
+/// Returns a newly created [`SearchResult`] with its internal row pre-allocated
+/// to the given capacity.
+///
+/// Use this when the number of lookup keys (`rowlen`) is known upfront to
+/// avoid reallocations during value writes.
+//
+// The `SearchResult` type is technically not FFI-safe due to the `RLookupRow` type of its `_row_data` field.
+// However that type is in practice only exposed as an `OpaqueRLookupRow`, which _is_ FFI-safe.
+// Due to cbindgen limitations we need to put the `expect` attribute on the method itself, rather than on the return type.
+#[expect(improper_ctypes_definitions)]
+#[unsafe(no_mangle)]
+pub extern "C" fn SearchResult_NewWithRowCapacity(capacity: u32) -> SearchResult {
+    SearchResult::with_row_capacity(capacity)
 }
 
 /// Overrides the contents of `dst` with those from `src` taking ownership of `src`.

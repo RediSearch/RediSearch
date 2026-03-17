@@ -74,14 +74,23 @@ impl Default for SearchResult<'_> {
 }
 
 impl<'index> SearchResult<'index> {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        Self::with_row_capacity(0)
+    }
+
+    /// Creates a new `SearchResult` with the internal [`RLookupRow`] pre-allocated
+    /// to the given capacity.
+    ///
+    /// Use this when the number of lookup keys (`rowlen`) is known upfront to
+    /// avoid reallocations during value writes.
+    pub fn with_row_capacity(capacity: u32) -> Self {
         Self {
             _doc_id: 0,
             _score: 0.0,
             _score_explain: None,
             _document_metadata: None,
             _index_result: None,
-            _row_data: RLookupRow::new(),
+            _row_data: RLookupRow::with_capacity(capacity),
             _flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
         }
     }

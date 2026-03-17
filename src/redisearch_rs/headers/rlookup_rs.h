@@ -582,6 +582,15 @@ struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 struct RLookupRow RLookupRow_New(void);
 
 /**
+ * Returns a newly created [`RLookupRow`] with [`RLookupRow::dyn_values`] pre-allocated
+ * to the given capacity.
+ *
+ * Use this when the number of keys (`rowlen`) is known upfront to avoid
+ * reallocations during value writes.
+ */
+struct RLookupRow RLookupRow_NewWithCapacity(uint32_t capacity);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * # Safety

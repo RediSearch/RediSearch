@@ -398,7 +398,7 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
  * @param cv Cached variables for result processing
  */
 void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
-    SearchResult r = SearchResult_New();
+    SearchResult r = SearchResult_NewWithRowCapacity(RLookup_GetRowLen(cv.lastLookup));
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;

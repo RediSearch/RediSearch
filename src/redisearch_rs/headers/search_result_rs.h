@@ -53,6 +53,15 @@ extern "C" {
 struct SearchResult SearchResult_New(void);
 
 /**
+ * Returns a newly created [`SearchResult`] with its internal row pre-allocated
+ * to the given capacity.
+ *
+ * Use this when the number of lookup keys (`rowlen`) is known upfront to
+ * avoid reallocations during value writes.
+ */
+struct SearchResult SearchResult_NewWithRowCapacity(uint32_t capacity);
+
+/**
  * Overrides the contents of `dst` with those from `src` taking ownership of `src`.
  * Ensures proper cleanup of any existing data in `dst`.
  *

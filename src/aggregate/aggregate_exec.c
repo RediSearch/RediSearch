@@ -624,7 +624,7 @@ done_2:
  */
 static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
-    SearchResult r = SearchResult_New();
+    SearchResult r = SearchResult_NewWithRowCapacity(RLookup_GetRowLen(cv.lastLookup));
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     ResultProcessor *rp = qctx->endProc;
@@ -820,7 +820,7 @@ done_3:
  */
 static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
-    SearchResult r = SearchResult_New();
+    SearchResult r = SearchResult_NewWithRowCapacity(RLookup_GetRowLen(cv.lastLookup));
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     ResultProcessor *rp = qctx->endProc;

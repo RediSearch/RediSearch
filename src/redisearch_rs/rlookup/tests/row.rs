@@ -132,7 +132,7 @@ struct WriteKeyMock<'a> {
 }
 
 impl<'a> WriteKeyMock<'a> {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             row: RLookupRow::new(),
             num_resize: 0,
