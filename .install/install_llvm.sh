@@ -17,9 +17,6 @@ apt_get_cmd() {
 }
 
 if [[ $OS_TYPE == Darwin ]]; then
-    # Keep using older LLVM on Mac as some deps do not build with the newer one.
-    # LTO is not enabled on Mac anyway.
-    LLVM_VERSION=18
     brew install llvm@$LLVM_VERSION
     BREW_PREFIX=$(brew --prefix)
     LLVM="$BREW_PREFIX/opt/llvm@$LLVM_VERSION/bin"
