@@ -29,6 +29,6 @@ bool SearchDisk_MarkUnsupportedCommandIfDiskEnabled(RedisModuleCtx *ctx, const c
   if (!SearchDisk_IsEnabledForValidation()) {
     return false;
   }
-  RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in disk mode", command);
+  RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in Redis Flex", command);
   return true;
 }
