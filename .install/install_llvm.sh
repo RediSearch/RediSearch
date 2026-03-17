@@ -9,8 +9,8 @@ source "$(dirname "$0")/LLVM_VERSION.sh"
 MODE=$1
 
 if [[ $OS_TYPE == Darwin ]]; then
-    # Keep using older LLVM on Mac as some deps do not build with the newer one.
-    # LTO is not enabled on Mac anyway.
+    # We use an older LLVM on MacOS as some deps (fmt) do not build with LLVM 21+.
+    # (And LTO is currently disabled on MacOS anyway.)
     LLVM_VERSION=20
     brew install llvm@$LLVM_VERSION
     BREW_PREFIX=$(brew --prefix)
