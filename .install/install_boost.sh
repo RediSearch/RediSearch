@@ -7,11 +7,9 @@ BOOST_DIR="boost" # here we search for the boost cached installation if exists. 
 
 if [[ -d ${BOOST_DIR} ]]; then
     echo "Boost cache directory present, skipping installation"
-    exit 0
+else
+    wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}-b2-nodocs.tar.gz -O ${BOOST_NAME}.tar.gz
+    tar -xzf ${BOOST_NAME}.tar.gz
+    mv boost-${VERSION} ${BOOST_DIR}
+    rm ${BOOST_NAME}.tar.gz
 fi
-
-wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}-b2-nodocs.tar.gz -O ${BOOST_NAME}.tar.gz
-
-tar -xzf ${BOOST_NAME}.tar.gz
-mv boost-${VERSION} ${BOOST_DIR}
-rm ${BOOST_NAME}.tar.gz

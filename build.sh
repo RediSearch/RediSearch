@@ -437,44 +437,82 @@ prepare_cmake_arguments() {
 
     echo "Enabling C/Rust LTO"
 
-    # Pin clang to the system GCC's libstdc++ to avoid header/runtime mismatch.
-    # apt.llvm.org may install newer GCC packages as dependencies (e.g. gcc-14),
-    # whose headers reference symbols absent from the system's libstdc++.so.6.
-    # Using newer headers would also raise the minimum libstdc++ version for
-    # end users loading redisearch.so.
-    GCC_TOOLCHAIN_FLAGS=""
-    if command -v gcc &>/dev/null; then
+    # LLVM version alignment with the Rust compiler forces us to build with
+    # a rather recent version of clang (>=21.x.y).
+    # This can cause issues on older Linux distributions: if we're not careful,
+    # the .so we produce may rely on C++ symbols that don't exist in the
+    # C++ header files available at runtime (i.e. the ones provided by the
+    # system-level `gcc`/`g++` toolchain).
+    # To prevent this compile-time/runtime header mismatch, we force clang
+    # to use the C++ headers provided by the system's `g++` installation.
+    # This requires us to combine a few different flags and guardrails:
+    # * `--gcc-install-dir`, to point `clang` at artefacts (crtbegin.o, libgcc, etc.)
+    #   for a _specific_ version of `gcc`
+    # * `-nostdinc++`, to disable standard `#include` directives for the C++
+    #   standard library
+    # * `-isystem <dir>`, to control what paths are included in search space for
+    #   C++ standard headers
+    # * An after-the-fact check to ensure we haven't included unwanted headers in
+    #   the search
+    GCC_COMMON_FLAGS=""
+    GCC_CXX_FLAGS=""
+    if command -v g++ &>/dev/null; then
+        # Extract the C++ include paths that system g++ actually uses.
+        _cxx_includes=$(g++ -E -x c++ -v /dev/null 2>&1 | \
+            sed -n '/#include <\.\.\.>/,/^End/{ /^ /p }' | \
+            sed 's/^ *//' | \
+            grep -E '(/c\+\+/|/backward)') || true
+
+        # Point clang at g++'s include paths, disabling its default `#include`s
+        if [[ -n "$_cxx_includes" ]]; then
+            GCC_CXX_FLAGS="-nostdinc++"
+            while IFS= read -r dir; do
+                GCC_CXX_FLAGS+=" -isystem ${dir}"
+            done <<< "$_cxx_includes"
+        else
+            echo "Error: failed to extract C++ include paths from the system g++" >&2
+            exit 1
+        fi
+
+        # Pin `gcc`'s internal library dir (for crtbegin.o, libgcc, etc.)
         GCC_INSTALL_DIR=$(gcc -print-search-dirs | sed -n 's/^install: //p')
         if [[ -n "$GCC_INSTALL_DIR" ]]; then
-            GCC_TOOLCHAIN_FLAGS="--gcc-install-dir=${GCC_INSTALL_DIR}"
+            GCC_COMMON_FLAGS="--gcc-install-dir=${GCC_INSTALL_DIR}"
+        fi
+
+        # --- Diagnostic: verify C++ header pinning ---
+        echo ">>> GCC common flags: ${GCC_COMMON_FLAGS}"
+        echo ">>> GCC C++ flags: ${GCC_CXX_FLAGS}"
+        echo ">>> Installed C++ header directories:"
+        ls -d /usr/include/c++/*/ 2>/dev/null || echo "  (none found)"
+        echo ">>> Clang C++ include search paths:"
+        _search_paths=$($CXX_COMPILER ${GCC_COMMON_FLAGS} ${GCC_CXX_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
+            | sed -n '/#include <\.\.\.>/,/^End/p')
+        echo "$_search_paths"
+        # Fail if clang's actual search paths include C++ headers from a GCC other than system
+        _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
+        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(/|$)" || true)
+        if [[ -n "$_bad_paths" ]]; then
+            echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}:"
+            echo "$_bad_paths"
+            echo "       C++ header pinning is not working correctly."
+            echo "       This will cause GLIBCXX symbol mismatch at link time."
+            exit 1
         fi
     fi
 
-    # --- Diagnostic: verify --gcc-install-dir actually pins C++ headers ---
-    echo ">>> GCC toolchain flags: ${GCC_TOOLCHAIN_FLAGS}"
-    echo ">>> Installed C++ header directories:"
-    ls -d /usr/include/c++/*/ 2>/dev/null || echo "  (none found)"
-
-    echo ">>> Clang C++ include search paths:"
-    $C_COMPILER ${GCC_TOOLCHAIN_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
-        | sed -n '/#include <\.\.\.>/,/^End/p'
-
-    # Fail if clang picks up C++ headers from a GCC newer than the system one
-    _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
-    if $C_COMPILER ${GCC_TOOLCHAIN_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
-        | grep -qP "/usr/include/c\+\+/(?!${_sys_gcc_major}(/|$))\d+"; then
-        echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}"
-        echo "       --gcc-install-dir is not fully pinning the C++ header search path."
-        echo "       This will cause GLIBCXX symbol mismatch at link time."
-        exit 1
-    fi
-
-    LTO_C_FLAGS="${GCC_TOOLCHAIN_FLAGS}"
+    # Pass LTO C/CXX flags to CMake via CFLAGS/CXXFLAGS env vars so CMake picks them
+    # up without word-splitting issues.
+    # Note: we assume there are no spaces in system C++ include paths.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # Export CC/CXX so that Rust's cc crate also uses clang, matching the
+    # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
+    export CC="$C_COMPILER"
+    export CXX="$CXX_COMPILER"
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
         -DCMAKE_C_COMPILER=$C_COMPILER \
         -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-        ${LTO_C_FLAGS:+-DCMAKE_C_FLAGS=${LTO_C_FLAGS}} \
-        ${LTO_C_FLAGS:+-DCMAKE_CXX_FLAGS=${LTO_C_FLAGS}} \
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER \
         -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER \
         -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER \

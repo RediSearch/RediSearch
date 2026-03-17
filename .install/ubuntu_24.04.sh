@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 
