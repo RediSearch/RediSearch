@@ -200,8 +200,14 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_search(self):
         self._test_fail_timeout_impl(['FT.SEARCH', 'idx', '*'])
 
+    def test_fail_timeout_aggregate(self):
+        self._test_fail_timeout_impl(['FT.AGGREGATE', 'idx', '*'])
+
     def test_fail_timeout_profile_search(self):
         self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
+
+    def test_fail_timeout_profile_aggregate(self):
+        self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'])
 
     def test_fail_timeout_profile_hybrid(self):
         self._test_fail_timeout_impl([
@@ -263,6 +269,10 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_before_coord_pickup_search(self):
         """Test timeout occurring before coordinator picks up an FT.SEARCH query."""
         self._test_fail_timeout_before_coord_pickup_impl(['FT.SEARCH', 'idx', '*'])
+
+    def test_fail_timeout_before_coord_pickup_aggregate(self):
+        """Test timeout occurring before coordinator picks up an FT.AGGREGATE query."""
+        self._test_fail_timeout_before_coord_pickup_impl(['FT.AGGREGATE', 'idx', '*'])
 
     def test_fail_timeout_before_coord_pickup_hybrid(self):
         """Test timeout occurring before coordinator picks up an FT.HYBRID query."""
@@ -433,6 +443,14 @@ class TestCoordinatorTimeout:
                         message=f"Expected {self.n_docs} total results with 'return-strict' policy (FT.PROFILE)")
         env.assertEqual(profile_results.get('warning', []), [],
                         message="Expected no warning with 'return-strict' policy (FT.PROFILE)")
+
+        # Test FT.AGGREGATE with 'fail' policy
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        result = env.cmd('FT.AGGREGATE', 'idx', '*')
+        env.assertEqual(result['total_results'], self.n_docs,
+                        message=f"Expected {self.n_docs} total results with 'fail' policy (FT.AGGREGATE)")
+        env.assertEqual(result.get('warning', []), [],
+                        message="Expected no warning with 'fail' policy (FT.AGGREGATE)")
 
         # Test FT.HYBRID with 'fail' policy
         # Use K=10000, WINDOW=10000, LIMIT=10000 (100^2) to ensure all docs are returned.
@@ -627,6 +645,14 @@ class TestCoordinatorTimeout:
         # Cleanup
         resetStoreResultsDebug(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_fail_timeout_before_coord_store_aggregate(self):
+        """Test timeout occurring before coordinator stores results for FT.AGGREGATE."""
+        self._test_fail_timeout_before_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
+
+    def test_fail_timeout_after_coord_store_aggregate(self):
+        """Test timeout occurring after coordinator stores results for FT.AGGREGATE."""
+        self._test_fail_timeout_after_coord_store_impl(['FT.AGGREGATE', 'idx', '*'])
 
     def test_fail_timeout_before_coord_store_hybrid(self):
         """Test timeout occurring before coordinator stores results for FT.HYBRID."""
