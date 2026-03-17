@@ -46,8 +46,14 @@ typedef struct AsyncReadResult {
 } AsyncReadResult;
 
 typedef struct BasicDiskAPI {
-  RedisSearchDisk *(*open)(void);
-  void (*close)(RedisSearchDisk *disk);
+  /**
+   * @brief Open the disk storage context
+   * @param ctx Redis module context
+   * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @return Pointer to the disk context, or NULL on error
+   */
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage);
+  void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
   /**
    * @brief Open an index spec
    * @param ctx Redis module context for BigModule APIs (required for getting DB path)
@@ -105,6 +111,18 @@ typedef struct BasicDiskAPI {
    * @param disable Callback to resume CMD_DENYOOM commands (wraps RedisModule_DisablePostponeClients)
    */
   void (*setThrottleCallbacks)(ThrottleCB enable, ThrottleCB disable);
+
+  /**
+   * @brief Update the buffer budget and WBM in response to RAM configuration changes.
+   *
+   * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
+   * and updates the WriteBufferManager with the new size.
+   *
+   * @param ctx Redis module context
+   * @param disk Pointer to the disk context
+   * @param percentage Percentage of available memory to request (0-100)
+   */
+  void (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
