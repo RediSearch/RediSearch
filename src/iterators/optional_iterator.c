@@ -210,7 +210,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
     return ret;
   }
 
-  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all && !q->sctx->spec->diskSpec;
   t_docId maxDocId = q->docTable->maxDocId;
 
   if (optimized) {
