@@ -110,7 +110,7 @@ TEST_F(QueryTest, testParser_delta) {
 }
 
 TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
-  RedisModuleCtx *redisCtx = RedisModule_GetThreadSafeContext(NULL);
+  RedisModuleCtx *redisCtx = RedisModule_GetThreadSafeContext(nullptr);
   const bool prevSimulateInFlex = RSGlobalConfig.simulateInFlex;
   std::array<const char *, 13> args = {
       "SCHEMA", "title",   "text", "vec_field", "vector",          "HNSW", "6",
