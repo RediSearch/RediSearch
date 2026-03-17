@@ -2702,6 +2702,14 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                */
                                {NULL, NULL}};
 
+#ifdef ENABLE_ASSERT
+// Debug commands only available with ENABLE_ASSERT (debug/test builds)
+// Add new assert-only commands to this array instead of hard-coding #ifdef blocks
+static DebugCommandType assertOnlyCommands[] = {
+    {"SYNC_POINT", syncPoint},
+    {NULL, NULL}};
+#endif
+
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   size_t len = 0;
@@ -2713,6 +2721,12 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_ReplyWithCString(ctx, coordCommandsNames[i]);
     ++len;
   }
+#ifdef ENABLE_ASSERT
+  for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
+    RedisModule_ReplyWithCString(ctx, c->name);
+    ++len;
+  }
+#endif
   RedisModule_ReplySetArrayLength(ctx, len);
   return REDISMODULE_OK;
 }
@@ -2725,11 +2739,12 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
     if (rc != REDISMODULE_OK) return rc;
   }
 #ifdef ENABLE_ASSERT
-  // Register SYNC_POINT command (only available with ENABLE_ASSERT)
-  int rc = RedisModule_CreateSubcommand(debugCommand, "SYNC_POINT", syncPoint,
-            IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
-            RS_DEBUG_FLAGS);
-  if (rc != REDISMODULE_OK) return rc;
+  for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
+    int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
+              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_DEBUG_FLAGS);
+    if (rc != REDISMODULE_OK) return rc;
+  }
 #endif
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand,
           IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
