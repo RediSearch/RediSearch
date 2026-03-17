@@ -353,7 +353,7 @@ pub struct RLookupRowView {
     pub sv: *const sorting_vector::RSSortingVector,
 }
 
-/// Populates an [`RLookupRowView`] with pointers to the row's internal buffers.
+/// Returns an [`RLookupRowView`] with pointers to the row's internal buffers.
 ///
 /// After this call, the caller can use the view's fields directly (e.g. via a
 /// `static inline` C function) to look up values by [`RLookupKey`] without
@@ -362,25 +362,23 @@ pub struct RLookupRowView {
 /// # Safety
 ///
 /// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 2. `out` must be a [valid], non-null pointer to an [`RLookupRowView`].
-/// 3. The row must not be mutated while the view is in use.
+/// 2. The row must not be mutated while the view is in use.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_GetView(
     row: *const OpaqueRLookupRow,
-    out: Option<NonNull<RLookupRowView>>,
-) {
+) -> RLookupRowView {
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
 
     let (dyn_values, dyn_len, sv) = row.as_view();
 
-    // Safety: ensured by caller (2.)
-    let out = unsafe { out.unwrap().as_mut() };
-    out.dyn_values = dyn_values;
-    out.dyn_len = dyn_len;
-    out.sv = sv;
+    RLookupRowView {
+        dyn_values,
+        dyn_len,
+        sv,
+    }
 }
 
 /// Returns the sorting vector for the row, or null if none exists.

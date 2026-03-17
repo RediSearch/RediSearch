@@ -100,8 +100,7 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
 }
 
 static void writeGroupValues(const Grouper *g, const Group *gr, SearchResult *r) {
-  RLookupRowView view;
-  RLookupRow_GetView(&gr->rowdata, &view);
+  RLookupRowView view = RLookupRow_GetView(&gr->rowdata);
   for (size_t ii = 0; ii < g->nkeys; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
     RSValue *groupval = RLookupRowView_Get(dstkey, &view);
@@ -207,8 +206,7 @@ static void invokeGroupReducers(Grouper *g, RLookupRow *srcrow) {
   size_t nkeys = GROUPER_NSRCKEYS(g);
   const RSValue *groupvals[nkeys];
 
-  RLookupRowView srcview;
-  RLookupRow_GetView(srcrow, &srcview);
+  RLookupRowView srcview = RLookupRow_GetView(srcrow);
   for (size_t ii = 0; ii < nkeys; ++ii) {
     const RLookupKey *srckey = g->srckeys[ii];
     RSValue *v = RLookupRowView_Get(srckey, &srcview);

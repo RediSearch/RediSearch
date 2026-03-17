@@ -731,9 +731,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     qerr = self->base.parent->err;
   }
 
-  RLookupRowView view1, view2;
-  RLookupRow_GetView(SearchResult_GetRowData(h1), &view1);
-  RLookupRow_GetView(SearchResult_GetRowData(h2), &view2);
+  RLookupRowView view1 = RLookupRow_GetView(SearchResult_GetRowData(h1));
+  RLookupRowView view2 = RLookupRow_GetView(SearchResult_GetRowData(h2));
 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
     const RSValue *v1 = RLookupRowView_Get(self->fieldcmp.keys[i], &view1);
