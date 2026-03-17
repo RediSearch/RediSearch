@@ -106,6 +106,9 @@ pub enum QueryErrorCode {
     FlexSearchInorderUnsupported,
     FlexSearchHighlightUnsupported,
     FlexSearchSummarizeUnsupported,
+    FlexSearchScorerTfidfUnsupported,
+    FlexSearchScorerTfidfDocnormUnsupported,
+    FlexSearchScorerBm25Unsupported,
 }
 
 impl Debug for QueryErrorCode {
@@ -502,6 +505,21 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED ",
                 default_msg: c"SUMMARIZE is not supported in Redis Flex",
                 default_full_msg: c"SEARCH_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED SUMMARIZE is not supported in Redis Flex",
+            },
+            Self::FlexSearchScorerTfidfUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_UNSUPPORTED ",
+                default_msg: c"TFIDF scorer is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_UNSUPPORTED TFIDF scorer is not supported in Redis Flex",
+            },
+            Self::FlexSearchScorerTfidfDocnormUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_DOCNORM_UNSUPPORTED ",
+                default_msg: c"TFIDF.DOCNORM scorer is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_DOCNORM_UNSUPPORTED TFIDF.DOCNORM scorer is not supported in Redis Flex",
+            },
+            Self::FlexSearchScorerBm25Unsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_SCORER_BM25_UNSUPPORTED ",
+                default_msg: c"BM25 scorer is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_SCORER_BM25_UNSUPPORTED BM25 scorer is not supported in Redis Flex",
             },
         }
     }

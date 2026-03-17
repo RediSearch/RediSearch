@@ -28,6 +28,7 @@
 #include "slots_tracker.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
+#include "search_disk.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -1422,6 +1423,22 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   } else {
     opts->scorerName = RSGlobalConfig.defaultScorer;
+  }
+
+  // Block scorers that use slop for disk indexes
+  if (SearchDisk_IsEnabledForValidation()) {
+    if (strcasecmp(opts->scorerName, TFIDF_SCORER_NAME) == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SCORER_TFIDF_UNSUPPORTED, NULL);
+      return REDISMODULE_ERR;
+    }
+    if (strcasecmp(opts->scorerName, TFIDF_DOCNORM_SCORER_NAME) == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SCORER_TFIDF_DOCNORM_UNSUPPORTED, NULL);
+      return REDISMODULE_ERR;
+    }
+    if (strcasecmp(opts->scorerName, BM25_SCORER_NAME) == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SCORER_BM25_UNSUPPORTED, NULL);
+      return REDISMODULE_ERR;
+    }
   }
 
   bool resp3 = req->protocol == 3;

@@ -412,3 +412,33 @@ def test_flex_blocks_summarize_argument(env):
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SUMMARIZE') \
         .error().contains('SUMMARIZE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tfidf_scorer(env):
+    """Test that TFIDF scorer is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'TFIDF') \
+        .error().contains('TFIDF scorer is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tfidf_docnorm_scorer(env):
+    """Test that TFIDF.DOCNORM scorer is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'TFIDF.DOCNORM') \
+        .error().contains('TFIDF.DOCNORM scorer is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_bm25_scorer(env):
+    """Test that BM25 (deprecated) scorer is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'BM25') \
+        .error().contains('BM25 scorer is not supported in Redis Flex')

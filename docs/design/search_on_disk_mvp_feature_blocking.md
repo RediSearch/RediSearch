@@ -54,7 +54,10 @@ and compares them against the actual implementation status in the codebase.
 | `SUMMARIZE` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:627-630` |
 | `GEOFILTER` | ✅ Implicit | ✅ BLOCKED (implicit) | GEO field type is blocked, so no GEO index |
 | `FILTER` (numeric) | ✅ Implicit | ✅ BLOCKED (implicit) | NUMERIC field type is blocked |
-| `SCORER TFIDF` | No | ➖ Allowed | TFIDF scorer is supported |
+| `SCORER TFIDF` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1430-1433` - uses slop |
+| `SCORER TFIDF.DOCNORM` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1434-1437` - uses slop |
+| `SCORER BM25` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1438-1441` - uses slop (deprecated) |
+| `SCORER BM25STD` | No | ➖ Allowed | Default scorer, does not use slop |
 
 ---
 
