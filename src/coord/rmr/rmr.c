@@ -753,7 +753,7 @@ void iterCursorMappingCb(void *p) {
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
   // Command should already not own a target shard
   MRCommand *cmd = &it->cbxs->cmd;
-  char buf[128];
+  char buf[24];
   snprintf(buf, sizeof(buf), "%lld", vsimOrSearch->mappings[0].cursorId);
   MRCommand_Append(cmd, buf, strlen(buf));
 
@@ -768,7 +768,7 @@ void iterCursorMappingCb(void *p) {
     vsimOrSearch->mappings[i].targetShard = NULL; // transfer ownership
     it->cbxs[i].cmd.targetShardIdx = vsimOrSearch->mappings[i].targetShardIdx;
     it->cbxs[i].cmd.num = 4;
-    char buf[128];
+    char buf[24];
     snprintf(buf, sizeof(buf), "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
   }
