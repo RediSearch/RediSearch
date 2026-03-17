@@ -11,6 +11,7 @@
 #include "src/query_parser/tokenizer.h"
 #include "src/param.h"
 #include "src/util/references.h"
+#include "common.h"
 #include "query_test_utils.h"
 
 #include "gtest/gtest.h"
