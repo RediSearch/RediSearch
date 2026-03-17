@@ -390,14 +390,14 @@ fn test_debug_repr() {
     }
     // Debug representation doesn't include registers,
     // but it tracks compile-time constants
-    insta::assert_debug_snapshot!(hll, @r#"
+    insta::assert_debug_snapshot!(hll, @"
     HyperLogLog {
         bits: 10,
         size: 1024,
         cached_cardinality: None,
         ..
     }
-    "#);
+    ");
 }
 
 #[test]
