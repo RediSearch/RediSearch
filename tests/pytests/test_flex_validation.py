@@ -163,11 +163,6 @@ def test_unsupported_schema_options(env):
     env.expect('FT.CREATE', 'idx4', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXEMPTY') \
         .error().contains('Disk index does not support INDEXEMPTY fields')
 
-    # Test non-TEXT/TAG/VECTOR field types are not supported (already covered in test_invalid_field_type,
-    # but this uses the new error message path)
-    env.expect('FT.CREATE', 'idx5', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'NUMERIC') \
-        .error().contains('Disk index does not support non-TEXT/VECTOR/TAG fields')
-
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
