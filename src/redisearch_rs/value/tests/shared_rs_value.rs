@@ -22,19 +22,19 @@ pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
 #[test]
 fn null_static_holds_null() {
     let v = SharedRsValue::null_static();
-    assert!(matches!(v.value(), RsValue::Null));
+    assert!(matches!(*v, RsValue::Null));
 }
 
 #[test]
 fn new_number() {
     let v = SharedRsValue::new(RsValue::Number(42.0));
-    assert!(matches!(v.value(), RsValue::Number(42.0)));
+    assert!(matches!(*v, RsValue::Number(42.0)));
 }
 
 #[test]
 fn new_undefined() {
     let v = SharedRsValue::new(RsValue::Undefined);
-    assert!(matches!(v.value(), RsValue::Undefined));
+    assert!(matches!(*v, RsValue::Undefined));
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn into_raw_from_raw_round_trip() {
     let v = SharedRsValue::new(RsValue::Number(7.0));
     let ptr = v.into_raw();
     let v2 = unsafe { SharedRsValue::from_raw(ptr) };
-    assert!(matches!(v2.value(), RsValue::Number(7.0)));
+    assert!(matches!(*v2, RsValue::Number(7.0)));
     assert_eq!(SharedRsValue::refcount(&v2), 1);
 }
 
@@ -139,14 +139,14 @@ fn ptr_eq_static_vs_heap() {
 fn set_value_replaces_inner() {
     let mut v = SharedRsValue::new(RsValue::Number(1.0));
     v.set_value(RsValue::Number(2.0));
-    assert!(matches!(v.value(), RsValue::Number(2.0)));
+    assert!(matches!(*v, RsValue::Number(2.0)));
 }
 
 #[test]
 fn set_value_changes_variant() {
     let mut v = SharedRsValue::new(RsValue::Null);
     v.set_value(RsValue::Number(99.0));
-    assert!(matches!(v.value(), RsValue::Number(99.0)));
+    assert!(matches!(*v, RsValue::Number(99.0)));
 }
 
 #[test]

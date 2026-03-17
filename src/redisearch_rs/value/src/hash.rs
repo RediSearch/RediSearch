@@ -22,12 +22,12 @@ pub fn hash_value(value: &RsValue, fnv64: &mut Fnv64) {
         RsValue::Number(num) => fnv64.write(&num.to_ne_bytes()),
         RsValue::String(str) => fnv64.write(str.as_bytes()),
         RsValue::RedisString(str) => fnv64.write(str.as_bytes()),
-        RsValue::Array(arr) => arr.iter().for_each(|elem| hash_value(elem.value(), fnv64)),
+        RsValue::Array(arr) => arr.iter().for_each(|elem| hash_value(elem, fnv64)),
         RsValue::Map(map) => map.iter().for_each(|(key, val)| {
-            hash_value(key.value(), fnv64);
-            hash_value(val.value(), fnv64);
+            hash_value(key, fnv64);
+            hash_value(val, fnv64);
         }),
-        RsValue::Trio(trio) => hash_value(trio.left().value(), fnv64),
-        RsValue::Ref(ref_value) => hash_value(ref_value.value(), fnv64),
+        RsValue::Trio(trio) => hash_value(trio.left(), fnv64),
+        RsValue::Ref(ref_value) => hash_value(ref_value, fnv64),
     }
 }

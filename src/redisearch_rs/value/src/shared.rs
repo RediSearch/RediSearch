@@ -95,11 +95,6 @@ impl SharedRsValue {
         *value = new_value;
     }
 
-    /// Returns a reference to the stored [`RsValue`].
-    pub fn value(&self) -> &RsValue {
-        self.deref()
-    }
-
     /// Returns true if the two [`SharedRsValue`]s point to the same allocation in a vein similar to [`ptr::eq`][std::ptr::eq].
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         this.ptr == other.ptr
@@ -135,7 +130,7 @@ impl Deref for SharedRsValue {
 
 impl std::fmt::Debug for SharedRsValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.value().fmt(f)
+        self.deref().fmt(f)
     }
 }
 
