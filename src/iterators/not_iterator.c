@@ -227,7 +227,7 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     return ret;
   }
 
-  bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all && !q->sctx->spec->diskSpec;;
+  bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all && !q->sctx->spec->diskSpec;
   bool skipTimeoutChecks = (q && q->sctx) ? q->sctx->time.skipTimeoutChecks : false;
 
   if (optimized) {
