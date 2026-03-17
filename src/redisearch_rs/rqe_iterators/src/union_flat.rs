@@ -167,9 +167,16 @@ where
         let mut i = 0;
         while i < self.num_active {
             let child = &mut self.children[i];
-            if child.last_doc_id() == 0 && !child.at_eof() {
+
+            // Handle children that haven't been read yet (last_doc_id == 0)
+            if child.last_doc_id() == 0 {
+                // Check if already at EOF (e.g., empty iterator)
+                if child.at_eof() {
+                    self.swap_remove_child(i);
+                    continue;
+                }
+                // Perform initial read
                 let read_result = child.read()?;
-                // If read returned None, the child is empty (no documents)
                 if read_result.is_none() {
                     self.swap_remove_child(i);
                     continue;
