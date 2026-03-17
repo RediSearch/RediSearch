@@ -17,7 +17,7 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
 /// Unlike [`crate::Intersection`] which requires documents to appear in ALL children,
-/// `UnionFlat` yields documents that appear in at least one child. When multiple children
+/// [`UnionFlat`] yields documents that appear in at least one child. When multiple children
 /// have the same document, their results are aggregated (unless `QUICK_EXIT` is `true`).
 ///
 /// Uses O(n) min-finding by scanning all children. Best for small numbers of children
@@ -33,12 +33,10 @@ use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 ///   If `false`, aggregates results from all children with the minimum doc_id.
 pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
     /// Child iterators. Active children are in `children[..num_active]`,
-    /// exhausted children are moved to the end via swap-remove.
+    /// exhausted children are moved to the end and not removed so we can rewind the iterator.
     children: Vec<I>,
     /// Number of active (non-EOF) children. Only `children[..num_active]` are scanned.
     num_active: usize,
-    /// Last doc_id successfully yielded (returned by `last_doc_id()`).
-    last_doc_id: t_docId,
     /// Sum of all children's estimated counts (upper bound).
     num_estimated: usize,
     /// Whether the iterator has reached EOF (all children exhausted).
@@ -62,7 +60,6 @@ where
             return Self {
                 children,
                 num_active: 0,
-                last_doc_id: 0,
                 num_estimated: 0,
                 is_eof: true,
                 result: RSIndexResult::build_union(0).build(),
@@ -72,7 +69,6 @@ where
         Self {
             children,
             num_active: num_children,
-            last_doc_id: 0,
             num_estimated,
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
@@ -80,10 +76,9 @@ where
     }
 
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
-    /// minimum doc_id in a single pass. This matches the C implementation's fused loop pattern.
+    /// minimum doc_id in a single pass.
     ///
     /// Returns the minimum doc_id among active children, or None if all are exhausted.
-    /// Removes exhausted children via swap-remove to shrink the active set.
     fn advance_and_find_min(
         &mut self,
         current_id: t_docId,
@@ -135,8 +130,6 @@ where
 
     /// Builds the result from active children whose `last_doc_id` equals `min_id`.
     fn build_aggregate_result(&mut self, min_id: t_docId) {
-        self.last_doc_id = min_id;
-
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
         }
@@ -147,11 +140,15 @@ where
                 && let Some(child_result) = child.current()
             {
                 let child_ptr: *const RSIndexResult<'index> = child_result;
-                // SAFETY: child_ptr points to child's result containing data with 'index
-                // lifetime. Children are owned by self, so their results remain valid.
+                // SAFETY: We need a raw pointer to decouple the borrow of the child's
+                // result from `&mut self.result`. This is sound because:
+                // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+                // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
+                // 3. The child is owned by `self`, so the 'index data remains valid.
                 let child_ref = unsafe { &*child_ptr };
                 self.result.push_borrowed(child_ref);
 
+                // If QUICK_EXIT, we only add the first matching child's result and return immediately.
                 if QUICK_EXIT {
                     return;
                 }
@@ -194,6 +191,32 @@ where
             Ok(None)
         } else {
             Ok(Some(min_id))
+        }
+    }
+
+    /// Full mode read - advances matching children and finds minimum in a single fused pass.
+    fn read_full(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let min_id = if self.last_doc_id() == 0 {
+            self.initialize_children()?
+        } else {
+            self.advance_and_find_min(self.last_doc_id())?
+        };
+
+        let Some(min_id) = min_id else {
+            self.is_eof = true;
+            return Ok(None);
+        };
+
+        self.build_aggregate_result(min_id);
+        Ok(Some(&mut self.result))
+    }
+
+    /// Quick mode read - delegates to `skip_to(last_doc_id + 1)`.
+    fn read_quick(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let next_id = self.last_doc_id().saturating_add(1);
+        match self.skip_to(next_id)? {
+            Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => Ok(Some(r)),
+            None => Ok(None),
         }
     }
 
@@ -325,8 +348,7 @@ where
 
     fn quick_set_from_child(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
-        self.last_doc_id = child.last_doc_id();
-        self.result.doc_id = self.last_doc_id;
+        self.result.doc_id = child.last_doc_id();
 
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
@@ -334,8 +356,11 @@ where
 
         if let Some(child_result) = child.current() {
             let child_ptr: *const RSIndexResult<'index> = child_result;
-            // SAFETY: child_ptr points to child's result containing data with 'index
-            // lifetime. Children are owned by self, so their results remain valid.
+            // SAFETY: We need a raw pointer to decouple the borrow of the child's
+            // result from `&mut self.result`. This is sound because:
+            // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+            // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
+            // 3. The child is owned by `self`, so the 'index data remains valid.
             let child_ref = unsafe { &*child_ptr };
             self.result.push_borrowed(child_ref);
         }
@@ -361,26 +386,10 @@ where
         }
 
         if QUICK_EXIT {
-            let next_id = self.last_doc_id.saturating_add(1);
-            return match self.skip_to(next_id)? {
-                Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => Ok(Some(r)),
-                None => Ok(None),
-            };
-        }
-
-        let min_id = if self.last_doc_id == 0 {
-            self.initialize_children()?
+            self.read_quick()
         } else {
-            self.advance_and_find_min(self.last_doc_id)?
-        };
-
-        let Some(min_id) = min_id else {
-            self.is_eof = true;
-            return Ok(None);
-        };
-
-        self.build_aggregate_result(min_id);
-        Ok(Some(&mut self.result))
+            self.read_full()
+        }
     }
 
     fn skip_to(
@@ -391,17 +400,17 @@ where
             return Ok(None);
         }
 
-        debug_assert!(self.last_doc_id < doc_id);
+        debug_assert!(self.last_doc_id() < doc_id);
 
         if QUICK_EXIT {
-            return self.skip_to_quick(doc_id);
+            self.skip_to_quick(doc_id)
         }
-
-        self.skip_to_full(doc_id)
+        else {
+            self.skip_to_full(doc_id)
+        }
     }
 
     fn rewind(&mut self) {
-        self.last_doc_id = 0;
         self.result.doc_id = 0;
         // Reset num_active to include all children again
         self.num_active = self.children.len();
@@ -419,7 +428,7 @@ where
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        self.last_doc_id
+        self.result.doc_id
     }
 
     #[inline(always)]
@@ -433,10 +442,11 @@ where
             return Ok(RQEValidateStatus::Ok);
         }
 
-        let original_last_doc_id = self.last_doc_id;
+        let original_last_doc_id = self.last_doc_id();
         let mut any_change = false;
 
-        // Revalidate all children and remove aborted ones.
+        // Revalidate ALL children (including exhausted ones past num_active) and remove aborted ones.
+        // Exhausted children must be revalidated because they may become active again after revalidation.
         // We use index-based iteration because we need to remove elements while iterating.
         let mut i = 0;
         while i < self.children.len() {
@@ -498,7 +508,7 @@ where
         self.build_aggregate_result(min_doc_id);
 
         // Return MOVED only if lastDocId changed
-        if self.last_doc_id != original_last_doc_id {
+        if self.last_doc_id() != original_last_doc_id {
             Ok(RQEValidateStatus::Moved {
                 current: Some(&mut self.result),
             })

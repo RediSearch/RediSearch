@@ -32,6 +32,20 @@ use rstest_reuse::template;
 ])]
 fn id_cases(#[case] case: &[u64]) {}
 
+// cases used by union_flat tests (num_children × result_set)
+#[template]
+#[rstest::rstest]
+#[case::c2_small(2, &[1u64, 2, 3, 40, 50])]
+#[case::c2_medium(2, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
+#[case::c2_large(2, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
+#[case::c5_small(5, &[1u64, 2, 3, 40, 50])]
+#[case::c5_medium(5, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
+#[case::c5_large(5, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
+#[case::c10_small(10, &[1u64, 2, 3, 40, 50])]
+#[case::c10_medium(10, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
+#[case::c10_large(10, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
+fn union_cases(#[case] num_children: usize, #[case] base_result_set: &[u64]) {}
+
 mod empty;
 mod id_list;
 mod intersection;
