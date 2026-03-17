@@ -100,7 +100,7 @@ TEST_F(QueryTest, testParser_delta) {
 
 TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   RedisSearchCtx ctx;
-  const std::array<const char *, 12> args = {
+  std::array<const char *, 13> args = {
       "SCHEMA", "title",   "text", "vec_field", "vector",          "HNSW", "6",
       "TYPE",   "FLOAT32", "DIM",  "4",         "DISTANCE_METRIC", "L2"};
   QueryError err = QueryError_Default();
