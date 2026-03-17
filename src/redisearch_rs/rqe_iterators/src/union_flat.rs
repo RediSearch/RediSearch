@@ -124,7 +124,6 @@ where
     }
 
     /// Swap-removes an exhausted child at `idx` by swapping it with the last active child.
-    /// This is O(1) and avoids shifting elements.
     #[inline]
     fn swap_remove_child(&mut self, idx: usize) {
         debug_assert!(idx < self.num_active);
@@ -193,20 +192,16 @@ where
 
     /// Full mode skip_to - scans all active children and aggregates all matches.
     /// Removes exhausted children via swap-remove.
-    ///
-    /// Uses `t_docId::MAX` sentinel instead of `Option<t_docId>` to avoid unwrap overhead.
     fn skip_to_full(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        // Use MAX as sentinel like C uses DOCID_MAX - avoids Option overhead
         let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
 
         while i < self.num_active {
             let child = &mut self.children[i];
 
-            // Cache last_doc_id to avoid redundant calls
             let child_last_id = child.last_doc_id();
 
             // Already at or past target doc_id
@@ -218,7 +213,6 @@ where
                 continue;
             }
 
-            // Need to skip forward
             if !child.at_eof() {
                 match child.skip_to(doc_id)? {
                     Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => {
@@ -257,12 +251,6 @@ where
 
     /// Quick mode skip_to - returns immediately on first exact match.
     /// Tracks minimum doc_id among non-matches for NotFound case.
-    /// Removes exhausted children via swap-remove.
-    ///
-    /// Optimizations vs naive implementation:
-    /// - Uses `t_docId::MAX` sentinel instead of `Option<t_docId>` to avoid unwrap overhead
-    /// - Caches `last_doc_id()` result to avoid redundant calls (C accesses a struct field directly)
-    /// - Uses a single comparison chain like C's implementation
     fn skip_to_quick(
         &mut self,
         doc_id: t_docId,
@@ -275,7 +263,6 @@ where
         while i < self.num_active {
             let child = &mut self.children[i];
 
-            // Cache last_doc_id to avoid multiple calls (matches C's direct field access pattern)
             let child_last_id = child.last_doc_id();
 
             if child_last_id < doc_id {
@@ -336,8 +323,6 @@ where
         }
     }
 
-    /// Sets the union result from a single child (quick mode only).
-    /// This avoids iterating over all children like build_aggregate_result does.
     fn quick_set_from_child(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
         self.last_doc_id = child.last_doc_id();
@@ -375,8 +360,6 @@ where
             return Ok(None);
         }
 
-        // Quick mode optimization: delegate to skip_to(last_doc_id + 1)
-        // This matches the C implementation's UI_Read_Quick_Flat pattern.
         if QUICK_EXIT {
             let next_id = self.last_doc_id.saturating_add(1);
             return match self.skip_to(next_id)? {
@@ -385,8 +368,6 @@ where
             };
         }
 
-        // Full mode: advance matching children and find minimum in a single fused pass.
-        // This matches the C implementation's UI_Read_Full_Flat pattern.
         let min_id = if self.last_doc_id == 0 {
             self.initialize_children()?
         } else {
@@ -412,13 +393,10 @@ where
 
         debug_assert!(self.last_doc_id < doc_id);
 
-        // Quick mode optimization: return immediately on first exact match.
-        // This matches the C implementation's UI_Skip_Quick_Flat pattern.
         if QUICK_EXIT {
             return self.skip_to_quick(doc_id);
         }
 
-        // Full mode: must scan all children to find all matches
         self.skip_to_full(doc_id)
     }
 
@@ -450,53 +428,76 @@ where
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let original_last_doc_id = self.last_doc_id;
-        let mut any_child_moved = false;
-        let mut any_child_aborted = false;
-        let mut min_doc_id = t_docId::MAX;
-        let mut active_children = 0usize;
+        // Already at EOF - nothing to do
+        if self.is_eof {
+            return Ok(RQEValidateStatus::Ok);
+        }
 
-        for child in &mut self.children {
-            match child.revalidate()? {
+        let original_last_doc_id = self.last_doc_id;
+        let mut any_change = false;
+
+        // Revalidate all children and remove aborted ones.
+        // We use index-based iteration because we need to remove elements while iterating.
+        let mut i = 0;
+        while i < self.children.len() {
+            match self.children[i].revalidate()? {
                 RQEValidateStatus::Aborted => {
-                    any_child_aborted = true;
+                    // Remove aborted child using swap_remove for O(1) removal.
+                    // Order doesn't matter for union iteration.
+                    self.children.swap_remove(i);
+                    any_change = true;
+                    // Don't increment i - the swapped element needs to be checked
                 }
-                RQEValidateStatus::Moved { current } => {
-                    any_child_moved = true;
-                    if let Some(result) = current {
-                        if result.doc_id < min_doc_id {
-                            min_doc_id = result.doc_id;
-                        }
-                        active_children += 1;
-                    }
+                RQEValidateStatus::Moved { .. } => {
+                    any_change = true;
+                    i += 1;
                 }
                 RQEValidateStatus::Ok => {
-                    if !child.at_eof() {
-                        if child.last_doc_id() < min_doc_id {
-                            min_doc_id = child.last_doc_id();
-                        }
-                        active_children += 1;
-                    }
+                    i += 1;
                 }
             }
         }
 
-        // For union, we only abort if ALL children aborted
-        if any_child_aborted {
-            // Note: In a more complete implementation, we'd track which children aborted
+        // If all children aborted, we abort too (union of nothing is nothing)
+        if self.children.is_empty() {
+            self.is_eof = true;
+            return Ok(RQEValidateStatus::Aborted);
         }
 
-        if !any_child_moved || self.is_eof {
+        // Early return if nothing changed
+        if !any_change {
             return Ok(RQEValidateStatus::Ok);
         }
 
-        if active_children == 0 {
+        // Sync num_active and find minimum doc_id.
+        // Use swap_remove_child to move EOF children out of the active region.
+        self.num_active = self.children.len();
+        let mut min_doc_id = t_docId::MAX;
+        let mut i = 0;
+        while i < self.num_active {
+            let child = &self.children[i];
+            if child.at_eof() {
+                self.swap_remove_child(i);
+                // Don't increment i - check the swapped-in child
+            } else {
+                let child_doc_id = child.last_doc_id();
+                if child_doc_id < min_doc_id {
+                    min_doc_id = child_doc_id;
+                }
+                i += 1;
+            }
+        }
+
+        // Check if all remaining children are at EOF
+        if self.num_active == 0 {
             self.is_eof = true;
             return Ok(RQEValidateStatus::Moved { current: None });
         }
 
+        // Rebuild aggregate result at the new minimum doc_id
         self.build_aggregate_result(min_doc_id);
 
+        // Return MOVED only if lastDocId changed
         if self.last_doc_id != original_last_doc_id {
             Ok(RQEValidateStatus::Moved {
                 current: Some(&mut self.result),
