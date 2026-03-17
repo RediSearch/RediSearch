@@ -36,6 +36,15 @@ on:
       ec2_instance_type:
         description: "EC2 instance type for self-hosted runners"
         value: ${{ jobs.get-config.outputs.ec2_instance_type }}
+      node20_supported:
+        description: "Whether node20 is supported on this platform"
+        value: ${{ jobs.get-config.outputs.node20_supported }}
+      install_mode:
+        description: "Installation mode (sudo for non-container, empty for container)"
+        value: ${{ jobs.get-config.outputs.install_mode }}
+      enable_lto:
+        description: "Whether LTO is enabled for this platform (0 or 1)"
+        value: ${{ jobs.get-config.outputs.enable_lto }}
 
 jobs:
   get-config:
@@ -48,6 +57,9 @@ jobs:
       name: ${{ steps.get-config.outputs.name }}
       ec2_image_id: ${{ steps.get-config.outputs.ec2_image_id }}
       ec2_instance_type: ${{ steps.get-config.outputs.ec2_instance_type }}
+      node20_supported: ${{ steps.get-config.outputs.node20_supported }}
+      install_mode: ${{ steps.get-config.outputs.install_mode }}
+      enable_lto: ${{ steps.get-config.outputs.enable_lto }}
     steps:
       - name: Get configuration for platform and architecture
         id: get-config
@@ -59,7 +71,6 @@ jobs:
 
           platform = "${{ inputs.platform }}"
           architecture = "${{ inputs.architecture }}"
-
           print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
 
           # Default environment per architecture
@@ -80,8 +91,14 @@ jobs:
               'post_setup_script': '',
               'name': '',
               'ec2_image_id': '',
-              'ec2_instance_type': ''
+              'ec2_instance_type': '',
+              'node20_supported': 'true',  # Most platforms support node20
+              'install_mode': '',  # Empty for containers, 'sudo' for non-containers
+              'enable_lto': '0'  # Whether LTO is enabled for this platform
           }
+
+          # Platforms that don't support node20
+          node20_unsupported_platforms = ['amazonlinux:2']
 
           # Platform configurations
           platform_configs = {
@@ -123,12 +140,14 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:noble',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Noble x86_64'
+                      'name': 'Ubuntu Noble x86_64',
+                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:noble',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Noble ARM64'
+                      'name': 'Ubuntu Noble ARM64',
+                      'enable_lto': '1'
                   }
               },
               "ubuntu:jammy": {
@@ -279,6 +298,14 @@ jobs:
               print(f"Error: Unsupported platform '{platform}'")
               sys.exit(1)
 
+          # Determine node20 support based on platform
+          if platform in node20_unsupported_platforms:
+              config['node20_supported'] = 'false'
+
+          # Determine install mode: 'sudo' for non-container builds, empty for containers
+          if not config['container']:
+              config['install_mode'] = 'sudo'
+
           # Output individual configuration values
           print(f"Generated configuration: {config}")
 
@@ -291,3 +318,6 @@ jobs:
               f.write(f'name={config["name"]}\n')
               f.write(f'ec2_image_id={config["ec2_image_id"]}\n')
               f.write(f'ec2_instance_type={config["ec2_instance_type"]}\n')
+              f.write(f'node20_supported={config["node20_supported"]}\n')
+              f.write(f'install_mode={config["install_mode"]}\n')
+              f.write(f'enable_lto={config["enable_lto"]}\n')

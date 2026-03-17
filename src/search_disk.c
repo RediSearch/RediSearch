@@ -10,7 +10,6 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
-#include "trie/trie_type.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
