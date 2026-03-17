@@ -6,9 +6,9 @@ expression: reply
   [
     [
       "numDocs",
-      57,
+      61,
       "numEntries",
-      57,
+      61,
       "lastId",
       100,
       "flags",
@@ -16,9 +16,13 @@ expression: reply
       "numberOfBlocks",
       1,
       "blocks_efficiency (numEntries/numberOfBlocks)",
-      57
+      61
     ],
     [
+      40,
+      41,
+      42,
+      43,
       44,
       45,
       46,
@@ -81,17 +85,17 @@ expression: reply
   [
     [
       "numDocs",
-      35,
+      31,
       "numEntries",
-      35,
+      31,
       "lastId",
-      43,
+      39,
       "flags",
       32,
       "numberOfBlocks",
       1,
       "blocks_efficiency (numEntries/numberOfBlocks)",
-      35
+      31
     ],
     [
       9,
@@ -124,11 +128,7 @@ expression: reply
       36,
       37,
       38,
-      39,
-      40,
-      41,
-      42,
-      43
+      39
     ]
   ],
   [

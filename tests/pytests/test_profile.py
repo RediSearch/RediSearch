@@ -203,9 +203,9 @@ def testProfileNumeric(env):
     conn.execute_command('hset', i, 'n', 50 - float(i % 1000) / 10)
 
   expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Number of reading operations', 5010, 'Child iterators', [
-                    ['Type', 'NUMERIC', 'Term', '-49.9 - 32.6', 'Number of reading operations', 3270, 'Estimated number of matches', 8260],
-                    ['Type', 'NUMERIC', 'Term', '32.7 - 45.4', 'Number of reading operations', 1280, 'Estimated number of matches', 1280],
-                    ['Type', 'NUMERIC', 'Term', '45.5 - 49.1', 'Number of reading operations', 370, 'Estimated number of matches', 370],
+                    ['Type', 'NUMERIC', 'Term', '-49.9 - 34.9', 'Number of reading operations', 3500, 'Estimated number of matches', 8490],
+                    ['Type', 'NUMERIC', 'Term', '35 - 45.7', 'Number of reading operations', 1080, 'Estimated number of matches', 1080],
+                    ['Type', 'NUMERIC', 'Term', '45.8 - 49.1', 'Number of reading operations', 340, 'Estimated number of matches', 340],
                     ['Type', 'NUMERIC', 'Term', '49.2 - 50', 'Number of reading operations', 90, 'Estimated number of matches', 90]]]]
   # [1] (Profile data) -> [1] (`Shards` value) -> [0] (single shard/standalone) -> [2:4] (Iterators profile - key+value)
   env.expect('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent').apply(

@@ -19,7 +19,7 @@ use inverted_index::{IndexReader as _, RSIndexResult};
 
 use crate::index::{NumericIndex, NumericIndexReader};
 
-/// Newtype around [`f64`] that hashes via native-endian bytes.
+/// Newtype around [`f64`] that hashes via its `u64` bit pattern.
 ///
 /// Ensures HLL cardinality estimation uses a consistent raw bit representation,
 /// so `-0.0` and `+0.0` are distinct and no float comparison is involved.
@@ -34,7 +34,7 @@ impl From<f64> for NumericValue {
 
 impl std::hash::Hash for NumericValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.to_ne_bytes().hash(state);
+        self.0.to_bits().hash(state);
     }
 }
 
