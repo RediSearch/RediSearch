@@ -157,7 +157,7 @@ protected:
     if (lastFromChild) {
       q->spec.docs.maxDocId = childDocIds.back(); // Ensure maxDocId is set to include last child doc
     }
-    iterator = NewOptionalIterator(child, &q->qctx, q->qctx.docTable.maxDocId, 4.6);
+    iterator = NewOptionalIterator(child, &q->qctx, q->qctx.docTable->maxDocId, 4.6);
   }
 
   void TearDown() override {
@@ -292,7 +292,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithNullChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create optional iterator with NULL child
-  QueryIterator *it = NewOptionalIterator(nullptr, &ctx.qctx, ctx.qctx.docTable.maxDocId, weight);
+  QueryIterator *it = NewOptionalIterator(nullptr, &ctx.qctx, ctx.qctx.docTable->maxDocId, weight);
 
   // Verify iterator type
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -319,7 +319,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithEmptyChild) {
   QueryIterator *emptyChild = NewEmptyIterator();
 
   // Create optional iterator with empty child
-  QueryIterator *it = NewOptionalIterator(emptyChild, &ctx.qctx, ctx.qctx.docTable.maxDocId,weight);
+  QueryIterator *it = NewOptionalIterator(emptyChild, &ctx.qctx, ctx.qctx.docTable->maxDocId,weight);
 
   // Verify iterator type
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -346,7 +346,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, 2.0);
 
   // Create optional iterator with wildcard child - should return the child directly
-  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, ctx.qctx.docTable.maxDocId, childWeight);
+  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, ctx.qctx.docTable->maxDocId, childWeight);
 
   // Verify it's the same iterator (optimization returns child directly)
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -381,7 +381,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   MockQueryEvalCtx mockQctx(1000, 1000);
   QueryIterator *wildcardChild = NewInvIndIterator_WildcardQuery(idx, &mockQctx.sctx, 1.0);
   // Create optional iterator with wildcard child - should return the child directly
-  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, ctx.qctx.docTable.maxDocId, 2.0);
+  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, ctx.qctx.docTable->maxDocId, 2.0);
 
   // Verify it's the same iterator (optimization returns child directly)
   ASSERT_TRUE(it->type == INV_IDX_WILDCARD_ITERATOR);
@@ -409,7 +409,7 @@ protected:
     // Create optimized optional iterator (will create wildcard internally)
     std::vector<t_docId> wildcard = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95};
     mockCtx = std::make_unique<MockQueryEvalCtx>(wildcard);
-    oi_base = NewOptionalIterator(child, &mockCtx->qctx, mockCtx->qctx.docTable.maxDocId, weight);
+    oi_base = NewOptionalIterator(child, &mockCtx->qctx, mockCtx->qctx.docTable->maxDocId, weight);
 
     // Replace the wildcard iterator with a mock for testing
     mockWildcard = new MockIterator(wildcard);
