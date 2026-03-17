@@ -2017,9 +2017,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     TrieType_Free(spec->suffix);
   }
 
-  // Close disk index before freeing spec name (needs the name for tracking)
-  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
-
   // Free spec name (after disk close, which needs the name)
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
@@ -3419,10 +3416,6 @@ static int IndexSpec_StoreAfterRdbLoad(RedisModuleCtx *ctx, IndexSpec *sp) {
     // This is the only global structure that we added the new spec to at this point
     SchemaPrefixes_RemoveSpec(spec_ref);
     addPendingIndexDrop();
-    // Unregister must precede close (triggered by StrongRef_Release -> IndexSpec_Free)
-    if (sp->diskSpec) {
-      SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
-    }
     StrongRef_Release(spec_ref);
   } else {
     IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);

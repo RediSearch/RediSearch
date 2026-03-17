@@ -58,7 +58,7 @@ typedef struct BasicDiskAPI {
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @return Pointer to the index spec, or NULL on error
    *
-   * @note This opens the database but does NOT register it with Redis. Call registerDb after this
+   * @note This opens the database but does NOT register it with Redis. Call registerIndex after this
    *       to register with BigModule APIs.
    */
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
@@ -67,7 +67,7 @@ typedef struct BasicDiskAPI {
    * @param disk Pointer to the disk context (for cleanup of index metrics)
    * @param index Pointer to the index spec
    *
-   * @note This closes the database but does NOT unregister from Redis. Call unregisterDb
+   * @note This closes the database but does NOT unregister from Redis. Call unregisterIndex
    *       before this to unregister from BigModule APIs.
    */
   void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
@@ -79,7 +79,7 @@ typedef struct BasicDiskAPI {
    * @note Must be called from the main thread with a valid RedisModuleCtx.
    *       Call this after openIndexSpec to register the database with Redis.
    */
-  void (*registerDb)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*registerIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Unregister an index's database from Redis BigModule APIs
    * @param ctx Redis module context (required, must be valid)
@@ -88,7 +88,7 @@ typedef struct BasicDiskAPI {
    * @note Must be called from the main thread with a valid RedisModuleCtx.
    *       Call this before closeIndexSpec to unregister the database from Redis.
    */
-  void (*unregisterDb)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 
