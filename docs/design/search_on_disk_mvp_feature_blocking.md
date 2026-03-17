@@ -46,15 +46,15 @@ and compares them against the actual implementation status in the codebase.
 
 | Argument | Should Block? | Actually Blocked? | Code Location |
 |----------|---------------|-------------------|---------------|
-| Without `NOCONTENT` or `RETURN 0` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:756-758` |
-| `LOAD` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:991-995` |
-| `SLOP` | ⚠️ Per doc | ❌ NOT BLOCKED | Still accepted, not validated for disk |
-| `INORDER` | ⚠️ Per doc | ❌ NOT BLOCKED | Still accepted, not validated for disk |
-| `HIGHLIGHT` | ⚠️ Per doc | ❌ NOT BLOCKED | Still accepted (will fail at runtime due to no offsets) |
-| `SUMMARIZE` | ⚠️ Per doc | ❌ NOT BLOCKED | Still accepted (will fail at runtime) |
+| Without `NOCONTENT` or `RETURN 0` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:764-767` |
+| `LOAD` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1004-1008` |
+| `SLOP` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:698-704` |
+| `INORDER` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:705-708` |
+| `HIGHLIGHT` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:639-642` |
+| `SUMMARIZE` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:627-630` |
 | `GEOFILTER` | ✅ Implicit | ✅ BLOCKED (implicit) | GEO field type is blocked, so no GEO index |
 | `FILTER` (numeric) | ✅ Implicit | ✅ BLOCKED (implicit) | NUMERIC field type is blocked |
-| `SCORER TFIDF` | ⚠️ Per doc | ❌ NOT BLOCKED | TF-IDF scorer still allowed (will produce incorrect results) |
+| `SCORER TFIDF` | No | ➖ Allowed | TFIDF scorer is supported |
 
 ---
 
@@ -108,4 +108,3 @@ and compares them against the actual implementation status in the codebase.
 | WORKERS = 0 | ✅ Yes | ✅ BLOCKED | Corrected to 1 automatically |
 
 ---
-

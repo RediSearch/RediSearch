@@ -622,6 +622,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
+      if (isDiskIndex) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED, NULL);
+        return REDISMODULE_ERR;
+      }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
@@ -631,6 +635,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+      if (isDiskIndex) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_HIGHLIGHT_UNSUPPORTED, NULL);
         return REDISMODULE_ERR;
       }
 
@@ -684,6 +692,19 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       } else {
         break;
       }
+    }
+  }
+
+  // Block SLOP and INORDER for disk indexes
+  if (isDiskIndex) {
+    // slop defaults to -1, so any other value means it was explicitly set
+    if (searchOpts->slop != -1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SLOP_UNSUPPORTED, NULL);
+      return REDISMODULE_ERR;
+    }
+    if (searchOpts->flags & Search_InOrder) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_INORDER_UNSUPPORTED, NULL);
+      return REDISMODULE_ERR;
     }
   }
 

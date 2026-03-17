@@ -249,7 +249,7 @@ def test_flex_search_requires_nocontent_or_return_0(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello') \
-        .error().contains('NOCONTENT or RETURN 0 must be provided for disk indexes')
+        .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')
 
 
 @skip(cluster=True)
@@ -285,10 +285,10 @@ def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported for disk indexes')
+        .error().contains('LOAD is not supported in Redis Flex')
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '0', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported for disk indexes')
+        .error().contains('LOAD is not supported in Redis Flex')
 
 
 @skip(cluster=True)
@@ -372,3 +372,43 @@ def test_flex_blocks_suggest_commands(env):
         .error().contains('FT.SUGDEL is not supported in disk mode')
     env.expect('FT.SUGLEN', 'idx') \
         .error().contains('FT.SUGLEN is not supported in disk mode')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_slop_argument(env):
+    """Test that SLOP argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'SLOP', '1') \
+        .error().contains('SLOP is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_inorder_argument(env):
+    """Test that INORDER argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'INORDER') \
+        .error().contains('INORDER is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_highlight_argument(env):
+    """Test that HIGHLIGHT argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'HIGHLIGHT') \
+        .error().contains('HIGHLIGHT is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_summarize_argument(env):
+    """Test that SUMMARIZE argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SUMMARIZE') \
+        .error().contains('SUMMARIZE is not supported in Redis Flex')

@@ -102,6 +102,10 @@ pub enum QueryErrorCode {
     ClusterNoResponses,
     FlexSearchNocontentOrReturn0Required,
     FlexSearchLoadUnsupported,
+    FlexSearchSlopUnsupported,
+    FlexSearchInorderUnsupported,
+    FlexSearchHighlightUnsupported,
+    FlexSearchSummarizeUnsupported,
 }
 
 impl Debug for QueryErrorCode {
@@ -471,13 +475,33 @@ impl QueryErrorCode {
             },
             Self::FlexSearchNocontentOrReturn0Required => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED ",
-                default_msg: c"NOCONTENT or RETURN 0 must be provided for disk indexes",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED NOCONTENT or RETURN 0 must be provided for disk indexes",
+                default_msg: c"NOCONTENT or RETURN 0 must be provided in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED NOCONTENT or RETURN 0 must be provided in Redis Flex",
             },
             Self::FlexSearchLoadUnsupported => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED ",
-                default_msg: c"LOAD is not supported for disk indexes",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED LOAD is not supported for disk indexes",
+                default_msg: c"LOAD is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED LOAD is not supported in Redis Flex",
+            },
+            Self::FlexSearchSlopUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_SLOP_UNSUPPORTED ",
+                default_msg: c"SLOP is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_SLOP_UNSUPPORTED SLOP is not supported in Redis Flex",
+            },
+            Self::FlexSearchInorderUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_INORDER_UNSUPPORTED ",
+                default_msg: c"INORDER is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_INORDER_UNSUPPORTED INORDER is not supported in Redis Flex",
+            },
+            Self::FlexSearchHighlightUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_HIGHLIGHT_UNSUPPORTED ",
+                default_msg: c"HIGHLIGHT is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_HIGHLIGHT_UNSUPPORTED HIGHLIGHT is not supported in Redis Flex",
+            },
+            Self::FlexSearchSummarizeUnsupported => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED ",
+                default_msg: c"SUMMARIZE is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED SUMMARIZE is not supported in Redis Flex",
             },
         }
     }
