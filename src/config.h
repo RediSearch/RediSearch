@@ -212,6 +212,8 @@ typedef struct {
   bool infoEmitOnZeroIndexes;
   // Simulate working under Flex conditions. This is used for testing only.
   bool simulateInFlex;
+  // If true, monitor document and field expiration for new indexes.
+  bool monitorExpiration;
 } RSConfig;
 
 typedef enum {
@@ -400,7 +402,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
     .infoEmitOnZeroIndexes = false,                                            \
-    .simulateInFlex = false,           \
+    .simulateInFlex = false,                                                   \
+    .monitorExpiration = true,                                                 \
   }
 
 #define REDIS_ARRAY_LIMIT 7
