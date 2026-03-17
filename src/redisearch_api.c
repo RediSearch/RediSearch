@@ -47,6 +47,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   IndexSpec* spec = NewIndexSpec(NewHiddenString(name, strlen(name), true));
   spec->own_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
+  //TODO: Should not be supported for SearchDisk, but no way to return error in programatic API
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
 

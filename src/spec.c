@@ -1771,6 +1771,10 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   }
 
   if (timeout != -1) {
+    if (isSpecOnDiskForValidation(spec)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Temporary indexes are not supported for Flex indexes");
+      goto failure;
+    }
     spec->flags |= Index_Temporary;
   }
   spec->timeout = timeout * 1000;  // convert to ms

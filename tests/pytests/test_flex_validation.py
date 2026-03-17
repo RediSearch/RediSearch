@@ -372,3 +372,30 @@ def test_flex_blocks_suggest_commands(env):
         .error().contains('FT.SUGDEL is not supported in disk mode')
     env.expect('FT.SUGLEN', 'idx') \
         .error().contains('FT.SUGLEN is not supported in disk mode')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_drop_and_dropindex_dd(env):
+    """Test that FT.DROP and FT.DROPINDEX with DD are not supported in Flex mode"""
+    _create_flex_search_fixture(env)
+
+    # FT.DROP is not supported (deprecated command that deletes docs)
+    env.expect('FT.DROP', 'idx') \
+        .error().contains('FT.DROP is not supported in disk mode')
+
+    # FT.DROPINDEX with DD (delete docs) is not supported
+    env.expect('FT.DROPINDEX', 'idx', 'DD') \
+        .error().contains('DD is not supported in disk mode')
+
+    # FT.DROPINDEX without DD should work
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_temporary_indexes(env):
+    """Test that TEMPORARY indexes are not supported in Flex mode"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'TEMPORARY', '120',
+               'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `TEMPORARY`')
