@@ -833,10 +833,20 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
-      // RERANK is a boolean flag (no value)
       if (*rerank) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
           "Duplicate RERANK parameter");
+        return 0;
+      }
+      if (AC_IsAtEnd(&subAc)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, VECSIM_RERANK " requires an argument");
+        return 0;
+      }
+      size_t rerank_len;
+      const char *rerank_value = AC_GetStringNC(&subAc, &rerank_len);
+      if (!STR_EQCASE(rerank_value, rerank_len, "TRUE")) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+          "Syntax error: RERANK only supports TRUE currently");
         return 0;
       }
       *rerank = true;
