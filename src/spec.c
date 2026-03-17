@@ -3015,7 +3015,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = sp->fields + i;
     char title[28];
-    sprintf(title, "%s_%d", "field", (i+1));
+    snprintf(title, sizeof(title), "%s_%d", "field", (i+1));
     RedisModule_InfoBeginDictField(ctx, title);
 
     // if we can't perform allocation then use a local buffer to format the field name
@@ -3040,7 +3040,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
       RedisModule_InfoAddFieldDouble(ctx,  SPEC_WEIGHT_STR, fs->ftWeight);
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
       char buf[4];
-      sprintf(buf, "\"%c\"", fs->tagOpts.tagSep);
+      snprintf(buf, sizeof(buf), "\"%c\"", fs->tagOpts.tagSep);
       RedisModule_InfoAddFieldCString(ctx, SPEC_TAG_SEPARATOR_STR, buf);
     }
     if (FieldSpec_IsSortable(fs))
