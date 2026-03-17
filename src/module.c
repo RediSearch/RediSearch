@@ -674,6 +674,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
                RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
   bool delDocs = dropCommand;
+  if (SearchDisk_IsEnabledForValidation() && dropCommand) {
+    return RedisModule_ReplyWithError(ctx, "FT.DROP is not supported in Redis Flex");
+  }
   if (argc == 3){
     if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
       delDocs = false;
@@ -681,10 +684,15 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       delDocs = false;
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
+      if (SearchDisk_IsEnabledForValidation()) {
+        return RedisModule_ReplyWithError(ctx, "DD is not supported in Redis Flex");
+      }
     } else {
       return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
     }
   }
+
+  RS_ASSERT(!(delDocs && SearchDisk_IsEnabledForValidation()));
 
   CurrentThread_SetIndexSpec(global_ref);
 
@@ -1479,7 +1487,7 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
 static int DiskDisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argc);
   const char *command = RedisModule_StringPtrLen(argv[0], NULL);
-  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in disk mode", command);
+  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in Redis Flex", command);
 }
 
 static RedisModuleCmdFunc DiskDisabledCmd(RedisModuleCmdFunc f) {

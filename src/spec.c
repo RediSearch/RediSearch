@@ -1771,6 +1771,8 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
   }
 
   if (timeout != -1) {
+    // When disk validation is active, argopts is set to flex_argopts, which does not include SPEC_TEMPORARY_STR
+    RS_ASSERT(!SearchDisk_IsEnabled());
     spec->flags |= Index_Temporary;
   }
   spec->timeout = timeout * 1000;  // convert to ms
