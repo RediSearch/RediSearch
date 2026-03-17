@@ -84,6 +84,9 @@ class TestDebugCommands(object):
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
+        # SYNC_POINT is only available in ENABLE_ASSERT builds
+        if isEnableAssertEnabled(self.env):
+            help_list.append('SYNC_POINT')
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
