@@ -630,15 +630,11 @@ impl<'index> RSIndexResult<'index> {
                 self.freq += child.freq;
                 self.field_mask |= child.field_mask;
 
-                // Skip FFI call when child has no metrics - this is a significant
-                // optimization for iterators like IdList that don't produce metrics.
-                if !child.metrics.is_null() {
                     // SAFETY: we know both arguments are valid `RSIndexResult` types
                     unsafe {
                         RSYieldableMetric_Concat(&mut self.metrics, child.metrics);
                     }
                 }
-            }
             RSResultData::Term(_)
             | RSResultData::Virtual
             | RSResultData::Numeric(_)

@@ -88,6 +88,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
             return Ok(None);
         };
         self.offset += 1;
+
         self.result.doc_id = doc_id;
 
         Ok(Some((&mut self.result, self.offset)))
@@ -113,7 +114,6 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
             // The iterator has been advanced past the end of the ID list.
             self.offset = len;
             // Update result.doc_id to the last element in the list
-            // (consistent with original behavior where last_doc_id() = ids[offset-1] = ids[len-1])
             if len > 0 {
                 self.result.doc_id = self.ids[len - 1];
             }

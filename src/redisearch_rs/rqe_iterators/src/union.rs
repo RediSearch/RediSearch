@@ -25,7 +25,6 @@ pub use crate::union_flat::UnionFlat;
 // ============================================================================
 
 /// Full mode, flat array - aggregates all matching children, O(n) min-finding.
-/// This is the most common variant for small numbers of children.
 pub type UnionFullFlat<'index, I> = UnionFlat<'index, I, false>;
 
 /// Quick mode, flat array - returns after first match, O(n) min-finding.
