@@ -42,6 +42,9 @@ on:
       install_mode:
         description: "Installation mode (sudo for non-container, empty for container)"
         value: ${{ jobs.get-config.outputs.install_mode }}
+      enable_lto:
+        description: "Whether LTO is enabled for this platform (0 or 1)"
+        value: ${{ jobs.get-config.outputs.enable_lto }}
 
 jobs:
   get-config:
@@ -56,6 +59,7 @@ jobs:
       ec2_instance_type: ${{ steps.get-config.outputs.ec2_instance_type }}
       node20_supported: ${{ steps.get-config.outputs.node20_supported }}
       install_mode: ${{ steps.get-config.outputs.install_mode }}
+      enable_lto: ${{ steps.get-config.outputs.enable_lto }}
     steps:
       - name: Get configuration for platform and architecture
         id: get-config
@@ -67,7 +71,6 @@ jobs:
 
           platform = "${{ inputs.platform }}"
           architecture = "${{ inputs.architecture }}"
-
           print(f"Getting configuration for platform: {platform}, architecture: {architecture}")
 
           # Default environment per architecture
@@ -90,7 +93,8 @@ jobs:
               'ec2_image_id': '',
               'ec2_instance_type': '',
               'node20_supported': 'true',  # Most platforms support node20
-              'install_mode': ''  # Empty for containers, 'sudo' for non-containers
+              'install_mode': '',  # Empty for containers, 'sudo' for non-containers
+              'enable_lto': '0'  # Whether LTO is enabled for this platform
           }
 
           # Platforms that don't support node20
@@ -136,12 +140,14 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:noble',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Noble x86_64'
+                      'name': 'Ubuntu Noble x86_64',
+                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:noble',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Noble ARM64'
+                      'name': 'Ubuntu Noble ARM64',
+                      'enable_lto': '1'
                   }
               },
               "ubuntu:jammy": {
@@ -314,3 +320,4 @@ jobs:
               f.write(f'ec2_instance_type={config["ec2_instance_type"]}\n')
               f.write(f'node20_supported={config["node20_supported"]}\n')
               f.write(f'install_mode={config["install_mode"]}\n')
+              f.write(f'enable_lto={config["enable_lto"]}\n')

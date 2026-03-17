@@ -22,7 +22,7 @@ int testErrorCodeLengthExtraction() {
 
 int testErrorCodeFormat(const char* error, const char* expected) {
   char buf[1024];
-  sprintf(buf, "%.*s", GetRedisErrorCodeLength(error), error);
+  snprintf(buf, sizeof(buf), "%.*s", GetRedisErrorCodeLength(error), error);
   ASSERT_STRING_EQ(buf, expected);
   return 0;
 }
