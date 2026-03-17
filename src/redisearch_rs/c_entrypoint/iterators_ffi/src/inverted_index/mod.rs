@@ -15,7 +15,7 @@ mod wildcard;
 
 use inverted_index::IndexReader as _;
 use numeric::NumericIterator;
-use rqe_iterators_interop::RQEIteratorWrapper;
+use rqe_iterators::interop::RQEIteratorWrapper;
 pub use term::NewInvIndIterator_TermQuery;
 use term::TermIterator;
 

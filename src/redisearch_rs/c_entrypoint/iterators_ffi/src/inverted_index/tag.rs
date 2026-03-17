@@ -16,8 +16,8 @@ use inverted_index::{
     IndexReader, RSIndexResult, RSQueryTerm, doc_ids_only::DocIdsOnly,
     raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Tag};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///
