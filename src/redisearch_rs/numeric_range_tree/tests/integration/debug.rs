@@ -67,7 +67,7 @@ fn test_debug_summary_empty() {
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
     let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, Some(&tree)) });
-    insta::assert_debug_snapshot!(reply, @r###"
+    insta::assert_debug_snapshot!(reply, @r#"
     [
       "numRanges",
       1,
@@ -86,7 +86,7 @@ fn test_debug_summary_empty() {
       "MemoryUsage",
       848
     ]
-    "###);
+    "#);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn test_debug_summary_populated() {
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
     let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, Some(&tree)) });
-    insta::assert_debug_snapshot!(reply, @r###"
+    insta::assert_debug_snapshot!(reply, @r#"
     [
       "numRanges",
       2,
@@ -114,7 +114,7 @@ fn test_debug_summary_populated() {
       "MemoryUsage",
       1155
     ]
-    "###);
+    "#);
 }
 
 // ── debug_dump_index ───────────────────────────────────────────────────
@@ -205,7 +205,7 @@ fn test_debug_dump_tree_minimal() {
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
     let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, Some(&tree), true) });
     with_redactions(|| {
-        insta::assert_debug_snapshot!(reply, @r###"
+        insta::assert_debug_snapshot!(reply, @r#"
         {
           "numRanges": 1,
           "numEntries": 10,
@@ -216,7 +216,7 @@ fn test_debug_dump_tree_minimal() {
           "root": {"range": []},
           "Tree stats": {"Average memory efficiency (numEntries/size)/numRanges": 0}
         }
-        "###);
+        "#);
     });
 }
 
@@ -269,7 +269,7 @@ fn test_debug_summary_none() {
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
     let reply = capture_single_reply(|| unsafe { debug::debug_summary(ctx, None) });
-    insta::assert_debug_snapshot!(reply, @r###"
+    insta::assert_debug_snapshot!(reply, @r#"
     [
       "numRanges",
       0,
@@ -288,7 +288,7 @@ fn test_debug_summary_none() {
       "MemoryUsage",
       0
     ]
-    "###);
+    "#);
 }
 
 #[test]
@@ -304,7 +304,7 @@ fn test_debug_dump_tree_none() {
     let ctx = mock_ctx();
     // SAFETY: `ctx` is a mock pointer — `redis_mock` intercepts all Redis module API calls.
     let reply = capture_single_reply(|| unsafe { debug::debug_dump_tree(ctx, None, true) });
-    insta::assert_debug_snapshot!(reply, @r###"
+    insta::assert_debug_snapshot!(reply, @r#"
     {
       "numRanges": 0,
       "numEntries": 0,
@@ -315,7 +315,7 @@ fn test_debug_dump_tree_none() {
       "root": {},
       "Tree stats": {"Average memory efficiency (numEntries/size)/numRanges": 0}
     }
-    "###);
+    "#);
 }
 
 // ── Structural consistency: None has same keys as default tree ──────────

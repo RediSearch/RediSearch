@@ -46,7 +46,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddSection(ctx, "version");
   char ver[64];
   // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR,
+  snprintf(ver, sizeof(ver), "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR,
           REDISEARCH_VERSION_PATCH);
   RedisModule_InfoAddFieldCString(ctx, "version", ver);
   // Redis version
@@ -459,7 +459,7 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
     IndexSpec *spec = StrongRef_Get(at->spec);
     char buffer[21]; // 20 is the max length of a uint64_t
-    sprintf(buffer, "%zu", at->cursorId);
+    snprintf(buffer, sizeof(buffer), "%zu", at->cursorId);
     RedisModule_InfoBeginDictField(ctx, buffer);
     RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
     RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
