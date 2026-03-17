@@ -239,7 +239,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_TRUE(IndexSpec_LoadUnsafe("test_rdb_idx").rm == NULL);
 
     // Deserialize
-    int res = IndexSpec_Deserialize(serialized, encver);
+    int res = IndexSpec_Deserialize(ctx, serialized, encver);
     ASSERT_EQ(REDISMODULE_OK, res);
     StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_rdb_idx");
     spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);

@@ -526,7 +526,7 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
  * Does not consume the serialized string, the caller is responsible for freeing it.
 */
-int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
+int IndexSpec_Deserialize(RedisModuleCtx *ctx, const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);

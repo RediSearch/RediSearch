@@ -1191,7 +1191,7 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
   }
 
-  int rc = IndexSpec_Deserialize(argv[3], encodeVersion);
+  int rc = IndexSpec_Deserialize(ctx, argv[3], encodeVersion);
 
   if (rc != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Failed to deserialize schema");

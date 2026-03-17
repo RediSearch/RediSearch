@@ -3266,7 +3266,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   int16_t numFields = 0;
   size_t narr = 0;
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-
   rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   len = strlen(rawName);
   specName = NewHiddenString(rawName, len, true);
@@ -3390,7 +3389,7 @@ cleanup_no_index:
   return NULL;
 }
 
-static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
+static int IndexSpec_StoreAfterRdbLoad(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -3418,7 +3417,7 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
     addPendingIndexDrop();
     // Unregister must precede close (triggered by StrongRef_Release -> IndexSpec_Free)
     if (sp->diskSpec) {
-      SearchDisk_UnregisterIndex(RSDummyContext, sp->diskSpec);
+      SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
     }
     StrongRef_Release(spec_ref);
   } else {
@@ -3434,8 +3433,9 @@ static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
 
 static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   // Load the index spec using the new function
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
-  return IndexSpec_StoreAfterRdbLoad(sp);
+  return IndexSpec_StoreAfterRdbLoad(ctx, sp);
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -3621,6 +3621,7 @@ void *IndexSpec_RdbLoad_Logic(RedisModuleIO *rdb, int encver) {
     // New index, loaded normally.
     // Even though we don't actually load or save the index spec in the key space, this implementation is useful
     // because it allows us to serialize and deserialize the index spec in a clean way.
+    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
     QueryError status = QueryError_Default();
     IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, &status);
     if (!sp) {
@@ -3647,10 +3648,10 @@ RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
  * Does not consume the serialized string, the caller is responsible for freeing it.
 */
-int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
+int IndexSpec_Deserialize(RedisModuleCtx *ctx, const RedisModuleString *serialized, int encver) {
   IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
   if (sp) Initialize_KeyspaceNotifications();
-  return IndexSpec_StoreAfterRdbLoad(sp);
+  return IndexSpec_StoreAfterRdbLoad(ctx, sp);
 }
 
 int CompareVersions(Version v1, Version v2) {
