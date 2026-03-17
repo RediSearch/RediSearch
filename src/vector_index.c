@@ -114,7 +114,7 @@ static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, 
 }
 
 static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const VectorQuery *vq,
-                                                QueryIterator *child_it) {
+                                                const QueryIterator *child_it) {
   if (!q->sctx->spec->diskSpec || vq->type != VECSIM_QT_KNN || child_it == NULL) {
     return REDISMODULE_OK;
   }

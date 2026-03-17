@@ -16,6 +16,7 @@
 
 #include "gtest/gtest.h"
 
+#include <array>
 #include <stdio.h>
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
@@ -99,15 +100,15 @@ TEST_F(QueryTest, testParser_delta) {
 
 TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   RedisSearchCtx ctx;
-  static const char *args[] = {
+  const std::array<const char *, 12> args = {
       "SCHEMA", "title",   "text", "vec_field", "vector",          "HNSW", "6",
       "TYPE",   "FLOAT32", "DIM",  "4",         "DISTANCE_METRIC", "L2"};
   QueryError err = QueryError_Default();
-  StrongRef ref = IndexSpec_ParseC(NULL, "idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC(nullptr, "idx", args.data(), args.size(), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-  ASSERT_TRUE(RS::addDocument(NULL, ref.rm, "doc:1", "title", "hello", "vec_field", "abcdefghijklmnop"));
+  ASSERT_TRUE(RS::addDocument(nullptr, ref.rm, "doc:1", "title", "hello", "vec_field", "abcdefghijklmnop"));
 
   ctx.spec->diskSpec = (RedisSearchDiskIndexSpec *)0x1;
   int version = 2;
@@ -231,7 +232,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   Param_DictFree(opts_attrs.params);
   QueryError_ClearError(&iterErrAttrs);
 
-  ctx.spec->diskSpec = NULL;
+  ctx.spec->diskSpec = nullptr;
   IndexSpec_RemoveFromGlobals(ref, false);
 }
 
