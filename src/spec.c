@@ -3392,7 +3392,7 @@ cleanup_no_index:
   return NULL;
 }
 
-static int IndexSpec_StoreAfterRdbLoad(RedisModuleCtx *ctx, IndexSpec *sp) {
+static int IndexSpec_StoreAfterRdbLoad(IndexSpec *sp) {
   if (!sp) {
     addPendingIndexDrop();
     return REDISMODULE_ERR;
@@ -3432,9 +3432,8 @@ static int IndexSpec_StoreAfterRdbLoad(RedisModuleCtx *ctx, IndexSpec *sp) {
 
 static int IndexSpec_CreateFromRdb(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   // Load the index spec using the new function
-  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, useSst, status);
-  return IndexSpec_StoreAfterRdbLoad(ctx, sp);
+  return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -3646,10 +3645,10 @@ RedisModuleString * IndexSpec_Serialize(IndexSpec *sp) {
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
  * Does not consume the serialized string, the caller is responsible for freeing it.
 */
-int IndexSpec_Deserialize(RedisModuleCtx *ctx, const RedisModuleString *serialized, int encver) {
+int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver) {
   IndexSpec *sp = RedisModule_LoadDataTypeFromStringEncver(serialized, IndexSpecType, encver);
   if (sp) Initialize_KeyspaceNotifications();
-  return IndexSpec_StoreAfterRdbLoad(ctx, sp);
+  return IndexSpec_StoreAfterRdbLoad(sp);
 }
 
 int CompareVersions(Version v1, Version v2) {
