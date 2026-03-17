@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{mem::ManuallyDrop, sync::Arc};
+use std::{mem::ManuallyDrop, ops::Deref, sync::Arc};
 
 use crate::RsValue;
 
@@ -19,10 +19,6 @@ use crate::RsValue;
 /// - **Heap-allocated**: backed by an [`Arc<RsValue>`](Arc), with manual
 ///   reference counting managed through raw pointer conversions.
 ///
-/// Manual [`Arc`] management via raw pointers is used so that this type can be
-/// passed across the FFI boundary as a plain pointer while still supporting
-/// shared ownership on the Rust side.
-///
 /// # Cloning and dropping
 ///
 /// [`Clone`] increments the [`Arc`] reference count (or cheaply copies the
@@ -33,17 +29,16 @@ pub struct SharedRsValue {
     ptr: *const RsValue,
 }
 
-/// Global sentinel for [`RsValue::Null`], used by [`SharedRsValue::null_static`]
+/// Static [`RsValue::Null`] value, used by [`SharedRsValue::null_static`]
 /// to avoid heap allocation for null values.
 static NULL_VALUE: RsValue = RsValue::Null;
 
 impl SharedRsValue {
-    /// Creates a [`SharedRsValue`] pointing to the static [`NULL_VALUE`]
-    /// sentinel, avoiding a heap allocation.
+    /// Creates a [`SharedRsValue`] pointing to the static [`NULL_VALUE`].
     #[expect(rustdoc::private_intra_doc_links)]
     pub fn null_static() -> Self {
         Self {
-            ptr: &NULL_VALUE as *const RsValue,
+            ptr: std::ptr::from_ref(&NULL_VALUE).cast(),
         }
     }
 
@@ -76,7 +71,7 @@ impl SharedRsValue {
     }
 
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
-    /// sentinel rather than a heap-allocated [`Arc`].
+    /// rather than a heap-allocated [`Arc`].
     fn is_static(&self) -> bool {
         std::ptr::eq(self.ptr, &NULL_VALUE)
     }
@@ -102,13 +97,7 @@ impl SharedRsValue {
 
     /// Returns a reference to the stored [`RsValue`].
     pub fn value(&self) -> &RsValue {
-        if self.is_static() {
-            &NULL_VALUE
-        } else {
-            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and the
-            // `Arc` is kept alive for the lifetime of `self`.
-            unsafe { &*self.ptr }
-        }
+        self.deref()
     }
 
     /// Returns true if the two [`SharedRsValue`]s point to the same allocation in a vein similar to [`ptr::eq`][std::ptr::eq].
@@ -126,6 +115,20 @@ impl SharedRsValue {
             // being dropped, preserving the original ownership.
             let v = ManuallyDrop::new(unsafe { Arc::from_raw(this.ptr) });
             Arc::strong_count(&v)
+        }
+    }
+}
+
+impl Deref for SharedRsValue {
+    type Target = RsValue;
+
+    fn deref(&self) -> &Self::Target {
+        if self.is_static() {
+            &NULL_VALUE
+        } else {
+            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and the
+            // `Arc` is kept alive for the lifetime of `self`.
+            unsafe { &*self.ptr }
         }
     }
 }

@@ -236,8 +236,7 @@ pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
 /// Unlike [`RSValue_NewNull`], this does **not** heap-allocate; it returns a
 /// pointer to a shared static value managed by [`SharedRsValue::null_static`].
 /// The returned pointer must still be passed to
-/// [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef) for symmetry, but
-/// decrementing it is a no-op.
+/// [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef) for symmetry.
 ///
 /// # Safety
 ///
