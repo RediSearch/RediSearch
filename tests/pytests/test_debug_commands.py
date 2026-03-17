@@ -1128,6 +1128,7 @@ def test_update_debug_scanner_config(env):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndex(env, 'idx')
 
     # When scan is done, the scanner is freed
     checkDebugScannerUpdateError(env, 'idx', 'Scanner is not initialized')
