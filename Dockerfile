@@ -7,6 +7,7 @@
 # ---------------------------------------------------------
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
+ARG SAN=none
 
 ENV GITHUB_ACTIONS=true
 WORKDIR /project
@@ -21,9 +22,11 @@ RUN if ! command -v bash >/dev/null 2>&1; then \
 COPY . .
 
 WORKDIR /project/.install
-RUN bash retry.sh bash -l -eo pipefail install_script.sh
+# Install base dependencies, Rust toolchain, and optionally LLVM for sanitizer builds.
+RUN bash retry.sh bash -l -eo pipefail install_script.sh && \
+    bash retry.sh bash -l -eo pipefail test_deps/install_rust_deps.sh && \
+    if [ "$SAN" = "address" ]; then bash retry.sh bash -l -eo pipefail install_llvm.sh; fi
 WORKDIR /project
-RUN bash .install/retry.sh bash -l -eo pipefail .install/test_deps/install_rust_deps.sh
 # Expose newly-installed Rust and Python tools via PATH
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 

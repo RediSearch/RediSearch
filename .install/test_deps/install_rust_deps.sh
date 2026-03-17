@@ -4,7 +4,7 @@ OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
 # retrieve nightly version
-NIGHTLY_VERSION=$(cat .rust-nightly)
+NIGHTLY_VERSION=$(cat "$(dirname "$0")/../../.rust-nightly")
 # --allow-downgrade:
 #   Allow `rustup` to install an older `nightly` if the latest one
 #   is missing one of the components we need.

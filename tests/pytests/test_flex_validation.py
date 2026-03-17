@@ -341,7 +341,7 @@ def test_flex_blocks_cursor_commands(env):
         .error().contains('FT.CURSOR is not supported in disk mode')
     env.expect('FT.CURSOR', 'GC', 'idx') \
         .error().contains('FT.CURSOR is not supported in disk mode')
-    
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
@@ -372,4 +372,3 @@ def test_flex_blocks_suggest_commands(env):
         .error().contains('FT.SUGDEL is not supported in disk mode')
     env.expect('FT.SUGLEN', 'idx') \
         .error().contains('FT.SUGLEN is not supported in disk mode')
-
