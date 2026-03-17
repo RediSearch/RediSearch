@@ -202,11 +202,6 @@ static int set_search_disk_buffer_percentage_config(const char *name, long long 
   void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  if (val > 100) {
-    RS_ASSERT(err);
-    *err = RedisModule_CreateStringPrintf(NULL, "search-disk-buffer-percentage must be between 0 and 100, but got %lld", val);
-    return REDISMODULE_ERR;
-  }
   *(uint8_t *)privdata = (uint8_t) val;
   if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
     SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
