@@ -24,7 +24,6 @@
 #include "util/workers.h"
 #include "module.h"
 #include "search_disk.h"
-#include "ttl_table.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -258,10 +257,10 @@ static int set_monitor_expiration(const char *name, int val, void *privdata,
           sp->monitorDocumentExpiration = true;
           sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
         } else {
-          // Disabling: clear flags and destroy TTL table
+          // Disabling: clear flags and clean up TTL data
           sp->monitorDocumentExpiration = false;
           sp->monitorFieldExpiration = false;
-          TimeToLiveTable_Destroy(&sp->docs.ttl);
+          DocTable_DisableExpirationMonitoring(&sp->docs);
         }
         IndexSpec_ReleaseWriteLock(sp);
       }
