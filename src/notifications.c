@@ -506,7 +506,6 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 }
 
 static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(subevent);
   REDISMODULE_NOT_USED(data);
