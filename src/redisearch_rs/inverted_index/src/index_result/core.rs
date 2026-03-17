@@ -630,11 +630,11 @@ impl<'index> RSIndexResult<'index> {
                 self.freq += child.freq;
                 self.field_mask |= child.field_mask;
 
-                    // SAFETY: we know both arguments are valid `RSIndexResult` types
-                    unsafe {
-                        RSYieldableMetric_Concat(&mut self.metrics, child.metrics);
-                    }
+                // SAFETY: we know both arguments are valid `RSIndexResult` types
+                unsafe {
+                    RSYieldableMetric_Concat(&mut self.metrics, child.metrics);
                 }
+            }
             RSResultData::Term(_)
             | RSResultData::Virtual
             | RSResultData::Numeric(_)
