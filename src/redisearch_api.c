@@ -595,6 +595,8 @@ typedef struct {
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
   // here we only take the read lock and we will free it when the iterator will be freed
   RWLOCK_ACQUIRE_READ();
+  /* Acquire spec read lock to synchronize with config changes that may destroy TTL table */
+  pthread_rwlock_rdlock(&sp->rwlock);
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
@@ -655,6 +657,8 @@ end:
     if (sp->docs.ttl) {
       dictResumeRehashing(sp->docs.ttl);
     }
+    /* Release spec read lock on error path */
+    pthread_rwlock_unlock(&sp->rwlock);
     RediSearch_ResultsIteratorFree(it);
     it = NULL;
     if (error) {
@@ -725,12 +729,16 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   DMD_Return(iter->lastmd);
-  if (iter->sp && iter->sp->keysDict) {
-    dictResumeRehashing(iter->sp->keysDict);
+  if (iter->sp) {
+    if (iter->sp->keysDict) {
+      dictResumeRehashing(iter->sp->keysDict);
+    }
     /* Also resume rehashing on the TTL table if it exists */
     if (iter->sp->docs.ttl) {
       dictResumeRehashing(iter->sp->docs.ttl);
     }
+    /* Release spec read lock */
+    pthread_rwlock_unlock(&iter->sp->rwlock);
   }
   rm_free(iter);
   RWLOCK_RELEASE();
@@ -879,6 +887,8 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
   RWLOCK_ACQUIRE_READ();
   IndexSpec *sp = __RefManager_Get_Object(rm);
+  /* Acquire spec read lock to synchronize with config changes that may destroy TTL table */
+  pthread_rwlock_rdlock(&sp->rwlock);
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
@@ -933,6 +943,8 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   if (sp->docs.ttl) {
     dictResumeRehashing(sp->docs.ttl);
   }
+  /* Release spec read lock */
+  pthread_rwlock_unlock(&sp->rwlock);
   RWLOCK_RELEASE();
 
   return REDISEARCH_OK;

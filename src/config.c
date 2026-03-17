@@ -233,7 +233,7 @@ static int get_inverted_bool_config(const char *name, void *privdata) {
 
 // When changing expiration monitoring, update all existing indexes.
 // Disabling: clean up TTL tables. Enabling: set monitor flags (TTL table created lazily).
-// This must be done with write lock to avoid race conditions with query threads.
+// This must be done with the per-spec write lock to avoid race conditions with query threads.
 static int set_monitor_expiration(const char *name, int val, void *privdata,
                                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
