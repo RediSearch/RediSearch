@@ -1,0 +1,45 @@
+name: Get Redis
+description: |
+  Checkout Redis repository. Uses actions/checkout for node20-supported platforms,
+  falls back to manual git clone for legacy platforms.
+
+inputs:
+  ref:
+    description: "Redis git ref to checkout"
+    required: true
+  node20_supported:
+    description: "Whether node20 is supported on this platform"
+    required: true
+  path:
+    description: "Path to checkout Redis into"
+    required: false
+    default: "redis"
+
+runs:
+  using: composite
+  steps:
+    - name: Get Redis (node20)
+      if: ${{ inputs.node20_supported == 'true' }}
+      uses: actions/checkout@v4
+      with:
+        repository: redis/redis
+        ref: ${{ inputs.ref }}
+        path: ${{ inputs.path }}
+
+    - name: Get Redis (legacy)
+      if: ${{ inputs.node20_supported != 'true' }}
+      shell: bash
+      env:
+        REDIS_REF: ${{ inputs.ref }}
+        DEST_DIR: ${{ inputs.path }}
+      run: |
+        REPO_URL="https://github.com/redis/redis.git"
+
+        # Clone the repository
+        git clone "$REPO_URL" "$DEST_DIR"
+        cd "$DEST_DIR"
+
+        # Checkout the requested ref
+        git fetch origin "$REDIS_REF"
+        git checkout "$REDIS_REF"
+
