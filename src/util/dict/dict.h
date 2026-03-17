@@ -155,7 +155,7 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
-#define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_ACQUIRE) >= 0)
+#define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_ACQ_REL) >= 0)
 #define dictResumeRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, -1, __ATOMIC_RELEASE) > 0)
 
 /* API - RediSearch-specific dict functions to avoid conflicts with Redis dict functions */

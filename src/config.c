@@ -241,8 +241,9 @@ static int get_inverted_bool_config(const char *name, void *privdata) {
 }
 
 // When changing expiration monitoring, update all existing indexes.
-// Disabling: clean up TTL tables. Enabling: set monitor flags (TTL table created lazily).
-// This must be done with the per-spec write lock to avoid race conditions with query threads.
+// The TTL dict is not destroyed here, so pre-existing TTL data is preserved
+// across disable/enable cycles. Expirations set during the disabled window
+// are not tracked.
 static int set_monitor_expiration(const char *name, int val, void *privdata,
                                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -252,7 +253,6 @@ static int set_monitor_expiration(const char *name, int val, void *privdata,
   bool oldVal = *monitorExpiration;
   *monitorExpiration = val;
 
-  // Update all existing indexes if value changed
   if (oldVal != val && specDict_g) {
     dictIterator *iter = dictGetIterator(specDict_g);
     dictEntry *entry = NULL;
@@ -261,16 +261,8 @@ static int set_monitor_expiration(const char *name, int val, void *privdata,
       IndexSpec *sp = StrongRef_Get(spec_ref);
       if (sp) {
         IndexSpec_AcquireWriteLock(sp);
-        if (val) {
-          // Enabling: set flags, TTL table will be created lazily when needed
-          sp->monitorDocumentExpiration = true;
-          sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
-        } else {
-          // Disabling: clear flags and clean up TTL data
-          sp->monitorDocumentExpiration = false;
-          sp->monitorFieldExpiration = false;
-          DocTable_DisableExpirationMonitoring(&sp->docs);
-        }
+        sp->monitorDocumentExpiration = val;
+        sp->monitorFieldExpiration = val && RedisModule_HashFieldMinExpire != NULL;
         IndexSpec_ReleaseWriteLock(sp);
       }
     }
