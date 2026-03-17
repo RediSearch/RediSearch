@@ -176,7 +176,11 @@ bool SyncPoint_Arm(const char *name) {
   strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
   sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
   atomic_store(&sp->armed, true);
-  atomic_store(&sp->waiting, 0);
+  // Note: We intentionally do NOT reset sp->waiting here.
+  // The slot is either newly allocated (waiting is 0 from static init) or
+  // reused after ClearAll drained it to 0. Resetting it here would race with
+  // threads executing atomic_fetch_sub after exiting the spin-wait loop.
+
   // Memory fence: ensure all writes above are visible before incrementing count
   atomic_thread_fence(memory_order_release);
   atomic_fetch_add(&globalSyncPointCtx.count, 1);
@@ -200,11 +204,24 @@ bool SyncPoint_IsArmed(const char *name) {
 
 void SyncPoint_ClearAll(void) {
   uint32_t count = atomic_load(&globalSyncPointCtx.count);
+
+  // First, disarm all sync points to release waiting threads
   for (uint32_t i = 0; i < count; i++) {
-    // Only clear armed - waiting threads will decrement the counter themselves
-    // when they wake up and exit SyncPoint_Wait.
     atomic_store(&globalSyncPointCtx.points[i].armed, false);
   }
+
+  // Wait for all waiting threads to exit their spin-wait loops.
+  // This prevents a slot reuse race: if we reset count while a thread still
+  // holds a pointer to a slot, a subsequent Arm could reuse that slot and
+  // set armed=true, causing the old thread to get trapped waiting on the
+  // wrong sync point.
+  for (uint32_t i = 0; i < count; i++) {
+    while (atomic_load(&globalSyncPointCtx.points[i].waiting) > 0) {
+      usleep(1000);  // Brief sleep to avoid busy-waiting
+    }
+  }
+
+  // Now it's safe to reset count - no threads hold pointers to slots
   atomic_store(&globalSyncPointCtx.count, 0);
 }
 
