@@ -230,6 +230,46 @@ static int get_inverted_bool_config(const char *name, void *privdata) {
   return !*(bool *)privdata;
 }
 
+// When changing expiration monitoring, update all existing indexes.
+// Disabling: clean up TTL tables. Enabling: set monitor flags (TTL table created lazily).
+// This must be done with the per-spec write lock to avoid race conditions with query threads.
+static int set_monitor_expiration(const char *name, int val, void *privdata,
+                                  RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+
+  bool *monitorExpiration = (bool *)privdata;
+  bool oldVal = *monitorExpiration;
+  *monitorExpiration = val;
+
+  // Update all existing indexes if value changed
+  if (oldVal != val && specDict_g) {
+    dictIterator *iter = dictGetIterator(specDict_g);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+      StrongRef spec_ref = dictGetRef(entry);
+      IndexSpec *sp = StrongRef_Get(spec_ref);
+      if (sp) {
+        pthread_rwlock_wrlock(&sp->rwlock);
+        if (val) {
+          // Enabling: set flags, TTL table will be created lazily when needed
+          sp->monitorDocumentExpiration = true;
+          sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
+        } else {
+          // Disabling: clear flags and clean up TTL data
+          sp->monitorDocumentExpiration = false;
+          sp->monitorFieldExpiration = false;
+          DocTable_ClearExpirationData(&sp->docs);
+        }
+        pthread_rwlock_unlock(&sp->rwlock);
+      }
+    }
+    dictReleaseIterator(iter);
+  }
+
+  return REDISMODULE_OK;
+}
+
 static int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
                       RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -2284,6 +2324,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.infoEmitOnZeroIndexes)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-monitor-expiration", 1,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_monitor_expiration, NULL,
+      (void *)&(RSGlobalConfig.monitorExpiration)
     )
   )
 
