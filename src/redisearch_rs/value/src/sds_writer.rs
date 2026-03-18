@@ -34,7 +34,7 @@ impl SdsWriter {
         Self { sds }
     }
 
-    /// Consumes the writer and returns the underlying SDS string.
+    /// Convert the SdsWriter back into an SDS string.
     pub const fn into_sds(self) -> sds {
         self.sds
     }
