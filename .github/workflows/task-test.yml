@@ -57,7 +57,7 @@ env:
   RUST_BACKTRACE: "full"
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
-  BUILD_INTEL_SVS_OPT: "yes"
+  BUILD_INTEL_SVS_OPT: "0"
   SETUP_RETRY_LOOP: |
     SUCCESS=0
     for i in 1 2 3 4 5; do
