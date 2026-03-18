@@ -24,6 +24,16 @@ pub extern "C" fn RLookupRow_New() -> OpaqueRLookupRow {
     RLookupRow::new().into_opaque()
 }
 
+/// Returns a newly created [`RLookupRow`] with [`RLookupRow::dyn_values`] pre-allocated
+/// to the given capacity.
+///
+/// Use this when the number of keys (`rowlen`) is known upfront to avoid
+/// reallocations during value writes.
+#[unsafe(no_mangle)]
+pub extern "C" fn RLookupRow_NewWithCapacity(capacity: u32) -> OpaqueRLookupRow {
+    RLookupRow::with_capacity(capacity).into_opaque()
+}
+
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
 /// # Safety

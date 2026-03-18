@@ -17,6 +17,16 @@ pub const extern "C" fn SearchResult_New() -> SearchResult {
     SearchResult::new()
 }
 
+/// Returns a newly created [`SearchResult`] with its internal row pre-allocated
+/// to the given capacity.
+///
+/// Use this when the number of lookup keys (`rowlen`) is known upfront to
+/// avoid reallocations during value writes.
+#[unsafe(no_mangle)]
+pub const extern "C" fn SearchResult_NewWithRowCapacity(capacity: u32) -> SearchResult {
+    SearchResult::with_row_capacity(capacity)
+}
+
 /// Overrides the contents of `dst` with those from `src` taking ownership of `src`.
 /// Ensures proper cleanup of any existing data in `dst`.
 ///

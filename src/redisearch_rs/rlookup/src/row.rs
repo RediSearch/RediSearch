@@ -24,8 +24,9 @@ pub struct RLookupRow<'a> {
     /// Dynamic values obtained from prior processing
     dyn_values: Vec<Option<RSValueFFI>>,
 
-    /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
-    /// is not the length of [`RLookupRow::dyn_values`]
+    /// The number of values in [`RLookupRow::dyn_values`] that are `Some`. Note that this
+    /// is not the length of [`RLookupRow::dyn_values`] — pre-allocated `None` slots
+    /// (from [`RLookupRow::with_capacity`]) are not counted.
     num_dyn_values: u32,
 }
 
@@ -36,12 +37,20 @@ impl<'a> Default for RLookupRow<'a> {
 }
 
 impl<'a> RLookupRow<'a> {
-    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
-    /// a [`RLookupRow::sorting_vector`] of the given length.
-    pub const fn new() -> Self {
+    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector.
+    pub fn new() -> Self {
+        Self::with_capacity(0)
+    }
+
+    /// Creates a new `RLookupRow` with [`RLookupRow::dyn_values`] pre-allocated to
+    /// the given capacity (filled with `None`).
+    ///
+    /// Use this when the number of keys (`rowlen`) is known upfront to avoid
+    /// reallocations during [`RLookupRow::write_key`].
+    pub fn with_capacity(capacity: u32) -> Self {
         Self {
             sorting_vector: None,
-            dyn_values: vec![],
+            dyn_values: vec![None; capacity as usize],
             num_dyn_values: 0,
         }
     }
@@ -179,8 +188,9 @@ impl<'a> RLookupRow<'a> {
         self.sorting_vector = sv;
     }
 
-    /// The number of values in [`RLookupRow::dyn_values`] that are `is_some()`. Note that this
-    /// is not the length of [`RLookupRow::dyn_values`]
+    /// The number of values in [`RLookupRow::dyn_values`] that are `Some`. Note that this
+    /// is not the length of [`RLookupRow::dyn_values`] — pre-allocated `None` slots
+    /// (from [`RLookupRow::with_capacity`]) are not counted.
     pub const fn num_dyn_values(&self) -> u32 {
         self.num_dyn_values
     }
