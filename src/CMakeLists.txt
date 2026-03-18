@@ -41,6 +41,15 @@ add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
 
+# Suppress #pragma message warnings from VectorSimilarity (e.g., "SVS LVQ is not available")
+# which become errors with -Werror. These are informational, not actionable, and should not
+# have been warnings in the first place.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(VectorSimilarity PRIVATE "-Wno-#pragma-messages")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(VectorSimilarity PRIVATE "-Wno-cpp")
+endif()
+
 # Workaround: fmt 11.2.0 is missing <cstdlib> include, which is needed for LLVM 21+ on MacOS
 # This was fixed in fmt 12.0.0, but that requires patching several levels upstream.
 if(TARGET fmt)
