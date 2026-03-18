@@ -8,9 +8,11 @@
 */
 
 use ffi::t_docId;
+use std::sync::OnceLock;
 use thiserror::Error;
 
-use ::inverted_index::RSIndexResult;
+use ::inverted_index::{t_fieldMask, RSIndexResult};
+use query_term::RSQueryTerm;
 
 pub mod c2rust;
 pub mod empty;
@@ -176,4 +178,37 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
     fn is_wildcard(&self) -> bool {
         (**self).is_wildcard()
     }
+}
+
+pub static SEARCH_ON_DISK_ITERATORS: OnceLock<Box<dyn SearchOnDiskIterators>> = OnceLock::new();
+
+pub trait SearchOnDiskIterators: Send + Sync {
+    /// Iterate over all the documents in the index. Each document in the iterator will have the
+    /// given weight.
+    fn new_wildcard_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        weight: f64,
+    ) -> Box<dyn RQEIterator<'index> + 'index>;
+
+    /// Iterate over all the terms in the index. Each document in the iterator will have the term
+    /// inside the given query_term and will have the given weight. The iterator will also filter
+    /// the results according to the given field mask.
+    fn new_term_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        query_term: Box<RSQueryTerm>,
+        field_mask: t_fieldMask,
+        weight: f64,
+    ) -> Box<dyn RQEIterator<'index> + 'index>;
+
+    /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
+    /// then iterator will have the given weight.
+    fn new_tag_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        token: &ffi::RSToken,
+        field_index: ffi::t_fieldIndex,
+        weight: f64,
+    ) -> Box<dyn RQEIterator<'index> + 'index>;
 }
