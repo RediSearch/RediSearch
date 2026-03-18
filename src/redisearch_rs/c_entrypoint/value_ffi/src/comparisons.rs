@@ -55,8 +55,8 @@ pub unsafe extern "C" fn RSValue_Cmp(
     }
 }
 
-/// Test two [`RsValue`]s for equality, returning `true` if equal and `false`
-/// otherwise.
+/// Check whether two [`RsValue`]s are equal, returning `true` if they are and
+/// `false` otherwise.
 ///
 /// # Safety
 ///

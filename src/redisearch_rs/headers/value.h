@@ -120,8 +120,8 @@ struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 int RSValue_Cmp(const struct RsValue *v1, const struct RsValue *v2, QueryError *status);
 
 /**
- * Test two [`RsValue`]s for equality, returning `true` if equal and `false`
- * otherwise.
+ * Check whether two [`RsValue`]s are equal, returning `true` if they are and
+ * `false` otherwise.
  *
  * # Safety
  *
