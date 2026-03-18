@@ -377,8 +377,7 @@ int RS_dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
-    // Use __ATOMIC_ACQUIRE to ensure we see the latest pauserehash value
-    // written by other threads using __ATOMIC_ACQ_REL in dictPauseRehashing.
+    // Use __ATOMIC_ACQUIRE to pair with __ATOMIC_RELEASE in dictResumeRehashing.
     if (__atomic_load_n(&d->pauserehash, __ATOMIC_ACQUIRE) == 0) RS_dictRehash(d,1);
 }
 
