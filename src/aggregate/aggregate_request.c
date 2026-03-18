@@ -306,6 +306,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
       // Handle SORTBY (also covers SORTBY 0 MAX n)
+      // Block SORTBY for disk indexes
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SORTBY", status)) {
+        return ARG_ERROR;
+      }
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
       PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(papCtx->plan);
       bool existingSort = (arng != NULL);

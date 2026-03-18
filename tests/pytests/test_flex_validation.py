@@ -463,6 +463,17 @@ def test_flex_blocks_bm25_scorer(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'BM25') \
         .error().contains('BM25 scorer is not supported in Redis Flex')
 
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_sortby_argument(env):
+    """Test that SORTBY argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
+        .error().contains('SORTBY is not supported in Redis Flex')
+
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_temporary_indexes(env):
