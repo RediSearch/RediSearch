@@ -147,6 +147,11 @@ PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t,
 // Caller must hold write lock on spec
 void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending);
 
+// Remove a document by exact docId.
+// Returns the removed metadata if the document still exists, NULL otherwise.
+// Caller must hold write lock on spec.
+RSDocumentMetadata *DocTable_PopById(DocTable *t, t_docId docId);
+
 // Check if any deletions are pending (fast path check)
 static inline bool DocTable_HasPendingDeletions(const DocTable *t) {
   return t->pendingSlotDeletions != NULL;
@@ -168,6 +173,17 @@ static inline bool DocTable_IsDocPendingDeletion(const DocTable *t,
 ### Index-Wide (All Specs)
 
 ```c
+// Delete a RAM document by exact docId.
+// Caller must hold write lock on spec.
+// Returns immediately if the docId no longer exists.
+void IndexSpec_DeleteDocByID_Unsafe(IndexSpec *spec, t_docId docId);
+
+// Common post-delete logic shared by IndexSpec_DeleteDoc_Unsafe() and
+// IndexSpec_DeleteDocByID_Unsafe(). The caller is responsible for obtaining
+// id + docLen by either deleting by key or popping by docId.
+// This helper updates stats, GC bookkeeping, VecSim, Geometry, etc.
+void IndexSpec_DeleteDocCommon_Unsafe(IndexSpec *spec, t_docId id, uint32_t docLen);
+
 // Context for slot cleanup tasks (passed to background thread)
 typedef struct {
   WeakRef spec_ref;                  // Weak ref - promoted at execution start
@@ -231,7 +247,7 @@ PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t,
 
   PendingSlotDeletion *pending = rm_malloc(sizeof(*pending));
   pending->slots = SlotRangeArray_Clone(slots);
-  pending->maxDocId = t->maxId;  // Capture current maxDocId
+  pending->maxDocId = t->maxDocId;  // Capture current maxDocId
 
   // Prepend to linked list (O(1))
   pending->next = t->pendingSlotDeletions;
@@ -338,10 +354,10 @@ static void DocTable_CleanupSlots_Batch(IndexSpec *spec, PendingSlotDeletion *pe
                                          size_t startBucket, size_t endBucket) {
   DocTable *t = &spec->docs;
 
-  // Phase 1: COLLECT keys with READ lock
+  // Phase 1: COLLECT candidate docIds with READ lock
   IndexSpec_ReadLock(spec);
 
-  arrayof(sds) keysToDelete = array_new(sds, 64);
+  arrayof(t_docId) docIdsToDelete = array_new(t_docId, 64);
   for (size_t i = startBucket; i < endBucket; i++) {
     DMDChain *chain = &t->buckets[i];
     for (RSDocumentMetadata *dmd = chain->root; dmd; dmd = dmd->nextInChain) {
@@ -350,23 +366,26 @@ static void DocTable_CleanupSlots_Batch(IndexSpec *spec, PendingSlotDeletion *pe
 
       // Check if slot is in deletion range
       if (SlotInRanges(dmd->slot, pending->slots)) {
-        array_append(keysToDelete, sdsdup(dmd->keyPtr));
+        array_append(docIdsToDelete, dmd->id);
       }
     }
   }
   IndexSpec_ReadUnlock(spec);
 
   // Phase 2: DELETE with brief WRITE lock
-  if (array_len(keysToDelete) > 0) {
+  // docIds are unique, so there is no second validation step here.
+  // If the exact docId is already gone, we just continue.
+  // All live-state mutations (DocTable, stats, VecSim, Geometry, GC bookkeeping)
+  // stay in the parent under the write lock.
+  if (array_len(docIdsToDelete) > 0) {
     IndexSpec_WriteLock(spec);
-    for (size_t i = 0; i < array_len(keysToDelete); i++) {
-      IndexSpec_DeleteDocByKey(spec, keysToDelete[i], sdslen(keysToDelete[i]));
+    for (size_t i = 0; i < array_len(docIdsToDelete); i++) {
+      IndexSpec_DeleteDocByID_Unsafe(spec, docIdsToDelete[i]);
     }
     IndexSpec_WriteUnlock(spec);
   }
 
-  for (size_t i = 0; i < array_len(keysToDelete); i++) sdsfree(keysToDelete[i]);
-  array_free(keysToDelete);
+  array_free(docIdsToDelete);
 }
 
 // Free cleanup context resources
@@ -402,6 +421,76 @@ cleanup:
   SlotCleanupCtx_Free(ctx, strong_ref);
 }
 ```
+
+### Shared Delete Logic
+
+The delete flow is split into two parts:
+
+1. Resolve and remove the target document
+2. Apply the common delete side-effects
+
+The existing `IndexSpec_DeleteDoc_Unsafe()` remains the key-based entry point, but after
+it resolves the document and extracts `id` + `docLen`, it delegates the rest of the work to
+a shared helper:
+
+```c
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+  t_docId id = 0;
+  uint32_t docLen = 0;
+
+  if (isSpecOnDisk(spec)) {
+    // Existing disk deletion path populates id + docLen
+    ...
+    if (id == 0) return;
+  } else {
+    RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+    if (!md) return;
+
+    id = md->id;
+    docLen = md->docLen;
+    DMD_Return(md);
+  }
+
+  IndexSpec_DeleteDocCommon_Unsafe(spec, id, docLen);
+}
+
+void IndexSpec_DeleteDocByID_Unsafe(IndexSpec *spec, t_docId docId) {
+  RSDocumentMetadata *md = DocTable_PopById(&spec->docs, docId);
+  if (!md) return;
+
+  t_docId id = md->id;
+  uint32_t docLen = md->docLen;
+  DMD_Return(md);
+
+  IndexSpec_DeleteDocCommon_Unsafe(spec, id, docLen);
+}
+
+void IndexSpec_DeleteDocCommon_Unsafe(IndexSpec *spec, t_docId id, uint32_t docLen) {
+  // Update the stats
+  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
+  spec->stats.scoring.totalDocsLen -= docLen;
+  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  spec->stats.scoring.numDocuments--;
+
+  // Increment GC bookkeeping
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
+
+  // VecSim fields clear deleted data on the fly
+  if (spec->flags & Index_HasVecSim) {
+    ...
+    VecSimIndex_DeleteVector(vecsim, id);
+  }
+
+  if (spec->flags & Index_HasGeometry) {
+    GeometryIndex_RemoveId(spec, id);
+  }
+}
+```
+
+This keeps the slot-cleanup path exact by `docId`, while ensuring that all delete side-effects
+remain centralized in one shared implementation.
 
 ---
 
@@ -451,10 +540,11 @@ cleanup:
 │ 4. SlotCleanupTask_Run() [cleanPool - Background Thread]                   │
 │                                                                            │
 │    FOR each bucket batch (64 buckets):                                     │
-│      Phase 1 - COLLECT keys with ReadLock                                  │
+│      Phase 1 - COLLECT candidate docIds with ReadLock                      │
 │                Check slot in ranges && id <= maxDocId                      │
 │      Phase 2 - DELETE with WriteLock                                       │
-│                Delete doc, update stats, trigger GC, VecSim/Geometry       │
+│                Pop exact docId if it still exists                          │
+│                Update stats, trigger GC, VecSim/Geometry                   │
 │                                                                            │
 │    Remove this entry from pendingSlotDeletions list                        │
 │                                                                            │
@@ -628,7 +718,7 @@ The difference is that TRIM_BACKGROUND also performs the ASM trim state transiti
 | `DocTable_Borrow` (normal) | O(chain_length) | Read | — |
 | `DocTable_Borrow` (during cleanup) | O(chain_length × num_pending) | Read | — |
 | Cleanup collection phase | O(batch_size × avg_chain) | **Read** | Per batch |
-| Cleanup deletion phase | O(keys_to_delete) | Write | Brief, only if keys found |
+| Cleanup deletion phase | O(docs_to_delete) | Write | Brief, only if candidates found |
 | Total background cleanup | O(total_documents) | Mostly read | Yielding |
 
 ---
@@ -652,7 +742,7 @@ Note: Typically 0-2 pending deletions at any time. Memory freed when cleanup com
 | `DocTable_AddPendingDeletion` | Write | Held briefly, per spec |
 | `DocTable_IsDocPendingDeletion` | Read | Part of `DocTable_Borrow` |
 | Cleanup collection (iteration) | **Read** | Queries run concurrently |
-| Cleanup deletion (mutations) | Write | Brief, only when keys to delete |
+| Cleanup deletion (mutations) | Write | Brief, only when candidate docIds found |
 | `DocTable_RemovePendingDeletion` | Write | Held briefly |
 
 The two-phase cleanup approach minimizes query blocking:
@@ -699,9 +789,9 @@ documents that an older request wouldn't.
 
 Since collection (read lock) and deletion (write lock) are separate:
 
-- **Document deleted between phases**: Re-check slot + docId still valid → skip if gone
-- **New document with same key inserted**: New doc has id > maxDocId → skip deletion ✓
-- **Document unchanged (id ≤ maxDocId)**: Delete correctly ✓
+- **Document deleted between phases**: `DocTable_PopById()` returns NULL → skip safely
+- **New document with same key inserted**: It gets a different docId, so the collected old docId still targets only the old document ✓
+- **Document unchanged (id ≤ maxDocId)**: `DocTable_PopById()` removes the exact collected document ✓
 
 ---
 
@@ -715,7 +805,7 @@ Since collection (read lock) and deletion (write lock) are separate:
 6. **ASM test**: Both TRIM_STARTED/COMPLETED and TRIM_BACKGROUND modes
 7. **New document protection tests**:
    - New document written during cleanup remains visible (id > maxDocId)
-   - New document with same key as old document survives cleanup (id > maxDocId)
+   - New document with same key as old document survives cleanup because cleanup uses the old docId
    - Old documents in target slots are deleted correctly (id ≤ maxDocId)
 8. **Concurrent deletions tests**:
    - Two deletions with different maxDocId for overlapping slots
