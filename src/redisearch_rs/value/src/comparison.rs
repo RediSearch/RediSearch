@@ -54,6 +54,9 @@ pub fn compare(
             n1.partial_cmp(n2).ok_or(CompareError::NaNFloat)
         }
         (RsValue::String(s1), RsValue::String(s2)) => Ok(s1.as_bytes().cmp(s2.as_bytes())),
+        (RsValue::RedisString(rs1), RsValue::RedisString(rs2)) => {
+            Ok(rs1.as_bytes().cmp(rs2.as_bytes()))
+        }
         (RsValue::Trio(t1), RsValue::Trio(t2)) => compare(
             t1.left().value(),
             t2.left().value(),
@@ -82,9 +85,6 @@ pub fn compare(
         (RsValue::RedisString(s1), RsValue::Number(n2)) => {
             compare_number_to_string(*n2, s1.as_bytes(), num_to_str_cmp_fallback)
                 .map(Ordering::reverse)
-        }
-        (RsValue::RedisString(rs1), RsValue::RedisString(rs2)) => {
-            Ok(rs1.as_bytes().cmp(rs2.as_bytes()))
         }
         (RsValue::String(s1), RsValue::RedisString(rs2)) => Ok(s1.as_bytes().cmp(rs2.as_bytes())),
         (RsValue::RedisString(rs1), RsValue::String(s2)) => Ok(rs1.as_bytes().cmp(s2.as_bytes())),
