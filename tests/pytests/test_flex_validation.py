@@ -499,3 +499,59 @@ def test_flex_blocks_withsuffixtrie_tag_field(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
                'SCHEMA', 'field', 'TAG', 'WITHSUFFIXTRIE') \
         .error().contains('WITHSUFFIXTRIE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_deprecated_add_commands(env):
+    """Test that FT.ADD and FT.SAFEADD are blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.ADD', 'idx', 'doc:2', '1.0', 'FIELDS', 't', 'test') \
+        .error().contains('FT.ADD is not supported in Redis Flex')
+    env.expect('FT.SAFEADD', 'idx', 'doc:2', '1.0', 'FIELDS', 't', 'test') \
+        .error().contains('FT.SAFEADD is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_deprecated_del_command(env):
+    """Test that FT.DEL is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.DEL', 'idx', 'doc:1') \
+        .error().contains('FT.DEL is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_deprecated_get_commands(env):
+    """Test that FT.GET and FT.MGET are blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.GET', 'idx', 'doc:1') \
+        .error().contains('FT.GET is not supported in Redis Flex')
+    env.expect('FT.MGET', 'idx', 'doc:1') \
+        .error().contains('FT.MGET is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tagvals_command(env):
+    """Test that FT.TAGVALS is blocked in Redis Flex"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
+               'SCHEMA', 'tag_field', 'TAG').ok()
+    env.expect('HSET', 'doc:1', 'tag_field', 'value1').equal(1)
+
+    env.expect('FT.TAGVALS', 'idx', 'tag_field') \
+        .error().contains('FT.TAGVALS is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_spellcheck_command(env):
+    """Test that FT.SPELLCHECK is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SPELLCHECK', 'idx', 'helo') \
+        .error().contains('FT.SPELLCHECK is not supported in Redis Flex')

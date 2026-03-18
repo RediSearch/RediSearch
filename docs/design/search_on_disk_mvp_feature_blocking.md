@@ -4,6 +4,84 @@ This document maps the features that should be blocked/disallowed for Disk mode 
 [Search on Disk MVP Feature Map](https://redislabs.atlassian.net/wiki/spaces/DX/pages/5143920764/Search+on+Disk+-+MVP+Feature+Map)
 and compares them against the actual implementation status in the codebase.
 
+---
+
+## Quick Reference Summary
+
+### Commands Allowed in SearchDisk (Flex) Mode - MVP
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `FT.CREATE` | ✅ Allowed | Requires `SKIPINITIALSCAN`; only HASH type; only TEXT/TAG/VECTOR fields |
+| `FT.DROPINDEX` | ✅ Allowed | `DD` option blocked |
+| `FT.SEARCH` | ✅ Allowed | Requires `NOCONTENT` or `RETURN 0`; no SLOP/INORDER/HIGHLIGHT/SUMMARIZE/SORTBY/LOAD |
+| `FT.PROFILE SEARCH` | ✅ Allowed | Only with `SEARCH` subcommand |
+| `FT.INFO` | ✅ Allowed | — |
+| `FT._LIST` | ✅ Allowed | — |
+| `FT.EXPLAIN` | ✅ Allowed | — |
+| `FT.EXPLAINCLI` | ✅ Allowed | — |
+| `FT.ALIASADD` | ✅ Allowed | — |
+| `FT.ALIASUPDATE` | ✅ Allowed | — |
+| `FT.ALIASDEL` | ✅ Allowed | — |
+| `FT.SYNUPDATE` | ✅ Allowed | — |
+| `FT.SYNDUMP` | ✅ Allowed | — |
+| `FT.SPELLCHECK` | ❌ Blocked | Not supported in MVP |
+| `FT.CONFIG` | ✅ Allowed | — |
+| `FT.DEBUG` | ✅ Allowed | — |
+
+### Commands Blocked in SearchDisk (Flex) Mode - MVP
+
+| Command | Status | Reason |
+|---------|--------|--------|
+| `FT.AGGREGATE` | ❌ Blocked | Not supported |
+| `FT.HYBRID` | ❌ Blocked | Not supported |
+| `FT.CURSOR READ/DEL/PROFILE/GC` | ❌ Blocked | No cursor support |
+| `FT.ALTER` | ❌ Blocked | Schema modification not supported |
+| `FT.DROP` | ❌ Blocked | Use `FT.DROPINDEX` instead |
+| `FT.DROPINDEX DD` | ❌ Blocked | Document deletion not supported |
+| `FT.DICTADD` | ❌ Blocked | Dictionary not supported |
+| `FT.DICTDEL` | ❌ Blocked | Dictionary not supported |
+| `FT.DICTDUMP` | ❌ Blocked | Dictionary not supported |
+| `FT.SUGADD` | ❌ Blocked | Suggestions not supported |
+| `FT.SUGGET` | ❌ Blocked | Suggestions not supported |
+| `FT.SUGDEL` | ❌ Blocked | Suggestions not supported |
+| `FT.SUGLEN` | ❌ Blocked | Suggestions not supported |
+
+### Deprecated Commands (Blocked)
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `FT.DROP` | ❌ Blocked | Use `FT.DROPINDEX` instead |
+| `FT.MGET` | ❌ Blocked | Deprecated, not supported |
+| `FT.ADD` | ❌ Blocked | Deprecated, use HSET instead |
+| `FT.SAFEADD` | ❌ Blocked | Deprecated, use HSET instead |
+| `FT.DEL` | ❌ Blocked | Deprecated, use DEL instead |
+| `FT.GET` | ❌ Blocked | Deprecated, use HGETALL instead |
+| `FT.TAGVALS` | ❌ Blocked | Deprecated, not supported |
+| `FT.SYNADD` | ❌ Always Error | Deprecated, returns error regardless |
+
+### Future Enhancements (Post-MVP)
+
+Once the MVP is complete, the following features should be unblocked:
+
+| Feature | Current Status | Target Status |
+|---------|----------------|---------------|
+| `NUMERIC` field type | ❌ Blocked | ✅ Allow |
+| `GEO` field type | ❌ Blocked | ✅ Allow |
+| `GEOSHAPE` field type | ❌ Blocked | ✅ Allow |
+| `FT.AGGREGATE` | ❌ Blocked | ✅ Allow |
+| `FT.HYBRID` | ❌ Blocked | ✅ Allow |
+| `FT.CURSOR` commands | ❌ Blocked | ✅ Allow |
+| `FT.ALTER` | ❌ Blocked | ✅ Allow |
+| `SORTBY` argument | ❌ Blocked | ✅ Allow |
+| `ON JSON` | ❌ Blocked | ✅ Allow |
+| Vector Range queries | ⚠️ Allowed | ✅ Keep allowed |
+| `FLAT` vector algorithm | ❌ Blocked | ⚠️ TBD |
+| `SVS` vector algorithm | ❌ Blocked | ⚠️ TBD |
+| Infix/Suffix/Wildcard/Fuzzy | ⚠️ Returns empty | ⚠️ TBD |
+
+---
+
 ## Legend
 
 - ✅ **BLOCKED** - Feature is properly blocked in code
