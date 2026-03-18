@@ -292,10 +292,17 @@ def getWorkersThpoolStats(env):
 def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
+def set_workers(env, workers):
+    """Set the worker thread count and verify that the change took effect."""
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
+    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
 
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
+
+def getWorkersThpoolNumThreadsFromAllShards(env):
+    return [shard_conn.execute_command(debug_cmd(), "WORKERS", "n_threads") for shard_conn in env.getOSSMasterNodesConnectionList()]
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
@@ -964,6 +971,40 @@ def allShards_setPauseRPResume(env, start_shard=1):
         result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
         results.append(result)
     return results
+
+def isEnableAssertEnabled(env):
+    """
+    Check if ENABLE_ASSERT is enabled in the build.
+    Returns True if ENABLE_ASSERT commands are available, False otherwise.
+    """
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_COORD_REDUCE_PAUSED')
+        return True
+    except Exception:
+        return False
+
+def skipIfNoEnableAssert(env):
+    """
+    Skip the current test if ENABLE_ASSERT is not enabled in the build.
+    Call this at the beginning of tests that require ENABLE_ASSERT functionality.
+    """
+    if not isEnableAssertEnabled(env):
+        env.debugPrint("Skipping test: ENABLE_ASSERT is not enabled", force=True)
+        env.skip()
+
+def require_enable_assert(f):
+    """
+    Decorator to skip tests if ENABLE_ASSERT is not enabled in the build.
+    Usage: @require_enable_assert
+    """
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if not isEnableAssertEnabled(env):
+            env.debugPrint(f"Skipping {f.__name__}: ENABLE_ASSERT is not enabled", force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
 
 class vecsimMockTimeoutContext:
     """Context manager for enabling/disabling VECSIM mock timeout on all shards"""

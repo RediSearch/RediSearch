@@ -51,6 +51,10 @@ typedef struct {
   uint32_t timeoutLimiter;                      // counter to limit number of calls to TimedOut_WithCounter()
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
+
+#ifdef ENABLE_ASSERT
+  bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
+#endif
 } RPQueryIterator;
 
 
@@ -113,6 +117,14 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       goto validate_current;
     }
   }
+
+#ifdef ENABLE_ASSERT
+  // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
+  if (self->firstRead) {
+    self->firstRead = false;
+    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+  }
+#endif
 
   // Read from the root filter until we have a valid result
   while (1) {
@@ -189,6 +201,9 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
+#ifdef ENABLE_ASSERT
+  ret->firstRead = true;
+#endif
   return &ret->base;
 }
 
