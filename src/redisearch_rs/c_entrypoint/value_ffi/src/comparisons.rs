@@ -43,6 +43,9 @@ pub unsafe extern "C" fn RSValue_Cmp(
         Ok(Ordering::Greater) => 1,
         Err(CompareError::NaNFloat) => 0,
         Err(CompareError::MapComparison) => 0,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Less)) => -1,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => 0,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Greater)) => 1,
         Err(CompareError::IncompatibleTypes) => 0,
         Err(CompareError::NoNumberToStringFallback) => {
             // SAFETY: `status` is non-null because `num_to_str_cmp_fallback` was
@@ -80,6 +83,8 @@ pub unsafe extern "C" fn RSValue_Equal(
         Ok(Ordering::Greater) => false,
         Err(CompareError::NaNFloat) => true,
         Err(CompareError::MapComparison) => true,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Equal)) => true,
+        Err(CompareError::IncompatibleAgainstString(_)) => false,
         Err(CompareError::IncompatibleTypes) => true,
         Err(CompareError::NoNumberToStringFallback) => false,
     }

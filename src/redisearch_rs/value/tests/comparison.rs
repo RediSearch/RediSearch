@@ -202,6 +202,50 @@ fn array_longer_is_greater_when_prefix_matches() {
 }
 
 #[test]
+fn string_empty_vs_array() {
+    let s1 = RsValue::String(RsString::from_vec(b"".to_vec()));
+    let a = RsValue::Array(Array::new(Box::new([])));
+    let result = compare(&s1, &a, false);
+    assert_eq!(
+        result,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Equal))
+    );
+}
+
+#[test]
+fn string_filled_vs_trio() {
+    let s1 = RsValue::String(RsString::from_vec(b"foo".to_vec()));
+    let t = trio(RsValue::Null, RsValue::Null, RsValue::Null);
+    let result = compare(&s1, &t, false);
+    assert_eq!(
+        result,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Greater))
+    );
+}
+
+#[test]
+fn map_vs_string_empty() {
+    let m = RsValue::Map(Map::new(Box::new([])));
+    let s2 = RsValue::String(RsString::from_vec(b"".to_vec()));
+    let result = compare(&m, &s2, false);
+    assert_eq!(
+        result,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Equal))
+    );
+}
+
+#[test]
+fn undefined_vs_string_filled() {
+    let a = RsValue::Array(Array::new(Box::new([])));
+    let s2 = RsValue::String(RsString::from_vec(b"foo".to_vec()));
+    let result = compare(&a, &s2, false);
+    assert_eq!(
+        result,
+        Err(CompareError::IncompatibleAgainstString(Ordering::Less))
+    );
+}
+
+#[test]
 fn map_comparison_returns_error() {
     let m1 = RsValue::Map(Map::new(Box::new([])));
     let m2 = RsValue::Map(Map::new(Box::new([])));
@@ -211,8 +255,8 @@ fn map_comparison_returns_error() {
 
 #[test]
 fn incompatible_types_returns_error() {
-    let s = RsValue::String(RsString::from_vec(b"hello".to_vec()));
+    let t = trio(RsValue::Null, RsValue::Null, RsValue::Null);
     let a = array([RsValue::Number(1.0)]);
-    let result = compare(&s, &a, false);
+    let result = compare(&t, &a, false);
     assert!(matches!(result, Err(CompareError::IncompatibleTypes)));
 }

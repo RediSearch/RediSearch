@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use std::ops::Deref;
 
 /// Errors that can occur when comparing two [`RsValue`]s.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CompareError {
     /// One or both of the compared numbers were NaN, which has no defined ordering.
     NaNFloat,
@@ -21,7 +21,10 @@ pub enum CompareError {
     NoNumberToStringFallback,
     /// Map values do not support comparison.
     MapComparison,
-    /// The two value variants have no defined comparison (e.g. an array vs. a string).
+    /// Incompatible type compared against string. The contained `Ordering` is provided for
+    /// compatibility to the C implementation.
+    IncompatibleAgainstString(Ordering),
+    /// The two value variants have no defined comparison (e.g. array vs. map).
     IncompatibleTypes,
 }
 
@@ -88,6 +91,18 @@ pub fn compare(
         }
         (RsValue::String(s1), RsValue::RedisString(rs2)) => Ok(s1.as_bytes().cmp(rs2.as_bytes())),
         (RsValue::RedisString(rs1), RsValue::String(s2)) => Ok(rs1.as_bytes().cmp(s2.as_bytes())),
+        (RsValue::String(s1), _) => Err(CompareError::IncompatibleAgainstString(
+            s1.as_bytes().cmp(b""),
+        )),
+        (_, RsValue::String(s2)) => Err(CompareError::IncompatibleAgainstString(
+            b""[..].cmp(s2.as_bytes()),
+        )),
+        (RsValue::RedisString(rs1), _) => Err(CompareError::IncompatibleAgainstString(
+            rs1.as_bytes().cmp(b""),
+        )),
+        (_, RsValue::RedisString(rs2)) => Err(CompareError::IncompatibleAgainstString(
+            b""[..].cmp(rs2.as_bytes()),
+        )),
         _ => Err(CompareError::IncompatibleTypes),
     }
 }
