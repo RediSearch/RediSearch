@@ -203,6 +203,8 @@ typedef struct {
   uint32_t maxTrimDelayMS;
   // Delay between trimming state checks (in milliseconds)
   uint32_t trimmingStateCheckDelayMS;
+  // If true, monitor document and field expiration for new indexes.
+  bool monitorExpiration;
 } RSConfig;
 
 typedef enum {
@@ -387,6 +389,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                    \
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,            \
+    .monitorExpiration = true,                                                 \
   }
 
 #define REDIS_ARRAY_LIMIT 7
