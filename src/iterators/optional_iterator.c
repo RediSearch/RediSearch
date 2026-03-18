@@ -257,35 +257,6 @@ QueryIterator const* GetOptionalIteratorChild(const QueryIterator *base) {
     }
 }
 
-QueryIterator *TakeOptionalIteratorChild(QueryIterator *base) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
-        QueryIterator* child = it->child;
-        it->child = NULL;
-        return child;
-    } else {
-        return TakeOptionalNonOptimizedIteratorChild(base);
-    }
-}
-
-void SetOptionalIteratorChild(QueryIterator *base, QueryIterator *newChild) {
-    if (base->type == OPTIONAL_OPTIMIZED_ITERATOR) {
-        OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
-        if (it->child) {
-            it->child->Free(it->child);
-        }
-        it->child = newChild;
-    } else {
-        SetOptionalNonOptimizedIteratorChild(base, newChild);
-    }
-}
-
-QueryIterator const* GetOptionalOptimizedIteratorWildcard(QueryIterator *base) {
-    RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
-    OptionalOptimizedIterator const*it = (OptionalOptimizedIterator *)base;
-    return it->wcii;
-}
-
 void SetOptionalOptimizedIteratorWildcard(QueryIterator *base, QueryIterator *newWcii) {
     RS_ASSERT (base->type == OPTIONAL_OPTIMIZED_ITERATOR);
     OptionalOptimizedIterator *it = (OptionalOptimizedIterator *)base;
