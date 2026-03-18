@@ -7,7 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{mem::ManuallyDrop, ops::Deref, sync::Arc};
+use std::{
+    mem::{self, ManuallyDrop},
+    ops::Deref,
+    ptr,
+    sync::Arc,
+};
 
 use crate::RsValue;
 
@@ -38,7 +43,7 @@ impl SharedRsValue {
     #[expect(rustdoc::private_intra_doc_links)]
     pub fn null_static() -> Self {
         Self {
-            ptr: std::ptr::from_ref(&NULL_VALUE).cast(),
+            ptr: ptr::from_ref(&NULL_VALUE).cast(),
         }
     }
 
@@ -52,16 +57,17 @@ impl SharedRsValue {
     /// Convert a [`SharedRsValue`] into a raw `*const RsValue` pointer.
     pub const fn into_raw(self) -> *const RsValue {
         let ptr = self.ptr;
-        std::mem::forget(self); // Prevent Drop from running
+        // The original [`SharedRsValue`] is forgotten to avoid decrementing it.
+        mem::forget(self);
         ptr
     }
-
     /// Returns the underlying raw pointer without consuming `self`.
+
     pub const fn as_ptr(&self) -> *const RsValue {
         self.ptr
     }
 
-    /// Convert a `*const RsValue` back into a [`SharedRsValue`].
+    /// Convert a `*const RsValue` into a [`SharedRsValue`].
     ///
     /// # Safety
     ///
@@ -73,7 +79,7 @@ impl SharedRsValue {
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// rather than a heap-allocated [`Arc`].
     fn is_static(&self) -> bool {
-        std::ptr::eq(self.ptr, &NULL_VALUE)
+        ptr::eq(self.ptr, &NULL_VALUE)
     }
 
     /// Replaces the stored [`RsValue`] in place.
@@ -87,15 +93,15 @@ impl SharedRsValue {
         if self.is_static() {
             panic!("Cannot change the value of static NULL");
         }
-        // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not
-        // static (checked above). `ManuallyDrop` prevents the `Arc` from being
-        // dropped, preserving the original ownership.
+        // SAFETY: `this.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
+        // `ManuallyDrop` prevents the `Arc` from being dropped, preserving the original ownership.
         let mut v = ManuallyDrop::new(unsafe { Arc::from_raw(self.ptr) });
         let value = Arc::get_mut(&mut v).expect("Failed to get mutable reference to inner value");
         *value = new_value;
     }
 
-    /// Returns true if the two [`SharedRsValue`]s point to the same allocation in a vein similar to [`ptr::eq`][std::ptr::eq].
+    /// Returns true if the two [`SharedRsValue`]s point to the same allocation similar
+    /// to [`ptr::eq`].
     pub fn ptr_eq(this: &Self, other: &Self) -> bool {
         this.ptr == other.ptr
     }
@@ -105,9 +111,8 @@ impl SharedRsValue {
         if this.is_static() {
             1
         } else {
-            // SAFETY: `this.ptr` was obtained from `Arc::into_raw` and is not
-            // static (checked above). `ManuallyDrop` prevents the `Arc` from
-            // being dropped, preserving the original ownership.
+            // SAFETY: `this.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
+            // `ManuallyDrop` prevents the `Arc` from being dropped, preserving the original ownership.
             let v = ManuallyDrop::new(unsafe { Arc::from_raw(this.ptr) });
             Arc::strong_count(&v)
         }
@@ -139,13 +144,12 @@ impl Clone for SharedRsValue {
         if self.is_static() {
             Self { ptr: self.ptr }
         } else {
-            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not
-            // static (checked above). The original `Arc` is reconstructed,
-            // cloned to increment the refcount, then forgotten to avoid
-            // decrementing it.
+            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
+            // The original `Arc` is reconstructed, cloned to increment the refcount,
+            // then forgotten to avoid decrementing it.
             let arc: Arc<RsValue> = unsafe { Arc::from_raw(self.ptr) };
             let cloned = Arc::clone(&arc);
-            std::mem::forget(arc);
+            mem::forget(arc);
             Self {
                 ptr: Arc::into_raw(cloned),
             }
@@ -156,9 +160,8 @@ impl Clone for SharedRsValue {
 impl Drop for SharedRsValue {
     fn drop(&mut self) {
         if !self.is_static() {
-            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not
-            // static (checked above). Reconstructing and dropping the `Arc`
-            // decrements the reference count.
+            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
+            // Reconstructing and dropping the `Arc` decrements the reference count.
             unsafe { drop(Arc::from_raw(self.ptr)) };
         }
     }
