@@ -28,12 +28,12 @@ protected:
   static dictType testDictType;
 
   void SetUp() override {
-    d = RS_dictCreate(&testDictType, nullptr);
+    d = dictCreate(&testDictType, nullptr);
   }
 
   void TearDown() override {
     if (d) {
-      RS_dictRelease(d);
+      dictRelease(d);
       d = nullptr;
     }
   }
@@ -94,11 +94,11 @@ TEST_F(DictPauseRehashTest, RehashBlockedWhenPaused) {
   // Add enough elements to trigger expansion
   const int numElements = 1000;
   for (int i = 0; i < numElements; i++) {
-    RS_dictAdd(d, (void *)(uintptr_t)(i + 1), (void *)(uintptr_t)(i + 1));
+    dictAdd(d, (void *)(uintptr_t)(i + 1), (void *)(uintptr_t)(i + 1));
   }
 
   // Force rehashing to start by expanding
-  RS_dictExpand(d, numElements * 2);
+  dictExpand(d, numElements * 2);
   ASSERT_TRUE(dictIsRehashing(d));
 
   // Get current rehashidx
@@ -109,7 +109,7 @@ TEST_F(DictPauseRehashTest, RehashBlockedWhenPaused) {
 
   // Do many finds - normally these would trigger _dictRehashStep
   for (int i = 0; i < 100; i++) {
-    RS_dictFind(d, (void *)(uintptr_t)(i + 1));
+    dictFind(d, (void *)(uintptr_t)(i + 1));
   }
 
   // rehashidx should not have changed because rehashing is paused
@@ -119,7 +119,7 @@ TEST_F(DictPauseRehashTest, RehashBlockedWhenPaused) {
   dictResumeRehashing(d);
 
   for (int i = 0; i < 100; i++) {
-    RS_dictFind(d, (void *)(uintptr_t)(i + 1));
+    dictFind(d, (void *)(uintptr_t)(i + 1));
   }
 
   // Now rehashidx should have advanced (or completed)
@@ -174,11 +174,11 @@ TEST_F(DictPauseRehashTest, ConcurrentFindWithPause) {
   // Add elements
   constexpr int numElements = 500;
   for (int i = 0; i < numElements; i++) {
-    RS_dictAdd(d, (void *)(uintptr_t)(i + 1), (void *)(uintptr_t)(i + 1));
+    dictAdd(d, (void *)(uintptr_t)(i + 1), (void *)(uintptr_t)(i + 1));
   }
 
   // Force rehashing
-  RS_dictExpand(d, numElements * 2);
+  dictExpand(d, numElements * 2);
   ASSERT_TRUE(dictIsRehashing(d));
 
   // Pause rehashing - simulating what query threads should do
@@ -202,7 +202,7 @@ TEST_F(DictPauseRehashTest, ConcurrentFindWithPause) {
 
       for (int i = 0; i < findsPerThread; i++) {
         int key = (i % numElements) + 1;
-        dictEntry *entry = RS_dictFind(d, (void *)(uintptr_t)key);
+        dictEntry *entry = dictFind(d, (void *)(uintptr_t)key);
         // Entry should be found
         ASSERT_NE(entry, nullptr);
       }
@@ -227,7 +227,7 @@ TEST_F(DictPauseRehashTest, ConcurrentFindWithPause) {
 
   // Do some finds to trigger rehashing
   for (int i = 0; i < 100; i++) {
-    RS_dictFind(d, (void *)(uintptr_t)(i + 1));
+    dictFind(d, (void *)(uintptr_t)(i + 1));
   }
 
   // Now rehashidx should have advanced
