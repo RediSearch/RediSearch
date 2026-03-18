@@ -129,6 +129,7 @@ where
     }
 
     /// Builds the result from active children whose `last_doc_id` equals `min_id`.
+    /// Only used in Full mode - aggregates ALL matching children.
     fn build_aggregate_result(&mut self, min_id: t_docId) {
         if let Some(agg) = self.result.as_aggregate_mut() {
             agg.reset();
@@ -147,11 +148,6 @@ where
                 // 3. The child is owned by `self`, so the 'index data remains valid.
                 let child_ref = unsafe { &*child_ptr };
                 self.result.push_borrowed(child_ref);
-
-                // If QUICK_EXIT, we only add the first matching child's result and return immediately.
-                if QUICK_EXIT {
-                    return;
-                }
             }
         }
     }
@@ -172,13 +168,12 @@ where
                     self.swap_remove_child(i);
                     continue;
                 }
-                // Perform initial read
+                // Perform initial read, also sets child.last_doc_id()
                 let read_result = child.read()?;
                 if read_result.is_none() {
                     self.swap_remove_child(i);
                     continue;
                 }
-                // Otherwise, child.last_doc_id() was set by read()
             }
             // Track minimum doc_id
             let doc_id = child.last_doc_id();
@@ -222,12 +217,21 @@ where
 
     /// Full mode skip_to - scans all active children and aggregates all matches.
     /// Removes exhausted children via swap-remove.
+    ///
+    /// Optimization: When a child's `skip_to` returns `Found` (exact match) or when a child
+    /// is already at the target doc_id, we add it to the result immediately during the loop.
+    /// This avoids a second pass when the target is found (matching C's `UI_Skip_Full_Flat`).
     fn skip_to_full(
         &mut self,
         doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let mut min_id: t_docId = t_docId::MAX;
         let mut i = 0;
+
+        // Reset aggregate before potentially adding children during the loop
+        if let Some(agg) = self.result.as_aggregate_mut() {
+            agg.reset();
+        }
 
         while i < self.num_active {
             let child = &mut self.children[i];
@@ -239,13 +243,23 @@ where
                 if child_last_id < min_id {
                     min_id = child_last_id;
                 }
+                if child_last_id == doc_id {
+                    self.add_child_to_result(i);
+                }
                 i += 1;
                 continue;
             }
 
             if !child.at_eof() {
                 match child.skip_to(doc_id)? {
-                    Some(SkipToOutcome::Found(r)) | Some(SkipToOutcome::NotFound(r)) => {
+                    Some(SkipToOutcome::Found(r)) => {
+                        let id = r.doc_id;
+                        if id < min_id {
+                            min_id = id;
+                        }
+                        self.add_child_to_result(i);
+                    }
+                    Some(SkipToOutcome::NotFound(r)) => {
                         let id = r.doc_id;
                         if id < min_id {
                             min_id = id;
@@ -270,11 +284,12 @@ where
             return Ok(None);
         }
 
-        self.build_aggregate_result(min_id);
-
         if min_id == doc_id {
+            self.result.doc_id = min_id;
             Ok(Some(SkipToOutcome::Found(&mut self.result)))
         } else {
+            // NotFound case: need a second pass to collect children at min_id
+            self.build_aggregate_result(min_id);
             Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
         }
     }
@@ -346,6 +361,8 @@ where
         }
     }
 
+    /// Sets the union result from a single child: resets aggregate, sets doc_id, adds child.
+    /// Used in Quick mode where we only need one matching child.
     fn quick_set_from_child(&mut self, child_idx: usize) {
         let child = &mut self.children[child_idx];
         self.result.doc_id = child.last_doc_id();
@@ -354,6 +371,13 @@ where
             agg.reset();
         }
 
+        self.add_child_to_result(child_idx);
+    }
+
+    /// Adds a single child's current result to the aggregate.
+    /// Assumes the aggregate has already been reset if needed.
+    fn add_child_to_result(&mut self, child_idx: usize) {
+        let child = &mut self.children[child_idx];
         if let Some(child_result) = child.current() {
             let child_ptr: *const RSIndexResult<'index> = child_result;
             // SAFETY: We need a raw pointer to decouple the borrow of the child's
@@ -482,6 +506,7 @@ where
         // Use swap_remove_child to move EOF children out of the active region.
         self.num_active = self.children.len();
         let mut min_doc_id = t_docId::MAX;
+        let mut min_child_idx: usize = 0;
         let mut i = 0;
         while i < self.num_active {
             let child = &self.children[i];
@@ -492,6 +517,7 @@ where
                 let child_doc_id = child.last_doc_id();
                 if child_doc_id < min_doc_id {
                     min_doc_id = child_doc_id;
+                    min_child_idx = i;
                 }
                 i += 1;
             }
@@ -503,8 +529,12 @@ where
             return Ok(RQEValidateStatus::Moved { current: None });
         }
 
-        // Rebuild aggregate result at the new minimum doc_id
-        self.build_aggregate_result(min_doc_id);
+        // Rebuild result at the new minimum doc_id
+        if QUICK_EXIT {
+            self.quick_set_from_child(min_child_idx);
+        } else {
+            self.build_aggregate_result(min_doc_id);
+        }
 
         // Return MOVED only if lastDocId changed
         if self.last_doc_id() != original_last_doc_id {

@@ -196,10 +196,6 @@ impl MockData {
     /// `read` or performs a `skip_to` that internally delegates to
     /// `read`.  It is useful when tests need to verify how often a
     /// child iterator was advanced.
-    #[expect(
-        unused,
-        reason = "code will be required later, as we advance in porting Redis C/C++ code"
-    )]
     pub fn read_count(&self) -> usize {
         self.0.borrow().read_count
     }

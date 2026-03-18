@@ -8,9 +8,16 @@
 */
 
 //! Integration tests for the UnionFlat iterator variants.
+//!
+//! These tests primarily use [`Mock`] iterators which provide observability features
+//! like `read_count()` and `revalidate_count()` that allow us to verify not just
+//! correctness but also efficiency optimizations like the ReuseResults optimization.
+//!
+//! A few tests use [`IdListSorted`] where integration with a production iterator
+//! provides additional value (e.g., verifying union works with binary search skip_to).
 
 use crate::union_cases;
-use crate::utils::{Mock, MockRevalidateResult};
+use crate::utils::{Mock, MockData, MockRevalidateResult};
 use ffi::t_docId;
 use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionQuickFlat,
@@ -22,6 +29,57 @@ use rstest_reuse::apply;
 /// Using `UnionFullFlat` which aggregates all matching children (not quick exit)
 /// and uses flat array iteration (not heap).
 type Union<I> = UnionFullFlat<'static, I>;
+
+/// Helper to create 1 Mock child with its data handle for observability.
+///
+/// Returns a tuple of (child, data_handle) where:
+/// - `child` is a boxed iterator that can be passed to union constructors
+/// - `data_handle` can be used to verify read counts and configure revalidation
+fn create_mock_1<const N: usize>(
+    ids: [t_docId; N],
+) -> (Box<dyn RQEIterator<'static>>, MockData) {
+    let c = Mock::<N>::new(ids);
+    let d = c.data();
+    (Box::new(c), d)
+}
+
+/// Helper to create 2 Mock children with their data handles for observability.
+///
+/// Returns a tuple of (children, data_handles) where:
+/// - `children` are boxed iterators that can be passed to union constructors
+/// - `data_handles` can be used to verify read counts and configure revalidation
+///
+/// This helper allows mixing different array sizes by returning type-erased iterators.
+fn create_mock_2<const N1: usize, const N2: usize>(
+    ids1: [t_docId; N1],
+    ids2: [t_docId; N2],
+) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<MockData>) {
+    let c1 = Mock::<N1>::new(ids1);
+    let c2 = Mock::<N2>::new(ids2);
+    let d1 = c1.data();
+    let d2 = c2.data();
+    (vec![Box::new(c1), Box::new(c2)], vec![d1, d2])
+}
+
+/// Helper to create 3 Mock children with their data handles for observability.
+///
+/// Same as `create_mock_2` but for 3 children.
+fn create_mock_3<const N1: usize, const N2: usize, const N3: usize>(
+    ids1: [t_docId; N1],
+    ids2: [t_docId; N2],
+    ids3: [t_docId; N3],
+) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<MockData>) {
+    let c1 = Mock::<N1>::new(ids1);
+    let c2 = Mock::<N2>::new(ids2);
+    let c3 = Mock::<N3>::new(ids3);
+    let d1 = c1.data();
+    let d2 = c2.data();
+    let d3 = c3.data();
+    (
+        vec![Box::new(c1), Box::new(c2), Box::new(c3)],
+        vec![d1, d2, d3],
+    )
+}
 
 /// Helper function to create child iterators for union tests.
 ///
@@ -161,17 +219,24 @@ fn skip_to_edge_cases() {
     // Test 1: Quick mode - child already at target doc_id (lines 311-312)
     // Child B must be ahead of child A, then we skip to B's position
     {
-        let child1 = IdListSorted::new(vec![50, 200]); // Will be at 50 after first read
-        let child2 = IdListSorted::new(vec![100, 250]); // Will be at 100 after init
-
-        let mut quick_iter = UnionQuickFlat::new(vec![child1, child2]);
+        let (children, data) = create_mock_2([50, 200], [100, 250]);
+        let mut quick_iter = UnionQuickFlat::new(children);
         // Read first doc (50) - union is now at 50, child1 at 50, child2 at 100
         quick_iter.read().expect("read failed").unwrap();
         assert_eq!(quick_iter.last_doc_id(), 50);
         // skip_to(100) - child2 is already at 100, triggers line 311-312
+        // ReuseResults: child2 already at target, no additional reads needed
         let outcome = quick_iter.skip_to(100).expect("skip_to failed");
         assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
         assert_eq!(quick_iter.last_doc_id(), 100);
+
+        // Verify ReuseResults optimization: child2 was not re-read because it was already at 100
+        assert_eq!(data[0].read_count(), 2, "child1: init + 1 read");
+        assert_eq!(
+            data[1].read_count(),
+            1,
+            "child2: only init, skip_to reused cached position"
+        );
     }
 
     // Test 2: Quick mode - child exhausts during skip_to (lines 300-306)
@@ -180,10 +245,8 @@ fn skip_to_edge_cases() {
     // basic None branch (lines 300-306 without line 303's condition being true).
     {
         // child1 will exhaust when skip_to(100) is called (max doc is 30)
-        let child1 = IdListSorted::new(vec![10, 30]); // exhausts at skip_to(100)
-        let child2 = IdListSorted::new(vec![20, 200]); // survives
-
-        let mut quick_iter = UnionQuickFlat::new(vec![child1, child2]);
+        let (children, _data) = create_mock_2([10, 30], [20, 200]);
+        let mut quick_iter = UnionQuickFlat::new(children);
         quick_iter.read().expect("read failed").unwrap(); // Read 10
         // skip_to(100): child1 exhausts (30 < 100), child2 lands at 200
         let outcome = quick_iter.skip_to(100).expect("skip_to failed");
@@ -197,10 +260,8 @@ fn skip_to_edge_cases() {
     // After reading docs 10, 15, 20 - child1 is at EOF but still in active set because
     // read() only removes children when their read() returns None, not proactively.
     {
-        let child1 = IdListSorted::new(vec![10, 20]); // Will be at EOF after reading 20
-        let child2 = IdListSorted::new(vec![15, 50, 100]); // Has docs beyond child1
-
-        let mut full_iter = UnionFullFlat::new(vec![child1, child2]);
+        let (children, data) = create_mock_2([10, 20], [15, 50, 100]);
+        let mut full_iter = UnionFullFlat::new(children);
 
         // Read 10 (child1's first doc) - child1 at offset 1, not at EOF
         full_iter.read().expect("read failed").unwrap();
@@ -229,6 +290,43 @@ fn skip_to_edge_cases() {
         // Should be at EOF now
         assert!(matches!(full_iter.read(), Ok(None)));
         assert!(full_iter.at_eof());
+
+        // Verify read counts - child1 exhausted early
+        assert_eq!(
+            data[0].read_count(),
+            2,
+            "child1: init + 1 read (to get to 20)"
+        );
+        assert_eq!(
+            data[1].read_count(),
+            4,
+            "child2: init + 3 reads (15, 50, 100, EOF)"
+        );
+    }
+
+    // Test 4: Full mode - child already at target doc_id (line 248)
+    // Covers the optimization where a child is already positioned at the exact target
+    // before calling skip_to, so we add it to the result immediately.
+    {
+        let (children, data) = create_mock_2([50, 150, 200], [100, 150, 250]);
+        let mut full_iter = UnionFullFlat::new(children);
+        // Read first doc (50) - union at 50, child1 at 50, child2 at 100
+        full_iter.read().expect("read failed").unwrap();
+        assert_eq!(full_iter.last_doc_id(), 50);
+
+        // skip_to(100): child1 < 100 (needs skip), child2 == 100 (already at target)
+        // This hits line 248: child2's last_doc_id == doc_id, add_child_to_result
+        let outcome = full_iter.skip_to(100).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+        assert_eq!(full_iter.last_doc_id(), 100);
+
+        // Verify read counts: child2 was not re-read because it was already at 100
+        assert_eq!(data[0].read_count(), 2, "child1: init + skip_to");
+        assert_eq!(
+            data[1].read_count(),
+            1,
+            "child2: only init, already at target"
+        );
     }
 }
 
@@ -273,7 +371,6 @@ fn rewind(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_no_children() {
     let children: Vec<IdListSorted<'static>> = vec![];
     let mut union_iter = Union::new(children);
@@ -288,11 +385,11 @@ fn edge_case_no_children() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_single_child() {
-    let doc_ids = vec![10, 20, 30, 40, 50];
-    let child = IdListSorted::new(doc_ids.clone());
+    let (child, child_data) = create_mock_1([10, 20, 30, 40, 50]);
     let mut union_iter = Union::new(vec![child]);
 
-    for &expected_id in &doc_ids {
+    let expected = [10, 20, 30, 40, 50];
+    for &expected_id in &expected {
         let result = union_iter.read().expect("read failed");
         assert!(result.is_some());
         assert_eq!(result.unwrap().doc_id, expected_id);
@@ -300,18 +397,26 @@ fn edge_case_single_child() {
 
     assert!(matches!(union_iter.read(), Ok(None)));
     assert!(union_iter.at_eof());
+    // read_count = 1 (init) + 4 (docs 2-5) + 1 (discover EOF) = 6
+    // Note: Unlike IdListSorted, Mock knows it's at EOF after the last doc,
+    // but the union still needs to read() to discover this.
+    assert_eq!(
+        child_data.read_count(),
+        6,
+        "Single child: init + 4 reads + EOF discovery"
+    );
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_disjoint_children() {
     // Children have no overlap - union should return all docs
-    let child1 = IdListSorted::new(vec![1, 2, 3]);
-    let child2 = IdListSorted::new(vec![10, 20, 30]);
-    let child3 = IdListSorted::new(vec![100, 200, 300]);
+    // This also verifies the ReuseResults optimization: after child1 exhausts,
+    // child2 and child3 should not be read again until their doc_ids are needed.
+    let (children, data) = create_mock_3([1, 2, 3], [10, 20, 30], [100, 200, 300]);
 
-    let mut union_iter = Union::new(vec![child1, child2, child3]);
-    let expected = vec![1, 2, 3, 10, 20, 30, 100, 200, 300];
+    let mut union_iter = Union::new(children);
+    let expected = [1, 2, 3, 10, 20, 30, 100, 200, 300];
 
     for &expected_id in &expected {
         let result = union_iter.read().expect("read failed");
@@ -321,19 +426,31 @@ fn edge_case_disjoint_children() {
 
     assert!(matches!(union_iter.read(), Ok(None)));
     assert!(union_iter.at_eof());
+
+    // For disjoint children, each child is read:
+    // - child1: 1 (init) + 2 (docs 2,3) + 1 (EOF) = 4 reads, then removed
+    // - child2: 1 (init) + 2 (docs 20,30) + 1 (EOF) = 4 reads, then removed
+    // - child3: 1 (init) + 2 (docs 200,300) + 1 (EOF) = 4 reads, then removed
+    // ReuseResults: children ahead of minimum are NOT re-read until needed
+    assert_eq!(data[0].read_count(), 4, "child1: init + 2 reads + EOF");
+    assert_eq!(data[1].read_count(), 4, "child2: init + 2 reads + EOF");
+    assert_eq!(data[2].read_count(), 4, "child3: init + 2 reads + EOF");
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_overlapping_children() {
-    // Children have significant overlap
-    let child1 = IdListSorted::new(vec![1, 2, 5, 10, 15, 20]);
-    let child2 = IdListSorted::new(vec![2, 5, 8, 10, 18, 20]);
-    let child3 = IdListSorted::new(vec![3, 5, 10, 12, 20, 25]);
+    // Children have significant overlap - tests Full mode aggregation
+    // and verifies ReuseResults optimization with overlapping doc_ids.
+    let (children, data) = create_mock_3(
+        [1, 2, 5, 10, 15, 20],
+        [2, 5, 8, 10, 18, 20],
+        [3, 5, 10, 12, 20, 25],
+    );
 
-    let mut union_iter = Union::new(vec![child1, child2, child3]);
+    let mut union_iter = Union::new(children);
     // Union: 1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25
-    let expected = vec![1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25];
+    let expected = [1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25];
 
     for &expected_id in &expected {
         let result = union_iter.read().expect("read failed");
@@ -342,15 +459,21 @@ fn edge_case_overlapping_children() {
     }
 
     assert!(matches!(union_iter.read(), Ok(None)));
+
+    // For overlapping children, each child is read:
+    // - 1 read for init, then 5 more reads for remaining docs, + 1 for EOF = 7
+    // ReuseResults: children at the current min doc_id are all read to aggregate,
+    // but children ahead are not re-read.
+    assert_eq!(data[0].read_count(), 7, "child1: init + 5 reads + EOF");
+    assert_eq!(data[1].read_count(), 7, "child2: init + 5 reads + EOF");
+    assert_eq!(data[2].read_count(), 7, "child3: init + 5 reads + EOF");
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_skip_to_exact_match() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut union_iter = Union::new(children);
 
     let outcome = union_iter.skip_to(30).expect("skip_to failed");
     match outcome {
@@ -365,10 +488,8 @@ fn edge_case_skip_to_exact_match() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_skip_to_not_found() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut union_iter = Union::new(children);
 
     // Skip to 22, should land on 25 (next available in union)
     let outcome = union_iter.skip_to(22).expect("skip_to failed");
@@ -384,10 +505,8 @@ fn edge_case_skip_to_not_found() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_skip_to_past_eof() {
-    let child1 = IdListSorted::new(vec![10, 20, 30]);
-    let child2 = IdListSorted::new(vec![15, 25]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, _) = create_mock_2([10, 20, 30], [15, 25, 35]);
+    let mut union_iter = Union::new(children);
 
     assert!(matches!(union_iter.skip_to(100), Ok(None)));
     assert!(union_iter.at_eof());
@@ -403,10 +522,11 @@ fn edge_case_skip_to_past_eof() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_interleaved_read_and_skip_to() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50, 60, 70, 80]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55, 65, 75, 85]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, _) = create_mock_2(
+        [10, 20, 30, 40, 50, 60, 70, 80],
+        [15, 25, 35, 45, 55, 65, 75, 85],
+    );
+    let mut union_iter = Union::new(children);
 
     // Read first document
     let result = union_iter.read().expect("read failed").unwrap();
@@ -428,16 +548,12 @@ fn edge_case_interleaved_read_and_skip_to() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_num_estimated_is_sum() {
-    let child1 = IdListSorted::new(vec![1, 2, 3, 4, 5]); // 5 elements
-    let child2 = IdListSorted::new(vec![10, 20, 30]); // 3 elements
-    let child3 = IdListSorted::new(vec![100, 200, 300, 400]); // 4 elements
-
-    let union_iter = Union::new(vec![child1, child2, child3]);
+    let (children, _) = create_mock_3([1, 2, 3, 4, 5], [10, 20, 30, 40, 50], [100, 200, 300, 400, 500]);
+    let union_iter = Union::new(children);
 
     // For union, num_estimated is the sum (upper bound)
-    assert_eq!(union_iter.num_estimated(), 12);
+    assert_eq!(union_iter.num_estimated(), 15);
 }
 
 /// Test with empty iterators mixed with non-empty ones.
@@ -486,10 +602,8 @@ fn edge_case_all_children_empty() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_skip_to_child_already_past_target() {
-    let child1 = IdListSorted::new(vec![10, 50, 100]);
-    let child2 = IdListSorted::new(vec![20, 60, 110]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, data) = create_mock_2([10, 50, 100], [20, 60, 110]);
+    let mut union_iter = Union::new(children);
 
     // Read first two docs (10, 20) - both children advance
     union_iter.read().expect("read failed");
@@ -497,10 +611,24 @@ fn edge_case_skip_to_child_already_past_target() {
 
     // Now child1 is at 50, child2 is at 60
     // Skip to 40 - child1 is already at 50 (past target), child2 is at 60 (past target)
+    // ReuseResults: neither child should be read since both are already past target
     let outcome = union_iter.skip_to(40).expect("skip_to failed");
     assert!(matches!(outcome, Some(SkipToOutcome::NotFound(_))));
     // Should land on 50 (minimum of 50, 60)
     assert_eq!(union_iter.last_doc_id(), 50);
+
+    // Verify ReuseResults: after init (1) + 2 reads, skip_to(40) should NOT read
+    // because both children are already past 40
+    assert_eq!(
+        data[0].read_count(),
+        2,
+        "child1: init + 1 read (to get to 50)"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        2,
+        "child2: init + 1 read (to get to 60)"
+    );
 }
 
 /// Test skip_to where children exhaust during the skip.
@@ -508,10 +636,8 @@ fn edge_case_skip_to_child_already_past_target() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_skip_to_exhausts_some_children() {
-    let child1 = IdListSorted::new(vec![10, 20, 30]); // Will exhaust
-    let child2 = IdListSorted::new(vec![15, 25, 100]); // Has doc past target
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 100]);
+    let mut union_iter = Union::new(children);
 
     // Skip to 50 - child1 will exhaust (max is 30), child2 will land on 100
     let outcome = union_iter.skip_to(50).expect("skip_to failed");
@@ -527,10 +653,8 @@ fn edge_case_skip_to_exhausts_some_children() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn edge_case_skip_to_exhausts_all_children() {
-    let child1 = IdListSorted::new(vec![10, 20, 30]);
-    let child2 = IdListSorted::new(vec![15, 25, 35]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 35]);
+    let mut union_iter = Union::new(children);
 
     // Skip past all documents
     let outcome = union_iter.skip_to(1000).expect("skip_to failed");
@@ -1126,10 +1250,8 @@ fn revalidate_quick_triggers_quick_exit() {
 #[test]
 #[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
 fn current_after_operations() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+    let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut union_iter = Union::new(children);
 
     // Before any read, current() returns Some (buffer exists)
     assert!(union_iter.current().is_some());
@@ -1350,5 +1472,158 @@ fn mode_quick_vs_full_with_skip_to() {
         result.as_aggregate().unwrap().len(),
         1,
         "Quick mode skip_to should only take first matching child"
+    );
+}
+
+/// Test ReuseResults optimization - children whose `last_doc_id` is already ahead
+/// of the union's current position should NOT be re-read.
+///
+/// This test mirrors the C++ test `UnionIteratorSingleTest.ReuseResults` from
+/// `tests/cpptests/test_cpp_iterator_union.cpp`.
+///
+/// Setup: Quick mode union with two children
+/// - it1: doc_ids = [3]
+/// - it2: doc_ids = [2]
+///
+/// Expected behavior:
+/// 1. First Read(): Both children are read once. Union returns doc 2.
+///    - it1.lastDocId = 3, it2.lastDocId = 2
+///    - read_count: it1=1, it2=1
+/// 2. Second Read(): Union advances to doc 3. Neither child is read again because:
+///    - it1.lastDocId (3) is already at/past the target (3), so it's reused
+///    - Quick mode exits immediately on finding a match
+///    - read_count: it1=1, it2=1 (unchanged!)
+/// 3. Third Read(): Both children are at EOF (single-doc iterators exhausted),
+///    so both are removed without read().
+///    - read_count: it1=1, it2=1 (unchanged!)
+///
+/// Note: The Rust implementation is more efficient than C++ here because
+/// it detects EOF earlier (after returning the last document) and avoids
+/// unnecessary read() calls. In C++, the iterator doesn't know it's at EOF
+/// until an additional Read() is called that discovers no more documents.
+#[test]
+#[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
+fn reuse_results_optimization_quick_mode() {
+    // Setup: Two children with disjoint single-document doc_ids
+    let (children, data) = create_mock_2([3], [2]);
+    let mut union = UnionQuickFlat::new(children);
+
+    // First Read: Both children are read once, union returns doc 2
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 2, "First read should return doc 2 (minimum)");
+    assert_eq!(data[0].read_count(), 1, "it1 should be read once");
+    assert_eq!(data[1].read_count(), 1, "it2 should be read once");
+
+    // Second Read: Union advances to doc 3
+    // In Quick mode, it1 (lastDocId=3) matches the skip target, so it's reused without read()
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 3, "Second read should return doc 3");
+    assert_eq!(
+        data[0].read_count(),
+        1,
+        "it1 should NOT be read again - its lastDocId (3) is already at the target"
+    );
+    // it2 is not read because Quick mode exits as soon as it finds a match (it1)
+    assert_eq!(
+        data[1].read_count(),
+        1,
+        "it2 should NOT be read again - Quick mode exited early on it1"
+    );
+
+    // Third Read: Both children are at EOF (single-doc iterators exhausted after first read)
+    // Rust's Mock iterator knows it's at EOF immediately after returning its last document,
+    // so both children are removed without any additional read() calls.
+    let result = union.read().expect("read failed");
+    assert!(result.is_none(), "Third read should return EOF");
+    assert_eq!(
+        data[0].read_count(),
+        1,
+        "it1 should NOT be read - already at EOF, removed without calling read()"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        1,
+        "it2 should NOT be read - already at EOF, removed without calling read()"
+    );
+}
+
+/// Test ReuseResults optimization in Full mode.
+///
+/// Full mode aggregates ALL children at the minimum doc_id, so the behavior
+/// differs from Quick mode. Children whose `last_doc_id` equals the union's
+/// current position are advanced, while children already ahead are NOT read.
+#[test]
+#[cfg_attr(miri, ignore)] // Uses RSYieldableMetric_Concat FFI in push_borrowed (union aggregation)
+fn reuse_results_optimization_full_mode() {
+    // Setup: Three children with overlapping doc_ids
+    // it1: [1, 3, 5]
+    // it2: [2, 3, 6]
+    // it3: [3, 4, 7]
+    let (children, data) = create_mock_3([1, 3, 5], [2, 3, 6], [3, 4, 7]);
+    let mut union = UnionFullFlat::new(children);
+
+    // First Read: All children are read once (initialization), union returns doc 1
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 1, "First read should return doc 1");
+    // After init: it1.lastDocId=1, it2.lastDocId=2, it3.lastDocId=3
+    assert_eq!(data[0].read_count(), 1);
+    assert_eq!(data[1].read_count(), 1);
+    assert_eq!(data[2].read_count(), 1);
+
+    // Second Read: Union advances from doc 1 to doc 2
+    // Only it1 (lastDocId=1 == current) is read, others are already ahead
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 2, "Second read should return doc 2");
+    // After: it1.lastDocId=3, it2.lastDocId=2, it3.lastDocId=3
+    assert_eq!(
+        data[0].read_count(),
+        2,
+        "it1 should be read (was at doc 1, which matched union position)"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        1,
+        "it2 should NOT be read (lastDocId=2 > union's previous position 1)"
+    );
+    assert_eq!(
+        data[2].read_count(),
+        1,
+        "it3 should NOT be read (lastDocId=3 > union's previous position 1)"
+    );
+
+    // Third Read: Union advances from doc 2 to doc 3
+    // Only it2 (lastDocId=2 == current) is read
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 3, "Third read should return doc 3");
+    // After: it1.lastDocId=3, it2.lastDocId=3, it3.lastDocId=3
+    assert_eq!(
+        data[0].read_count(),
+        2,
+        "it1 should NOT be read again (lastDocId=3 > 2)"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        2,
+        "it2 should be read (was at doc 2, which matched union position)"
+    );
+    assert_eq!(
+        data[2].read_count(),
+        1,
+        "it3 should NOT be read (lastDocId=3 > 2)"
     );
 }
