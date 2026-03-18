@@ -22,6 +22,7 @@ Redis will notify us (via `RedisModuleSlotRangeArray`) when slots need to be del
 ### Rejected Approach
 
 Linear scan + per-key slot hash computation is O(n) and unacceptable:
+
 ```c
 // BAD: O(n) scan with hash per document
 DOCTABLE_FOREACH(t, {
@@ -47,6 +48,7 @@ DOCTABLE_FOREACH(t, {
 Document IDs are yielded from a monotonically increasing counter. Any document with `id > maxDocId` was written **after** the notification and must be preserved.
 
 This is simple and efficient:
+
 - At notification: `maxDocId = spec->docs.maxId`
 - During cleanup: skip any document where `dmd->id > maxDocId`
 - Query-time: filter documents where `doc.id <= ANY(pending.maxDocId)` for matching slots
@@ -54,11 +56,13 @@ This is simple and efficient:
 ### Why Pending List Instead of Bitmap?
 
 We need a **list** of pending deletions (not a single bitmap) because each deletion request has its own `maxDocId` cutoff:
+
 - If deletion A (slots 1-10, maxDocId=100) is processing, then deletion B (slots 5-15, maxDocId=200) arrives
 - Each must track its own cutoff independently
 - A doc in slot 7 with id=150 should be filtered by B but not by A
 
 Within each entry, we store **slot ranges** rather than converting to a bitmap because:
+
 - We already receive `RedisModuleSlotRangeArray` from Redis — no conversion needed
 - Slot deletions are typically of contiguous ranges
 - A ranges array is ~4 bytes per range vs 2KB fixed for a bitmap
@@ -68,7 +72,7 @@ Within each entry, we store **slot ranges** rather than converting to a bitmap b
 
 The `RSDocumentMetadata` struct has **2 bytes of padding** after `ref_count` due to alignment:
 
-```
+```code
 offset 28: uint16_t ref_count (2 bytes)
 offset 30: [2 BYTES PADDING] ◄── slot fits here for FREE
 offset 32: struct RSSortingVector *sortVector (8 bytes, 8-byte aligned)
@@ -126,6 +130,7 @@ typedef struct {
 **Memory overhead:** 8 bytes (list head pointer) normally, ~48 bytes per active deletion request.
 
 **Why a linked list?**
+
 - Each deletion request may have a different `maxDocId` cutoff
 - Cleanup jobs hold direct pointers to their nodes — linked list nodes have stable addresses
 - Removal of one node doesn't invalidate pointers to other nodes
@@ -293,6 +298,7 @@ The global specs dictionary (`specDict_g`) is **not thread-safe** and should onl
 - If promotion fails (spec was dropped), the job is skipped
 
 For the DocTable scan itself:
+
 - While a cleanup batch holds the spec **read lock**, the DocTable cannot grow underneath it, because growth happens on the write path.
 - Between batches, the DocTable may grow, but the current implementation does **not** rehash or shrink existing entries; it only expands the buckets array and appends empty buckets.
 - Collection captures a fixed bucket upper bound at the start of the overall scan. Buckets added after that point can only contain post-notification documents (`id > maxDocId`), so they do not need to be scanned.
@@ -301,6 +307,7 @@ For the DocTable scan itself:
 ### Thread Pool: `cleanPool`
 
 Use existing `cleanPool` (defined in `src/spec.c`):
+
 - Single-threaded pool for cleanup tasks
 - Already used for `IndexSpec_FreeUnlinkedData`
 - Low priority, won't interfere with queries
@@ -537,7 +544,7 @@ remain centralized in one shared implementation.
 
 ### Unified Slot Deletion Flow
 
-```
+```code
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ 1. Redis Notification (any slot deletion event)                            │
 │    TRIM_BACKGROUND: Slots leaving this node                                │
@@ -609,7 +616,7 @@ remain centralized in one shared implementation.
 
 Each deletion request creates its own entry with its own `maxDocId` cutoff:
 
-```
+```code
 Timeline example:
   T0: Delete slots 1-10, maxDocId = 100
       pendingSlotDeletions = [(slots:1-10, maxDocId:100)]
@@ -628,7 +635,7 @@ Timeline example:
 
 ### New Document Protection
 
-```
+```code
 Timeline example:
   T0: Delete slots 1-10, maxDocId = 100
   T1: New write: doc D(key="foo", slot=5, id=150)
@@ -649,7 +656,7 @@ This slot-based deletion mechanism integrates with the existing ASM state machin
 
 The current ASM trimming flow uses Redis keyspace notifications:
 
-```
+```code
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED                │
 │   └─> ASM_StateMachine_StartTrim(slots)                                 │
@@ -674,6 +681,7 @@ The current ASM trimming flow uses Redis keyspace notifications:
 ```
 
 **Characteristics:**
+
 - Documents deleted one-by-one via keyspace notifications
 - Deletion spread over time during Redis trim operation
 - Module receives per-key callbacks
@@ -682,7 +690,7 @@ The current ASM trimming flow uses Redis keyspace notifications:
 
 The new mode receives a **single notification** with the full slot range:
 
-```
+```code
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND             │
 │   └─> Receives RedisModuleSlotRangeArray *slots                         │
@@ -701,6 +709,7 @@ The new mode receives a **single notification** with the full slot range:
 ```
 
 **Characteristics:**
+
 - Single notification with slot ranges
 - Module handles deletion internally via `Indexes_DeleteSlots`
 - **Instant filtering** via pending deletions list
@@ -758,7 +767,7 @@ The difference is that TRIM_BACKGROUND also performs the ASM trim state transiti
 ## Complexity Analysis
 
 | Operation | Complexity | Lock | Duration |
-|-----------|------------|------|----------|
+| --------- | ---------- | ---- | -------- |
 | `DocTable_AddPendingDeletion` | O(1) | Write | Brief |
 | `Indexes_DeleteSlots` | O(num_specs) | Write per spec | Brief per spec |
 | `DocTable_Borrow` (normal) | O(chain_length) | Read | — |
@@ -772,7 +781,7 @@ The difference is that TRIM_BACKGROUND also performs the ASM trim state transiti
 ## Memory Summary
 
 | Component | Normal Operation | During Cleanup |
-|-----------|------------------|----------------|
+| --------- | ---------------- | -------------- |
 | Per DMD (`slot` field) | 0 bytes (uses padding) | 0 bytes |
 | Per DocTable (pending list pointer) | 8 bytes | 8 bytes |
 | Per pending deletion entry | 0 bytes | ~40 bytes (slots array + maxDocId) |
@@ -787,7 +796,7 @@ documents collected for that spec before the apply phase begins.
 ## Locking Strategy
 
 | Operation | Lock Type | Notes |
-|-----------|-----------|-------|
+| --------- | --------- | ----- |
 | `DocTable_AddPendingDeletion` | Write | Held briefly, per spec |
 | `DocTable_IsDocPendingDeletion` | Read | Part of `DocTable_Borrow` |
 | Cleanup collection (iteration) | **Read** | Bounded by `SCAN_DOC_LIMIT`, queries run concurrently |
@@ -795,6 +804,7 @@ documents collected for that spec before the apply phase begins.
 | `DocTable_RemovePendingDeletion` | Write | Held briefly |
 
 The two-phase cleanup approach minimizes query blocking:
+
 - **Collection phase** uses multiple read-lock passes — queries proceed normally, and each pass is bounded by a scan-specific limit
 - **Apply phase** uses multiple write-lock passes — only for actual mutations, and each pass is bounded by a separate apply-specific limit
 - If no documents were collected overall, the apply lock is never taken
@@ -904,7 +914,7 @@ Since collection (read lock) and deletion (write lock) are separate:
 ## Summary
 
 | Aspect | Design Choice |
-|--------|---------------|
+| ------ | ------------- |
 | Slot storage | Uses existing DMD padding (0 bytes) |
 | Deletion tracking | Linked list of pending deletions (slots + maxDocId per node) |
 | Marking speed | O(1) — prepend to linked list |
@@ -918,6 +928,7 @@ Since collection (read lock) and deletion (write lock) are separate:
 | Concurrent deletions | Each has its own maxDocId, no merging |
 
 This design achieves:
+
 - ✅ **Instant** slot filtering (not O(n) — just prepend to linked list)
 - ✅ **Zero** steady-state memory overhead per document
 - ✅ **Minimal** query overhead during cleanup (O(pending_count) check, typically 0-2)
