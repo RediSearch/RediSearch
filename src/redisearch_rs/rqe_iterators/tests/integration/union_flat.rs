@@ -963,12 +963,8 @@ fn revalidate_when_already_at_eof() {
     let mock2: Mock<'static, 2> = Mock::new([10, 30]);
 
     // Set to Ok
-    mock1
-        .data()
-        .set_revalidate_result(MockRevalidateResult::Ok);
-    mock2
-        .data()
-        .set_revalidate_result(MockRevalidateResult::Ok);
+    mock1.data().set_revalidate_result(MockRevalidateResult::Ok);
+    mock2.data().set_revalidate_result(MockRevalidateResult::Ok);
 
     let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
         vec![Box::new(mock1), Box::new(mock2)];

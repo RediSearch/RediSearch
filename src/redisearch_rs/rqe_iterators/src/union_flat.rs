@@ -404,8 +404,7 @@ where
 
         if QUICK_EXIT {
             self.skip_to_quick(doc_id)
-        }
-        else {
+        } else {
             self.skip_to_full(doc_id)
         }
     }
