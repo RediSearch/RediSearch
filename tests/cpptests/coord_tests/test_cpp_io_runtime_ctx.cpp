@@ -113,10 +113,11 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
   int counter = 0;
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
 
-  while (counter < 1) {
-    usleep(1); // 1us delay
-  }
-  ASSERT_EQ(ctx->topo->capShards, 4097);
+  // Wait for topology to be applied. We can't rely on the callback counter since
+  // topology updates are processed via a separate async handle (topologyAsync)
+  // and may complete after regular callbacks
+  bool success = RS::WaitForCondition([&]() { return ctx->topo && ctx->topo->capShards == 4097; });
+  ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, capShards=" << (ctx->topo ? ctx->topo->capShards : 0);
 
   // We don't need to free newTopo here as it's handled by testTopoCallback
 }
@@ -130,15 +131,12 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
     MRClusterTopology *newTopo = getDummyTopology(4096 + i);
     IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, newTopo, true);
   }
-
-  // Give some time for the last topology to be applied
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
-  while (counter < 2) {
-    usleep(1); // 1us delay
-  }
-
-  // Only the last topology should be applied
-  ASSERT_EQ(ctx->topo->capShards, 4101);
+  // Wait for the last topology (4101) to be applied
+  // We can't rely on the callback counter since topology updates are processed
+  // via a separate async handle (topologyAsync) and may complete after regular callbacks
+  bool success = RS::WaitForCondition([&]() { return ctx->topo && ctx->topo->capShards == 4101; });
+  ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, capShards=" << (ctx->topo ? ctx->topo->capShards : 0);
 }
 
 TEST_F(IORuntimeCtxCommonTest, ClearPendingTopo) {
