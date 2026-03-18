@@ -103,6 +103,31 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   }
 }
 
+static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, size_t param_name_len) {
+  for (size_t i = 0; i < array_len(vq->params.params); ++i) {
+    const VecSimRawParam *param = &vq->params.params[i];
+    if (param->nameLen == param_name_len && !strcasecmp(param->name, param_name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const VectorQuery *vq,
+                                                const QueryIterator *child_it) {
+  if (!SearchDisk_IsEnabledForValidation() || vq->type != VECSIM_QT_KNN || child_it == NULL) {
+    return REDISMODULE_OK;
+  }
+
+  if (!VectorQuery_HasParam(vq, VECSIM_HYBRID_POLICY, sizeof(VECSIM_HYBRID_POLICY) - 1)) {
+    QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
+                        "Redis Flex pre-filtered vector queries currently require explicit HYBRID_POLICY");
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   // Cast is safe: openVectorIndex only mutates fieldSpec when create_if_missing is true.
@@ -125,6 +150,9 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                       "Error parsing vector similarity query: query vector blob size",
                                       " (%zu) does not match index's expected size (%zu).",
                                       vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+        return NULL;
+      }
+      if (VectorQuery_ValidateDiskHybridPolicy(q, vq, child_it) != REDISMODULE_OK) {
         return NULL;
       }
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
