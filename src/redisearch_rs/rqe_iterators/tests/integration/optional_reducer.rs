@@ -48,7 +48,7 @@ mod optional_reducer_tests {
         // It starts before the first document and is not yet at EOF.
         assert!(!wc.at_eof());
 
-        // Results must be virtual (RSResultData_Virtual in C++).
+        // Results must be virtual
         let r = wc
             .read()
             .expect("no error")

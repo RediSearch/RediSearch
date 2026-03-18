@@ -541,24 +541,32 @@ QueryIterator *NewNotIterator(QueryIterator *child,
 const QueryIterator *GetNotIteratorChild(const QueryIterator *it);
 
 /**
- * Create a new non-optimized optional iterator.
+ * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
+ *
+ * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
+ * - If `child` is a wildcard iterator, it is returned as-is with `weight` applied.
+ * - Otherwise, an [`Optional`] or [`OptionalOptimized`](rqe_iterators::optional_optimized::OptionalOptimized)
+ *   iterator is constructed based on whether `q.sctx.spec.rule.index_all` is set.
  *
  * # Safety
  *
- * 1. `child_it` must be a valid non-null pointer to an implementation of the C query iterator API.
- * 2. `child_it` must not be aliased.
+ * 1. `child`, when non-null, must be a valid owning pointer to a C query iterator that is not aliased.
+ * 2. `q` must be a valid non-null pointer to a [`QueryEvalCtx`] satisfying all preconditions of
+ *    [`new_optional_iterator`](rqe_iterators::optional_reducer::new_optional_iterator).
  */
-QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max_id, double weight);
+QueryIterator *NewOptionalIterator(QueryIterator *child,
+                                   QueryEvalCtx *q,
+                                   t_docId max_doc_id,
+                                   double weight);
 
 /**
- * Get the child pointer of the optional (non-optimized) iterator or NULL
- * in case there is no child.
+ * Return the child pointer of an optional iterator (optimized or non-optimized), or NULL if there is no child.
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
+ * 1. `base` must be a valid non-null pointer to an optional iterator created via [`NewOptionalIterator`].
  */
-const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
+const QueryIterator *GetOptionalIteratorChild(const QueryIterator *base);
 
 /**
  * Create a new profile iterator.
