@@ -227,10 +227,11 @@ QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight
     return ret;
   }
 
-  bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all && !q->sctx->spec->diskSpec;
+  bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   bool skipTimeoutChecks = (q && q->sctx) ? q->sctx->time.skipTimeoutChecks : false;
 
   if (optimized) {
+    RS_ASSERT(!q->sctx->spec->diskSpec)
     NotIteratorOptimized *ni = rm_calloc(1, sizeof(*ni));
     ret = &ni->base;
     ni->wcii = NewWildcardIterator_Optimized(q->sctx, weight);

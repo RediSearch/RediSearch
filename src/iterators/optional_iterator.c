@@ -210,9 +210,10 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId m
     return ret;
   }
 
-  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all && !q->sctx->spec->diskSpec;
+  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
 
   if (optimized) {
+    RS_ASSERT(!q->sctx->spec->diskSpec)
     OptionalOptimizedIterator *oi = rm_calloc(1, sizeof(*oi));
     oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
     oi->child = it;
