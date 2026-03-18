@@ -90,7 +90,6 @@ pub enum QueryErrorCode {
     UnavailableSlots,
     FlexLimitNumberOfIndexes,
     FlexUnsupportedField,
-    FlexUnsupportedFieldOption,
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
     FlexSkipInitialScanMissingArgument,
@@ -103,13 +102,7 @@ pub enum QueryErrorCode {
     ClusterNoResponses,
     FlexSearchNocontentOrReturn0Required,
     FlexSearchLoadUnsupported,
-    FlexSearchSlopUnsupported,
-    FlexSearchInorderUnsupported,
-    FlexSearchHighlightUnsupported,
-    FlexSearchSummarizeUnsupported,
-    FlexSearchScorerTfidfUnsupported,
-    FlexSearchScorerTfidfDocnormUnsupported,
-    FlexSearchScorerBm25Unsupported,
+    FlexUnsupportedArgument,
 }
 
 impl Debug for QueryErrorCode {
@@ -427,11 +420,6 @@ impl QueryErrorCode {
                 default_msg: c"Unsupported field for Flex index",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_FIELD Unsupported field for Flex index",
             },
-            Self::FlexUnsupportedFieldOption => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_UNSUPPORTED_FIELD_OPTION ",
-                default_msg: c"Unsupported field option for Flex index",
-                default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_FIELD_OPTION Unsupported field option for Flex index",
-            },
             Self::FlexUnsupportedFTCreateArgument => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT ",
                 default_msg: c"Unsupported FT.CREATE argument for Flex index",
@@ -492,40 +480,10 @@ impl QueryErrorCode {
                 default_msg: c"LOAD is not supported in Redis Flex",
                 default_full_msg: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED LOAD is not supported in Redis Flex",
             },
-            Self::FlexSearchSlopUnsupported => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SEARCH_SLOP_UNSUPPORTED ",
-                default_msg: c"SLOP is not supported in Redis Flex",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_SLOP_UNSUPPORTED SLOP is not supported in Redis Flex",
-            },
-            Self::FlexSearchInorderUnsupported => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SEARCH_INORDER_UNSUPPORTED ",
-                default_msg: c"INORDER is not supported in Redis Flex",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_INORDER_UNSUPPORTED INORDER is not supported in Redis Flex",
-            },
-            Self::FlexSearchHighlightUnsupported => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SEARCH_HIGHLIGHT_UNSUPPORTED ",
-                default_msg: c"HIGHLIGHT is not supported in Redis Flex",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_HIGHLIGHT_UNSUPPORTED HIGHLIGHT is not supported in Redis Flex",
-            },
-            Self::FlexSearchSummarizeUnsupported => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED ",
-                default_msg: c"SUMMARIZE is not supported in Redis Flex",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED SUMMARIZE is not supported in Redis Flex",
-            },
-            Self::FlexSearchScorerTfidfUnsupported => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_UNSUPPORTED ",
-                default_msg: c"TFIDF scorer is not supported in Redis Flex",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_UNSUPPORTED TFIDF scorer is not supported in Redis Flex",
-            },
-            Self::FlexSearchScorerTfidfDocnormUnsupported => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_DOCNORM_UNSUPPORTED ",
-                default_msg: c"TFIDF.DOCNORM scorer is not supported in Redis Flex",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_SCORER_TFIDF_DOCNORM_UNSUPPORTED TFIDF.DOCNORM scorer is not supported in Redis Flex",
-            },
-            Self::FlexSearchScorerBm25Unsupported => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SEARCH_SCORER_BM25_UNSUPPORTED ",
-                default_msg: c"BM25 scorer is not supported in Redis Flex",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_SCORER_BM25_UNSUPPORTED BM25 scorer is not supported in Redis Flex",
+            Self::FlexUnsupportedArgument => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT ",
+                default_msg: c"Unsupported argument for Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT Unsupported argument for Redis Flex",
             },
         }
     }

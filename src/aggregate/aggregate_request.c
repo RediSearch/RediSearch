@@ -29,6 +29,7 @@
 #include "asm_state_machine.h"
 #include "coord/rmr/command.h"
 #include "search_disk.h"
+#include "search_disk_utils.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -623,8 +624,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
-      if (isDiskIndex) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SUMMARIZE_UNSUPPORTED, NULL);
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SUMMARIZE", status)) {
         return REDISMODULE_ERR;
       }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
@@ -638,8 +638,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
-      if (isDiskIndex) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_HIGHLIGHT_UNSUPPORTED, NULL);
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("HIGHLIGHT", status)) {
         return REDISMODULE_ERR;
       }
 
@@ -697,14 +696,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   // Block SLOP and INORDER for disk indexes
-  if (isDiskIndex) {
-    // slop defaults to -1, so any other value means it was explicitly set
-    if (searchOpts->slop != -1) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SLOP_UNSUPPORTED, NULL);
+  // slop defaults to -1, so any other value means it was explicitly set
+  if (isDiskIndex && searchOpts->slop != -1) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SLOP", status)) {
       return REDISMODULE_ERR;
     }
-    if (searchOpts->flags & Search_InOrder) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_INORDER_UNSUPPORTED, NULL);
+  }
+  if (isDiskIndex && (searchOpts->flags & Search_InOrder)) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("INORDER", status)) {
       return REDISMODULE_ERR;
     }
   }
@@ -1428,16 +1427,19 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Block scorers that use slop for disk indexes
   if (SearchDisk_IsEnabledForValidation()) {
     if (strcasecmp(opts->scorerName, TFIDF_SCORER_NAME) == 0) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SCORER_TFIDF_UNSUPPORTED, NULL);
-      return REDISMODULE_ERR;
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF scorer", status)) {
+        return REDISMODULE_ERR;
+      }
     }
     if (strcasecmp(opts->scorerName, TFIDF_DOCNORM_SCORER_NAME) == 0) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SCORER_TFIDF_DOCNORM_UNSUPPORTED, NULL);
-      return REDISMODULE_ERR;
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF.DOCNORM scorer", status)) {
+        return REDISMODULE_ERR;
+      }
     }
     if (strcasecmp(opts->scorerName, BM25_SCORER_NAME) == 0) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_SCORER_BM25_UNSUPPORTED, NULL);
-      return REDISMODULE_ERR;
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("BM25 scorer", status)) {
+        return REDISMODULE_ERR;
+      }
     }
   }
 
