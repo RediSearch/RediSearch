@@ -430,8 +430,13 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  // Accumulate profile time for intermediate cursor reads (final read is added in Profile_Print)
+  if (IsProfile(req) && !cursor_done) {
+    req->profileTotalTime += duration;
+  }
+
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
     TotalGlobalStats_CountQuery(req->reqflags, duration);
   }
 
@@ -878,6 +883,11 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+
+  if (IsProfile(req)) {
+    req->profileQueueTime = rs_wall_clock_elapsed_ns(&req->initClock);
+  }
+
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = {0}, detailed_status = {0};
 
@@ -970,7 +980,8 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   if (is_profile) {
     rs_wall_clock_init(&parseClock);
     // Calculate the time elapsed for profileParseTime by using the initialized parseClock
-    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
+    // Subtract queue time since initClock includes time spent waiting in the queue
+    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock) - req->profileQueueTime;
   }
 
   rc = AREQ_BuildPipeline(req, status);

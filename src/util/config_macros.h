@@ -24,7 +24,7 @@
     RETURN_PARSE_ERROR(rc); \
   }
 
-#define CONFIG_SETTER(name) int name(RSConfig *config, ArgsCursor *ac, uint32_t externalTriggerId, QueryError *status)
+#define CONFIG_SETTER(name) static int name(RSConfig *config, ArgsCursor *ac, uint32_t externalTriggerId, QueryError *status)
 #define CONFIG_GETTER(name) static sds name(const RSConfig *config)
 
 #define CONFIG_BOOLEAN_GETTER(name, var, invert) \

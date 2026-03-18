@@ -44,6 +44,7 @@ void CurrentThread_SetIndexSpec(StrongRef specRef) {
   // we duplicate the name in case we won't be able to access the weak ref
   const IndexSpec *spec = StrongRef_Get(specRef);
   info->specName = rm_strdup(IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+  rs_wall_clock_init(&info->runningTime);
 }
 
 void CurrentThread_ClearIndexSpec() {

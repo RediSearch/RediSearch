@@ -38,7 +38,6 @@ extern "C" {
 // docs and code.
 #define CMD_INTERNAL "internal"
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 int IsMaster();
@@ -102,6 +101,7 @@ typedef struct {
   int profileArgs;
   int profileLimited;
   rs_wall_clock profileClock;
+  rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   void *reducer;
 } searchRequestCtx;
 

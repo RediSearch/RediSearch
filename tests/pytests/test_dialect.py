@@ -272,7 +272,7 @@ def test_v1_vs_v2(env):
     expected = ['-inf', '']
     env.assertEqual(res, expected)
 
-    # terms wich contain numbers are expanded
+    # terms which contain numbers are expanded
     expected = ['UNION {', '  cherry1', '  +cherry1(expanded)', '}', '']
     res = env.cmd('FT.EXPLAINCLI', 'idx', 'cherry1', 'DIALECT', 1)
     env.assertEqual(res, expected)
@@ -326,6 +326,8 @@ def check_info_results(env, command, idx1_expect, idx2_expect, should_succeed):
 def test_dialect_info(env):
   conn = getConnectionByEnv(env)
   env.expect(config_cmd() + " SET DEFAULT_DIALECT 1").ok()
+  # This test calls INFO MODULES even after FLUSHDB (zero indexes). Ensure dialect stats are emitted.
+  allShards_set_info_on_zero_indexes(env, True)
 
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 'business', 'TEXT')
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 'country', 'TEXT')

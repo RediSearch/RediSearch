@@ -75,11 +75,11 @@ def testPoneticWithSchemaAlter(env):
                            'text1', 'check',
                            'text2', 'phonetic'))
 
-    env.assertEqual(env.cmd('ft.search', 'idx', 'fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
-    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
-    env.assertEqual(env.cmd('ft.search', 'idx', '@text1:fonetic'), [0])
-    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:false}'), [0])
-    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:true}'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']])
+    env.assertEqual(env.cmd('ft.search', 'idx', 'fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']]) # codespell:ignore fonetic
+    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']]) # codespell:ignore fonetic
+    env.assertEqual(env.cmd('ft.search', 'idx', '@text1:fonetic'), [0]) # codespell:ignore fonetic
+    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:false}'), [0]) # codespell:ignore fonetic
+    env.assertEqual(env.cmd('ft.search', 'idx', '@text2:fonetic=>{$phonetic:true}'), [1, 'doc1', ['text', 'morfix', 'text1', 'check', 'text2', 'phonetic']]) # codespell:ignore fonetic
 
 def testPoneticWithSmallTerm(env):
     env.assertOk(env.cmd('ft.create', 'complainants', 'ON', 'HASH',
@@ -101,9 +101,11 @@ def testPoneticOnNumbers(env):
 
 def testIssue1313(env):
     env.expect('FT.CREATE test ON HASH SCHEMA topic2 TEXT NOINDEX topic TEXT PHONETIC dm:en').ok()
+    waitForIndex(env, 'test')
     env.expect('FT.SEARCH', 'test', '@topic:(tmp)=>{$phonetic:true}').equal([0])
 
     env.expect('FT.CREATE test1 ON HASH SCHEMA topic TEXT PHONETIC dm:en topic2 TEXT NOINDEX').ok()
+    waitForIndex(env, 'test1')
     env.expect('FT.SEARCH', 'test1', '@topic:(tmp)=>{$phonetic: true}').equal([0])
 
 def testIssue3836(env):
