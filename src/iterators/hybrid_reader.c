@@ -180,6 +180,12 @@ static inline void updateResultScore(RSIndexResult *res, double score, RLookupKe
   }
 }
 
+// Cleanup helper for computeDistances_Disk - centralizes resource cleanup.
+static inline void computeDistances_Disk_Cleanup(VecSimAdhocBfCtx *ctx, RSIndexResult *cur_vec_res) {
+  VecSimIndex_AdhocBfCtx_Free(ctx);
+  IndexResult_Free(cur_vec_res);
+}
+
 // Disk path: iterate child results, compute SQ8 distances via ad-hoc BF context.
 // The context preprocesses the query once (FP32 + SQ8) and registers a query marker
 // to ensure ID stability during the search.
@@ -215,6 +221,12 @@ static VecSimQueryReply_Code computeDistances_Disk(HybridIterator *hr) {
       IndexResult_SetNumValue(cur_vec_res, metric);
       insertResultToHeap(hr, hr->child->current, &cur_vec_res, &upper_bound);
     }
+  }
+
+  // On timeout, skip reranking and cleanup immediately.
+  if (rc == VecSim_QueryReply_TimedOut) {
+    computeDistances_Disk_Cleanup(ctx, cur_vec_res);
+    return rc;
   }
 
   // Reranking: fetch exact FP32 distances from disk and recompute scores.
@@ -254,8 +266,7 @@ static VecSimQueryReply_Code computeDistances_Disk(HybridIterator *hr) {
     rm_free(exactDistances);
   }
 
-  VecSimIndex_AdhocBfCtx_Free(ctx);
-  IndexResult_Free(cur_vec_res);
+  computeDistances_Disk_Cleanup(ctx, cur_vec_res);
   return rc;
 }
 
