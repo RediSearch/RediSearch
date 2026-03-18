@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <sys/param.h>
 #include <stdio.h>
+#include <time.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -33,10 +34,25 @@ static int MRConn_SendAuth(MRConn *conn);
 #define RSCONN_REAUTH_TIMEOUT 1000
 #define UNUSED(x) (void)(x)
 
+/*
+ * Enhanced debug logging for MOD-13979 investigation.
+ * Logs connection state, timeout configuration, and all callback invocations.
+ */
 #define CONN_LOG(conn, fmt, ...)                                                      \
-  RedisModule_Log(RSDummyContext, "debug", "[%p %s:%d %s] " fmt,                      \
+  RedisModule_Log(RSDummyContext, "debug", "[CONN %p %s:%d %s] " fmt,                 \
                   conn, conn->ep.host, conn->ep.port, MRConnState_Str((conn)->state), \
                   ##__VA_ARGS__)
+
+/* Log without conn pointer for cases where conn might be NULL */
+#define CONN_LOG_RAW(fmt, ...) \
+  RedisModule_Log(RSDummyContext, "debug", "[CONN] " fmt, ##__VA_ARGS__)
+
+/* Helper to get current timestamp for logging */
+static inline void logTimestamp(char *buf, size_t len) {
+  time_t now = time(NULL);
+  struct tm *tm_info = localtime(&now);
+  strftime(buf, len, "%H:%M:%S", tm_info);
+}
 
 /** detaches from our redis context */
 static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
@@ -298,16 +314,39 @@ static void freeConn(MRConn *conn) {
   rm_free(conn);
 }
 
+/*
+ * RediSearch's internal retry timer callback.
+ *
+ * MOD-13979 INVESTIGATION:
+ * This is RediSearch's retry mechanism - it fires every 250ms when state=Connecting.
+ * HOWEVER, this timer only fires if MRConn_SwitchState(Connecting) was called.
+ *
+ * The bug scenario:
+ *   1. MRConn_Connect() initiates async connect
+ *   2. Hiredis doesn't schedule a timeout (connect_timeout is NULL)
+ *   3. MRConn_ConnectCallback is NEVER called (host unreachable, no timeout)
+ *   4. MRConn_SwitchState is NEVER called again
+ *   5. This timer NEVER fires again
+ *   6. Connection stays stuck forever
+ */
 static void signalCallback(uv_timer_t *tm) {
+  char ts[16];
+  logTimestamp(ts, sizeof(ts));
+
   MRConn *conn = tm->data;
+  CONN_LOG(conn, "========== signalCallback [%s] ==========", ts);
+  CONN_LOG(conn, "RediSearch retry timer fired!");
+
   if (conn->state == MRConn_Connected) {
-    return;  // Nothing to do here!
+    CONN_LOG(conn, "Already connected - nothing to do");
+    CONN_LOG(conn, "========== signalCallback END ==========");
+    return;
   }
 
   if (conn->state == MRConn_Freeing) {
+    CONN_LOG(conn, "State is Freeing - cleaning up");
     if (conn->conn) {
       redisAsyncContext *ac = conn->conn;
-      // detach the connection
       ac->data = NULL;
       conn->conn = NULL;
       redisAsyncDisconnect(ac);
@@ -317,70 +356,121 @@ static void signalCallback(uv_timer_t *tm) {
   }
 
   if (conn->state == MRConn_ReAuth) {
+    CONN_LOG(conn, "State is ReAuth - sending auth command");
     if (MRConn_SendAuth(conn) != REDIS_OK) {
+      CONN_LOG(conn, "Auth failed - will retry connect");
       detachFromConn(conn, 1);
       MRConn_SwitchState(conn, MRConn_Connecting);
     }
   } else if (conn->state == MRConn_Connecting) {
+    CONN_LOG(conn, "State is Connecting - attempting new connection");
+    CONN_LOG(conn, "*** This means previous connect attempt completed (success/fail/timeout) ***");
+    CONN_LOG(conn, "*** If this NEVER fires after initial connect, the connection is STUCK ***");
+
     if (MRConn_Connect(conn) == REDIS_ERR) {
+      CONN_LOG(conn, "MRConn_Connect returned ERR immediately - scheduling retry");
       detachFromConn(conn, 1);
       MRConn_SwitchState(conn, MRConn_Connecting);
+    } else {
+      CONN_LOG(conn, "MRConn_Connect returned OK - waiting for async callbacks");
+      CONN_LOG(conn, "*** Next log should be MRConn_ConnectCallback ***");
+      CONN_LOG(conn, "*** If MRConn_ConnectCallback never fires, connection is STUCK ***");
     }
   } else {
-    abort();  // Unknown state! - Can't transition
+    CONN_LOG(conn, "FATAL: Unknown state %d!", conn->state);
+    abort();
   }
+  CONN_LOG(conn, "========== signalCallback END ==========");
 }
 
-/* Safely transition to current state */
+/*
+ * Safely transition to a new connection state.
+ *
+ * MOD-13979 INVESTIGATION:
+ * This function schedules the RediSearch retry timer (signalCallback).
+ * When switching to Connecting, it schedules a 250ms timer.
+ *
+ * The bug scenario:
+ *   1. MRConn_Connect() succeeds (returns REDIS_OK)
+ *   2. State is Connecting, timer NOT re-scheduled here
+ *   3. We wait for MRConn_ConnectCallback from hiredis
+ *   4. If connect_timeout is NULL, hiredis never fires timeout
+ *   5. MRConn_ConnectCallback never fires
+ *   6. MRConn_SwitchState never called
+ *   7. Timer never fires again
+ *   8. Connection stuck forever
+ */
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
+  char ts[16];
+  logTimestamp(ts, sizeof(ts));
+
   if (!conn->timer) {
     conn->timer = rm_malloc(sizeof(uv_timer_t));
     uv_timer_init(uv_default_loop(), conn->timer);
     ((uv_timer_t *)conn->timer)->data = conn;
   }
-  CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
+
+  CONN_LOG(conn, "========== MRConn_SwitchState [%s] ==========", ts);
+  CONN_LOG(conn, "Transition: %s -> %s",
+           MRConnState_Str(conn->state), MRConnState_Str(nextState));
 
   uint64_t nextTimeout = 0;
 
   if (nextState == MRConn_Freeing) {
     nextTimeout = 0;
     conn->state = MRConn_Freeing;
+    CONN_LOG(conn, "State set to Freeing, timer will fire immediately");
     goto activate_timer;
   } else if (conn->state == MRConn_Freeing) {
+    CONN_LOG(conn, "Already Freeing, ignoring transition request");
+    CONN_LOG(conn, "========== MRConn_SwitchState END ==========");
     return;
   }
 
   switch (nextState) {
     case MRConn_Disconnected:
-      // We should never *switch* to this state
+      CONN_LOG(conn, "FATAL: Cannot switch to Disconnected state!");
       abort();
 
     case MRConn_Connecting:
       nextTimeout = RSCONN_RECONNECT_TIMEOUT;
       conn->state = nextState;
+      CONN_LOG(conn, "State set to Connecting, retry timer=%lums",
+               (unsigned long)nextTimeout);
+      CONN_LOG(conn, "*** signalCallback will fire in %lums to retry connection ***",
+               (unsigned long)nextTimeout);
       break;
 
     case MRConn_ReAuth:
       nextTimeout = RSCONN_REAUTH_TIMEOUT;
       conn->state = nextState;
+      CONN_LOG(conn, "State set to ReAuth, auth retry timer=%lums",
+               (unsigned long)nextTimeout);
       goto activate_timer;
 
     case MRConn_Connected:
-      // "Dummy" states:
       conn->state = nextState;
+      CONN_LOG(conn, "State set to Connected - connection is fully established!");
+      CONN_LOG(conn, "Stopping retry timer (no longer needed)");
       if (uv_is_active(conn->timer)) {
         uv_timer_stop(conn->timer);
       }
+      CONN_LOG(conn, "========== MRConn_SwitchState END (success!) ==========");
       return;
+
     default:
-      // Can't handle this state!
+      CONN_LOG(conn, "FATAL: Unknown state %d!", nextState);
       abort();
   }
 
 activate_timer:
   if (!uv_is_active(conn->timer)) {
+    CONN_LOG(conn, "Starting timer for %lums", (unsigned long)nextTimeout);
     uv_timer_start(conn->timer, signalCallback, nextTimeout, 0);
+  } else {
+    CONN_LOG(conn, "Timer already active, not restarting");
   }
+  CONN_LOG(conn, "========== MRConn_SwitchState END ==========");
 }
 
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
@@ -542,27 +632,59 @@ done:
   return ret;
 }
 
-/* hiredis async connect callback */
+/*
+ * hiredis async connect callback.
+ *
+ * MOD-13979 INVESTIGATION:
+ * This callback is the KEY indicator of the bug:
+ *   - If called with status=REDIS_OK: Connection succeeded normally
+ *   - If called with status=REDIS_ERR + errstr="Timeout": Timeout timer fired (good!)
+ *   - If NEVER called: Connection is hung because no timeout was set (BUG!)
+ */
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
+  char ts[16];
+  logTimestamp(ts, sizeof(ts));
+
   MRConn *conn = c->data;
+
   if (!conn) {
+    CONN_LOG_RAW("========== MRConn_ConnectCallback [%s] ==========", ts);
+    CONN_LOG_RAW("conn is NULL (already detached), status=%s",
+                 status == REDIS_OK ? "OK" : "ERR");
+    CONN_LOG_RAW("c->c.fd=%d, c->err=%d, c->errstr=%s", c->c.fd, c->err, c->errstr);
     if (status == REDIS_OK) {
-      // We need to free it here because we will not be getting a disconnect
-      // callback.
+      CONN_LOG_RAW("Freeing orphaned successful connection");
       redisAsyncFree((redisAsyncContext *)c);
-    } else {
-      // Will be freed anyway
     }
+    CONN_LOG_RAW("========== MRConn_ConnectCallback END ==========");
     return;
   }
 
-  // if the connection is not stopped - try to reconnect
+  CONN_LOG(conn, "========== MRConn_ConnectCallback [%s] ==========", ts);
+  CONN_LOG(conn, "*** CALLBACK FIRED! This is CRITICAL for MOD-13979 ***");
+  CONN_LOG(conn, "status: %s", status == REDIS_OK ? "REDIS_OK (success!)" : "REDIS_ERR (failure)");
+  CONN_LOG(conn, "c->err: %d", c->err);
+  CONN_LOG(conn, "c->errstr: %s", c->errstr);
+  CONN_LOG(conn, "c->c.fd: %d", c->c.fd);
+  CONN_LOG(conn, "c->c.flags: 0x%x (REDIS_CONNECTED=%d)",
+           c->c.flags, (c->c.flags & REDIS_CONNECTED) ? 1 : 0);
+
+  if (c->err && strstr(c->errstr, "Timeout") != NULL) {
+    CONN_LOG(conn, "*** ERROR IS 'Timeout' - this means hiredis timer worked! ***");
+    CONN_LOG(conn, "*** This is the EXPECTED behavior when connect_timeout is set ***");
+  }
+
   if (status != REDIS_OK) {
-    CONN_LOG(conn, "Error on connect: %s", c->errstr);
-    detachFromConn(conn, 0);  // Free the connection as well - we have an error
+    CONN_LOG(conn, "Connection FAILED - will trigger retry via MRConn_SwitchState");
+    CONN_LOG(conn, "Error details: %s", c->errstr);
+    detachFromConn(conn, 0);
     MRConn_SwitchState(conn, MRConn_Connecting);
+    CONN_LOG(conn, "========== MRConn_ConnectCallback END (retry scheduled) ==========");
     return;
   }
+
+  CONN_LOG(conn, "Connection SUCCEEDED - TCP handshake complete");
+  CONN_LOG(conn, "========== MRConn_ConnectCallback continuing to TLS/Auth ==========");
 
   // todo: check if tls is require and if it does initiate a tls connection
   char* client_cert = NULL;
@@ -618,17 +740,30 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
 }
 
 static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
+  char ts[16];
+  logTimestamp(ts, sizeof(ts));
+
   MRConn *conn = c->data;
+
   if (!conn) {
-    /* Ignore */
+    CONN_LOG_RAW("========== MRConn_DisconnectCallback [%s] ==========", ts);
+    CONN_LOG_RAW("conn is NULL, status=%d, ignoring", status);
+    CONN_LOG_RAW("========== MRConn_DisconnectCallback END ==========");
     return;
   }
 
+  CONN_LOG(conn, "========== MRConn_DisconnectCallback [%s] ==========", ts);
+  CONN_LOG(conn, "status=%d, c->err=%d, c->errstr=%s", status, c->err, c->errstr);
+
   if (conn->state != MRConn_Freeing) {
+    CONN_LOG(conn, "Connection lost - scheduling reconnect");
     detachFromConn(conn, 0);
     MRConn_SwitchState(conn, MRConn_Connecting);
+    CONN_LOG(conn, "========== MRConn_DisconnectCallback END (reconnect scheduled) ==========");
   } else {
+    CONN_LOG(conn, "State is Freeing - cleaning up connection");
     freeConn(conn);
+    /* Note: conn is freed, can't log after this */
   }
 }
 
@@ -639,28 +774,116 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
   return conn;
 }
 
-/* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
+/*
+ * Connect to a cluster node.
+ *
+ * MOD-13979 INVESTIGATION:
+ * This function creates a redisOptions struct but does NOT set connect_timeout.
+ * As a result, hiredis will NOT schedule a watchdog timer in its libuv adapter.
+ * If the target host is unreachable, the connection will hang in "Connecting"
+ * state indefinitely because:
+ *   1. TCP SYN is sent but no response (network partition)
+ *   2. OS retries SYN packets (default ~2 minutes on Linux)
+ *   3. Hiredis has no timer to detect the stall
+ *   4. Connect callback is NEVER called
+ *   5. RediSearch retry logic never triggers
+ *
+ * Return REDIS_OK if connection started, REDIS_ERR if immediate failure.
+ */
 static int MRConn_Connect(MRConn *conn) {
+  char ts[16];
+  logTimestamp(ts, sizeof(ts));
+
   RS_ASSERT(!conn->conn);
 
+  CONN_LOG(conn, "========== MRConn_Connect START [%s] ==========", ts);
+  CONN_LOG(conn, "Target: %s:%d", conn->ep.host, conn->ep.port);
+
+  /*
+   * CRITICAL: This is where the bug lives!
+   * We create redisOptions but do NOT set connect_timeout.
+   * This means hiredis will NOT schedule any timer.
+   */
   redisOptions options = {.type = REDIS_CONN_TCP,
                           .options = REDIS_OPT_NOAUTOFREEREPLIES,
                           .endpoint.tcp = {.ip = conn->ep.host, .port = conn->ep.port}};
 
+  /* Log the state of connect_timeout - this is the key evidence */
+  CONN_LOG(conn, "redisOptions created:");
+  CONN_LOG(conn, "  - type: REDIS_CONN_TCP");
+  CONN_LOG(conn, "  - options: REDIS_OPT_NOAUTOFREEREPLIES");
+  CONN_LOG(conn, "  - endpoint.tcp.ip: %s", options.endpoint.tcp.ip);
+  CONN_LOG(conn, "  - endpoint.tcp.port: %d", options.endpoint.tcp.port);
+  CONN_LOG(conn, "  - connect_timeout: %p %s",
+           (void*)options.connect_timeout,
+           options.connect_timeout ? "SET" : "*** NULL - NO TIMER WILL BE SCHEDULED! ***");
+  CONN_LOG(conn, "  - command_timeout: %p", (void*)options.command_timeout);
+
+  if (!options.connect_timeout) {
+    CONN_LOG(conn, "!!! WARNING: connect_timeout is NULL !!!");
+    CONN_LOG(conn, "!!! hiredis will NOT call scheduleTimer() !!!");
+    CONN_LOG(conn, "!!! If host unreachable, connection will hang FOREVER !!!");
+  }
+
+  CONN_LOG(conn, "Calling redisAsyncConnectWithOptions()...");
   redisAsyncContext *c = redisAsyncConnectWithOptions(&options);
+
   if (c->err) {
-    CONN_LOG(conn, "Could not connect to node: %s", c->errstr);
+    CONN_LOG(conn, "redisAsyncConnectWithOptions FAILED immediately: err=%d, errstr=%s",
+             c->err, c->errstr);
+    CONN_LOG(conn, "This is an immediate failure (DNS, etc), not a timeout issue");
     redisAsyncFree(c);
+    CONN_LOG(conn, "========== MRConn_Connect END (REDIS_ERR) ==========");
     return REDIS_ERR;
   }
+
+  /* Connection initiated - now inspect the redisContext */
+  CONN_LOG(conn, "redisAsyncConnectWithOptions succeeded (non-blocking connect started)");
+  CONN_LOG(conn, "redisAsyncContext state:");
+  CONN_LOG(conn, "  - c->c.fd: %d", c->c.fd);
+  CONN_LOG(conn, "  - c->c.flags: 0x%x (REDIS_CONNECTED=%d)",
+           c->c.flags, (c->c.flags & REDIS_CONNECTED) ? 1 : 0);
+  CONN_LOG(conn, "  - c->c.connect_timeout: %p %s",
+           (void*)c->c.connect_timeout,
+           c->c.connect_timeout ? "SET" : "*** NULL - NO TIMER! ***");
+
+  if (c->c.connect_timeout) {
+    CONN_LOG(conn, "  - connect_timeout value: %ld sec, %ld usec",
+             (long)c->c.connect_timeout->tv_sec,
+             (long)c->c.connect_timeout->tv_usec);
+  }
+
+  CONN_LOG(conn, "  - c->c.command_timeout: %p", (void*)c->c.command_timeout);
+  CONN_LOG(conn, "  - c->err: %d", c->err);
 
   conn->conn = c;
   conn->conn->data = conn;
   conn->state = MRConn_Connecting;
 
+  CONN_LOG(conn, "Attaching to libuv event loop...");
+  CONN_LOG(conn, "  - When redisLibuvAttach() is called, hiredis will call _EL_ADD_WRITE");
+  CONN_LOG(conn, "  - _EL_ADD_WRITE calls refreshTimeout()");
+  CONN_LOG(conn, "  - refreshTimeout() checks: REDIS_CONNECTED=%d, connect_timeout=%p",
+           (c->c.flags & REDIS_CONNECTED) ? 1 : 0, (void*)c->c.connect_timeout);
+
+  if (!c->c.connect_timeout) {
+    CONN_LOG(conn, "  - Since connect_timeout is NULL, scheduleTimer() will NOT be called!");
+    CONN_LOG(conn, "  - This means NO timeout will fire if connection hangs!");
+  }
+
   redisLibuvAttach(conn->conn, uv_default_loop());
+  CONN_LOG(conn, "libuv attached, ev.scheduleTimer callback is now set");
+
+  CONN_LOG(conn, "Setting connect and disconnect callbacks...");
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
 
+  CONN_LOG(conn, "Connection setup complete, now waiting for async events:");
+  CONN_LOG(conn, "  - If connection succeeds: MRConn_ConnectCallback(status=REDIS_OK)");
+  CONN_LOG(conn, "  - If connection fails: MRConn_ConnectCallback(status=REDIS_ERR)");
+  CONN_LOG(conn, "  - If host unreachable + NO timeout: *** CALLBACK NEVER FIRES! ***");
+
+  logTimestamp(ts, sizeof(ts));
+  CONN_LOG(conn, "========== MRConn_Connect END (REDIS_OK) [%s] ==========", ts);
   return REDIS_OK;
 }
