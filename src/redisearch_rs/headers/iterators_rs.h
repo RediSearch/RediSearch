@@ -570,27 +570,6 @@ QueryIterator *NewOptionalNonOptimizedIterator(QueryIterator *child, t_docId max
 const QueryIterator *GetOptionalNonOptimizedIteratorChild(const QueryIterator *header);
 
 /**
- * Take ownership over the child of the optional (non-optimized) iterator,
- * or return NULL if there is no child.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
- */
-QueryIterator *TakeOptionalNonOptimizedIteratorChild(QueryIterator *header);
-
-/**
- * Set (or overwrite) the child iterator of the optional (non-optimized) iterator.
- *
- * # Safety
- *
- * 1. `header` must be a valid non-null pointer created via [`NewOptionalNonOptimizedIterator`].
- * 2. `child` must be null or a valid non-null non-aliased pointer for a valid [`QueryIterator`] respecting the C API.
- */
-void SetOptionalNonOptimizedIteratorChild(QueryIterator *header,
-                                          QueryIterator *child);
-
-/**
  * Create a new profile iterator.
  *
  * # Safety
