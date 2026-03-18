@@ -41,7 +41,7 @@ pub unsafe extern "C" fn RSValue_Cmp(
         Ok(Ordering::Less) => -1,
         Ok(Ordering::Equal) => 0,
         Ok(Ordering::Greater) => 1,
-        Err(CompareError::NaNNumber) => 0,
+        Err(CompareError::NaNFloat) => 0,
         Err(CompareError::MapComparison) => 0,
         Err(CompareError::IncompatibleTypes) => 0,
         Err(CompareError::NoNumberToStringFallback) => {
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn RSValue_Equal(
         Ok(Ordering::Less) => false,
         Ok(Ordering::Equal) => true,
         Ok(Ordering::Greater) => false,
-        Err(CompareError::NaNNumber) => true,
+        Err(CompareError::NaNFloat) => true,
         Err(CompareError::MapComparison) => true,
         Err(CompareError::IncompatibleTypes) => true,
         Err(CompareError::NoNumberToStringFallback) => false,

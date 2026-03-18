@@ -16,7 +16,7 @@ use std::ops::Deref;
 #[derive(Debug)]
 pub enum CompareError {
     /// One or both of the compared numbers were NaN, which has no defined ordering.
-    NaNNumber,
+    NaNFloat,
     /// A number-to-string comparison was attempted without the string-fallback enabled.
     NoNumberToStringFallback,
     /// Map values do not support comparison.
@@ -51,7 +51,7 @@ pub fn compare(
         (RsValue::Null, _) => Ok(Ordering::Less),
         (_, RsValue::Null) => Ok(Ordering::Greater),
         (RsValue::Number(n1), RsValue::Number(n2)) => {
-            n1.partial_cmp(n2).ok_or(CompareError::NaNNumber)
+            n1.partial_cmp(n2).ok_or(CompareError::NaNFloat)
         }
         (RsValue::String(s1), RsValue::String(s2)) => Ok(s1.as_bytes().cmp(s2.as_bytes())),
         (RsValue::Trio(t1), RsValue::Trio(t2)) => compare(
@@ -105,7 +105,7 @@ fn compare_number_to_string(
     if let Some(other_number) = str_to_float(slice) {
         number
             .partial_cmp(&other_number)
-            .ok_or(CompareError::NaNNumber)
+            .ok_or(CompareError::NaNFloat)
     } else if num_to_str_cmp_fallback {
         let mut buf = [0; 32];
         let n = num_to_str(number, &mut buf);

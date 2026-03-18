@@ -75,7 +75,7 @@ fn number_greater_than() {
 #[test]
 fn number_nan_returns_error() {
     let result = compare(&RsValue::Number(f64::NAN), &RsValue::Number(1.0), false);
-    assert!(matches!(result, Err(CompareError::NaNNumber)));
+    assert!(matches!(result, Err(CompareError::NaNFloat)));
 }
 
 #[test]
