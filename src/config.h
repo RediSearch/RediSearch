@@ -355,6 +355,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .monitorExpiration = true,                                                 \
     .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
     .monitorExpiration = true,                                                 \
     .infoEmitOnZeroIndexes = false,                                            \
