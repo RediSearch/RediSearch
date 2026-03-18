@@ -133,7 +133,7 @@ TEST_F(DictPauseRehashTest, ConcurrentPauseResume) {
   std::atomic<int> readyCount{0};
   std::atomic<bool> start{false};
 
-  std::vector<std::jthread> threads;
+  std::vector<std::thread> threads;
   threads.reserve(numThreads);
 
   for (int t = 0; t < numThreads; t++) {
@@ -160,7 +160,7 @@ TEST_F(DictPauseRehashTest, ConcurrentPauseResume) {
   // Start all threads at once
   start = true;
 
-  // Wait for all threads to complete (jthread joins automatically, but explicit for clarity)
+  // Wait for all threads to complete.
   for (auto &t : threads) {
     t.join();
   }
@@ -190,7 +190,7 @@ TEST_F(DictPauseRehashTest, ConcurrentFindWithPause) {
   std::atomic<int> readyCount{0};
   std::atomic<bool> start{false};
 
-  std::vector<std::jthread> threads;
+  std::vector<std::thread> threads;
   threads.reserve(numThreads);
 
   for (int t = 0; t < numThreads; t++) {
