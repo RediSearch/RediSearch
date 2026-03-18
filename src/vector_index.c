@@ -758,7 +758,7 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
     case VecSimAlgo_BF:
       return algo_params.bfParams.metric;
     default:
-      // Unknown algorithm type
-      RS_ABORT("Unknown algorithm in vector index");
+      RS_ABORT_ALWAYS("Unknown algorithm in vector index");
   }
+  __builtin_unreachable();
 }
