@@ -121,7 +121,7 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
 
   if (!VectorQuery_HasParam(vq, VECSIM_HYBRID_POLICY, sizeof(VECSIM_HYBRID_POLICY) - 1)) {
     QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
-                        "Disk pre-filtered vector queries currently require explicit HYBRID_POLICY");
+                        "Redis Flex pre-filtered vector queries currently require explicit HYBRID_POLICY");
     return REDISMODULE_ERR;
   }
 

@@ -386,6 +386,51 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_disk_vector_query_validation(env: Env):
+
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        't', 'TEXT',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+        'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK', 'TRUE',
+    ).ok()
+
+    docs = {
+        'doc:1': ([1.0, 1.0], 'hello'),
+        'doc:2': ([2.0, 2.0], 'hello'),
+        'doc:3': ([50.0, 50.0], 'goodbye'),
+    }
+
+    with env.getClusterConnectionIfNeeded() as conn:
+        for doc_id, (vector, text) in docs.items():
+            conn.execute_command('HSET', doc_id, 'v', create_np_array_typed(vector, 'FLOAT32').tobytes(), 't', text)
+
+    query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+
+    env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                'PARAMS', '2', 'b', query_blob).error().contains(
+                    'vector range queries are currently not supported in Redis Flex')
+
+    env.expect('FT.SEARCH', 'idx', '@t:hello=>[KNN 2 @v $b]', 'NOCONTENT',
+                'PARAMS', '2', 'b', query_blob).error().contains(
+                    'Redis Flex pre-filtered vector queries currently require explicit HYBRID_POLICY')
+
+    valid_queries = [
+        '@t:hello=>[KNN 2 @v $b HYBRID_POLICY BATCHES]',
+        '@t:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF]',
+        '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:BATCHES;}',
+        '@t:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY:ADHOC_BF;}',
+    ]
+
+    for query in valid_queries:
+        res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'PARAMS', '2', 'b', query_blob)
+        env.assertEqual(res[0], 2, message=f'Expected 2 results for query "{query}"')
+        env.assertEqual(set(res[1:]), {'doc:1', 'doc:2'}, message=f'Expected results doc:1 and doc:2 for query "{query}"')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_alter_command(env):
     _create_flex_search_fixture(env)
 

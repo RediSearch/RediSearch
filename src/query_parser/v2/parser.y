@@ -1132,7 +1132,7 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
     QueryNode_Free(C);
   } else if (SearchDisk_IsEnabledForValidation()) {
-    reportSyntaxError(ctx->status, &B.tok, "Syntax error: vector range queries are currently not supported for disk indexes");
+    reportSyntaxError(ctx->status, &B.tok, "Syntax error: vector range queries are currently not supported in Redis Flex");
     QueryNode_Free(C);
   } else if (C) {
     C->vn.vq->field = B.fs;
