@@ -17,6 +17,7 @@ use ffi::{Obfuscate_Number, Obfuscate_Text};
 use std::{
     ffi::CStr,
     fmt::{self, Debug},
+    str,
 };
 
 /// A wrapper around an [`RsValue`] reference that implements [`Debug`] with
@@ -36,7 +37,7 @@ impl<'a> Debug for DebugFormatter<'a> {
         fn fmt_text(f: &mut fmt::Formatter<'_>, text: &[u8], obfuscate: bool) -> fmt::Result {
             if obfuscate {
                 write!(f, "\"{}\"", obfuscate_text(text))
-            } else if let Ok(s) = std::str::from_utf8(text) {
+            } else if let Ok(s) = str::from_utf8(text) {
                 write!(f, "\"{s}\"")
             } else {
                 f.write_str("<non-utf8-data>")
@@ -52,7 +53,7 @@ impl<'a> Debug for DebugFormatter<'a> {
                 } else {
                     let mut buf = [0; 32];
                     let n = crate::util::num_to_str(*num, &mut buf);
-                    let s = std::str::from_utf8(&buf[0..n]).unwrap();
+                    let s = str::from_utf8(&buf[0..n]).unwrap();
                     f.write_str(s)
                 }
             }
