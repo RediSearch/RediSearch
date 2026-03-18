@@ -206,6 +206,8 @@ typedef struct {
   // If false, suppress emitting RediSearch INFO metrics when there are no indexes.
   // (We still emit the "version" section, and we never suppress crash-report info.)
   bool infoEmitOnZeroIndexes;
+  // If true, monitor document and field expiration for new indexes.
+  bool monitorExpiration;
 } RSConfig;
 
 typedef enum {
@@ -390,6 +392,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                    \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,            \
     .infoEmitOnZeroIndexes = false,                                            \
+    .monitorExpiration = true,                                                 \
   }
 
 #define REDIS_ARRAY_LIMIT 7
