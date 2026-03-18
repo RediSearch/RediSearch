@@ -23,9 +23,6 @@ and compares them against the actual implementation status in the codebase.
 | `FT.ALIASADD` | ✅ Allowed | — |
 | `FT.ALIASUPDATE` | ✅ Allowed | — |
 | `FT.ALIASDEL` | ✅ Allowed | — |
-| `FT.SYNUPDATE` | ✅ Allowed | — |
-| `FT.SYNDUMP` | ✅ Allowed | — |
-| `FT.SPELLCHECK` | ❌ Blocked | Not supported in MVP |
 | `FT.CONFIG` | ✅ Allowed | — |
 | `FT.DEBUG` | ✅ Allowed | — |
 
@@ -46,6 +43,10 @@ and compares them against the actual implementation status in the codebase.
 | `FT.SUGGET` | ❌ Blocked | Suggestions not supported |
 | `FT.SUGDEL` | ❌ Blocked | Suggestions not supported |
 | `FT.SUGLEN` | ❌ Blocked | Suggestions not supported |
+| `FT.SYNUPDATE` | ❌ Blocked | Synonyms not supported |
+| `FT.SYNDUMP` | ❌ Blocked | Synonyms not supported |
+| `FT.SYNADD` | ❌ Blocked | Synonyms not supported (deprecated) |
+| `FT.SPELLCHECK` | ❌ Blocked | Not supported |
 
 ### Deprecated Commands (Blocked)
 

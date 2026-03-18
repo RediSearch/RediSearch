@@ -555,3 +555,22 @@ def test_flex_blocks_spellcheck_command(env):
 
     env.expect('FT.SPELLCHECK', 'idx', 'helo') \
         .error().contains('FT.SPELLCHECK is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_synonym_commands(env):
+    """Test that FT.SYNUPDATE, FT.SYNDUMP, and FT.SYNADD are blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    # FT.SYNUPDATE is blocked
+    env.expect('FT.SYNUPDATE', 'idx', 'group1', 'hello', 'hi', 'hey') \
+        .error().contains('FT.SYNUPDATE is not supported in Redis Flex')
+
+    # FT.SYNDUMP is blocked
+    env.expect('FT.SYNDUMP', 'idx') \
+        .error().contains('FT.SYNDUMP is not supported in Redis Flex')
+
+    # FT.SYNADD is deprecated and blocked (returns different error but should be blocked)
+    env.expect('FT.SYNADD', 'idx', 'hello', 'hi') \
+        .error().contains('FT.SYNADD is not supported in Redis Flex')
