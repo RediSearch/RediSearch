@@ -12,8 +12,8 @@ use std::ptr::NonNull;
 use ffi::{
     IteratorType_INV_IDX_WILDCARD_ITERATOR, IteratorType_WILDCARD_ITERATOR, QueryIterator, t_docId,
 };
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{RQEIterator, Wildcard};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
 #[unsafe(no_mangle)]
