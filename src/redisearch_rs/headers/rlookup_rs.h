@@ -576,19 +576,6 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  */
 struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
-#if defined(ENABLE_ASSERT)
-/**
- * Run internal assertions on an [`RLookup`].
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void __RLookup_AssertValid(const struct RLookup *lookup);
-#endif
-
 /**
  * Returns a newly created [`RLookupRow`].
  */
