@@ -243,7 +243,7 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
 }
 
-void DocTable_DisableExpirationMonitoring(DocTable *t) {
+void DocTable_ClearExpirationData(DocTable *t) {
   if (t->ttl) {
     dictIterator *ttlIter = dictGetIterator(t->ttl);
     dictEntry *ttlEntry;

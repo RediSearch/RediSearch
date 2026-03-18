@@ -594,9 +594,12 @@ typedef struct {
 } QueryInput;
 
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
-  // here we only take the read lock and we will free it when the iterator will be freed
+  /* Two-level locking scheme:
+   * 1. RWLOCK (global) - protects access to all indexes, prevents index destruction
+   * 2. sp->rwlock (per-spec) - protects this index's data structures (e.g., TTL table)
+   * Both locks are acquired here and released in RediSearch_ResultsIteratorFree.
+   * On error, cleanup is done here if iter->sp wasn't set, otherwise in Free. */
   RWLOCK_ACQUIRE_READ();
-  /* Acquire spec read lock to synchronize with config changes that may destroy TTL table */
   pthread_rwlock_rdlock(&sp->rwlock);
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
@@ -731,15 +734,16 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   DMD_Return(iter->lastmd);
+  /* Release locks only if iter->sp is set. On error paths in handleIterCommon,
+   * if iter->sp is NULL, locks were already released there before calling this.
+   * Lock release order: spec lock first, then global lock (reverse of acquisition). */
   if (iter->sp) {
     if (iter->sp->keysDict) {
       dictResumeRehashing(iter->sp->keysDict);
     }
-    /* Also resume rehashing on the TTL table if it exists */
     if (iter->sp->docs.ttl) {
       dictResumeRehashing(iter->sp->docs.ttl);
     }
-    /* Release spec read lock */
     pthread_rwlock_unlock(&iter->sp->rwlock);
   }
   rm_free(iter);

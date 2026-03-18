@@ -269,7 +269,7 @@ static int set_monitor_expiration(const char *name, int val, void *privdata,
           // Disabling: clear flags and clean up TTL data
           sp->monitorDocumentExpiration = false;
           sp->monitorFieldExpiration = false;
-          DocTable_DisableExpirationMonitoring(&sp->docs);
+          DocTable_ClearExpirationData(&sp->docs);
         }
         IndexSpec_ReleaseWriteLock(sp);
       }
