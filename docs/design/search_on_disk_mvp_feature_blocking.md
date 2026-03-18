@@ -38,7 +38,7 @@ and compares them against the actual implementation status in the codebase.
 | `MAXTEXTFIELDS` | ✅ Yes | ✅ BLOCKED | `spec.c:1741-1759` - Not in `flex_argopts` |
 | `ASYNC` | ✅ Yes | ✅ BLOCKED | `spec.c:1741-1759` - Not in `flex_argopts` |
 | Missing `SKIPINITIALSCAN` | ✅ Yes | ✅ BLOCKED | `spec.c` - Requires SKIPINITIALSCAN for Flex |
-| `WITHSUFFIXTRIE` | ⚠️ Per doc | ❌ NOT BLOCKED | Still accepted in `parseTextField`/`parseTagField` |
+| `WITHSUFFIXTRIE` | ✅ Yes | ✅ BLOCKED | `spec.c:1141-1148,1181-1188` - Blocked in `parseTextField`/`parseTagField` |
 
 ---
 

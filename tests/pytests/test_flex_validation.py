@@ -470,3 +470,21 @@ def test_flex_blocks_temporary_indexes(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'TEMPORARY', '120',
                'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `TEMPORARY`')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_withsuffixtrie_text_field(env):
+    """Test that WITHSUFFIXTRIE on TEXT fields is blocked in Redis Flex"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
+               'SCHEMA', 'field', 'TEXT', 'WITHSUFFIXTRIE') \
+        .error().contains('WITHSUFFIXTRIE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_withsuffixtrie_tag_field(env):
+    """Test that WITHSUFFIXTRIE on TAG fields is blocked in Redis Flex"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
+               'SCHEMA', 'field', 'TAG', 'WITHSUFFIXTRIE') \
+        .error().contains('WITHSUFFIXTRIE is not supported in Redis Flex')

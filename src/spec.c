@@ -1139,6 +1139,11 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->options |= FieldSpec_Phonetics;
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      if (SearchDisk_IsEnabledForValidation()) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FIELD_OPTION,
+          "%s is not supported in Redis Flex", SPEC_WITHSUFFIXTRIE_STR);
+        return 0;
+      }
       fs->options |= FieldSpec_WithSuffixTrie;
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
       fs->options |= FieldSpec_IndexEmpty;
@@ -1174,6 +1179,11 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
         fs->tagOpts.tagFlags |= TagField_CaseSensitive;
       } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+        if (SearchDisk_IsEnabledForValidation()) {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FIELD_OPTION,
+            "%s is not supported in Redis Flex", SPEC_WITHSUFFIXTRIE_STR);
+          return 0;
+        }
         fs->options |= FieldSpec_WithSuffixTrie;
       } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
         fs->options |= FieldSpec_IndexEmpty;

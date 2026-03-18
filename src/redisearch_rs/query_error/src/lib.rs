@@ -90,6 +90,7 @@ pub enum QueryErrorCode {
     UnavailableSlots,
     FlexLimitNumberOfIndexes,
     FlexUnsupportedField,
+    FlexUnsupportedFieldOption,
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
     FlexSkipInitialScanMissingArgument,
@@ -425,6 +426,11 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_FIELD ",
                 default_msg: c"Unsupported field for Flex index",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_FIELD Unsupported field for Flex index",
+            },
+            Self::FlexUnsupportedFieldOption => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_UNSUPPORTED_FIELD_OPTION ",
+                default_msg: c"Unsupported field option for Flex index",
+                default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_FIELD_OPTION Unsupported field option for Flex index",
             },
             Self::FlexUnsupportedFTCreateArgument => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT ",
