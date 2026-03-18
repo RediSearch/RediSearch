@@ -684,6 +684,10 @@ struct RsValue *RSValue_DereferenceRefAndTrio(const struct RsValue *value);
 /**
  * Resets `value` to [`RsValue::Undefined`], dropping whatever it previously held.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to this [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
@@ -708,6 +712,10 @@ struct RsValue *RSValue_IncrRef(const struct RsValue *value);
  *
  * `src`'s reference count is incremented; `dst`'s previous content is dropped.
  *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
+ *
  * # Safety
  *
  * 1. `dst` and `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
@@ -719,6 +727,10 @@ void RSValue_MakeReference(const struct RsValue *dst, const struct RsValue *src)
  * incrementing its reference count.
  *
  * After this call, `src` must not be used or freed by the caller.
+ *
+ * # Panic
+ *
+ * Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
  *
  * # Safety
  *

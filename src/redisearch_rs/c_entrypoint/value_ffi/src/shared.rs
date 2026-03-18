@@ -60,6 +60,10 @@ pub unsafe extern "C" fn RSValue_DereferenceRefAndTrio(value: *const RsValue) ->
 
 /// Resets `value` to [`RsValue::Undefined`], dropping whatever it previously held.
 ///
+/// # Panic
+///
+/// Panics if more than 1 reference exists to this [`RsValue`] object.
+///
 /// # Safety
 ///
 /// 1. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
@@ -92,6 +96,10 @@ pub unsafe extern "C" fn RSValue_IncrRef(value: *const RsValue) -> *mut RsValue 
 ///
 /// `src`'s reference count is incremented; `dst`'s previous content is dropped.
 ///
+/// # Panic
+///
+/// Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
+///
 /// # Safety
 ///
 /// 1. `dst` and `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
@@ -111,6 +119,10 @@ pub unsafe extern "C" fn RSValue_MakeReference(dst: *const RsValue, src: *const 
 /// incrementing its reference count.
 ///
 /// After this call, `src` must not be used or freed by the caller.
+///
+/// # Panic
+///
+/// Panics if more than 1 reference exists to the `dst` [`RsValue`] object.
 ///
 /// # Safety
 ///
