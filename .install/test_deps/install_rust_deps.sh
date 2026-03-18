@@ -28,9 +28,7 @@ curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-
 # Tool required to compute test coverage for Rust code
 cargo binstall cargo-llvm-cov@0.8.4 -y --locked --strategies="crate-meta-data,compile"
 # Our preferred test runner, instead of the default `cargo test`
-<<<<<<< Updated upstream
 cargo binstall cargo-nextest@0.9.130 -y --locked --strategies="crate-meta-data,compile"
-=======
 # Use pre-built musl binary for maximum compatibility across glibc versions
 # (cargo install builds dynamically against system glibc which causes issues on older systems)
 if [ "$OS_TYPE" = "Linux" ]; then
@@ -49,7 +47,6 @@ else
     # Fallback to cargo install for other OSes
     cargo install cargo-nextest --locked
 fi
->>>>>>> Stashed changes
 # Tool to aggressively unify the feature sets of our dependencies,
 # thus improving the cacheability of our builds
 # See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/
