@@ -345,12 +345,14 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
 int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char** errs) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
+  pthread_rwlock_wrlock(&sp->rwlock);
 
   RSError err = {.s = errs};
   QueryError status = QueryError_Default();
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   if (aCtx == NULL) {
     QueryError_ClearError(&status);
+    pthread_rwlock_unlock(&sp->rwlock);
     RWLOCK_RELEASE();
     return REDISMODULE_ERR;
   }
@@ -366,6 +368,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
         *errs = rm_strdup("Document already exists");
       }
       AddDocumentCtx_Free(aCtx);
+      pthread_rwlock_unlock(&sp->rwlock);
       RWLOCK_RELEASE();
       return REDISMODULE_ERR;
     }
@@ -376,6 +379,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   QueryError_ClearError(&status);
   rm_free(d);
 
+  pthread_rwlock_unlock(&sp->rwlock);
   RWLOCK_RELEASE();
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
