@@ -485,9 +485,11 @@ prepare_cmake_arguments() {
   # Add caching flags to prevent using old configurations
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
-  if [[ "$OS_NAME" == "macos" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
-  fi
+  # if [[ "$OS_NAME" == "macos" ]]; then
+  #   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+  # fi
+
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=/opt/homebrew/bin/gcc-15 -DCMAKE_CXX_COMPILER=/opt/homebrew/bin/g++-15"
 
   if [[ "$BUILD_INTEL_SVS_OPT" == "yes" || "$BUILD_INTEL_SVS_OPT" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_INTEL_SVS_OPT=ON"
