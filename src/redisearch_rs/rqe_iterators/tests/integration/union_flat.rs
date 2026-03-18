@@ -35,9 +35,7 @@ type Union<I> = UnionFullFlat<'static, I>;
 /// Returns a tuple of (child, data_handle) where:
 /// - `child` is a boxed iterator that can be passed to union constructors
 /// - `data_handle` can be used to verify read counts and configure revalidation
-fn create_mock_1<const N: usize>(
-    ids: [t_docId; N],
-) -> (Box<dyn RQEIterator<'static>>, MockData) {
+fn create_mock_1<const N: usize>(ids: [t_docId; N]) -> (Box<dyn RQEIterator<'static>>, MockData) {
     let c = Mock::<N>::new(ids);
     let d = c.data();
     (Box::new(c), d)
@@ -549,7 +547,11 @@ fn edge_case_interleaved_read_and_skip_to() {
 
 #[test]
 fn edge_case_num_estimated_is_sum() {
-    let (children, _) = create_mock_3([1, 2, 3, 4, 5], [10, 20, 30, 40, 50], [100, 200, 300, 400, 500]);
+    let (children, _) = create_mock_3(
+        [1, 2, 3, 4, 5],
+        [10, 20, 30, 40, 50],
+        [100, 200, 300, 400, 500],
+    );
     let union_iter = Union::new(children);
 
     // For union, num_estimated is the sum (upper bound)
