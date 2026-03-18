@@ -55,10 +55,25 @@ and compares them against the actual implementation status in the codebase.
 | `GEOFILTER` | ✅ Implicit | ✅ BLOCKED (implicit) | GEO field type is blocked, so no GEO index |
 | `FILTER` (numeric) | ✅ Implicit | ✅ BLOCKED (implicit) | NUMERIC field type is blocked |
 | `SORTBY` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:310-312` |
-| `SCORER TFIDF` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1430-1433` - uses slop |
-| `SCORER TFIDF.DOCNORM` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1434-1437` - uses slop |
-| `SCORER BM25` | ✅ Yes | ✅ BLOCKED | `aggregate_request.c:1438-1441` - uses slop (deprecated) |
-| `SCORER BM25STD` | No | ➖ Allowed | Default scorer, does not use slop |
+
+### Scorer Reference
+
+The following table lists all available scorers and their Disk mode compatibility:
+
+| Scorer | Should Block? | Actually Blocked? | Reason | Code Location |
+|--------|---------------|-------------------|--------|---------------|
+| `TFIDF` | ✅ Yes | ✅ BLOCKED | Uses SLOP in calculation (`tfidf /= slop`) | `aggregate_request.c:1433-1437`, `default.c:116-117` |
+| `TFIDF.DOCNORM` | ✅ Yes | ✅ BLOCKED | Uses SLOP (same as TFIDF, different normalization) | `aggregate_request.c:1438-1442`, `default.c:116-117` |
+| `BM25` | ✅ Yes | ✅ BLOCKED | Uses SLOP in calculation (`score /= slop`) - **deprecated** | `aggregate_request.c:1443-1447`, `default.c:211-212` |
+| `BM25STD` | No | ➖ Allowed | **Default scorer** - does not use SLOP | — |
+| `BM25STD.TANH` | No | ➖ Allowed | Normalized BM25STD with tanh - does not use SLOP | — |
+| `BM25STD.NORM` | No | ➖ Allowed | Normalized BM25STD - does not use SLOP | — |
+| `DISMAX` | No | ➖ Allowed | Sum of term frequencies - does not use SLOP | — |
+| `DOCSCORE` | No | ➖ Allowed | Returns raw document score only - does not use SLOP | — |
+| `HAMMING` | No | ➖ Allowed | Hamming distance scorer - does not use SLOP | — |
+
+**Note:** Scorers that use SLOP require term offset information to calculate proximity between matched terms.
+Since SLOP is blocked for Disk mode (see above), any scorer that relies on SLOP must also be blocked.
 
 ---
 
