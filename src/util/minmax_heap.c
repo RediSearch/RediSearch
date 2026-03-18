@@ -344,3 +344,19 @@ void mmh_clear(mm_heap_t* h) {
   }
   h->count = 0;
 }
+
+void** mmh_get_data(mm_heap_t* h) {
+  return &h->data[1];
+}
+
+void mmh_heapify(mm_heap_t* h) {
+  // Floyd's algorithm: start from last non-leaf, trickle down to root.
+  // O(n) time complexity.
+  for (int i = h->count / 2; i >= 1; i--) {
+    if (is_min(i)) {
+      trickledown_min(h, i);
+    } else {
+      trickledown_max(h, i);
+    }
+  }
+}
