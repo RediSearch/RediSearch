@@ -315,7 +315,7 @@ The following operating systems are supported and tested in CI:
 * Amazon linux 2023
 * Mariner 2.0
 * Azure linux 3
-* MacOS
+* macOS
 * Alpine linux 3
 
 ### Platform-specific compiler requirements
@@ -332,5 +332,5 @@ The following operating systems are supported and tested in CI:
 - Amazon Linux 2023: Default GCC is sufficient
 - Mariner 2.0: Default GCC is sufficient
 - Azure Linux 3: Default GCC is sufficient
-- MacOS: Install clang-18 via brew
+- macOS: Install llvm@21 via homebrew
 - Alpine Linux 3: Default GCC is sufficient
