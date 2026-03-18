@@ -28,24 +28,18 @@ curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-
 # Tool required to compute test coverage for Rust code
 cargo binstall cargo-llvm-cov@0.8.4 -y --locked --strategies="crate-meta-data,compile"
 # Our preferred test runner, instead of the default `cargo test`
-cargo binstall cargo-nextest@0.9.130 -y --locked --strategies="crate-meta-data,compile"
-# Use pre-built musl binary for maximum compatibility across glibc versions
-# (cargo install builds dynamically against system glibc which causes issues on older systems)
+# Use musl targets on Linux for maximum compatibility across glibc versions
+# (default builds dynamically against system glibc which causes issues on older systems)
 if [ "$OS_TYPE" = "Linux" ]; then
     if [ "$processor" = "x86_64" ]; then
-        curl -LsSf https://get.nexte.st/latest/linux-musl | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+        cargo binstall --target=x86_64-unknown-linux-musl cargo-nextest@0.9.130 -y --locked --strategies="crate-meta-data,compile"
     elif [ "$processor" = "aarch64" ]; then
-        curl -LsSf https://get.nexte.st/latest/linux-arm-musl | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+        cargo binstall --target=aarch64-unknown-linux-musl cargo-nextest@0.9.130 -y --locked --strategies="crate-meta-data,compile"
     else
-        # Fallback to cargo install for other architectures
-        cargo install cargo-nextest --locked
+        cargo binstall cargo-nextest@0.9.130 -y --locked --strategies="crate-meta-data,compile"
     fi
-elif [ "$OS_TYPE" = "Darwin" ]; then
-    # macOS - use universal binary
-    curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
 else
-    # Fallback to cargo install for other OSes
-    cargo install cargo-nextest --locked
+    cargo binstall cargo-nextest@0.9.130 -y --locked --strategies="crate-meta-data,compile"
 fi
 # Tool to aggressively unify the feature sets of our dependencies,
 # thus improving the cacheability of our builds
