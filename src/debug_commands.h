@@ -9,8 +9,9 @@
 #pragma once
 
 #include "redismodule.h"
-#include  <stdbool.h>
+#include <stdbool.h>
 #include <stdatomic.h>
+#include <stdint.h>
 #include "result_processor.h"
 
 #define RS_DEBUG_FLAGS 0, 0, 0
@@ -91,7 +92,34 @@ bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
 void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool StoreResultsDebugCtx_IsPaused(void);
 void StoreResultsDebugCtx_SetPause(bool pause);
-#endif
+
+// ============================================================================
+// Named Sync Points for deterministic concurrency testing
+// ============================================================================
+
+// Predefined sync point names for query execution
+// These correspond to specific locations in the query execution path
+#define SYNC_POINT_AFTER_ITERATOR_CREATE  "AfterIteratorCreate"
+#define SYNC_POINT_BEFORE_FIRST_READ      "BeforeFirstRead"
+
+// SyncPoint API function declarations
+// Arm a sync point - subsequent calls to SyncPoint_Wait will block
+// Returns true on success, false if max sync points reached
+// NOTE: Not thread-safe. Must only be called from the main thread.
+bool SyncPoint_Arm(const char *name);
+// Signal a waiting thread at the named sync point to continue (also disarms it)
+void SyncPoint_Signal(const char *name);
+// Check if a thread is waiting at the named sync point
+bool SyncPoint_IsWaiting(const char *name);
+// Check if a sync point is armed
+bool SyncPoint_IsArmed(const char *name);
+// Clear all sync points
+void SyncPoint_ClearAll(void);
+// Called from code paths to potentially wait at a sync point
+// If the named point is armed, blocks until signaled
+void SyncPoint_Wait(const char *name);
+
+#endif  // ENABLE_ASSERT
 
 // Yield counter functions
 void IncrementLoadYieldCounter(void);
