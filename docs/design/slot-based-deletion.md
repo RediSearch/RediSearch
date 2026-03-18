@@ -292,6 +292,11 @@ The global specs dictionary (`specDict_g`) is **not thread-safe** and should onl
 - Each job holds a `WeakRef` to its spec, promoted to `StrongRef` at execution start
 - If promotion fails (spec was dropped), the job is skipped
 
+For the DocTable scan itself:
+- While a cleanup batch holds the spec **read lock**, the DocTable cannot grow underneath it, because growth happens on the write path.
+- Between batches, the DocTable may grow, but the current implementation does **not** rehash or shrink existing entries; it only expands the buckets array and appends empty buckets.
+- Cleanup therefore never keeps `DMDChain *` / `RSDocumentMetadata *` scan cursors across lock releases; it only keeps stable progress state such as bucket position and collected `docId`s.
+
 ### Thread Pool: `cleanPool`
 
 Use existing `cleanPool` (defined in `src/spec.c`):
@@ -339,7 +344,8 @@ void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {
 ### Background Cleanup Task
 
 ```c
-#define CLEANUP_BATCH_SIZE 64
+#define SCAN_DOC_LIMIT 4096
+#define APPLY_DOC_LIMIT 512
 
 // Helper: Check if slot is in the given slot ranges
 static bool SlotInRanges(uint16_t slot, const RedisModuleSlotRangeArray *slots) {
@@ -349,43 +355,63 @@ static bool SlotInRanges(uint16_t slot, const RedisModuleSlotRangeArray *slots) 
   return false;
 }
 
-// Cleanup a batch of buckets
-static void DocTable_CleanupSlots_Batch(IndexSpec *spec, PendingSlotDeletion *pending,
-                                         size_t startBucket, size_t endBucket) {
+// Collect all candidate docIds across multiple bounded read-lock passes.
+// Each pass scans up to SCAN_DOC_LIMIT DMDs, and we finish the current
+// bucket once we start scanning it.
+static arrayof(t_docId) DocTable_CollectSlotDocIds(IndexSpec *spec,
+                                                   PendingSlotDeletion *pending) {
   DocTable *t = &spec->docs;
+  size_t nextBucket = 0;
+  arrayof(t_docId) docIds = array_new(t_docId, 64);
 
-  // Phase 1: COLLECT candidate docIds with READ lock
-  IndexSpec_ReadLock(spec);
+  for (;;) {
+    IndexSpec_ReadLock(spec);
 
-  arrayof(t_docId) docIdsToDelete = array_new(t_docId, 64);
-  for (size_t i = startBucket; i < endBucket; i++) {
-    DMDChain *chain = &t->buckets[i];
-    for (RSDocumentMetadata *dmd = chain->root; dmd; dmd = dmd->nextInChain) {
-      // Skip docs written after notification
-      if (dmd->id > pending->maxDocId) continue;
+    // IMPORTANT: Use only a cap snapshot taken while holding the read lock
+    // to decide how far this pass can scan. The DocTable may grow between
+    // passes, but it cannot grow while this read lock is held.
+    size_t cap_snapshot = t->cap;
+    if (nextBucket >= cap_snapshot) {
+      IndexSpec_ReadUnlock(spec);
+      break;
+    }
 
-      // Check if slot is in deletion range
-      if (SlotInRanges(dmd->slot, pending->slots)) {
-        array_append(docIdsToDelete, dmd->id);
+    size_t scanned_this_pass = 0;
+    while (nextBucket < cap_snapshot && scanned_this_pass < SCAN_DOC_LIMIT) {
+      size_t i = nextBucket++;
+      DMDChain *chain = &t->buckets[i];
+      for (RSDocumentMetadata *dmd = chain->root; dmd; dmd = dmd->nextInChain) {
+        ++scanned_this_pass;
+
+        // Skip docs written after notification
+        if (dmd->id > pending->maxDocId) continue;
+
+        // Check if slot is in deletion range
+        if (SlotInRanges(dmd->slot, pending->slots)) {
+          array_append(docIds, dmd->id);
+        }
       }
     }
+    IndexSpec_ReadUnlock(spec);
   }
-  IndexSpec_ReadUnlock(spec);
 
-  // Phase 2: DELETE with brief WRITE lock
+  return docIds;
+}
+
+// Apply deletions from the collected array using bounded write-lock chunks.
+static void DocTable_ApplySlotDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
   // docIds are unique, so there is no second validation step here.
   // If the exact docId is already gone, we just continue.
   // All live-state mutations (DocTable, stats, VecSim, Geometry, GC bookkeeping)
   // stay in the parent under the write lock.
-  if (array_len(docIdsToDelete) > 0) {
+  for (size_t startIndex = 0; startIndex < array_len(docIds); startIndex += APPLY_DOC_LIMIT) {
+    size_t endIndex = MIN(startIndex + APPLY_DOC_LIMIT, array_len(docIds));
     IndexSpec_WriteLock(spec);
-    for (size_t i = 0; i < array_len(docIdsToDelete); i++) {
-      IndexSpec_DeleteDocByID_Unsafe(spec, docIdsToDelete[i]);
+    for (size_t i = startIndex; i < endIndex; i++) {
+      IndexSpec_DeleteDocByID_Unsafe(spec, docIds[i]);
     }
     IndexSpec_WriteUnlock(spec);
   }
-
-  array_free(docIdsToDelete);
 }
 
 // Free cleanup context resources
@@ -406,11 +432,13 @@ void SlotCleanupTask_Run(SlotCleanupCtx *ctx) {
   DocTable *t = &spec->docs;
   PendingSlotDeletion *pending = ctx->pending;
 
-  // Process all buckets in batches
-  for (size_t startBucket = 0; startBucket < t->cap; startBucket += CLEANUP_BATCH_SIZE) {
-    size_t endBucket = MIN(startBucket + CLEANUP_BATCH_SIZE, t->cap);
-    DocTable_CleanupSlots_Batch(spec, pending, startBucket, endBucket);
-  }
+  // Phase 1: collect all candidate docIds across multiple bounded read-lock batches.
+  arrayof(t_docId) docIds = DocTable_CollectSlotDocIds(spec, pending);
+
+  // Phase 2: apply deletions from the collected array in separate bounded write-lock batches.
+  DocTable_ApplySlotDeletes(spec, docIds);
+
+  array_free(docIds);
 
   // Remove our entry from pending deletions list
   IndexSpec_WriteLock(spec);
@@ -539,12 +567,19 @@ remain centralized in one shared implementation.
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ 4. SlotCleanupTask_Run() [cleanPool - Background Thread]                   │
 │                                                                            │
-│    FOR each bucket batch (64 buckets):                                     │
-│      Phase 1 - COLLECT candidate docIds with ReadLock                      │
-│                Check slot in ranges && id <= maxDocId                      │
-│      Phase 2 - DELETE with WriteLock                                       │
-│                Pop exact docId if it still exists                          │
-│                Update stats, trigger GC, VecSim/Geometry                   │
+│    Phase 1 - COLLECT LOOP                                                  │
+│      ReadLock                                                               │
+│      Scan up to SCAN_DOC_LIMIT DMDs per pass                               │
+│      Append matching candidate docIds to the collected array               │
+│      Finish current bucket, then unlock                                    │
+│      Repeat until all buckets were scanned                                 │
+│                                                                            │
+│    Phase 2 - APPLY LOOP                                                    │
+│      Iterate over the collected docIds array                               │
+│      WriteLock                                                              │
+│      Delete up to APPLY_DOC_LIMIT docIds                                   │
+│      Update stats, trigger GC, VecSim/Geometry                             │
+│      Unlock                                                                 │
 │                                                                            │
 │    Remove this entry from pendingSlotDeletions list                        │
 │                                                                            │
@@ -717,8 +752,8 @@ The difference is that TRIM_BACKGROUND also performs the ASM trim state transiti
 | `Indexes_DeleteSlots` | O(num_specs) | Write per spec | Brief per spec |
 | `DocTable_Borrow` (normal) | O(chain_length) | Read | — |
 | `DocTable_Borrow` (during cleanup) | O(chain_length × num_pending) | Read | — |
-| Cleanup collection phase | O(batch_size × avg_chain) | **Read** | Per batch |
-| Cleanup deletion phase | O(docs_to_delete) | Write | Brief, only if candidates found |
+| Cleanup collection phase | O(collected_docs + scanned_chains) | **Read** | Per collect batch |
+| Cleanup deletion phase | O(applied_docs) | Write | Per apply batch |
 | Total background cleanup | O(total_documents) | Mostly read | Yielding |
 
 ---
@@ -730,6 +765,7 @@ The difference is that TRIM_BACKGROUND also performs the ASM trim state transiti
 | Per DMD (`slot` field) | 0 bytes (uses padding) | 0 bytes |
 | Per DocTable (pending list pointer) | 8 bytes | 8 bytes |
 | Per pending deletion entry | 0 bytes | ~40 bytes (slots array + maxDocId) |
+| Per cleanup job | 0 bytes | Temporary `arrayof(t_docId)` holding all collected candidates |
 
 Note: Typically 0-2 pending deletions at any time. Memory freed when cleanup completes.
 
@@ -741,14 +777,14 @@ Note: Typically 0-2 pending deletions at any time. Memory freed when cleanup com
 |-----------|-----------|-------|
 | `DocTable_AddPendingDeletion` | Write | Held briefly, per spec |
 | `DocTable_IsDocPendingDeletion` | Read | Part of `DocTable_Borrow` |
-| Cleanup collection (iteration) | **Read** | Queries run concurrently |
-| Cleanup deletion (mutations) | Write | Brief, only when candidate docIds found |
+| Cleanup collection (iteration) | **Read** | Bounded by `SCAN_DOC_LIMIT`, queries run concurrently |
+| Cleanup deletion (mutations) | Write | Bounded by `APPLY_DOC_LIMIT` |
 | `DocTable_RemovePendingDeletion` | Write | Held briefly |
 
 The two-phase cleanup approach minimizes query blocking:
-- **Collection phase** uses read lock — queries proceed normally
-- **Deletion phase** uses brief write lock — only for actual mutations
-- If no documents to delete in a batch, write lock is never taken
+- **Collection phase** uses multiple read-lock passes — queries proceed normally, and each pass is bounded by a scan-specific limit
+- **Apply phase** uses multiple write-lock passes — only for actual mutations, and each pass is bounded by a separate apply-specific limit
+- If no documents were collected overall, the apply lock is never taken
 
 ---
 
@@ -816,7 +852,7 @@ Since collection (read lock) and deletion (write lock) are separate:
 
 ## Future Considerations
 
-- **Batch size tuning**: `CLEANUP_BATCH_SIZE` may need adjustment based on workload
+- **Batch size tuning**: `SCAN_DOC_LIMIT` and `APPLY_DOC_LIMIT` may need adjustment based on workload
 - **Progress tracking**: Could add metrics for monitoring cleanup progress
 - **Cancellation**: If needed, could add early termination for cleanup jobs
 
