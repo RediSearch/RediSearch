@@ -332,6 +332,33 @@ pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
     unsafe { result.as_aggregate_unchecked() }
 }
 
+/// Get a mutable aggregate result reference without performing a runtime check
+/// on the enum discriminant.
+///
+/// Use this method if and only if you've already checked the enum
+/// discriminant in C code and you don't want to incur the (small)
+/// performance penalty of an additional redundant check.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// 2. `result`'s data payload must be of the aggregate kind
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateRefMutUnchecked<'result, 'index>(
+    result: *mut RSIndexResult<'index>,
+) -> Option<&'result mut RSAggregateResult<'index>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: The cast is valid thanks to safety precondition 1.
+    let result = unsafe { &mut *result };
+
+    // SAFETY:
+    // - The caller guarantees we can skip the discriminant check
+    //   thanks to safety precondition 2.
+    unsafe { result.as_aggregate_mut_unchecked() }
+}
+
 /// Reset the result if it is an aggregate result. This will clear the children vector
 /// and reset the kind mask.
 ///
@@ -394,6 +421,31 @@ pub unsafe extern "C" fn AggregateResult_GetUnchecked<'result, 'index>(
     // SAFETY:
     // 1. Guaranteed by the caller thanks to safety precondition 1.
     unsafe { agg.get_unchecked(index) }
+}
+
+/// Get a mutable result at the specified index in the aggregate result, without checking bounds.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// 2. `index` must be lower than the length of the aggregate result children vector.
+/// 3. `agg` must be of the `Owned` variant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_GetMutUnchecked<'result, 'index>(
+    agg: *mut RSAggregateResult<'index>,
+    index: usize,
+) -> &'result mut RSIndexResult<'index> {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &mut *agg };
+
+    // SAFETY:
+    // 1. Guaranteed by the caller thanks to safety preconditions 1 and 2.
+    // 2. Guaranteed by the caller thanks to safety precondition 3.
+    unsafe { agg.get_mut_unchecked(index) }
 }
 
 /// Get the element count of the aggregate result.

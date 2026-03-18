@@ -559,6 +559,34 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
+    /// Get the mutable aggregate result associated with this record
+    /// **without checking the discriminant**.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_aggregate` must return `true` for `self`.
+    pub unsafe fn as_aggregate_mut_unchecked(&mut self) -> Option<&mut RSAggregateResult<'index>> {
+        debug_assert!(
+            self.is_aggregate(),
+            "Invariant violation: `as_aggregate_mut_unchecked` was invoked on an `IndexResult` \
+            instance that didn't actually contain an aggregate! It was a {}",
+            self.kind()
+        );
+        match &mut self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => Some(agg),
+            RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => {
+                // SAFETY:
+                // - Thanks to safety precondition 1., we'll never reach this statement.
+                unsafe { std::hint::unreachable_unchecked() }
+            }
+        }
+    }
+
     /// True if this is an aggregate kind
     pub const fn is_aggregate(&self) -> bool {
         matches!(

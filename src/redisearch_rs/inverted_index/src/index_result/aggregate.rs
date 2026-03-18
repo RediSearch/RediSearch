@@ -246,6 +246,34 @@ impl<'index> RSAggregateResult<'index> {
             RSAggregateResult::Owned { records, .. } => records.get_mut(index).map(AsMut::as_mut),
         }
     }
+
+    /// Get a mutable reference to the child at the given index, without checking bounds.
+    ///
+    /// # Safety
+    ///
+    /// 1. The index must be within the bounds of the children vector.
+    /// 2. The aggregate result must be of the `Owned` variant.
+    pub unsafe fn get_mut_unchecked(&mut self, index: usize) -> &mut RSIndexResult<'index> {
+        match self {
+            RSAggregateResult::Borrowed { .. } => {
+                debug_assert!(
+                    false,
+                    "Safety violation: trying to get a mutable reference from a borrowed aggregate result"
+                );
+                // SAFETY: Thanks to precondition 2., we'll never reach this statement.
+                unsafe { std::hint::unreachable_unchecked() }
+            }
+            RSAggregateResult::Owned { records, .. } => {
+                debug_assert!(
+                    index < records.len(),
+                    "Safety violation: trying to access an aggregate result child at an out-of-bounds index, {index}. Length: {}",
+                    records.len()
+                );
+                // SAFETY: Thanks to precondition 1., we know that the index is within bounds.
+                unsafe { records.get_unchecked_mut(index) }
+            }
+        }
+    }
 }
 
 /// An iterator over the results in an [`RSAggregateResult`].
