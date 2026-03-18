@@ -250,31 +250,26 @@ where
                 continue;
             }
 
-            if !child.at_eof() {
-                match child.skip_to(doc_id)? {
-                    Some(SkipToOutcome::Found(r)) => {
-                        let id = r.doc_id;
-                        if id < min_id {
-                            min_id = id;
-                        }
-                        self.add_child_to_result(i);
+            // Call skip_to directly - it handles EOF internally and returns None
+            match child.skip_to(doc_id)? {
+                Some(SkipToOutcome::Found(r)) => {
+                    let id = r.doc_id;
+                    if id < min_id {
+                        min_id = id;
                     }
-                    Some(SkipToOutcome::NotFound(r)) => {
-                        let id = r.doc_id;
-                        if id < min_id {
-                            min_id = id;
-                        }
-                    }
-                    None => {
-                        // Child exhausted - swap-remove and continue without incrementing i
-                        self.swap_remove_child(i);
-                        continue;
+                    self.add_child_to_result(i);
+                }
+                Some(SkipToOutcome::NotFound(r)) => {
+                    let id = r.doc_id;
+                    if id < min_id {
+                        min_id = id;
                     }
                 }
-            } else {
-                // Child already at EOF - swap-remove
-                self.swap_remove_child(i);
-                continue;
+                None => {
+                    // Child exhausted - swap-remove and continue without incrementing i
+                    self.swap_remove_child(i);
+                    continue;
+                }
             }
             i += 1;
         }
@@ -311,12 +306,7 @@ where
             let child_last_id = child.last_doc_id();
 
             if child_last_id < doc_id {
-                // Child is behind - need to skip (or remove if at EOF)
-                if child.at_eof() {
-                    self.swap_remove_child(i);
-                    continue;
-                }
-
+                // Child is behind - need to skip
                 match child.skip_to(doc_id)? {
                     Some(SkipToOutcome::Found(_)) => {
                         // Found exact match - set result and return immediately

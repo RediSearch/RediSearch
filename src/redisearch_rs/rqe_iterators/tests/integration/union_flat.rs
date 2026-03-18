@@ -252,11 +252,11 @@ fn skip_to_edge_cases() {
         assert_eq!(quick_iter.last_doc_id(), 200);
     }
 
-    // Test 3: Full mode - child already at EOF before skip_to (lines 260-263)
-    // This covers the else branch where at_eof() is true but child is still in active set.
+    // Test 3: Full mode - child already at EOF before skip_to
     // Scenario: child1 has docs [10, 20], child2 has docs [15, 50, 100].
     // After reading docs 10, 15, 20 - child1 is at EOF but still in active set because
     // read() only removes children when their read() returns None, not proactively.
+    // When skip_to(30) is called, child1's skip_to returns None (EOF) and it's removed.
     {
         let (children, data) = create_mock_2([10, 20], [15, 50, 100]);
         let mut full_iter = UnionFullFlat::new(children);
@@ -274,8 +274,8 @@ fn skip_to_edge_cases() {
         full_iter.read().expect("read failed").unwrap();
         assert_eq!(full_iter.last_doc_id(), 20);
 
-        // Now skip_to(30): child1's last_doc_id = 20 < 30, and at_eof() = true
-        // This hits lines 260-263 (else branch in skip_to_full)
+        // Now skip_to(30): child1's last_doc_id = 20 < 30, so skip_to is called
+        // skip_to returns None (EOF) and child1 is removed from active set
         let outcome = full_iter.skip_to(30).expect("skip_to failed");
         assert!(matches!(outcome, Some(SkipToOutcome::NotFound(_))));
         // child2's next doc after 15 that's >= 30 is 50
@@ -290,10 +290,11 @@ fn skip_to_edge_cases() {
         assert!(full_iter.at_eof());
 
         // Verify read counts - child1 exhausted early
+        // Note: child1 gets an extra skip_to call that discovers EOF (matching C behavior)
         assert_eq!(
             data[0].read_count(),
-            2,
-            "child1: init + 1 read (to get to 20)"
+            3,
+            "child1: init + 1 read (to get to 20) + 1 skip_to (discovers EOF)"
         );
         assert_eq!(
             data[1].read_count(),
@@ -1539,19 +1540,19 @@ fn reuse_results_optimization_quick_mode() {
     );
 
     // Third Read: Both children are at EOF (single-doc iterators exhausted after first read)
-    // Rust's Mock iterator knows it's at EOF immediately after returning its last document,
-    // so both children are removed without any additional read() calls.
+    // The union calls skip_to(4) which calls skip_to on each child.
+    // Since both are at EOF, skip_to returns None and they're removed.
     let result = union.read().expect("read failed");
     assert!(result.is_none(), "Third read should return EOF");
     assert_eq!(
         data[0].read_count(),
-        1,
-        "it1 should NOT be read - already at EOF, removed without calling read()"
+        2,
+        "it1: init + skip_to (discovers EOF)"
     );
     assert_eq!(
         data[1].read_count(),
-        1,
-        "it2 should NOT be read - already at EOF, removed without calling read()"
+        2,
+        "it2: init + skip_to (discovers EOF)"
     );
 }
 
