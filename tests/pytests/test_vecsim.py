@@ -66,9 +66,9 @@ def create_disk_hnsw_query_fixture():
     env.expect(
         'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         't', 'TEXT',
-        'v', 'VECTOR', 'HNSW', '13',
+        'v', 'VECTOR', 'HNSW', '14',
         'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
-        'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK'
+        'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK', 'TRUE',
     ).ok()
 
     docs = {
