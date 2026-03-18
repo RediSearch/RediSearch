@@ -142,6 +142,11 @@ typedef struct {
 bool DocTable_HasExpiration(DocTable *t, t_docId docId);
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
+// Clear all expiration data from this doc table.
+// Clears Document_HasExpiration flags from all documents and destroys the TTL table.
+// Must be called with the index write lock held.
+void DocTable_ClearExpirationData(DocTable *t);
+
 // Will return true if the document passed the predicate
 // default predicate - one of the fields did not yet expire -> entry is still valid
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
