@@ -61,8 +61,8 @@ impl SharedRsValue {
         mem::forget(self);
         ptr
     }
-    /// Returns the underlying raw pointer without consuming `self`.
 
+    /// Returns the underlying raw pointer without consuming `self`.
     pub const fn as_ptr(&self) -> *const RsValue {
         self.ptr
     }
