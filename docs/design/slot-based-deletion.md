@@ -295,6 +295,7 @@ The global specs dictionary (`specDict_g`) is **not thread-safe** and should onl
 For the DocTable scan itself:
 - While a cleanup batch holds the spec **read lock**, the DocTable cannot grow underneath it, because growth happens on the write path.
 - Between batches, the DocTable may grow, but the current implementation does **not** rehash or shrink existing entries; it only expands the buckets array and appends empty buckets.
+- Collection captures a fixed bucket upper bound at the start of the overall scan. Buckets added after that point can only contain post-notification documents (`id > maxDocId`), so they do not need to be scanned.
 - Cleanup therefore never keeps `DMDChain *` / `RSDocumentMetadata *` scan cursors across lock releases; it only keeps stable progress state such as bucket position and collected `docId`s.
 
 ### Thread Pool: `cleanPool`
@@ -363,21 +364,27 @@ static arrayof(t_docId) DocTable_CollectSlotDocIds(IndexSpec *spec,
   DocTable *t = &spec->docs;
   size_t nextBucket = 0;
   arrayof(t_docId) docIds = array_new(t_docId, 64);
+  size_t scan_cap_limit = 0;
 
   for (;;) {
     IndexSpec_ReadLock(spec);
 
-    // IMPORTANT: Use only a cap snapshot taken while holding the read lock
-    // to decide how far this pass can scan. The DocTable may grow between
-    // passes, but it cannot grow while this read lock is held.
-    size_t cap_snapshot = t->cap;
-    if (nextBucket >= cap_snapshot) {
+    // IMPORTANT:
+    // 1. Capture the overall scan upper bound while holding the read lock.
+    // 2. Never scan buckets beyond that bound.
+    // Buckets added later can only contain post-notification docs
+    // (id > maxDocId), so they are irrelevant for this cleanup job.
+    if (scan_cap_limit == 0) {
+      scan_cap_limit = t->cap;
+    }
+
+    if (nextBucket >= scan_cap_limit) {
       IndexSpec_ReadUnlock(spec);
       break;
     }
 
     size_t scanned_this_pass = 0;
-    while (nextBucket < cap_snapshot && scanned_this_pass < SCAN_DOC_LIMIT) {
+    while (nextBucket < scan_cap_limit && scanned_this_pass < SCAN_DOC_LIMIT) {
       size_t i = nextBucket++;
       DMDChain *chain = &t->buckets[i];
       for (RSDocumentMetadata *dmd = chain->root; dmd; dmd = dmd->nextInChain) {
@@ -393,6 +400,8 @@ static arrayof(t_docId) DocTable_CollectSlotDocIds(IndexSpec *spec,
       }
     }
     IndexSpec_ReadUnlock(spec);
+
+    // Optional: yield here between read-lock passes if needed.
   }
 
   return docIds;
@@ -411,6 +420,8 @@ static void DocTable_ApplySlotDeletes(IndexSpec *spec, arrayof(t_docId) docIds) 
       IndexSpec_DeleteDocByID_Unsafe(spec, docIds[i]);
     }
     IndexSpec_WriteUnlock(spec);
+
+    // Optional: yield here between write-lock chunks if needed.
   }
 }
 
@@ -768,6 +779,8 @@ The difference is that TRIM_BACKGROUND also performs the ASM trim state transiti
 | Per cleanup job | 0 bytes | Temporary `arrayof(t_docId)` holding all collected candidates |
 
 Note: Typically 0-2 pending deletions at any time. Memory freed when cleanup completes.
+The main tradeoff in this design is that cleanup memory is proportional to the number of matching
+documents collected for that spec before the apply phase begins.
 
 ---
 
@@ -833,26 +846,56 @@ Since collection (read lock) and deletion (write lock) are separate:
 
 ## Testing Considerations
 
-1. **Unit tests**: `DocTable_AddPendingDeletion`, `DocTable_IsDocPendingDeletion`, `DocTable_RemovePendingDeletion`
-2. **Integration test**: Full flow with multiple specs
-3. **Concurrency test**: Queries during cleanup
-4. **Memory test**: Verify pending list allocation/deallocation
-5. **Edge case**: Multiple overlapping deletion events with different maxDocId
-6. **ASM test**: Both TRIM_STARTED/COMPLETED and TRIM_BACKGROUND modes
-7. **New document protection tests**:
-   - New document written during cleanup remains visible (id > maxDocId)
-   - New document with same key as old document survives cleanup because cleanup uses the old docId
-   - Old documents in target slots are deleted correctly (id ≤ maxDocId)
-8. **Concurrent deletions tests**:
-   - Two deletions with different maxDocId for overlapping slots
-   - Each cleanup job only deletes docs within its own maxDocId cutoff
+1. **Unit tests**
+   - `DocTable_AddPendingDeletion`, `DocTable_IsDocPendingDeletion`, `DocTable_RemovePendingDeletion`
+   - `DocTable_PopById`
+   - `IndexSpec_DeleteDocByID_Unsafe`
+   - Shared delete logic path (`IndexSpec_DeleteDocCommon_Unsafe`) updates stats / GC / VecSim / Geometry correctly
+
+2. **Core integration tests**
+   - Full flow with multiple specs
+   - Documents in target slots become immediately invisible after pending deletion is registered
+   - Old documents in target slots are deleted correctly (`id <= maxDocId`)
+
+3. **Concurrency and race tests**
+   - Queries during cleanup
+   - Document deleted between collection and apply phases is skipped safely
+   - New document written during cleanup remains visible (`id > maxDocId`)
+   - New document with same key as old document survives cleanup because cleanup uses the old `docId`
+
+4. **DocTable growth / scan-bound tests**
+   - DocTable growth during collection does not break scanning
+   - Buckets added after collection begins are not scanned
+   - Post-notification documents in newly added buckets are not deleted
+   - `SCAN_DOC_LIMIT` bounds the number of DMDs examined per read-lock pass
+   - Long bucket / long chain behavior: current bucket is finished even if the soft scan limit is crossed
+
+5. **Two-phase buffering / batching tests**
+   - Collection completes before apply begins
+   - `APPLY_DOC_LIMIT` is respected and the full collected array is drained across multiple write-lock chunks
+   - Large match set behaves correctly with a large collected-ids array
+
+6. **Memory / lifecycle tests**
+   - Verify pending list allocation/deallocation
+   - Verify temporary collected-ids array is freed after cleanup completes
+   - Spec dropped during cleanup is handled safely
+
+7. **Overlapping and concurrent deletion tests**
+   - Multiple overlapping deletion events with different `maxDocId`
+   - Two deletions with different `maxDocId` for overlapping slots
+   - Each cleanup job only deletes docs within its own `maxDocId` cutoff
    - Pending list correctly updated after each cleanup completes
+
+8. **ASM integration tests**
+   - Existing `TRIM_STARTED` / `TRIM_COMPLETED` flow still works
+   - `TRIM_BACKGROUND` flow works with `ASM_StateMachine_StartTrim()` + `ASM_StateMachine_CompleteTrim()`
 
 ---
 
 ## Future Considerations
 
 - **Batch size tuning**: `SCAN_DOC_LIMIT` and `APPLY_DOC_LIMIT` may need adjustment based on workload
+- **Voluntary yielding**: Implementation may optionally yield between collection passes and between apply chunks to further reduce contention
 - **Progress tracking**: Could add metrics for monitoring cleanup progress
 - **Cancellation**: If needed, could add early termination for cleanup jobs
 
