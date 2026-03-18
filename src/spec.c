@@ -2019,7 +2019,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     TrieType_Free(spec->suffix);
   }
 
-  // Free spec name (after disk close, which needs the name)
+  // Free spec name
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
 
