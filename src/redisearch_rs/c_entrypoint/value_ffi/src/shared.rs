@@ -151,20 +151,20 @@ pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RsValue, src: *con
 /// 1. `dstpp` must be a valid, non-null pointer to a `*mut RsValue`.
 /// 2. `*dstpp` must point to a valid **owned** [`RsValue`] obtained from an
 ///    `RSValue_*` function (it will be consumed).
-/// 3. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+/// 3. `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_Replace(dstpp: *mut *mut RsValue, src: *const RsValue) {
     // SAFETY: ensured by caller (1.)
     let dst = unsafe { *dstpp };
 
-    // SAFETY: ensured by caller (2.). Reconstructing the `SharedRsValue`
-    // will decrement its refcount (and potentially free it).
-    let _ = unsafe { SharedRsValue::from_raw(dst) };
-
     // SAFETY: ensured by caller (3.)
     let shared_src = unsafe { expect_shared_value(src) };
 
     let clone = SharedRsValue::clone(&shared_src);
+
+    // SAFETY: ensured by caller (2.). Reconstructing the `SharedRsValue`
+    // will decrement its refcount (and potentially free it).
+    let _ = unsafe { SharedRsValue::from_raw(dst) };
 
     // SAFETY: ensured by caller (1.) — `dstpp` is valid and writable.
     unsafe {

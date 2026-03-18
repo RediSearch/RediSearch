@@ -751,7 +751,7 @@ void RSValue_MakeOwnReference(const struct RsValue *dst, const struct RsValue *s
  * 1. `dstpp` must be a valid, non-null pointer to a `*mut RsValue`.
  * 2. `*dstpp` must point to a valid **owned** [`RsValue`] obtained from an
  *    `RSValue_*` function (it will be consumed).
- * 3. `value` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
+ * 3. `src` must point to a valid [`RsValue`] obtained from an `RSValue_*` function.
  */
 void RSValue_Replace(struct RsValue **dstpp, const struct RsValue *src);
 
