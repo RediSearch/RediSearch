@@ -733,4 +733,5 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
       // Unknown algorithm type
       RS_ABORT("Unknown algorithm in vector index");
   }
+  __builtin_unreachable();
 }
