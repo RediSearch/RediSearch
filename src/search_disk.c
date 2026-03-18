@@ -35,6 +35,9 @@ RedisSearchDiskAPI *SearchDisk_GetAPI() {
 
 __attribute__((weak))
 void SearchDisk_SetAPI() {
+  // Default to no implementation. SearchEnterprise should implement this to correctly set globals
+  // of API implementations. Eg setting the `SEARCH_ENTERPRISE_ITERATORS` Rust global to allow
+  // the iterators to access the enterprise iterator implementations.
   return;
 }
 

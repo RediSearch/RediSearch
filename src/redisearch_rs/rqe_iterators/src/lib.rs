@@ -11,7 +11,7 @@ use ffi::t_docId;
 use std::sync::OnceLock;
 use thiserror::Error;
 
-use ::inverted_index::{t_fieldMask, RSIndexResult};
+use ::inverted_index::{RSIndexResult, t_fieldMask};
 use query_term::RSQueryTerm;
 
 pub mod c2rust;
@@ -180,9 +180,14 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
     }
 }
 
-pub static SEARCH_ON_DISK_ITERATORS: OnceLock<Box<dyn SearchOnDiskIterators>> = OnceLock::new();
+/// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`
+/// to get access to iterators it does not know about.
+pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterators>> =
+    OnceLock::new();
 
-pub trait SearchOnDiskIterators: Send + Sync {
+/// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
+/// implementation will provide iterators `rqe_iterators` does not know about.
+pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the documents in the index. Each document in the iterator will have the
     /// given weight.
     fn new_wildcard_on_disk<'index>(
