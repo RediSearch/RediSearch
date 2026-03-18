@@ -247,6 +247,7 @@ static VecSimQueryReply_Code computeDistances_Disk(HybridIterator *hr) {
     }
 
     // Rebuild heap property after in-place score updates.
+    // Note: We assume count <= k, so no need to trim excess elements.
     mmh_heapify(hr->topResults);
 
     rm_free(labels);
