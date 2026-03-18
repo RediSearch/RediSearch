@@ -14,7 +14,8 @@ use ffi::{
     t_docId,
 };
 use inverted_index::RSIndexResult;
-use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+
+use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.

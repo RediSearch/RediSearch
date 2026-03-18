@@ -105,6 +105,7 @@ static struct timespec getIntervalCb(void *ctx) {
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   RS_LOG_ASSERT(SearchDisk_IsEnabled(), "Disk GC is not enabled");
+  RS_LOG_ASSERT(SearchDisk_IsInitialized(), "Search Disk is not initialized");
   DiskGC *gc = rm_calloc(1, sizeof(*gc));
   *gc = (DiskGC){
       .index = StrongRef_Demote(spec_ref),

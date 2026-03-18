@@ -12,8 +12,8 @@ use std::ptr::NonNull;
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Enum holding either a numeric or geo iterator variant.
 /// This allows all iterator types to share the same iterator wrapper structure.

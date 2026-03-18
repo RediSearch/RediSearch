@@ -16,6 +16,7 @@ pub mod c2rust;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
+pub mod interop;
 pub mod intersection;
 pub mod inverted_index;
 pub mod maybe_empty;
