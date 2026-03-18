@@ -425,7 +425,7 @@ RSValue **RSValue_NewArrayBuilder(uint32_t len);
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
 
-/* Return true if the two values are equal */
+/* Return true if the two values are equal, false otherwise */
 bool RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 
 /* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is

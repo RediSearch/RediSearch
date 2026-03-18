@@ -730,7 +730,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
-/* Return 1 if the two values are equal */
+/* Return true if the two values are equal, false otherwise */
 bool RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
 

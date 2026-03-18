@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
+#![expect(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 
 use std::cmp::Ordering;
 use value::comparison::{CompareError, compare};
@@ -17,7 +17,6 @@ use redis_mock::mock_or_stub_missing_redis_c_symbols;
 
 mock_or_stub_missing_redis_c_symbols!();
 
-#[allow(non_upper_case_globals)]
 #[unsafe(no_mangle)]
 pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
     redis_mock::globals::redis_module_ctx();
