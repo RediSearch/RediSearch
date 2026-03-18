@@ -13,8 +13,8 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Missing};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
 ///

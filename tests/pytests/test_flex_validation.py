@@ -297,14 +297,14 @@ def test_flex_blocks_aggregate_and_hybrid_commands(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.AGGREGATE', 'idx', '*') \
-        .error().contains('FT.AGGREGATE is not supported in disk mode')
+        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
     env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*') \
-        .error().contains('FT.AGGREGATE is not supported in disk mode')
+        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
 
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
-        .error().contains('FT.HYBRID is not supported in disk mode')
+        .error().contains('FT.HYBRID is not supported in Redis Flex')
     env.expect('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
-        .error().contains('FT.HYBRID is not supported in disk mode')
+        .error().contains('FT.HYBRID is not supported in Redis Flex')
 
 
 @skip(cluster=True)
@@ -313,11 +313,75 @@ def test_flex_blocks_dict_commands(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.DICTADD', 'dict', 'foo') \
-        .error().contains('FT.DICTADD is not supported in disk mode')
+        .error().contains('FT.DICTADD is not supported in Redis Flex')
     env.expect('FT.DICTDEL', 'dict', 'foo') \
-        .error().contains('FT.DICTDEL is not supported in disk mode')
+        .error().contains('FT.DICTDEL is not supported in Redis Flex')
     env.expect('FT.DICTDUMP', 'dict') \
-        .error().contains('FT.DICTDUMP is not supported in disk mode')
+        .error().contains('FT.DICTDUMP is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rerank_requires_true_value(env):
+    env.expect(
+        'FT.CREATE', 'idx_ok', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    env.expect(
+        'FT.CREATE', 'idx_missing', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '12',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+    ).error().contains('Disk HNSW index requires RERANK parameter')
+
+    env.expect(
+        'FT.CREATE', 'idx_no_value', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '13',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK',
+    ).error().contains('RERANK requires an argument')
+
+    env.expect(
+        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'FALSE',
+    ).error().contains('Syntax error: RERANK only supports TRUE currently')
+
+    env.expect(
+        'FT.CREATE', 'idx_dup', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '16',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+        'RERANK', 'TRUE',
+    ).error().contains('Duplicate RERANK parameter')
 
 
 @skip(cluster=True)
@@ -326,9 +390,9 @@ def test_flex_blocks_alter_command(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 't2', 'TEXT') \
-        .error().contains('FT.ALTER is not supported in disk mode')
+        .error().contains('FT.ALTER is not supported in Redis Flex')
     env.expect('FT._ALTERIFNX', 'idx', 'SCHEMA', 'ADD', 't2', 'TEXT') \
-        .error().contains('FT._ALTERIFNX is not supported in disk mode')
+        .error().contains('FT._ALTERIFNX is not supported in Redis Flex')
 
 
 @skip(cluster=True)
@@ -336,28 +400,28 @@ def test_flex_blocks_alter_command(env):
 def test_flex_blocks_cursor_commands(env):
     _create_flex_search_fixture(env)
     env.expect('FT.CURSOR', 'READ', 'idx', '1') \
-        .error().contains('FT.CURSOR is not supported in disk mode')
+        .error().contains('FT.CURSOR is not supported in Redis Flex')
     env.expect('FT.CURSOR', 'DEL', 'idx', '1') \
-        .error().contains('FT.CURSOR is not supported in disk mode')
+        .error().contains('FT.CURSOR is not supported in Redis Flex')
     env.expect('FT.CURSOR', 'GC', 'idx') \
-        .error().contains('FT.CURSOR is not supported in disk mode')
-    
+        .error().contains('FT.CURSOR is not supported in Redis Flex')
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
     _create_flex_search_fixture(env)
 
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.AGGREGATE is not supported in disk mode')
+        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.AGGREGATE is not supported in disk mode')
+        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
 
     env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in disk mode')
+        .error().contains('FT.HYBRID is not supported in Redis Flex')
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in disk mode')
+        .error().contains('FT.HYBRID is not supported in Redis Flex')
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
@@ -365,11 +429,37 @@ def test_flex_blocks_suggest_commands(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.SUGADD', 'idx', 'foo', '1') \
-        .error().contains('FT.SUGADD is not supported in disk mode')
+        .error().contains('FT.SUGADD is not supported in Redis Flex')
     env.expect('FT.SUGGET', 'idx', 'fo') \
-        .error().contains('FT.SUGGET is not supported in disk mode')
+        .error().contains('FT.SUGGET is not supported in Redis Flex')
     env.expect('FT.SUGDEL', 'idx', 'foo') \
-        .error().contains('FT.SUGDEL is not supported in disk mode')
+        .error().contains('FT.SUGDEL is not supported in Redis Flex')
     env.expect('FT.SUGLEN', 'idx') \
-        .error().contains('FT.SUGLEN is not supported in disk mode')
+        .error().contains('FT.SUGLEN is not supported in Redis Flex')
 
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_drop_and_dropindex_dd(env):
+    """Test that FT.DROP and FT.DROPINDEX with DD are not supported in Flex mode"""
+    _create_flex_search_fixture(env)
+
+    # FT.DROP is not supported (deprecated command that deletes docs)
+    env.expect('FT.DROP', 'idx') \
+        .error().contains('FT.DROP is not supported in Redis Flex')
+
+    # FT.DROPINDEX with DD (delete docs) is not supported
+    env.expect('FT.DROPINDEX', 'idx', 'DD') \
+        .error().contains('DD is not supported in Redis Flex')
+
+    # FT.DROPINDEX without DD should work
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_temporary_indexes(env):
+    """Test that TEMPORARY indexes are not supported in Flex mode"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'TEMPORARY', '120',
+               'SCHEMA', 'field', 'TEXT') \
+        .error().contains('Unsupported argument for Flex index: `TEMPORARY`')
