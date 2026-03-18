@@ -55,11 +55,11 @@ def test_invalid_field_type(env):
 @with_simulate_in_flex(True)
 def test_valid_field_types(env):
     """Test that creating an index with valid field types succeeds when search-_simulate-in-flex is true"""
-    # Create index with only TEXT fields (the only supported type in Flex)
+    # Create index with TEXT fields (supported in Flex, but without SORTABLE)
     env.expect('FT.CREATE', 'valid_idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
                'title', 'TEXT',
                'description', 'TEXT', 'WEIGHT', '2.0',
-               'content', 'TEXT', 'SORTABLE').ok()
+               'content', 'TEXT').ok()
 
     # Verify the index was created
     info_result = env.cmd('FT.INFO', 'valid_idx')
@@ -141,6 +141,27 @@ def test_unsupported_flex_arguments(env):
     # Test unsupported arguments that are invalid in RAM, should give same error
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'RANDOM_NAME', 'payload', 'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unknown argument `RANDOM_NAME`')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_unsupported_schema_options(env):
+    """Test that unsupported schema field options fail in Flex mode"""
+    # Test SORTABLE is not supported
+    env.expect('FT.CREATE', 'idx1', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'SORTABLE') \
+        .error().contains('Disk index does not support SORTABLE fields')
+
+    # Test NOINDEX is not supported
+    env.expect('FT.CREATE', 'idx2', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'NOINDEX') \
+        .error().contains('Disk index does not support NOINDEX fields')
+
+    # Test INDEXMISSING is not supported
+    env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
+        .error().contains('Disk index does not support INDEXMISSING fields')
+
+    # Test INDEXEMPTY is not supported
+    env.expect('FT.CREATE', 'idx4', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXEMPTY') \
+        .error().contains('Disk index does not support INDEXEMPTY fields')
 
 
 @skip(cluster=True)
