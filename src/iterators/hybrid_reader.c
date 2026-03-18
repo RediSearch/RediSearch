@@ -180,16 +180,6 @@ static inline void updateResultScore(RSIndexResult *res, double score, RLookupKe
   }
 }
 
-// Comparison function for qsort (ascending by score - lower distance is better).
-static int cmpResultsByScore(const void *a, const void *b) {
-  const RSIndexResult *r1 = *(const RSIndexResult **)a;
-  const RSIndexResult *r2 = *(const RSIndexResult **)b;
-  double s1 = VECTOR_SCORE(r1), s2 = VECTOR_SCORE(r2);
-  if (s1 < s2) return -1;
-  if (s1 > s2) return 1;
-  return 0;
-}
-
 // Disk path: iterate child results, compute SQ8 distances via ad-hoc BF context.
 // The context preprocesses the query once (FP32 + SQ8) and registers a query marker
 // to ensure ID stability during the search.
@@ -256,20 +246,8 @@ static VecSimQueryReply_Code computeDistances_Disk(HybridIterator *hr) {
       // else: keep original approximate distance
     }
 
-    // Sort by updated scores (ascending - lower distance is better).
-    qsort(results, count, sizeof(RSIndexResult *), cmpResultsByScore);
-
-    // Clear heap and re-insert top-k (maintains heap property for mmh_pop_min).
-    size_t keepCount = (count < hr->query.k) ? count : hr->query.k;
-    hr->topResults->count = 0;  // Clear without freeing (we still own pointers)
-    for (size_t i = 0; i < keepCount; i++) {
-      mmh_insert(hr->topResults, results[i]);
-    }
-
-    // Free excess results beyond top-k.
-    for (size_t i = keepCount; i < count; i++) {
-      IndexResult_Free(results[i]);
-    }
+    // Rebuild heap property after in-place score updates.
+    mmh_heapify(hr->topResults);
 
     rm_free(labels);
     rm_free(exactDistances);
