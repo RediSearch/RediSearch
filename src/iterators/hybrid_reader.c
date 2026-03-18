@@ -13,7 +13,7 @@
 #include "iterators_rs.h"
 #include "query.h"
 
-#define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
+#define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
@@ -165,7 +165,8 @@ static inline void updateResultScore(RSIndexResult *res, double score, RLookupKe
     IndexResult_SetNumValue(res, score);
   } else {
     // HybridMetric - score is stored in first child.
-    RSIndexResult *child = (RSIndexResult *)AggregateResult_Get(IndexResult_AggregateRef(res), 0);
+    // Note: Casting away const from RSIndexResult*.
+    RSIndexResult *child = (RSIndexResult *)AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(res), 0);
     IndexResult_SetNumValue(child, score);
   }
 
