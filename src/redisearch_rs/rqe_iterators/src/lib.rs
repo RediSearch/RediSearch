@@ -194,7 +194,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         weight: f64,
-    ) -> Box<dyn RQEIterator<'index> + 'index>;
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index. Each document in the iterator will have the term
     /// inside the given query_term and will have the given weight. The iterator will also filter
@@ -205,7 +205,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         query_term: Box<RSQueryTerm>,
         field_mask: t_fieldMask,
         weight: f64,
-    ) -> Box<dyn RQEIterator<'index> + 'index>;
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
     /// then iterator will have the given weight.
@@ -215,5 +215,5 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: ffi::t_fieldIndex,
         weight: f64,
-    ) -> Box<dyn RQEIterator<'index> + 'index>;
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 }
