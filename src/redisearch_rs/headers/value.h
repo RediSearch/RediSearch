@@ -295,6 +295,22 @@ bool RSValue_ToNumber(const struct RsValue *value, double *d);
 size_t RSValue_NumToString(const struct RsValue *value, char *buf, size_t buflen);
 
 /**
+ * Writes the debug representation of an [`RsValue`] into an SDS string.
+ *
+ * If `value` is null, writes `"nil"`. Otherwise, formats the value using
+ * [`DebugFormatter`](value::debug::DebugFormatter), optionally obfuscating
+ * sensitive data when `obfuscate` is `true`.
+ *
+ * # Safety
+ *
+ * 1. If non-null, `value` must be a [valid] pointer to an [`RsValue`].
+ * 2. `sds` must be a [valid], non-null SDS string allocated by the C SDS library.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+sds RSValue_DumpSds(const struct RsValue *value, sds sds, bool obfuscate);
+
+/**
  * Gets the numeric value from an [`RsValue`].
  *
  * # Panic
@@ -491,22 +507,6 @@ void RSValue_Map_GetEntry(const struct RsValue *map,
                           uint32_t index,
                           struct RsValue **key,
                           struct RsValue **value);
-
-/**
- * Writes the debug representation of an [`RsValue`] into an SDS string.
- *
- * If `value` is null, writes `"nil"`. Otherwise, formats the value using
- * [`DebugFormatter`](value::debug::DebugFormatter), optionally obfuscating
- * sensitive data when `obfuscate` is `true`.
- *
- * # Safety
- *
- * 1. If non-null, `value` must be a [valid] pointer to an [`RsValue`].
- * 2. `sds` must be a [valid], non-null SDS string allocated by the C SDS library.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-sds RSValue_DumpSds(const struct RsValue *value, sds sds, bool obfuscate);
 
 /**
  * Converts an [`RsValue`] to a number type in-place.

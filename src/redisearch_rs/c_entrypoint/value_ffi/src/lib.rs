@@ -12,10 +12,10 @@
 pub mod array;
 pub mod constructors;
 pub mod conversions;
+pub mod debug;
 pub mod getters;
 pub mod hash;
 pub mod map;
-pub mod sds;
 pub mod setters;
 pub mod shared;
 pub mod util;
