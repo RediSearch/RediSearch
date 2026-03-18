@@ -4,6 +4,8 @@
 
 When Redis cluster slots are migrated away, we need to quickly mark all documents belonging to those slots as "deleted" without performing a costly linear scan. This document describes the design for fast slot-based deletion in the DocTable.
 
+**Scope:** This design is for the **RAM DocTable variant only**. Disk/Flex mode has a different document-table mechanism, and ASM is not currently supported there.
+
 ## Problem Statement
 
 Redis will notify us (via `RedisModuleSlotRangeArray`) when slots need to be deleted. We need to:
@@ -72,7 +74,7 @@ offset 30: [2 BYTES PADDING] ◄── slot fits here for FREE
 offset 32: struct RSSortingVector *sortVector (8 bytes, 8-byte aligned)
 ```
 
-Storing `uint16_t slot` uses this padding — **zero additional memory per document**.
+Storing `uint16_t slot` uses this padding in the current layout, so we can add it without increasing the struct size.
 
 ---
 
@@ -176,7 +178,8 @@ typedef struct {
 void SlotCleanupTask_Run(SlotCleanupCtx *ctx);
 
 // Delete documents in specified slots across all indexes
-// This is the unified entry point — caller handles external concerns (slots_tracker, etc.)
+// This is the unified entry point — caller handles event-specific concerns
+// (for example ASM state transitions around TRIM_BACKGROUND).
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots);
 ```
 
@@ -285,7 +288,7 @@ Use existing `cleanPool` (defined in `src/spec.c`):
 ## Unified Slot Deletion Implementation
 
 All slot deletion requests use the same mechanism. Callers (event handlers) may do additional
-work like updating `slots_tracker`, but the deletion mechanism itself is identical.
+event-specific work, but the deletion mechanism itself is identical.
 
 ### Main Thread Handler
 
@@ -422,8 +425,8 @@ cleanup:
 │                                                                            │
 │    // Event-specific external updates (caller responsibility)              │
 │    if (TRIM_BACKGROUND) {                                                  │
-│      slots_tracker_mark_partially_available_slots(slots);                  │
-│      slots_tracker_remove_deleted_slots(slots);                            │
+│      ASM_StateMachine_StartTrim(slots);                                    │
+│      ASM_StateMachine_CompleteTrim(slots);                                 │
 │    }                                                                       │
 └────────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -556,8 +559,8 @@ The new mode receives a **single notification** with the full slot range:
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Event Handler:                                                          │
 │   Indexes_DeleteSlots(slots);                 ◀── Core deletion         │
-│   slots_tracker_mark_partially_available_slots(slots);                  │
-│   slots_tracker_remove_deleted_slots(slots);  ◀── Topology update       │
+│   ASM_StateMachine_StartTrim(slots);                                     │
+│   ASM_StateMachine_CompleteTrim(slots);    ◀── Topology + versioning    │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -565,7 +568,8 @@ The new mode receives a **single notification** with the full slot range:
 - Single notification with slot ranges
 - Module handles deletion internally via `Indexes_DeleteSlots`
 - **Instant filtering** via pending deletions list
-- `slots_tracker` updated synchronously — no async completion callback
+- ASM state is updated synchronously via `ASM_StateMachine_StartTrim()` followed by `ASM_StateMachine_CompleteTrim()`
+- No async completion callback
 
 ### Event Handler Integration
 
@@ -590,11 +594,12 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
 
     // New mode: Background trimming (single notification)
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
+      // Preserve the ASM state machine semantics even though there is no
+      // separate completion notification in this mode.
+      ASM_StateMachine_StartTrim(slots);
       // Core deletion mechanism
       Indexes_DeleteSlots(slots);
-      // Topology update (slots leaving this node)
-      slots_tracker_mark_partially_available_slots(slots);
-      slots_tracker_remove_deleted_slots(slots);
+      ASM_StateMachine_CompleteTrim(slots);
       break;
   }
 }
@@ -610,7 +615,7 @@ void SFlushEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, v
 ```
 
 **Key insight**: Both TRIM_BACKGROUND and SFLUSH use the same `Indexes_DeleteSlots` function.
-The only difference is what the event handler does externally (slots_tracker updates).
+The difference is that TRIM_BACKGROUND also performs the ASM trim state transition synchronously in the handler, while SFLUSH does not.
 
 ---
 
@@ -740,7 +745,7 @@ Since collection (read lock) and deletion (write lock) are separate:
 | Job model | **One job per spec per deletion request** |
 | Cleanup context | Direct pointer to pending node (no data duplication) |
 | Entry point | `Indexes_DeleteSlots()` — unified for all events |
-| Event-specific | Caller handles slots_tracker, etc. |
+| Event-specific | Caller handles event-specific state transitions around `Indexes_DeleteSlots()` |
 | Concurrent deletions | Each has its own maxDocId, no merging |
 
 This design achieves:
