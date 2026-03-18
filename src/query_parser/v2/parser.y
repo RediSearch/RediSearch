@@ -75,6 +75,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "../../search_disk.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -1129,6 +1130,9 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
   A = NULL;
   if (ctx->sctx->spec && !FIELD_IS(B.fs, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
+    QueryNode_Free(C);
+  } else if (SearchDisk_IsEnabledForValidation()) {
+    reportSyntaxError(ctx->status, &B.tok, "Syntax error: vector range queries are currently not supported in Redis Flex");
     QueryNode_Free(C);
   } else if (C) {
     C->vn.vq->field = B.fs;

@@ -27,7 +27,7 @@ fn test_encode_raw_doc_ids_only() {
 
     for (delta, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::term().doc_id(doc_id);
+        let record = RSIndexResult::build_term().doc_id(doc_id).build();
 
         let bytes_written = RawDocIdsOnly::encode(&mut buf, delta, &record)
             .expect("to encode raw doc ids only record");
@@ -53,7 +53,7 @@ fn test_encode_raw_doc_ids_only_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::virt();
+    let record = inverted_index::RSIndexResult::build_virt().build();
 
     let res = RawDocIdsOnly::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
@@ -97,19 +97,25 @@ fn test_seek_raw_doc_ids_only() {
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
-    let mut record_decoded = RSIndexResult::term();
+    let mut record_decoded = RSIndexResult::build_term().build();
 
     let found = RawDocIdsOnly::seek(&mut buf, 10, 16, &mut record_decoded)
         .expect("to decode raw docs ids only record");
 
     assert!(found);
-    assert_eq!(record_decoded, RSIndexResult::term().doc_id(16));
+    assert_eq!(
+        record_decoded,
+        RSIndexResult::build_term().doc_id(16).build()
+    );
 
     let found = RawDocIdsOnly::seek(&mut buf, 10, 20, &mut record_decoded)
         .expect("to decode raw docs ids only record");
 
     assert!(found);
-    assert_eq!(record_decoded, RSIndexResult::term().doc_id(22));
+    assert_eq!(
+        record_decoded,
+        RSIndexResult::build_term().doc_id(22).build()
+    );
 
     let found = RawDocIdsOnly::seek(&mut buf, 10, 50, &mut record_decoded)
         .expect("to decode raw docs ids only record");
@@ -129,7 +135,8 @@ fn test_inverted_index_raw_doc_ids_gc() {
 
     // Add 3200 documents (will span multiple blocks since RECOMMENDED_BLOCK_ENTRIES is 1000)
     for id in 0..3_200 {
-        ii.add_record(&RSIndexResult::default().doc_id(id)).unwrap();
+        ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+            .unwrap();
     }
 
     assert_eq!(ii.unique_docs(), 3_200);
@@ -137,7 +144,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // Verify all documents can be read
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
 
         for expected_id in 0..3_200 {
             let found = reader.next_record(&mut result).unwrap();
@@ -164,7 +171,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // Verify remaining documents can be read
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
 
         for expected_id in 2_000..3_200 {
             let found = reader.next_record(&mut result).unwrap();
@@ -202,7 +209,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // Verify empty index still works
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
         assert!(
             !reader.next_record(&mut result).unwrap(),
             "there is nothing to read"
@@ -212,8 +219,12 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // Test with large deltas that cause block splits
     // RawDocIdsOnly uses 4-byte encoding, so u32::MAX is the max delta
     for i in 0..100 {
-        ii.add_record(&RSIndexResult::default().doc_id(i * (u32::MAX as t_docId)))
-            .unwrap();
+        ii.add_record(
+            &RSIndexResult::build_virt()
+                .doc_id(i * (u32::MAX as t_docId))
+                .build(),
+        )
+        .unwrap();
     }
 
     assert_eq!(ii.unique_docs(), 100);
@@ -234,7 +245,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // Verify remaining documents can be read with seek
     {
         let mut reader = ii.reader();
-        let mut result = RSIndexResult::default();
+        let mut result = RSIndexResult::build_virt().build();
 
         for i in 0..50 {
             let target_id = i * (u32::MAX as t_docId * 2);

@@ -98,7 +98,7 @@ impl NumericRangeNode {
             } else {
                 &mut majority_hll
             };
-            crate::range::update_cardinality(target, value);
+            target.add(&value.into());
         };
 
         let delta = range

@@ -32,6 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "../../search_disk.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -2482,6 +2483,9 @@ static YYACTIONTYPE yy_reduce(
   yylhsminor.yy3 = NULL;
   if (ctx->sctx->spec && !FIELD_IS(yymsp[-4].minor.yy150.fs, INDEXFLD_T_VECTOR)) {
     REPORT_WRONG_FIELD_TYPE(yymsp[-4].minor.yy150, SPEC_VECTOR_STR);
+    QueryNode_Free(yymsp[-1].minor.yy3);
+  } else if (SearchDisk_IsEnabledForValidation()) {
+    reportSyntaxError(ctx->status, &yymsp[-4].minor.yy150.tok, "Syntax error: vector range queries are currently not supported in Redis Flex");
     QueryNode_Free(yymsp[-1].minor.yy3);
   } else if (yymsp[-1].minor.yy3) {
     yymsp[-1].minor.yy3->vn.vq->field = yymsp[-4].minor.yy150.fs;

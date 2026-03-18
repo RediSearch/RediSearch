@@ -62,7 +62,7 @@ pub extern "C" fn NewIntersectResult<'result>(
     cap: usize,
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::intersect(cap).weight(weight);
+    let result = RSIndexResult::build_intersect(cap).weight(weight).build();
     Box::into_raw(Box::new(result))
 }
 
@@ -70,7 +70,7 @@ pub extern "C" fn NewIntersectResult<'result>(
 /// [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewUnionResult<'result>(cap: usize, weight: f64) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::union(cap).weight(weight);
+    let result = RSIndexResult::build_union(cap).weight(weight).build();
     Box::into_raw(Box::new(result))
 }
 
@@ -81,21 +81,24 @@ pub extern "C" fn NewVirtualResult<'result>(
     weight: f64,
     field_mask: t_fieldMask,
 ) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::virt().field_mask(field_mask).weight(weight);
+    let result = RSIndexResult::build_virt()
+        .field_mask(field_mask)
+        .weight(weight)
+        .build();
     Box::into_raw(Box::new(result))
 }
 
 /// Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewNumericResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::numeric(0.0);
+    let result = RSIndexResult::build_numeric(0.0).build();
     Box::into_raw(Box::new(result))
 }
 
 /// Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::metric();
+    let result = RSIndexResult::build_metric().build();
     Box::into_raw(Box::new(result))
 }
 
@@ -105,7 +108,7 @@ pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
 /// Therefore, this also returns an owned `RSIndexResult`.
 #[unsafe(no_mangle)]
 pub extern "C" fn NewHybridResult() -> *mut RSIndexResult<'static> {
-    Box::into_raw(Box::new(RSIndexResult::hybrid_metric()))
+    Box::into_raw(Box::new(RSIndexResult::build_hybrid_metric().build()))
 }
 
 /// Allocate a new token record with a given term and weight. This result should be freed using
@@ -124,9 +127,13 @@ pub unsafe extern "C" fn NewTokenRecord<'result>(
         None
     } else {
         // SAFETY: caller guarantees `term` was created via `NewQueryTerm`.
-        unsafe { Some(Box::from_raw(term)) }
+        Some(unsafe { Box::from_raw(term) })
     };
-    let result = RSIndexResult::with_term(term, RSOffsetSlice::empty(), 0, 0, 0).weight(weight);
+    let result = RSIndexResult::build_term()
+        .borrowed_record(term, RSOffsetSlice::empty())
+        .frequency(0)
+        .weight(weight)
+        .build();
     Box::into_raw(Box::new(result))
 }
 

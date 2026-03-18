@@ -24,3 +24,11 @@ bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, cons
   }
   return true;
 }
+
+bool SearchDisk_MarkUnsupportedCommandIfDiskEnabled(RedisModuleCtx *ctx, const char *command) {
+  if (!SearchDisk_IsEnabledForValidation()) {
+    return false;
+  }
+  RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in Redis Flex", command);
+  return true;
+}

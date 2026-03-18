@@ -13,11 +13,11 @@ use ffi::{
     IteratorType_METRIC_SORTED_BY_ID_ITERATOR, IteratorType_METRIC_SORTED_BY_SCORE_ITERATOR,
     QueryIterator, RLookupKey, RLookupKeyHandle, t_docId,
 };
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{
     metric::{Metric, MetricSortedById, MetricSortedByScore, MetricType},
     utils::OwnedSlice,
 };
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new metric iterator sorted by ID.

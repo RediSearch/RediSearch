@@ -16,6 +16,7 @@ pub mod c2rust;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
+pub mod interop;
 pub mod intersection;
 pub mod inverted_index;
 pub mod maybe_empty;
@@ -32,7 +33,7 @@ pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
 pub use intersection::Intersection;
-pub use inverted_index::{Missing, Numeric, Term};
+pub use inverted_index::{Missing, Numeric, Tag, Term};
 pub use metric::Metric;
 pub use wildcard::{Wildcard, WildcardIterator};
 

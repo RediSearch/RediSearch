@@ -14,17 +14,6 @@
 extern "C" {
 #endif
 
-typedef enum {
-  /* Use keylist (keys/nkeys) for the fields to list */
-  RLOOKUP_LOAD_KEYLIST,
-  /* Load only cached keys (don't open keys) */
-  RLOOKUP_LOAD_SVKEYS,
-  /* Load all keys in the document */
-  RLOOKUP_LOAD_ALLKEYS,
-  /* Load all the keys in the RLookup object */
-  RLOOKUP_LOAD_LKKEYS
-} RLookupLoadFlags;
-
 typedef struct {
   struct RedisSearchCtx *sctx;
 
@@ -43,10 +32,9 @@ typedef struct {
   size_t nkeys;
 
   /**
-   * The following options control the loading of fields, in case non-SORTABLE
-   * fields are desired.
-  */
-  RLookupLoadFlags mode;
+   * Load only cached keys (don't open keys)
+   */
+  bool cachedOnly;
 
   /**
    * Don't use sortables when loading documents. This will enforce the loader to load
@@ -64,7 +52,8 @@ typedef struct {
 
 int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
 
-int RLookup_LoadDocument(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
+int RLookup_LoadDocumentAll(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
+int RLookup_LoadDocumentIndividual(RLookup *lt, RLookupRow *dst, RLookupLoadOptions *options);
 
 int RLookup_LoadRuleFields(RedisSearchCtx *sctx, RLookup *it, RLookupRow *dst,
                            IndexSpec *sp, const char *keyptr, QueryError *status);

@@ -1047,7 +1047,6 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "rqe_iterators",
- "rqe_iterators_interop",
  "workspace_hack",
 ]
 
@@ -1960,6 +1959,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "trie_rs",
  "types_ffi",
  "value",
  "value_ffi",
@@ -1986,16 +1986,6 @@ dependencies = [
  "redisearch_rs",
  "rqe_iterators",
  "rqe_iterators_test_utils",
- "workspace_hack",
-]
-
-[[package]]
-name = "rqe_iterators_interop"
-version = "0.0.1"
-dependencies = [
- "ffi",
- "inverted_index",
- "rqe_iterators",
  "workspace_hack",
 ]
 
@@ -2768,6 +2758,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "fnv",
  "libc",
  "redis-module",
  "redis_mock",
@@ -2783,6 +2774,7 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "ffi",
+ "fnv",
  "libc",
  "redis_mock",
  "value",

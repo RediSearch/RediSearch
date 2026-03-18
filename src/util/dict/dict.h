@@ -155,8 +155,26 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
-#define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_RELAXED) >= 0)
-#define dictResumeRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, -1, __ATOMIC_RELAXED) > 0)
+/*
+ * Memory ordering for dict rehash pausing:
+ *
+ *   Query Thread                     Rehash Thread (_dictRehashStep)
+ *   ------------                     ------------------------------
+ *   dictPauseRehashing()
+ *     fetch_add(+1, ACQUIRE)  --+
+ *                               |    load(pauserehash, ACQUIRE)
+ *     [ read dict entries ]     +--> sees pauserehash > 0, skips rehash
+ *     ...
+ *   dictResumeRehashing()
+ *     fetch_add(-1, RELEASE)  --+--> load(pauserehash, ACQUIRE)
+ *                                    sees pauserehash == 0, may rehash
+ *
+ * - ACQUIRE on pause: prevents dict reads from being reordered before the increment
+ * - RELEASE on resume: ensures dict reads complete before decrement is visible
+ * - _dictRehashStep uses ACQUIRE load to see the latest pauserehash value
+ */
+#define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_ACQUIRE) >= 0)
+#define dictResumeRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, -1, __ATOMIC_RELEASE) > 0)
 
 /* API - RediSearch-specific dict functions to avoid conflicts with Redis dict functions */
 dict *RS_dictCreate(dictType *type, void *privDataPtr);

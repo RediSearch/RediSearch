@@ -203,7 +203,13 @@ impl<'a> RLookupRow<'a> {
 
         // If not found in dynamic values, check the sorting vector if the SvSrc flag is set
         if key.flags.contains(RLookupKeyFlag::SvSrc) {
-            self.sorting_vector()?.get(key.svidx as usize)
+            // Sorting vector slots that were never written hold the null sentinel.
+            // Filter it out so callers see `None` for absent fields, mirroring the C
+            // guard in `RLookupRow_Get`:
+            //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
+            self.sorting_vector()?
+                .get(key.svidx as usize)
+                .filter(|v| v.get_type() != ffi::RSValueType_RSValueType_Null)
         } else {
             None
         }
@@ -240,7 +246,7 @@ impl<'a> RLookupRow<'a> {
             cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
         } else {
             rlookup
-                .get_key_write(name, RLookupKeyFlags::empty())
+                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
                 .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
         };
         self.write_key(key, val);
@@ -249,11 +255,13 @@ impl<'a> RLookupRow<'a> {
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
     /// This does not free all the memory consumed by the row, but simply resets
     /// the row data (preserving any caches) so that it may be refilled.
+    /// Also clears the sorting vector.
     pub fn wipe(&mut self) {
         for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
             *value = None;
             self.num_dyn_values -= 1;
         }
+        self.sorting_vector = None;
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.

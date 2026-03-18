@@ -65,10 +65,13 @@ impl<'index> RSTermRecord<'index> {
 
     /// Create a new borrowed term record with the given term and offsets.
     pub const fn with_term(
-        term: Option<Box<RSQueryTerm>>,
+        term: Box<RSQueryTerm>,
         offsets: RSOffsetSlice<'index>,
     ) -> RSTermRecord<'index> {
-        Self::Borrowed { term, offsets }
+        Self::Borrowed {
+            term: Some(term),
+            offsets,
+        }
     }
 
     /// Is this term record borrowed or owned?

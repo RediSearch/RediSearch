@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod missing;
 mod numeric;
+mod tag;
 mod term;
 mod wildcard;
 
 use inverted_index::IndexReader as _;
+use missing::MissingIterator;
 use numeric::NumericIterator;
-use rqe_iterators_interop::RQEIteratorWrapper;
+use rqe_iterators::interop::RQEIteratorWrapper;
 pub use term::NewInvIndIterator_TermQuery;
 use term::TermIterator;
 
@@ -24,8 +27,9 @@ use term::TermIterator;
 /// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
 /// 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
 /// 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
-/// 4. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR and INV_IDX_TERM_ITERATOR), its `reader`
-///    field must be a valid non-NULL pointer to an `IndexReader`.
+/// 4. If `it` iterator type is IteratorType_INV_IDX_MISSING_ITERATOR, it has been created using `NewInvIndIterator_MissingQuery`.
+/// 5. If `it` has a different iterator type (other than INV_IDX_WILDCARD_ITERATOR, INV_IDX_TERM_ITERATOR,
+///    and INV_IDX_MISSING_ITERATOR), its `reader` field must be a valid non-NULL pointer to an `IndexReader`.
 ///
 /// # Returns
 ///
@@ -63,10 +67,17 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             };
             wrapper.inner.reader().flags()
         }
+        ffi::IteratorType_INV_IDX_MISSING_ITERATOR => {
+            // SAFETY: 4. the missing iterator is in Rust.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast())
+            };
+            wrapper.inner.flags()
+        }
         _ => {
             // C iterator
             let reader: *mut inverted_index_ffi::IndexReader = it_ref.reader.cast();
-            // SAFETY: 4.
+            // SAFETY: 5.
             let reader_ref = unsafe { &*reader };
             reader_ref.flags()
         }
@@ -103,10 +114,13 @@ pub unsafe extern "C" fn InvIndIterator_Rs_SwapIndex(
             );
         }
         ffi::IteratorType_INV_IDX_WILDCARD_ITERATOR => {
-            unimplemented!("Wildcard iterator is tested in Rust which does no use index swapping")
+            unimplemented!("Wildcard iterator is tested in Rust which does not use index swapping")
         }
         ffi::IteratorType_INV_IDX_TERM_ITERATOR => {
             panic!("SwapIndex is not meant to be used with term iterators");
+        }
+        ffi::IteratorType_INV_IDX_MISSING_ITERATOR => {
+            unimplemented!("Missing iterator is tested in Rust which does not use index swapping")
         }
         _ => {
             // C iterator
