@@ -90,6 +90,7 @@ configPair_t __configPairs[] = {
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
+  {"BG_INDEX_SLEEP_DURATION_US",      "search-bg-index-sleep-duration-us"},
   {"ON_OOM",                          "search-on-oom"},
   {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
@@ -106,7 +107,17 @@ static const char* FTConfigNameToConfigName(const char *name) {
   return NULL;
 }
 
-int set_long_numeric_config(const char *name, long long val, void *privdata,
+/******************************************************************************
+ * Config Callback Functions
+ *
+ * IMPORTANT: All config getter/setter callbacks MUST be declared as `static`.
+ * This prevents symbol collisions when multiple Redis modules are loaded
+ * together (e.g., RediSearch + vector-sets). Without `static`, the dynamic
+ * linker may resolve these generic function names to the wrong module's
+ * implementation, causing silent failures.
+ *****************************************************************************/
+
+static int set_long_numeric_config(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -114,12 +125,12 @@ int set_long_numeric_config(const char *name, long long val, void *privdata,
   return REDISMODULE_OK;
 }
 
-long long get_long_numeric_config(const char *name, void *privdata) {
+static long long get_long_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(long long *)privdata;
 }
 
-int set_size_t_numeric_config(const char *name, long long val, void *privdata,
+static int set_size_t_numeric_config(const char *name, long long val, void *privdata,
                            RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -127,12 +138,12 @@ int set_size_t_numeric_config(const char *name, long long val, void *privdata,
   return REDISMODULE_OK;
 }
 
-long long get_size_t_numeric_config(const char *name, void *privdata) {
+static long long get_size_t_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(size_t *)privdata);
 }
 
-int set_uint_numeric_config(const char *name, long long val,
+static int set_uint_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -140,16 +151,15 @@ int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_uint_numeric_config(const char *name, void *privdata) {
+static long long get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(unsigned int *)privdata);
 }
 
 // Custom setter for _MIN_TRIM_DELAY with validation
-int set_min_trim_delay_numeric_config(const char *name, long long val,
+static int set_min_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-
   if (val >= (long long)RSGlobalConfig.maxTrimDelayMS) {
     if (err) {
       *err = RedisModule_CreateStringPrintf(NULL,
@@ -164,10 +174,9 @@ int set_min_trim_delay_numeric_config(const char *name, long long val,
 }
 
 // Custom setter for _MAX_TRIM_DELAY with validation
-int set_max_trim_delay_numeric_config(const char *name, long long val,
+static int set_max_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-
   if (val <= (long long)RSGlobalConfig.minTrimDelayMS) {
     if (err) {
       *err = RedisModule_CreateStringPrintf(NULL,
@@ -181,7 +190,7 @@ int set_max_trim_delay_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-int set_uint8_numeric_config(const char *name, long long val,
+static int set_uint8_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -189,12 +198,12 @@ int set_uint8_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_uint8_numeric_config(const char *name, void *privdata) {
+static long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(uint8_t *)privdata);
 }
 
-int set_bool_config(const char *name, int val, void *privdata,
+static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -202,7 +211,7 @@ int set_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int set_inverted_bool_config(const char *name, int val, void *privdata,
+static int set_inverted_bool_config(const char *name, int val, void *privdata,
                              RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -210,12 +219,12 @@ int set_inverted_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int get_bool_config(const char *name, void *privdata) {
+static int get_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(bool *)privdata;
 }
 
-int get_inverted_bool_config(const char *name, void *privdata) {
+static int get_inverted_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return !*(bool *)privdata;
 }
@@ -260,7 +269,7 @@ static int set_monitor_expiration(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
+static int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
                       RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -274,35 +283,36 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   return REDISMODULE_OK;
 }
 
-int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
-    if (RSGlobalConfig.defaultScorer == NULL) {
-      RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
-    }
+static int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
 
-    // Get the scorer name from the Redis module string
-    size_t len;
-    const char *newScorerName = RedisModule_StringPtrLen(val, &len);
+  if (RSGlobalConfig.defaultScorer == NULL) {
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  }
 
-    // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
-    if (Extensions_InitDone()) {
-      // Validate the scorer name against registered scorers only when the extension system is initialized
-      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
-      if (scoreCtx == NULL) {
-          if (err) {
-              *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
-          }
-          return REDISMODULE_ERR;
+  // Get the scorer name from the Redis module string
+  size_t len;
+  const char *newScorerName = RedisModule_StringPtrLen(val, &len);
+
+  // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
+  if (Extensions_InitDone()) {
+    // Validate the scorer name against registered scorers only when the extension system is initialized
+    ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
+    if (scoreCtx == NULL) {
+      if (err) {
+        *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
       }
+      return REDISMODULE_ERR;
     }
+  }
 
-    // Validation passed, now allocate and apply it to RSGlobalConfig
-    char **ptr = (char **)privdata;
-    if (*ptr) {
-        rm_free(*ptr);   // Free the existing default scorer string
-    }
-    *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
-    return REDISMODULE_OK;
+  // Validation passed, now allocate and apply it to RSGlobalConfig
+  char **ptr = (char **)privdata;
+  if (*ptr) {
+    rm_free(*ptr);   // Free the existing default scorer string
+  }
+  *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
+  return REDISMODULE_OK;
 }
 
 // EXTLOAD
@@ -327,7 +337,7 @@ CONFIG_GETTER(getExtLoad) {
 }
 
 // ext-load
-RedisModuleString* get_ext_load(const char *name, void *privdata) {
+static RedisModuleString* get_ext_load(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   char *str = *(char **)privdata;
   if (str == NULL) {
@@ -507,7 +517,7 @@ CONFIG_GETTER(getWorkThreads) {
 }
 
 // workers
-int set_workers(const char *name, long long val, void *privdata,
+static int set_workers(const char *name, long long val, void *privdata,
 RedisModuleString **err) {
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
@@ -519,7 +529,7 @@ RedisModuleString **err) {
   return REDISMODULE_OK;
 }
 
-long long get_workers(const char *name, void *privdata) {
+static long long get_workers(const char *name, void *privdata) {
   RSConfig *config = (RSConfig *)privdata;
   return config->numWorkerThreads;
 }
@@ -545,7 +555,7 @@ CONFIG_GETTER(getMinOperationWorkers) {
 }
 
 // min-operation-workers
-int set_min_operation_workers(const char *name,
+static int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -556,7 +566,7 @@ int set_min_operation_workers(const char *name,
   return REDISMODULE_OK;
 }
 
-long long get_min_operation_workers(const char *name, void *privdata) {
+static long long get_min_operation_workers(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long) (*(size_t *)privdata);
 }
@@ -745,7 +755,7 @@ CONFIG_GETTER(getFrisoINI) {
 }
 
 // friso-ini
-RedisModuleString * get_friso_ini(const char *name, void *privdata) {
+static RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   if (str == NULL) {
     return NULL;
@@ -757,7 +767,7 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   return config_friso_ini;
 }
 
-RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
+static RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   RS_ASSERT(str != NULL);
   if (config_default_scorer) {
@@ -818,7 +828,7 @@ CONFIG_GETTER(getOnTimeout) {
 }
 
 // on-timeout
-int set_on_timeout(const char *name, int val, void *privdata,
+static int set_on_timeout(const char *name, int val, void *privdata,
                    RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -826,7 +836,7 @@ int set_on_timeout(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int get_on_timeout(const char *name, void *privdata){
+static int get_on_timeout(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSTimeoutPolicy *)privdata);
 }
@@ -1138,6 +1148,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
@@ -1145,6 +1156,28 @@ CONFIG_SETTER(setIndexerYieldEveryOps) {
 CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
+// BG_INDEX_SLEEP_DURATION_US
+// Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+#define BG_INDEX_SLEEP_DURATION_US_MAX 999999
+CONFIG_SETTER(setBGIndexSleepDurationUS) {
+  unsigned int sleepDurationUS;
+  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+      "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
+      BG_INDEX_SLEEP_DURATION_US_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->bgIndexingSleepDurationMicroseconds = sleepDurationUS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBGIndexSleepDurationUS) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingSleepDurationMicroseconds);
 }
 
 // MIN_TRIM_DELAY
@@ -1225,15 +1258,14 @@ CONFIG_GETTER(getOnOom) {
 }
 
 // on-oom
-int set_on_oom(const char *name, int val, void *privdata,
-               RedisModuleString **err) {
+static int set_on_oom(const char *name, int val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *((RSOomPolicy *)privdata) = (RSOomPolicy)val;
   return REDISMODULE_OK;
 }
 
-int get_on_oom(const char *name, void *privdata){
+static int get_on_oom(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSOomPolicy *)privdata);
 }
@@ -1569,6 +1601,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
+        {.name = "BG_INDEX_SLEEP_DURATION_US",
+         .helpText = "Sleep duration in microseconds during background indexing periodic sleep (max 999999, usleep POSIX limit)",
+         .setValue = setBGIndexSleepDurationUS,
+         .getValue = getBGIndexSleepDurationUS},
         {.name = "ON_OOM",
          .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
@@ -2096,6 +2132,16 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     )
   )
 
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bg-index-sleep-duration-us", DEFAULT_BG_INDEX_SLEEP_DURATION_US,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      BG_INDEX_SLEEP_DURATION_US_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.bgIndexingSleepDurationMicroseconds)
+    )
+  )
+
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-_min-trim-delay-ms", DEFAULT_MIN_TRIM_DELAY,
@@ -2260,6 +2306,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_monitor_expiration, NULL,
       (void *)&(RSGlobalConfig.monitorExpiration)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_info-on-zero-indexes", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.infoEmitOnZeroIndexes)
     )
   )
 
