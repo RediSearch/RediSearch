@@ -16,8 +16,6 @@ use inverted_index::{doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Missing};
 use rqe_iterators_test_utils::TestContext;
 
-use crate::ffi as bench_ffi;
-
 use super::{INDEX_SIZE, SKIP_TO_STEP, SPARSE_DELTA, benchmark_group};
 
 pub struct MissingBencher {
@@ -46,59 +44,20 @@ impl MissingBencher {
 
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Missing", "Read Dense");
-        self.c_read(&mut group, &self.context_dense);
         self.rust_read(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Missing", "SkipTo Dense");
-        self.c_skip_to(&mut group, &self.context_dense);
         self.rust_skip_to(&mut group, &self.context_dense);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
         let mut group = benchmark_group(c, "Missing", "SkipTo Sparse");
-        self.c_skip_to(&mut group, &self.context_sparse);
         self.rust_skip_to(&mut group, &self.context_sparse);
         group.finish();
-    }
-
-    fn c_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        let idx = context.missing_index_ptr();
-        let sctx = context.sctx.as_ptr();
-        let field_index = context.field_spec().index;
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                // SAFETY: `context` provides valid pointers with a valid
-                // `spec` and `missingFieldDict` that outlive the iterator.
-                let it = unsafe { bench_ffi::QueryIterator::new_missing(idx, sctx, field_index) };
-                while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
-    }
-
-    fn c_skip_to<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
-        let idx = context.missing_index_ptr();
-        let sctx = context.sctx.as_ptr();
-        let field_index = context.field_spec().index;
-        group.bench_function("C", |b| {
-            b.iter(|| {
-                // SAFETY: `context` provides valid pointers with a valid
-                // `spec` and `missingFieldDict` that outlive the iterator.
-                let it = unsafe { bench_ffi::QueryIterator::new_missing(idx, sctx, field_index) };
-                while it.skip_to(it.last_doc_id() + SKIP_TO_STEP)
-                    != ::ffi::IteratorStatus_ITERATOR_EOF
-                {
-                    black_box(it.current());
-                }
-                it.free();
-            });
-        });
     }
 
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {

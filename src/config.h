@@ -212,6 +212,8 @@ typedef struct {
   bool infoEmitOnZeroIndexes;
   // Simulate working under Flex conditions. This is used for testing only.
   bool simulateInFlex;
+  // If true, monitor document and field expiration for new indexes.
+  bool monitorExpiration;
   // Percentage of available memory to use for disk write buffer (0-100).
   uint8_t diskBufferPercentage;
 } RSConfig;
@@ -404,6 +406,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
     .infoEmitOnZeroIndexes = false,                                            \
     .simulateInFlex = false,                                                   \
+    .monitorExpiration = true,                                                 \
     .diskBufferPercentage = DEFAULT_DISK_BUFFER_PERCENTAGE,                    \
   }
 

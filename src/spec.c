@@ -833,10 +833,20 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
         return 0;
       }
     } else if (AC_AdvanceIfMatch(&subAc, VECSIM_RERANK)) {
-      // RERANK is a boolean flag (no value)
       if (*rerank) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
           "Duplicate RERANK parameter");
+        return 0;
+      }
+      if (AC_IsAtEnd(&subAc)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, VECSIM_RERANK " requires an argument");
+        return 0;
+      }
+      size_t rerank_len;
+      const char *rerank_value = AC_GetStringNC(&subAc, &rerank_len);
+      if (!STR_EQCASE(rerank_value, rerank_len, "TRUE")) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+          "Syntax error: RERANK only supports TRUE currently");
         return 0;
       }
       *rerank = true;
@@ -1477,7 +1487,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       goto reset;
     }
 
-    if (sp->diskSpec)
+    if (isSpecOnDiskForValidation(sp))
     {
       if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG)) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG fields");
@@ -2305,8 +2315,9 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
-  sp->monitorDocumentExpiration = true;
-  sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
+  sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
+  sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
+                               RedisModule_HashFieldMinExpire != NULL;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));

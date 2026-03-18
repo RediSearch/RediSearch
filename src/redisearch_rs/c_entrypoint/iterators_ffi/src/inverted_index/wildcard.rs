@@ -12,8 +12,8 @@ use std::{fmt::Debug, ptr::NonNull};
 use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::inverted_index::Wildcard;
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
