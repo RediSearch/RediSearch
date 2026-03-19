@@ -2101,8 +2101,9 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
-  sp->monitorDocumentExpiration = true;
-  sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
+  sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
+  sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
+                               RedisModule_HashFieldMinExpire != NULL;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
