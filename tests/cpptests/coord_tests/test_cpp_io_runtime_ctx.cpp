@@ -30,14 +30,20 @@ static void testCallback(void *privdata) {
 
 // Test callback for topology updates
 static void testTopoCallback(void *privdata) {
-  struct UpdateTopologyCtx *ctx = (struct UpdateTopologyCtx *)privdata;
-  IORuntimeCtx *ioRuntime = ctx->ioRuntime;
+  struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+  IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
   //Simulate what the TopologyValidationTimer should do
   ioRuntime->uv_runtime.loop_th_ready = true;
+  // Stop the validation timers to prevent topologyTimerCB from running after this callback
+  // (topologyAsyncCB will start these timers after this callback returns, but we stop them
+  // preemptively to avoid any race conditions in tests without real connections)
+  uv_timer_stop(&ioRuntime->uv_runtime.topologyValidationTimer);
+  uv_timer_stop(&ioRuntime->uv_runtime.topologyFailureTimer);
   MRClusterTopology *old_topo = ioRuntime->topo;
-  MRClusterTopology *new_topo = ctx->new_topo;
-  ioRuntime->topo = new_topo;
-  rm_free(ctx);
+  MRClusterTopology *new_topo = updateCtx->new_topo;
+  // Use atomic store to safely update the topo pointer that may be read by the test thread
+  __atomic_store_n(&ioRuntime->topo, new_topo, __ATOMIC_RELEASE);
+  rm_free(updateCtx);
   if (old_topo) {
     MRClusterTopology_Free(old_topo);
   }
@@ -174,8 +180,12 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
 
   // Wait for topology to be applied. We can't rely on the callback counter since
   // topology updates are processed via a separate async handle (topologyAsync)
-  // and may complete after regular callbacks
-  bool success = RS::WaitForCondition([&]() { return ctx->topo && ctx->topo->capShards == 4097; });
+  // and may complete after regular callbacks.
+  // Use atomic_load to safely read the topo pointer that may be modified by the UV thread.
+  bool success = RS::WaitForCondition([&]() {
+    MRClusterTopology *topo = __atomic_load_n(&ctx->topo, __ATOMIC_ACQUIRE);
+    return topo && topo->capShards == 4097;
+  });
   ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, capShards=" << (ctx->topo ? ctx->topo->capShards : 0);
 
   // We don't need to free newTopo here as it's handled by testTopoCallback
@@ -193,8 +203,12 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
   // Wait for the last topology (4101) to be applied
   // We can't rely on the callback counter since topology updates are processed
-  // via a separate async handle (topologyAsync) and may complete after regular callbacks
-  bool success = RS::WaitForCondition([&]() { return ctx->topo && ctx->topo->capShards == 4101; });
+  // via a separate async handle (topologyAsync) and may complete after regular callbacks.
+  // Use atomic_load to safely read the topo pointer that may be modified by the UV thread.
+  bool success = RS::WaitForCondition([&]() {
+    MRClusterTopology *topo = __atomic_load_n(&ctx->topo, __ATOMIC_ACQUIRE);
+    return topo && topo->capShards == 4101;
+  });
   ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, capShards=" << (ctx->topo ? ctx->topo->capShards : 0);
 }
 
