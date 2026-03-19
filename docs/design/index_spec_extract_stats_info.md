@@ -62,6 +62,14 @@ IndexSpec_AddToInfo
 - `RSIndexStats` type — from `redisearch_api.h`
 - `IndexError_ErrorCount` — from `info/index_error.h`
 
+## External Callers (need `#include "spec_info.h"`)
+
+- `src/info/info_command.c:270,272,274,292` — calls `collect_tags_overhead`, `collect_text_overhead`, `TotalMemUsage`, `IndexedPercent`.
+- `src/info/indexes_info.c:48,72` — calls `TotalMemUsage`, `GetIndexErrorCount`.
+- `src/redisearch_api.c:648,965` — calls `GetStats`, `TotalMemUsage`.
+- `src/pipeline/pipeline_construction.c:289` — calls `GetStats`.
+- `src/info/info_redis/info_redis.c:429` — calls `AddToInfo`.
+
 ## Notes
 
 - All functions are read-only — no mutations to IndexSpec.
@@ -87,3 +95,5 @@ After extraction:
 - `./build.sh RUN_PYTEST TEST=test_info` — FT.INFO output.
 - `./build.sh RUN_PYTEST TEST=test_info_modules_command` — Redis INFO modules output.
 - Verify FT.INFO output format is unchanged.
+
+**Validated 2026-03-19**: All functions, callers, and dependencies verified against codebase. No blockers.

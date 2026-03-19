@@ -30,7 +30,7 @@ parseFieldSpec                     (static → expose as internal)
 IndexSpec_AddFieldsInternal        (static → expose as internal)
 IndexSpec_AddFields                (public)
 VecSimIndex_validate_params        (public)
-handleBadArguments                 (static, also used by IndexSpec_Parse)
+initializeFieldSpec                (static → expose as internal, also called by RDB load)
 isSpecOnDiskForValidation          (static inline — shared)
 ```
 
@@ -76,11 +76,19 @@ The vector parsing functions alone are ~500 lines and could become `spec_field_p
 - `spec.c` includes `spec_field_parse.h`.
 - `spec_field_parse.c` includes `spec.h`, `field_spec.h`, VecSim headers, ArgsCursor.
 
+## Note on handleBadArguments
+
+`handleBadArguments` is used by `IndexSpec_Parse` (in spec.c) during top-level option parsing, not field parsing. It stays in `spec.c`.
+
+## Note on VecSimIndex_validate_params
+
+`VecSimIndex_validate_params` is also called from `src/vector_index.c:434` (during RDB load memory limit checks). It must be declared in `spec_field_parse.h`.
+
 ## Risks
 
-- `handleBadArguments` is used by `IndexSpec_Parse` (in spec.c) during the top-level option parsing phase, not just field parsing. May need to stay in spec.c or be shared.
 - `AddFieldsInternal` modifies `IndexSpec` directly (flags, suffix trie, spcache). This coupling is inherent — the function needs write access to the spec.
 - JSON path API (`japi->*`) is a global function pointer. Just need the include.
+- `initializeFieldSpec` is also called by RDB load code — must be declared in `spec_field_parse.h` so `spec_rdb.c` can call it.
 
 ## Validation
 
@@ -90,3 +98,5 @@ After extraction:
 - `./build.sh RUN_PYTEST TEST=test_alter` — FT.ALTER adding fields.
 - `./build.sh RUN_PYTEST TEST=test_vecsim` — vector field parsing.
 - `./build.sh RUN_PYTEST TEST=test_tags` — tag field parsing.
+
+**Validated 2026-03-19**: All functions verified. Key corrections: `handleBadArguments` stays in spec.c (not field parsing), `initializeFieldSpec` added to move list, `VecSimIndex_validate_params` also called from `vector_index.c`.

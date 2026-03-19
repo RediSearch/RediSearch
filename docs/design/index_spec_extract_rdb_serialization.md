@@ -37,9 +37,9 @@ Indexes_Propagate                 (public)
 IndexSpec_DropLegacyIndexFromKeySpace  (public)
 Indexes_UpgradeLegacyIndexes      (public)
 CheckRdbSstPersistence            (public)
-IndexSpec_PopulateVectorDiskParams (static, also used by parse — may need to expose)
-fieldTypeMap                      (static const)
-bit()                             (helper, shared — keep in spec.c or move to common)
+IndexSpec_PopulateVectorDiskParams (static — only used in RDB load, safe to move)
+fieldTypeMap                      (static const — only used in RDB compat code)
+bit()                             (static — only used in FieldSpec_RdbLoadCompat8, safe to move)
 ```
 
 ### To `spec_rdb.h`
@@ -78,7 +78,12 @@ These functions are called by the RDB code but also used elsewhere — they stay
 
 ## Version Constants
 
-Move all `INDEX_*_VERSION` defines to `spec_rdb.h` (or keep in spec.h if other modules reference them — check with grep).
+**Must stay in `spec.h`** — used by external modules:
+- `doc_table.c` uses: `INDEX_MIN_COMPACTED_DOCTABLE_VERSION`, `INDEX_MIN_BINKEYS_VERSION`, `INDEX_MIN_DOCLEN_VERSION`, `INDEX_MIN_EXPIRE_VERSION`
+- `rules.c` uses: `INDEX_INDEXALL_VERSION`
+- `debug_commands.c` uses: `INDEX_CURRENT_VERSION`
+
+Do NOT move these to `spec_rdb.h`.
 
 ## Build Integration
 
@@ -86,9 +91,22 @@ Move all `INDEX_*_VERSION` defines to `spec_rdb.h` (or keep in spec.h if other m
 - `spec.c` gains `#include "spec_rdb.h"`.
 - `spec_rdb.c` gains `#include "spec.h"` + all RDB-related includes.
 
+## Note on RDB Loading Events
+
+`Indexes_StartRDBLoadingEvent`, `Indexes_EndRDBLoadingEvent`, `Indexes_EndLoading` (currently in scanner plan) should move here instead — they are about RDB lifecycle, not scanning. They call `Indexes_Free`, `Indexes_UpgradeLegacyIndexes`, and `Indexes_ScanAndReindex` but are triggered by RDB events via `notifications.c`.
+
+## Note on Callback Declarations
+
+The following functions are currently NOT declared in any header — they're registered directly as callbacks in `IndexSpec_RegisterType`. The new `spec_rdb.h` must declare them:
+- `Indexes_RdbLoad`, `Indexes_RdbSave`, `Indexes_RdbSave2`
+- `IndexSpec_RdbLoad_Logic`
+- `IndexSpec_LegacyRdbLoad`, `IndexSpec_LegacyRdbSave`, `IndexSpec_LegacyFree`
+- `IndexSpec_DropLegacyIndexFromKeySpace`, `Indexes_UpgradeLegacyIndexes`
+- `CheckRdbSstPersistence`
+
 ## Risks
 
-- `IndexSpec_PopulateVectorDiskParams` is called from both RDB load and `IndexSpec_Parse` → either expose it or keep in spec.c.
+- ~~`IndexSpec_PopulateVectorDiskParams` is called from both RDB load and `IndexSpec_Parse`~~ **CORRECTED**: only called from RDB load code (new + legacy). Safe to move as static.
 - Legacy RDB load calls `IndexSpec_StartGC`, `dictAdd(specDict_g, ...)` — tight coupling with global state.
 - `IndexSpec_StoreAfterRdbLoad` calls `dictFetchValue(specDict_g, ...)` and `dictAdd` — needs access to the global dict.
 
@@ -99,3 +117,5 @@ After extraction:
 - `./build.sh RUN_UNIT_TESTS` must pass.
 - `./build.sh RUN_PYTEST TEST=test_rdb_compatibility` must pass.
 - Verify RDB save/load round-trips still work.
+
+**Validated 2026-03-19**: All functions verified. Key corrections: `PopulateVectorDiskParams` is RDB-only (simpler than assumed), version constants must stay in spec.h, `bit()` and `fieldTypeMap` are RDB-only (safe to move), 10 callback functions need declarations in spec_rdb.h.

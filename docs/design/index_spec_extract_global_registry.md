@@ -77,7 +77,7 @@ legacySpecRules                    (extern)
 pendingIndexDropCount_g            (static → expose if needed)
 cleanPool                          (static)
 redisVersion, rlecVersion, isCrdt, isTrimming, isFlex  (extern globals)
-memoryLimit, used_memory           (extern globals)
+memoryLimit, used_memory           (file-scoped to spec.c — NOT extern, set via setMemoryInfo)
 ```
 
 ### To `spec_registry.h`
@@ -127,12 +127,29 @@ It orchestrates: check existence → parse → add to dict → start GC → init
 - `Initialize_KeyspaceNotifications` — external
 - `CurrentThread_SetIndexSpec/ClearIndexSpec` — external
 
+## Note on specDict_g Coupling
+
+`specDict_g` is directly accessed (not just via registry functions) by at least 6 external files:
+- `src/module.c` — dict iteration for FT._LIST
+- `src/spec_rdb.c` (future) — `dictAdd`/`dictFetchValue` during RDB load
+- `src/config.c` — iterating all specs for config changes
+- `src/info/indexes_info.c` — iterating specs for info
+- `src/info/info_command.c` — iterating specs for info
+- `src/search_disk.c` — dict lookup
+
+This coupling cannot be fully eliminated without refactoring callers. Keep `specDict_g` as extern in `spec_registry.h`.
+
+## Note on pendingIndexDropCount_g
+
+`pendingIndexDropCount_g` can stay static in `spec_registry.c`. It's only read from `CleanInProgressOrPending` (also in registry) and modified by `addPendingIndexDrop`/`removePendingIndexDrop`. `removePendingIndexDrop` is called from `IndexSpec_FreeUnlinkedData` (spec.c) — expose it as internal.
+
 ## Risks
 
 - This is the most cross-cutting submodule. Many other modules directly access `specDict_g`.
 - `Indexes_FindMatchingSchemaRules` is 100 lines with complex filter evaluation logic involving `EvalCtx` and `RLookup` — significant dependency surface.
 - Timer management (temp indexes) interacts with Redis module timer APIs and requires GIL awareness.
 - `IndexSpec_CreateNew` pulls in parsing, scanning, GC, cursors, timers, disk — it's a nexus function.
+- `memoryLimit` and `used_memory` are file-scoped to spec.c (set by `setMemoryInfo`), not extern globals. If registry functions need them, either pass as params or move `setMemoryInfo` to a shared location.
 
 ## Validation
 
@@ -143,3 +160,5 @@ After extraction:
 - `./build.sh RUN_PYTEST TEST=test_list` — FT._LIST.
 - `./build.sh RUN_PYTEST TEST=test_temporary` — temporary index expiration.
 - `./build.sh RUN_PYTEST TEST=test_follow_hash` — schema rule matching.
+
+**Validated 2026-03-19**: All functions verified. Key corrections: `memoryLimit`/`used_memory` are file-scoped not extern, `specDict_g` directly accessed by 6+ external files, `Indexes_FindMatchingSchemaRules` and `Indexes_SpecOpsIndexingCtxFree` added to header declarations, `pendingIndexDropCount_g` can stay static.

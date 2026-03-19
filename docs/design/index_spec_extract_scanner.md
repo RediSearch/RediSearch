@@ -24,10 +24,9 @@ scanStopAfterOOM                   (static)
 ```
 IndexesScanner_New                 (static → may need to expose for debug)
 IndexesScanner_NewGlobal           (static)
-IndexesScanner_Free                (static → needs internal visibility)
-IndexesScanner_Cancel              (public)
-IndexesScanner_ResetProgression    (public)
-IndexesScanner_IndexedPercent      (public)
+IndexesScanner_Free                (internal — not in spec.h, only used within scan task)
+IndexesScanner_Cancel              (public — declared in spec.h)
+IndexesScanner_ResetProgression    (public — declared in spec.h, only used internally)
 ```
 
 **Scan execution:**
@@ -36,9 +35,9 @@ IndexSpec_DoneIndexingCallabck     (static — unused callback stub)
 Indexes_ScanProc                   (static)
 Indexes_ScanAndReindexTask         (static)
 IndexSpec_ScanAndReindexAsync      (static)
-IndexSpec_ScanAndReindex           (public)
-Indexes_ScanAndReindex             (public — global scan)
-ReindexPool_ThreadPoolDestroy      (public)
+IndexSpec_ScanAndReindex           (public — declared in spec.h)
+Indexes_ScanAndReindex             (internal — NOT declared in spec.h, called from EndRDBLoadingEvent)
+ReindexPool_ThreadPoolDestroy      (public — declared in spec.h)
 ```
 
 **Debug scanner:**
@@ -72,7 +71,6 @@ DEBUG_INDEX_SCANNER_STATUS_STRS
 
 IndexesScanner_Cancel
 IndexesScanner_ResetProgression
-IndexesScanner_IndexedPercent
 IndexSpec_ScanAndReindex
 Indexes_ScanAndReindex
 ReindexPool_ThreadPoolDestroy
@@ -121,11 +119,26 @@ These are all via function calls — no direct struct mutation beyond the scanne
 - `RedisMemory_GetUsedMemoryRatioUnified`
 - `IncrementBgIndexYieldCounter`
 
+## Overlap Resolution
+
+`IndexesScanner_IndexedPercent` was originally listed in both this plan and the stats/info plan.
+**Decision**: It belongs in **spec_info.c** (stats plan) — it's a read-only reporting function called from `info_command.c`. Removed from this plan. The scanner module can call it via `spec_info.h` if needed.
+
+## External Callers
+
+- `IndexSpec_ScanAndReindex` — called from `module.c:815` (FT.ALTER).
+- `ReindexPool_ThreadPoolDestroy` — called from `module.c:1829`, `debug_commands.c:1884`.
+- `Indexes_StartRDBLoadingEvent` — called from `notifications.c:711`.
+- `Indexes_EndRDBLoadingEvent` — called from `notifications.c:716`.
+- `Indexes_EndLoading` — called from `notifications.c:718,723`.
+- `IndexesScanner_Cancel` — internal use only (spec.c:2703).
+- `IndexesScanner_ResetProgression` — internal use only (spec.c:2878).
+
 ## Risks
 
 - `Indexes_StartRDBLoadingEvent` calls `Indexes_Free` and touches `legacySpecDict` — couples scanner to registry and RDB.
 - `Indexes_EndRDBLoadingEvent` calls `Indexes_UpgradeLegacyIndexes` and `Indexes_ScanAndReindex` — couples to RDB.
-- Consider moving the RDB loading event functions to the RDB submodule instead, with the scanner only exporting `IndexSpec_ScanAndReindex` / `Indexes_ScanAndReindex`.
+- **Recommendation**: Move the RDB loading event functions (`Start/End/EndLoading`) to the RDB submodule instead, since they're more about RDB lifecycle than scanning. The scanner would only export `IndexSpec_ScanAndReindex` / `Indexes_ScanAndReindex`.
 
 ## Validation
 
@@ -135,3 +148,5 @@ After extraction:
 - `./build.sh RUN_PYTEST TEST=test_follow_hash` — schema rule scanning.
 - `./build.sh RUN_PYTEST TEST=test_alter` — rescan after FT.ALTER.
 - `./build.sh RUN_PYTEST TEST=test_rdb_compatibility` — RDB load triggers scan.
+
+**Validated 2026-03-19**: All functions verified. Key corrections: removed `IndexesScanner_IndexedPercent` (belongs in stats), clarified visibility of `IndexesScanner_Free` and `Indexes_ScanAndReindex` (not declared in spec.h).

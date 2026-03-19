@@ -47,10 +47,20 @@ The `IndexSpec` struct has `struct IndexSpecCache *spcache` — only needs a for
 
 ## Callers
 
-- `IndexSpec_AddFieldsInternal` (spec.c) — calls `IndexSpecCache_Decref(sp->spcache)` then `sp->spcache = IndexSpec_BuildSpecCache(sp)`.
-- `IndexSpec_RdbLoad` (spec_rdb.c) — calls `sp->spcache = IndexSpec_BuildSpecCache(sp)`.
-- `IndexSpec_FreeUnlinkedData` (spec.c) — calls `IndexSpecCache_Decref(sp->spcache)`.
-- Query execution paths — call `IndexSpec_GetSpecCache` to get a thread-safe snapshot, later `IndexSpecCache_Decref`.
+**Within spec.c:**
+- `IndexSpec_AddFieldsInternal` — calls `IndexSpecCache_Decref(sp->spcache)` then `sp->spcache = IndexSpec_BuildSpecCache(sp)`.
+- `IndexSpec_RdbLoad` — calls `sp->spcache = IndexSpec_BuildSpecCache(sp)`.
+- `IndexSpec_LegacyRdbLoad` — calls `IndexSpec_BuildSpecCache(sp)`.
+- `IndexSpec_FreeUnlinkedData` — calls `IndexSpecCache_Decref(sp->spcache)`.
+
+**External callers (need `#include "spec_cache.h"`):**
+- `src/document.c:907` — calls `IndexSpec_GetSpecCache`.
+- `src/hybrid/hybrid_request.c:168` — calls `IndexSpec_GetSpecCache` (via `RLookup_SetCache`).
+- `src/pipeline/pipeline_construction.c:391` — calls `IndexSpec_GetSpecCache`.
+- `src/rlookup.c:434` — `RLookup_SetCache` stores spcache pointer.
+- `src/rlookup.c:509` — `RLookup_Free` calls `IndexSpecCache_Decref`.
+
+**Header dependency:** `src/rlookup.h` references `IndexSpecCache` type (line 101) — must include `spec_cache.h`.
 
 ## Notes
 
@@ -67,6 +77,8 @@ The `IndexSpec` struct has `struct IndexSpecCache *spcache` — only needs a for
 ## Risks
 
 Essentially none. This is a self-contained immutable snapshot with refcounting.
+
+**Validated 2026-03-19**: All functions, callers, and dependencies verified against codebase. No blockers.
 
 ## Validation
 
