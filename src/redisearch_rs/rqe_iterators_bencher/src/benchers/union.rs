@@ -361,7 +361,7 @@ impl Bencher {
         F: Fn() -> Vec<Vec<u64>>,
     {
         // C Flat Full implementation benchmark (aggregates all matching children)
-        group.bench_function("C Flat Full", |b| {
+        group.bench_function("Flat Full/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, false),
                 |it| {
@@ -375,7 +375,7 @@ impl Bencher {
         });
 
         // C Flat Quick implementation benchmark (returns after first match)
-        group.bench_function("C Flat Quick", |b| {
+        group.bench_function("Flat Quick/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
                 |it| {
@@ -389,7 +389,7 @@ impl Bencher {
         });
 
         // C Heap Full implementation benchmark (aggregates all matching children)
-        group.bench_function("C Heap Full", |b| {
+        group.bench_function("Heap Full/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, false),
                 |it| {
@@ -403,7 +403,7 @@ impl Bencher {
         });
 
         // C Heap Quick implementation benchmark (returns after first match)
-        group.bench_function("C Heap Quick", |b| {
+        group.bench_function("Heap Quick/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, true),
                 |it| {
@@ -417,7 +417,7 @@ impl Bencher {
         });
 
         // Rust Flat Full variant (aggregates all matching children)
-        group.bench_function("Rust Flat Full", |b| {
+        group.bench_function("Flat Full/Rust", |b| {
             b.iter_batched_ref(
                 || UnionFullFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
@@ -430,7 +430,7 @@ impl Bencher {
         });
 
         // Rust Flat Quick variant (returns after first match)
-        group.bench_function("Rust Flat Quick", |b| {
+        group.bench_function("Flat Quick/Rust", |b| {
             b.iter_batched_ref(
                 || UnionQuickFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
@@ -451,7 +451,7 @@ impl Bencher {
         F: Fn() -> Vec<Vec<u64>>,
     {
         // C Flat Full implementation benchmark (aggregates all matching children)
-        group.bench_function("C Flat Full", |b| {
+        group.bench_function("Flat Full/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, false),
                 |it| {
@@ -465,7 +465,7 @@ impl Bencher {
         });
 
         // C Flat Quick implementation benchmark (returns after first match)
-        group.bench_function("C Flat Quick", |b| {
+        group.bench_function("Flat Quick/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, false, true),
                 |it| {
@@ -479,7 +479,7 @@ impl Bencher {
         });
 
         // C Heap Full implementation benchmark (aggregates all matching children)
-        group.bench_function("C Heap Full", |b| {
+        group.bench_function("Heap Full/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, false),
                 |it| {
@@ -493,7 +493,7 @@ impl Bencher {
         });
 
         // C Heap Quick implementation benchmark (returns after first match)
-        group.bench_function("C Heap Quick", |b| {
+        group.bench_function("Heap Quick/C", |b| {
             b.iter_batched_ref(
                 || ffi::QueryIterator::new_union(&make_ids(), 1.0, true, true),
                 |it| {
@@ -507,7 +507,7 @@ impl Bencher {
         });
 
         // Rust Flat Full variant (aggregates all matching children)
-        group.bench_function("Rust Flat Full", |b| {
+        group.bench_function("Flat Full/Rust", |b| {
             b.iter_batched_ref(
                 || UnionFullFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
@@ -520,7 +520,7 @@ impl Bencher {
         });
 
         // Rust Flat Quick variant (returns after first match)
-        group.bench_function("Rust Flat Quick", |b| {
+        group.bench_function("Flat Quick/Rust", |b| {
             b.iter_batched_ref(
                 || UnionQuickFlat::new(ids_to_rust_children(make_ids())),
                 |it| {
