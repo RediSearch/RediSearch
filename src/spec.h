@@ -462,12 +462,7 @@ StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
 
-/* Create a new index spec from redis arguments, set it in a redis key and start its GC.
- * If an error occurred - we set an error string in err and return NULL.
- */
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               QueryError *status);
-
+// IndexSpec_CreateNew moved to spec_registry.h
 
 // IndexSpec_Serialize, IndexSpec_Deserialize moved to spec_rdb.h
 
@@ -535,20 +530,7 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Find and load the index using the specified parameters.
- * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
- * If an owned reference is needed, use StrongRef API to create one.
- */
-// TODO: Remove the context from this function!
-StrongRef IndexSpec_LoadUnsafe(const char *name);
-
-/**
- * Find and load the index using the specified parameters. The call does not increase the spec reference counter
- * (only the weak reference counter).
- * @return the index spec, or NULL if the index does not exist
- */
-StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
+// IndexSpec_LoadUnsafe, IndexSpec_LoadUnsafeEx moved to spec_registry.h
 
 /**
  * Quick access to the spec's strong reference. This function should be called only if
@@ -558,13 +540,7 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
  */
 StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
 
-/**
- * @brief Removes the spec from the global data structures
- *
- * @param ref a strong reference to the spec
- * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
- */
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+// IndexSpec_RemoveFromGlobals moved to spec_registry.h
 
 /*
  * Free an indexSpec. For LLAPI
@@ -586,7 +562,6 @@ void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 void IndexSpec_ClearAliases(StrongRef ref);
 
 void IndexSpec_InitializeSynonym(IndexSpec *sp);
-void Indexes_SetTempSpecsTimers(TimerOp op);
 
 //---------------------------------------------------------------------------------------------
 
@@ -602,30 +577,14 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
-//---------------------------------------------------------------------------------------------
-
-void Indexes_Init(RedisModuleCtx *ctx);
-/*
- * Free all indexes.
- * @param deleteDiskData - delete the disk data
-*/
-void Indexes_Free(dict *d, bool deleteDiskData);
-size_t Indexes_Count();
-// Indexes_Propagate moved to spec_rdb.h
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
-                                           RedisModuleString **hashFields);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           DocumentType type,
-                                           RedisModuleString **hashFields);
-void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
-                                            RedisModuleString *to_key);
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
-
-//---------------------------------------------------------------------------------------------
-
-void CleanPool_ThreadPoolStart();
-void CleanPool_ThreadPoolDestroy();
-size_t CleanInProgressOrPending();
+// Indexes_Init, Indexes_Free, Indexes_Count, Indexes_UpdateMatchingWithSchemaRules,
+// Indexes_DeleteMatchingWithSchemaRules, Indexes_ReplaceMatchingWithSchemaRules,
+// Indexes_List, Indexes_SetTempSpecsTimers, CleanPool_ThreadPoolStart,
+// CleanPool_ThreadPoolDestroy, CleanInProgressOrPending,
+// IndexSpec_CreateNew, IndexSpec_LoadUnsafe, IndexSpec_LoadUnsafeEx,
+// IndexSpec_RemoveFromGlobals, Indexes_FindMatchingSchemaRules,
+// Indexes_SpecOpsIndexingCtxFree moved to spec_registry.h
+#include "spec_registry.h"
 
 // ReindexPool_ThreadPoolDestroy moved to spec_scanner.h
 
