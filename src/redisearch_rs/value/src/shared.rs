@@ -78,7 +78,7 @@ impl SharedRsValue {
 
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// rather than a heap-allocated [`Arc`].
-    fn is_static(&self) -> bool {
+    fn is_null_static(&self) -> bool {
         ptr::eq(self.ptr, &NULL_VALUE)
     }
 
@@ -90,7 +90,7 @@ impl SharedRsValue {
     /// - Panics if there are other outstanding clones sharing the same
     ///   allocation (i.e. the [`Arc`] strong count is greater than 1).
     pub fn set_value(&mut self, new_value: RsValue) {
-        if self.is_static() {
+        if self.is_null_static() {
             panic!("Cannot change the value of static NULL");
         }
         // SAFETY: `this.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
@@ -108,7 +108,7 @@ impl SharedRsValue {
 
     /// Returns the reference count of this [`SharedRsValue`].
     pub fn refcount(this: &Self) -> usize {
-        if this.is_static() {
+        if this.is_null_static() {
             1
         } else {
             // SAFETY: `this.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
@@ -123,7 +123,7 @@ impl Deref for SharedRsValue {
     type Target = RsValue;
 
     fn deref(&self) -> &Self::Target {
-        if self.is_static() {
+        if self.is_null_static() {
             &NULL_VALUE
         } else {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and the
@@ -141,7 +141,7 @@ impl std::fmt::Debug for SharedRsValue {
 
 impl Clone for SharedRsValue {
     fn clone(&self) -> Self {
-        if self.is_static() {
+        if self.is_null_static() {
             Self { ptr: self.ptr }
         } else {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
@@ -159,7 +159,7 @@ impl Clone for SharedRsValue {
 
 impl Drop for SharedRsValue {
     fn drop(&mut self) {
-        if !self.is_static() {
+        if !self.is_null_static() {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
             // Reconstructing and dropping the `Arc` decrements the reference count.
             unsafe { drop(Arc::from_raw(self.ptr)) };
