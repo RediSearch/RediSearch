@@ -169,6 +169,8 @@ typedef struct {
   // Set how much time after OOM is detected we should wait to enable the resource manager to
   // allocate more memory.
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
+  // If true, monitor document and field expiration for new indexes.
+  bool monitorExpiration;
 } RSConfig;
 
 typedef enum {
@@ -344,6 +346,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .monitorExpiration = true,                                                 \
   }
 
 #define REDIS_ARRAY_LIMIT 7
