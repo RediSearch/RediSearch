@@ -8,34 +8,83 @@
 */
 #pragma once
 
-/** RS_CMD_PREFIX can be defined with -D from the Makefile */
-#ifdef RS_CLUSTER_ENTERPRISE
-#define RS_CMD_WRITE_PREFIX "FT"
-#define RS_CMD_READ_PREFIX "_FT"
-#else  // OSS Cluster
-#define RS_CMD_WRITE_PREFIX "_FT"
-#define RS_CMD_READ_PREFIX "_FT"
-#endif
 
-// write commands
-#define RS_CREATE_CMD RS_CMD_WRITE_PREFIX ".CREATE"
-#define RS_CREATE_IF_NX_CMD RS_CMD_WRITE_PREFIX "._CREATEIFNX"        // for replica of support
-#define RS_SETPAYLOAD_CMD RS_CMD_WRITE_PREFIX ".SETPAYLOAD"
-#define RS_DROP_CMD RS_CMD_WRITE_PREFIX ".DROP"
-#define RS_DROP_INDEX_CMD RS_CMD_WRITE_PREFIX ".DROPINDEX"
-#define RS_DROP_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPIFX"             // for replica of support
-#define RS_DROP_INDEX_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPINDEXIFX"  // for replica of support
-#define RS_SYNUPDATE_CMD RS_CMD_WRITE_PREFIX ".SYNUPDATE"
-#define RS_ALTER_CMD RS_CMD_WRITE_PREFIX ".ALTER"
-#define RS_ALTER_IF_NX_CMD RS_CMD_WRITE_PREFIX "._ALTERIFNX"         // for replica of support
-#define RS_DICT_ADD RS_CMD_WRITE_PREFIX ".DICTADD"
-#define RS_DICT_DEL RS_CMD_WRITE_PREFIX ".DICTDEL"
-#define RS_ALIASADD RS_CMD_WRITE_PREFIX ".ALIASADD"
-#define RS_ALIASADD_IF_NX RS_CMD_WRITE_PREFIX "._ALIASADDIFNX"       // for replica of support
-#define RS_ALIASDEL RS_CMD_WRITE_PREFIX ".ALIASDEL"
-#define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"        // for replica of support
-#define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
-#define RS_RESTORE_IF_NX RS_CMD_WRITE_PREFIX "._RESTOREIFNX"         // for replica of support (Currently there is no FT.RESTORE command)
+// Write commands - define both internal (_FT) and public (FT) variants
+// The appropriate variant is selected at runtime based on IsEnterprise()
+// - Enterprise: uses public "FT" prefix (DMC handles routing)
+// - OSS: uses internal "_FT" prefix (coordinator registers public FT commands separately)
+
+// RS_CREATE_CMD
+#define RS_CREATE_CMD_INTERNAL "_FT.CREATE"
+#define RS_CREATE_CMD_PUBLIC "FT.CREATE"
+
+// RS_CREATE_IF_NX_CMD (for replica of support)
+#define RS_CREATE_IF_NX_CMD_INTERNAL "_FT._CREATEIFNX"
+#define RS_CREATE_IF_NX_CMD_PUBLIC "FT._CREATEIFNX"
+
+// RS_SETPAYLOAD_CMD
+#define RS_SETPAYLOAD_CMD_INTERNAL "_FT.SETPAYLOAD"
+#define RS_SETPAYLOAD_CMD_PUBLIC "FT.SETPAYLOAD"
+
+// RS_DROP_CMD
+#define RS_DROP_CMD_INTERNAL "_FT.DROP"
+#define RS_DROP_CMD_PUBLIC "FT.DROP"
+
+// RS_DROP_INDEX_CMD
+#define RS_DROP_INDEX_CMD_INTERNAL "_FT.DROPINDEX"
+#define RS_DROP_INDEX_CMD_PUBLIC "FT.DROPINDEX"
+
+// RS_DROP_IF_X_CMD (for replica of support)
+#define RS_DROP_IF_X_CMD_INTERNAL "_FT._DROPIFX"
+#define RS_DROP_IF_X_CMD_PUBLIC "FT._DROPIFX"
+
+// RS_DROP_INDEX_IF_X_CMD (for replica of support)
+#define RS_DROP_INDEX_IF_X_CMD_INTERNAL "_FT._DROPINDEXIFX"
+#define RS_DROP_INDEX_IF_X_CMD_PUBLIC "FT._DROPINDEXIFX"
+
+// RS_SYNUPDATE_CMD
+#define RS_SYNUPDATE_CMD_INTERNAL "_FT.SYNUPDATE"
+#define RS_SYNUPDATE_CMD_PUBLIC "FT.SYNUPDATE"
+
+// RS_ALTER_CMD
+#define RS_ALTER_CMD_INTERNAL "_FT.ALTER"
+#define RS_ALTER_CMD_PUBLIC "FT.ALTER"
+
+// RS_ALTER_IF_NX_CMD (for replica of support)
+#define RS_ALTER_IF_NX_CMD_INTERNAL "_FT._ALTERIFNX"
+#define RS_ALTER_IF_NX_CMD_PUBLIC "FT._ALTERIFNX"
+
+// RS_DICT_ADD
+#define RS_DICT_ADD_INTERNAL "_FT.DICTADD"
+#define RS_DICT_ADD_PUBLIC "FT.DICTADD"
+
+// RS_DICT_DEL
+#define RS_DICT_DEL_INTERNAL "_FT.DICTDEL"
+#define RS_DICT_DEL_PUBLIC "FT.DICTDEL"
+
+// RS_ALIASADD
+#define RS_ALIASADD_INTERNAL "_FT.ALIASADD"
+#define RS_ALIASADD_PUBLIC "FT.ALIASADD"
+
+// RS_ALIASADD_IF_NX (for replica of support)
+#define RS_ALIASADD_IF_NX_INTERNAL "_FT._ALIASADDIFNX"
+#define RS_ALIASADD_IF_NX_PUBLIC "FT._ALIASADDIFNX"
+
+// RS_ALIASDEL
+#define RS_ALIASDEL_INTERNAL "_FT.ALIASDEL"
+#define RS_ALIASDEL_PUBLIC "FT.ALIASDEL"
+
+// RS_ALIASDEL_IF_EX (for replica of support)
+#define RS_ALIASDEL_IF_EX_INTERNAL "_FT._ALIASDELIFX"
+#define RS_ALIASDEL_IF_EX_PUBLIC "FT._ALIASDELIFX"
+
+// RS_ALIASUPDATE
+#define RS_ALIASUPDATE_INTERNAL "_FT.ALIASUPDATE"
+#define RS_ALIASUPDATE_PUBLIC "FT.ALIASUPDATE"
+
+// RS_RESTORE_IF_NX (for replica of support - Currently there is no FT.RESTORE command)
+#define RS_RESTORE_IF_NX_INTERNAL "_FT._RESTOREIFNX"
+#define RS_RESTORE_IF_NX_PUBLIC "FT._RESTOREIFNX"
 
 // Legacy write commands that are key-bounded (+ extra legacy commands that have to be registered for enterprise)
 #define RS_ADD_CMD "FT.ADD"
@@ -59,7 +108,8 @@
 #define RS_INDEX_LIST_CMD "FT._LIST"
 #define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
 
-// read commands
+// Read commands always use the internal "_FT" prefix
+#define RS_CMD_READ_PREFIX "_FT"
 #define RS_INFO_CMD RS_CMD_READ_PREFIX ".INFO"
 #define RS_SEARCH_CMD RS_CMD_READ_PREFIX ".SEARCH"
 #define RS_HYBRID_CMD RS_CMD_READ_PREFIX ".HYBRID"
