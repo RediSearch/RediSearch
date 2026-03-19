@@ -72,6 +72,7 @@ pub unsafe extern "C" fn RSValue_Clear(value: *const RsValue) {
     // SAFETY: ensured by caller (1.)
     let mut shared_value = unsafe { expect_shared_value(value) };
 
+    // Panics if more than 1 reference exists.
     shared_value.set_value(RsValue::Undefined);
 }
 
@@ -112,6 +113,8 @@ pub unsafe extern "C" fn RSValue_MakeReference(dst: *const RsValue, src: *const 
     let shared_src = unsafe { expect_shared_value(src) };
 
     let new_value = RsValue::Ref(SharedRsValue::clone(&shared_src));
+
+    // Panics if more than 1 reference exists.
     shared_dst.set_value(new_value);
 }
 
@@ -138,6 +141,8 @@ pub unsafe extern "C" fn RSValue_MakeOwnReference(dst: *const RsValue, src: *con
     let shared_src = unsafe { SharedRsValue::from_raw(src) };
 
     let new_value = RsValue::Ref(shared_src);
+
+    // Panics if more than 1 reference exists.
     shared_dst.set_value(new_value);
 }
 
