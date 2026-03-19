@@ -12,13 +12,6 @@ use std::hash::Hasher;
 use value::hash::hash_value;
 use value::{Array, Map, RsString, RsValue, RsValueTrio, SharedRsValue};
 
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
-
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
-
 fn hash(value: &RsValue) -> u64 {
     let mut hasher = Fnv64::default();
     hash_value(value, &mut hasher);

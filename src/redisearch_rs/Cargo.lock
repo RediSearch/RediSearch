@@ -1962,7 +1962,6 @@ dependencies = [
  "trie_rs",
  "types_ffi",
  "value",
- "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -2762,6 +2761,7 @@ dependencies = [
  "libc",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
  "thiserror",
  "workspace_hack",
 ]
