@@ -343,7 +343,7 @@ long long timeInMilliseconds(void) {
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
 int dictRehashMilliseconds(dict *d, int ms) {
-    if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) > 0) return 0;
+    if (__atomic_load_n(&d->pauserehash, __ATOMIC_ACQUIRE) > 0) return 0;
 
     long long start = timeInMilliseconds();
     int rehashes = 0;
@@ -364,7 +364,8 @@ int dictRehashMilliseconds(dict *d, int ms) {
  * dictionary so that the hash table automatically migrates from H1 to H2
  * while it is actively used. */
 static void _dictRehashStep(dict *d) {
-    if (__atomic_load_n(&d->pauserehash, __ATOMIC_RELAXED) == 0) dictRehash(d,1);
+    // Use __ATOMIC_ACQUIRE to pair with __ATOMIC_RELEASE in dictResumeRehashing.
+    if (__atomic_load_n(&d->pauserehash, __ATOMIC_ACQUIRE) == 0) dictRehash(d,1);
 }
 
 /* Add an element to the target hash table */

@@ -242,6 +242,22 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
 }
 
+void DocTable_ClearExpirationData(DocTable *t) {
+  if (t->ttl) {
+    dictIterator *ttlIter = dictGetIterator(t->ttl);
+    dictEntry *ttlEntry;
+    while ((ttlEntry = dictNext(ttlIter))) {
+      t_docId docId = (t_docId)dictGetKey(ttlEntry);
+      RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+      if (dmd) {
+        dmd->flags &= ~Document_HasExpiration;
+      }
+    }
+    dictReleaseIterator(ttlIter);
+    TimeToLiveTable_Destroy(&t->ttl);
+  }
+}
+
 bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   if (!t->ttl || !fieldIndices || fieldCount == 0) {
     return true;
