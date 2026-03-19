@@ -469,21 +469,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
                                QueryError *status);
 
 
-/**
- * Convert an IndexSpec to its RDB serialized form, by calling the `IndexSpecType` rdb_save function.
- * Note that the returned RedisModuleString* must be freed by the caller
- * using RedisModule_FreeString
-*/
-RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
-
-/**
- * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
- * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
- * from the RDB file.
- * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
- * Does not consume the serialized string, the caller is responsible for freeing it.
-*/
-int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
+// IndexSpec_Serialize, IndexSpec_Deserialize moved to spec_rdb.h
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
@@ -591,10 +577,11 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
-int IndexSpec_RegisterType(RedisModuleCtx *ctx);
+
+// RDB serialization, type registration, legacy index support, and
+// serialize/deserialize/propagate moved to spec_rdb.h.
+#include "spec_rdb.h"
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
 
@@ -624,7 +611,7 @@ void Indexes_Init(RedisModuleCtx *ctx);
 */
 void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
-void Indexes_Propagate(RedisModuleCtx *ctx);
+// Indexes_Propagate moved to spec_rdb.h
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
