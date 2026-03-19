@@ -34,11 +34,6 @@ static void testTopoCallback(void *privdata) {
   IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
   //Simulate what the TopologyValidationTimer should do
   ioRuntime->uv_runtime.loop_th_ready = true;
-  // Stop the validation timers to prevent topologyTimerCB from running after this callback
-  // (topologyAsyncCB will start these timers after this callback returns, but we stop them
-  // preemptively to avoid any race conditions in tests without real connections)
-  uv_timer_stop(&ioRuntime->uv_runtime.topologyValidationTimer);
-  uv_timer_stop(&ioRuntime->uv_runtime.topologyFailureTimer);
   MRClusterTopology *old_topo = ioRuntime->topo;
   MRClusterTopology *new_topo = updateCtx->new_topo;
   // Use atomic store to safely update the topo pointer that may be read by the test thread
