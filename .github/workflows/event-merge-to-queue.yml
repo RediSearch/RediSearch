@@ -47,6 +47,7 @@ jobs:
   pr-validation:
     needs:
       - get-latest-redis-tag
+      - lint
       - test-matrix
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
