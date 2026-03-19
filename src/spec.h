@@ -127,25 +127,10 @@ struct IndexesScanner;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
-typedef enum {
-    DEBUG_INDEX_SCANNER_CODE_NEW,
-    DEBUG_INDEX_SCANNER_CODE_RUNNING,
-    DEBUG_INDEX_SCANNER_CODE_DONE,
-    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED,
-    DEBUG_INDEX_SCANNER_CODE_RESUMED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
+// DebugIndexScannerCode, DEBUG_INDEX_SCANNER_STATUS_STRS, IndexesScanner,
+// DebugIndexesScanner structs and scanner functions moved to spec_scanner.h.
+#include "spec_scanner.h"
 
-    //Insert new codes here (before COUNT)
-    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
-    //Do not add new codes after COUNT
-} DebugIndexScannerCode;
-
-extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
-
-extern size_t pending_global_indexing_ops;
-extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
 
 typedef struct {
@@ -523,10 +508,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
-void IndexesScanner_Cancel(struct IndexesScanner *scanner);
-void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
+// IndexesScanner_Cancel, IndexesScanner_ResetProgression, IndexSpec_ScanAndReindex
+// moved to spec_scanner.h
 
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 // IndexSpec_AddToInfo moved to spec_info.h
 
 /**
@@ -619,29 +603,7 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 
 //---------------------------------------------------------------------------------------------
 
-typedef struct IndexesScanner {
-  bool global;
-  bool cancelled;
-  bool isDebug;
-  bool scanFailedOnOOM;
-  WeakRef spec_ref;
-  char *spec_name_for_logs;
-  size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
-} IndexesScanner;
-
-typedef struct DebugIndexesScanner {
-  IndexesScanner base;
-  int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool wasPaused;
-  bool pauseOnOOM;
-  int status;
-  bool pauseBeforeOOMRetry;
-} DebugIndexesScanner;
-
-
-// IndexesScanner_IndexedPercent, collect_*_overhead, TotalMemUsage moved to spec_info.h
+// IndexesScanner, DebugIndexesScanner structs moved to spec_scanner.h
 
 /**
 * obfuscate argument is used to determine how we will format the index name
@@ -678,9 +640,7 @@ void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
 
-// Expose reindexpool for debug
-void ReindexPool_ThreadPoolDestroy();
-
+// ReindexPool_ThreadPoolDestroy moved to spec_scanner.h
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -692,14 +652,8 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
 
-// This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent();
-
-// This function is called in case the server ends RDB loading.
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
-
-// This function is to be called when loading finishes (failed or not)
-void Indexes_EndLoading();
+// Indexes_StartRDBLoadingEvent, Indexes_EndRDBLoadingEvent, Indexes_EndLoading
+// moved to spec_scanner.h
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)
