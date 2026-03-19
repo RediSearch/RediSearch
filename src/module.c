@@ -1253,6 +1253,9 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   rlecVersion.patchVersion = -1;
   rlecVersion.buildVersion = -1;
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
+  // Enterprise Redis has the rlec_version field in INFO output, OSS Redis does not.
+  // The field may have a version string (e.g., "7.4.0-1") or just "-" if not configured.
+  isEnterprise = (enterpriseStr != NULL);
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
                &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
@@ -1297,15 +1300,7 @@ int IsMaster() {
 }
 
 bool IsEnterprise() {
-  return rlecVersion.majorVersion != -1;
-}
-
-bool IsEnterpriseBuild() {
-  #ifdef RS_CLUSTER_ENTERPRISE
-    return true;
-  #else
-    return false;
-  #endif
+  return isEnterprise;
 }
 
 int CheckSupportedVestion() {
@@ -1729,8 +1724,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_ADD_CMD,            RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
     DEFINE_COMMAND(RS_DEL_CMD,            DeleteCommand,        "write",           NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
     DEFINE_COMMAND(RS_SAFEADD_CMD,        RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
-    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       IsEnterpriseBuild(),  indexDocCmdArgs, true),
-    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DeleteCommand,        "write",           NULL, NONE, "write",       IsEnterpriseBuild(),  indexDocCmdArgs, true),
+    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       IsEnterprise(),  indexDocCmdArgs, true),
+    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DeleteCommand,        "write",           NULL, NONE, "write",       IsEnterprise(),  indexDocCmdArgs, true),
 
     // write commands (on enterprise we do not define them, the dmc take care of them)
     // search write slow dangerous
@@ -4665,7 +4660,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // OSS commands (registered via proxy in Enterprise)
-  if (!IsEnterpriseBuild()) {
+  if (!IsEnterprise()) {
     SearchCommand writeCommands[] = {
       DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),

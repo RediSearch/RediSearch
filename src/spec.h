@@ -208,6 +208,7 @@ typedef struct Version {
 
 extern Version redisVersion;
 extern Version rlecVersion;
+extern bool isEnterprise;
 extern bool isCrdt;
 extern bool isTrimming; // TODO: remove this when redis deprecates sharding trimming events
 extern bool isFlex;
