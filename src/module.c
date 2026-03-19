@@ -4126,7 +4126,8 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 
 // Free privdata callback for distributed search.
 // Called after the reply callback (or timeout callback) completes.
-// Responsible for freeing all resources associated with the blocked client.
+// Responsible only for freeing resources associated with the blocked client;
+// RQ completion is handled when the fanout/network phase completes.
 static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   UNUSED(ctx);
   struct MRCtx *mrctx = privdata;
@@ -4158,7 +4159,6 @@ static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   }
 
   searchRequestCtx_Free(req);
-  MRCtx_RequestCompleted(mrctx);
   MRCtx_Free(mrctx);
 }
 

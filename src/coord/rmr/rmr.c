@@ -217,9 +217,10 @@ void MRCtx_WaitForReducerComplete(struct MRCtx *ctx) {
 }
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
+  UNUSED(ctx);
   if (p) {
     MRCtx *mc = p;
-    IORuntimeCtx_RequestCompleted(mc->ioRuntime);
+    /* RQ completion is owned by the libuv fanout-completion paths. */
     MRCtx_Free(mc);
   }
 }
@@ -262,13 +263,16 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     ctx->replies[ctx->numReplied++] = r;
   }
 
-  // If we've received the last reply - unblock the client
+  // If we've received the last reply, the fanout/network phase is complete.
+  // Release the RQ slot here before unblocking or handing off to reduction.
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
     if (!timedOut && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
+      MRCtx_RequestCompleted(ctx);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
       RS_ASSERT(bc);
+      MRCtx_RequestCompleted(ctx);
       RedisModule_BlockedClientMeasureTimeEnd(bc);
       RedisModule_UnblockClient(bc, ctx);
     }
@@ -291,6 +295,8 @@ static void uvFanoutRequest(void *p) {
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
     RS_ASSERT(bc);
+    // No shard command was sent, so fanoutCallback() will never fire.
+    MRCtx_RequestCompleted(mrctx);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
   }
