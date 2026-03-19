@@ -253,4 +253,8 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
             IteratorType::IdListUnsorted
         }
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }

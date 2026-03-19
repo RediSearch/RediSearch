@@ -230,4 +230,8 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTag
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }

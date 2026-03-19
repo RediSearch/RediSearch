@@ -168,4 +168,8 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }

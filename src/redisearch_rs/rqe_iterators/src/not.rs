@@ -256,6 +256,12 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Not
     }
+
+    fn children_count(&self) -> usize {
+        // Not is not an intersection/union: it yields the complement of its child, so its
+        // selectivity is the inverse of the child's and should not influence sort weights.
+        0
+    }
 }
 
 /// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).

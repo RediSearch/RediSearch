@@ -974,6 +974,10 @@ mod optional_iterator_non_sequential_reads {
         fn type_(&self) -> IteratorType {
             IteratorType::Mock
         }
+
+        fn children_count(&self) -> usize {
+            0
+        }
     }
 
     fn assert_numeric_read<'index>(

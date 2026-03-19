@@ -163,4 +163,11 @@ where
             MaybeEmptyOption::Some(it) => it.type_(),
         }
     }
+
+    fn children_count(&self) -> usize {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.children_count(),
+            MaybeEmptyOption::Some(it) => it.children_count(),
+        }
+    }
 }

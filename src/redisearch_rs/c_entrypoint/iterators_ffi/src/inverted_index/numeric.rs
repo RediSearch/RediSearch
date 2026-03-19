@@ -164,6 +164,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxNumeric
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]

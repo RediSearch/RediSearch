@@ -214,4 +214,8 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTerm
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }

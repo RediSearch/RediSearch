@@ -434,6 +434,10 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn type_(&self) -> IteratorType {
         IteratorType::Mock
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }
 
 impl<'index, const N: usize> WildcardIterator<'index> for Mock<'index, N> {}
@@ -594,5 +598,9 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Mock
+    }
+
+    fn children_count(&self) -> usize {
+        0
     }
 }

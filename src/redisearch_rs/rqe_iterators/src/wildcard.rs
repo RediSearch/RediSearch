@@ -103,6 +103,10 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::Wildcard
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }
 
 /// A marker trait for iterators that match all documents.
@@ -231,6 +235,10 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
+    }
+
+    fn children_count(&self) -> usize {
+        0
     }
 }
 
@@ -440,6 +448,10 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         self.0.type_()
+    }
+
+    fn children_count(&self) -> usize {
+        self.0.children_count()
     }
 }
 

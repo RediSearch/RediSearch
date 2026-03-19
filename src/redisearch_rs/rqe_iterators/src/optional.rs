@@ -241,6 +241,12 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Optional
     }
+
+    fn children_count(&self) -> usize {
+        // Optional is not an intersection/union: it emits virtual results for every document,
+        // so it is never selective and should not influence sort weights in parent intersections.
+        0
+    }
 }
 
 impl<'index> crate::interop::ProfileChildren<'index>

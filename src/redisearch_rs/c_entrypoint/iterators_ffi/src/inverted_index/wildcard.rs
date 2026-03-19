@@ -110,6 +110,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxWildcard
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }
 
 /// Creates a new wildcard inverted index iterator for querying all existing documents.

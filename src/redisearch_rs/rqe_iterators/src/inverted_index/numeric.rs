@@ -191,4 +191,8 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxNumeric
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }

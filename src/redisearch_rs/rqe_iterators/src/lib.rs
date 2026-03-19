@@ -151,6 +151,9 @@ pub trait RQEIterator<'index> {
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         None
     }
+
+    /// Returns the amount of children of this iterator.
+    fn children_count(&self) -> usize;
 }
 
 /// Blanket [`RQEIterator`] impl for `Box<I>` where `I` is a concrete iterator type.
@@ -249,6 +252,10 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         (**self).as_c_iterator()
+    }
+
+    fn children_count(&self) -> usize {
+        (**self).children_count()
     }
 }
 

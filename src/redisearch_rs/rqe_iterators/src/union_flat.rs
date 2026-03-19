@@ -520,6 +520,10 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::Union
     }
+
+    fn children_count(&self) -> usize {
+        self.children.len()
+    }
 }
 
 impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>

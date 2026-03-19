@@ -59,6 +59,10 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::Mock
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }
 
 #[test]

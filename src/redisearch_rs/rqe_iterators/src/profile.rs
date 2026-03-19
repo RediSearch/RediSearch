@@ -140,4 +140,8 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn type_(&self) -> IteratorType {
         IteratorType::Profile
     }
+
+    fn children_count(&self) -> usize {
+        self.child.children_count()
+    }
 }

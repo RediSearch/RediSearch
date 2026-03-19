@@ -318,4 +318,8 @@ where
             "InvIndIterator::type_() should not be called directly; use the specific iterator type"
         )
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }

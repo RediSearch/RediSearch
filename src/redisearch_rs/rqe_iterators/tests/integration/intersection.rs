@@ -1405,3 +1405,36 @@ mod slop_and_order {
         assert!(ii.at_eof());
     }
 }
+
+/// A nested `Intersection` child (sort key `num_estimated * 1/num_children`) must sort before a
+/// plain child with equal `num_estimated` (sort key `num_estimated * 1.0`).
+#[test]
+fn sort_weight_nested_intersection_sorts_first() {
+    let docs: Vec<t_docId> = (1..=10).collect();
+
+    // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
+    let inner_children_count = 5;
+    let inner_children: Vec<Box<dyn RQEIterator<'static> + 'static>> = (0..inner_children_count)
+        .map(|_| {
+            Box::new(IdListSorted::new(docs.clone())) as Box<dyn RQEIterator<'static> + 'static>
+        })
+        .collect();
+    let inner = Intersection::new(inner_children, 1.0, false);
+
+    // Plain child: num_estimated = 10 → sort key 10 * 1.0 = 10.0.
+    let plain = IdListSorted::new(docs);
+
+    // Pass plain first — after construction the inner must sort to index 0.
+    let outer = Intersection::new(
+        vec![
+            Box::new(plain) as Box<dyn RQEIterator<'static> + 'static>,
+            Box::new(inner),
+        ],
+        1.0,
+        false,
+    );
+    assert!(
+        outer.child_at(0).children_count() == inner_children_count,
+        "nested Intersection (sort key 2.0) must sort before plain child (sort key 10.0)"
+    );
+}

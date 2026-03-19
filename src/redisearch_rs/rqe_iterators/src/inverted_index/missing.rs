@@ -188,4 +188,8 @@ where
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxMissing
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }

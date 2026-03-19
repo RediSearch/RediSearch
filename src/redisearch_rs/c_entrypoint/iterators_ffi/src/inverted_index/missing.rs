@@ -109,6 +109,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxMissing
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }
 
 /// Creates a new missing-field inverted index iterator.

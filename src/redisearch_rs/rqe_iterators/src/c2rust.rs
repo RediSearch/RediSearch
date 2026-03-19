@@ -15,15 +15,15 @@ use ffi::{
 };
 
 use crate::IteratorType;
+use crate::{
+    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
+    intersection::Intersection,
+};
 use inverted_index::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},
     ptr::NonNull,
-};
-
-use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
 };
 
 /// A Rust shim over a query iterator that satisfies the C iterator API.
@@ -319,6 +319,34 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn as_c_iterator(&self) -> Option<&CRQEIterator> {
         Some(self)
+    }
+
+    fn children_count(&self) -> usize {
+        match self.type_ {
+            IteratorType::Intersect => {
+                let ptr = std::ptr::from_ref(self.as_ref());
+                // SAFETY:
+                // - `type_ == INTERSECT_ITERATOR` guarantees `ptr` was produced by
+                //   `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
+                //   inner type (`NewIntersectionIterator` is the sole constructor of a C
+                //   wrapped intersection).
+                // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner`
+                //   rather than manual `size_of` arithmetic, making it immune to alignment
+                //   padding between `header` and `inner` in `RQEIteratorWrapper`.
+                unsafe {
+                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(ptr)
+                        .inner
+                        .num_children()
+                }
+            }
+            IteratorType::Union => {
+                let ptr = std::ptr::from_ref(self.as_ref());
+                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
+                // is the `QueryIterator` base — the cast is valid by C struct layout.
+                unsafe { (*ptr.cast::<ffi::UnionIterator>()).num as usize }
+            }
+            _ => 0,
+        }
     }
 }
 

@@ -13,10 +13,7 @@
 //! - `max_slop`: Maximum allowed slop between term positions (`None` = no constraint)
 //! - `in_order`: Require terms to appear in order
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 use ffi::t_docId;
 use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
@@ -25,47 +22,23 @@ use inverted_index::{RSIndexResult, ResultMetrics_Reset_func};
 /// before query execution. A lower value causes the child to act as the pivot, minimising
 /// `SkipTo` calls. The final sort key is `num_estimated * sort_weight`.
 ///
-/// Heuristics by type, resolved via [`RQEIterator::as_c_iterator`] + `c.type_`:
-/// - `INTERSECT_ITERATOR`: always a Rust [`Intersection`] wrapped by [`crate::interop::RQEIteratorWrapper`];
-///   weight is `1.0 / num_children`, read directly via [`crate::interop::RQEIteratorWrapper::ref_from_header_ptr`].
-/// - `UNION_ITERATOR`: native C iterator; [`ffi::UnionIterator::num`] cast from the base pointer,
-///   weighted by `num_children` when `prioritize_union_children` is `true`, else `1.0`.
-/// - Everything else (including pure-Rust iterators): `1.0`.
+/// Heuristics:
+/// - Intersection: `1.0 / num_children`.
+/// - Union: `num_children` when `prioritize_union_children`, else `1.0`.
+/// - Everything else: `1.0`.
 fn sort_weight<'index, I: RQEIterator<'index>>(iter: &I, prioritize_union_children: bool) -> f64 {
-    // FIXME: pure-Rust iterators (including nested `Intersection`) return `None` here,
-    // so the `INTERSECT_ITERATOR` weight heuristic is silently skipped for them — a
-    // footgun when children are `Box<dyn RQEIterator>`. Not hit in production today
-    // because `NewIntersectionIterator` always produces `CRQEIterator` children.
-    // Will need redesigning when `CRQEIterator` is removed during the full Rust migration.
-    let Some(c) = iter.as_c_iterator() else {
-        return 1.0;
-    };
-    let ptr = std::ptr::from_ref(c.as_ref());
-    match c.type_ {
-        ffi::IteratorType::Intersect => {
-            // SAFETY:
-            // - `type_` guarantees `ptr` was produced by `RQEIteratorWrapper::boxed_new` with
-            //   `Intersection<CRQEIterator>` as the inner type (`NewIntersectionIterator` is the
-            //   sole constructor and always uses that concrete type).
-            // - `ref_from_header_ptr` uses the compiler-computed field offset for `inner` rather
-            //   than manual `size_of` arithmetic, making it immune to alignment padding between
-            //   `header` and `inner` in `RQEIteratorWrapper`.
-            let n = unsafe {
-                RQEIteratorWrapper::<Intersection<'index, CRQEIterator>>::ref_from_header_ptr(ptr)
-                    .inner
-                    .num_children()
-            };
-            if n == 0 { 1.0 } else { 1.0 / n as f64 }
-        }
-        ffi::IteratorType::Union => {
-            if prioritize_union_children {
-                // SAFETY: `type_` guarantees `ptr` points to a `UnionIterator` whose first field
-                // is the `QueryIterator` base — the cast is valid by C struct layout.
-                let num = unsafe { (*ptr.cast::<ffi::UnionIterator>()).num };
-                num as f64
-            } else {
+    match iter.type_() {
+        IteratorType::Intersect => {
+            let children_count = iter.children_count();
+            if children_count == 0 {
                 1.0
+            } else {
+                1.0 / children_count as f64
             }
+        }
+        IteratorType::Union if prioritize_union_children => {
+            let children_count = iter.children_count();
+            children_count.max(1) as f64
         }
         _ => 1.0,
     }
@@ -531,6 +504,10 @@ where
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Intersect
+    }
+
+    fn children_count(&self) -> usize {
+        self.children.len()
     }
 }
 

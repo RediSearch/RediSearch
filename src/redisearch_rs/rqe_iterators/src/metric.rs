@@ -193,4 +193,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
             IteratorType::MetricSortedByScore
         }
     }
+
+    fn children_count(&self) -> usize {
+        // Metric is a leaf iterator (a scored id-list), not a composite.
+        0
+    }
 }

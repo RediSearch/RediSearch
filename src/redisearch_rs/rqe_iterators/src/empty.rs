@@ -66,4 +66,8 @@ impl<'index> RQEIterator<'index> for Empty {
     fn type_(&self) -> IteratorType {
         IteratorType::Empty
     }
+
+    fn children_count(&self) -> usize {
+        0
+    }
 }
