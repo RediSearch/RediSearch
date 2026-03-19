@@ -270,7 +270,7 @@ def test_flex_search_requires_nocontent_or_return_0(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello') \
-        .error().contains('NOCONTENT or RETURN 0 must be provided for disk indexes')
+        .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')
 
 
 @skip(cluster=True)
@@ -306,10 +306,10 @@ def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
     _create_flex_search_fixture(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported for disk indexes')
+        .error().contains('LOAD is not supported in Redis Flex')
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '0', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported for disk indexes')
+        .error().contains('LOAD is not supported in Redis Flex')
 
 
 @skip(cluster=True)
@@ -472,6 +472,7 @@ def test_flex_blocks_cursor_commands(env):
     env.expect('FT.CURSOR', 'GC', 'idx') \
         .error().contains('FT.CURSOR is not supported in Redis Flex')
 
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
@@ -489,6 +490,7 @@ def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .error().contains('FT.HYBRID is not supported in Redis Flex')
 
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_blocks_suggest_commands(env):
@@ -502,6 +504,16 @@ def test_flex_blocks_suggest_commands(env):
         .error().contains('FT.SUGDEL is not supported in Redis Flex')
     env.expect('FT.SUGLEN', 'idx') \
         .error().contains('FT.SUGLEN is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_slop_argument(env):
+    """Test that SLOP argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'SLOP', '1') \
+        .error().contains('SLOP is not supported in Redis Flex')
 
 
 @skip(cluster=True)
@@ -524,8 +536,171 @@ def test_flex_blocks_drop_and_dropindex_dd(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_blocks_inorder_argument(env):
+    """Test that INORDER argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT', 'INORDER') \
+        .error().contains('INORDER is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_highlight_argument(env):
+    """Test that HIGHLIGHT argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'HIGHLIGHT') \
+        .error().contains('HIGHLIGHT is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_summarize_argument(env):
+    """Test that SUMMARIZE argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SUMMARIZE') \
+        .error().contains('SUMMARIZE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tfidf_scorer(env):
+    """Test that TFIDF scorer is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'TFIDF') \
+        .error().contains('TFIDF scorer is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tfidf_docnorm_scorer(env):
+    """Test that TFIDF.DOCNORM scorer is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'TFIDF.DOCNORM') \
+        .error().contains('TFIDF.DOCNORM scorer is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_bm25_scorer(env):
+    """Test that BM25 (deprecated) scorer is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SCORER', 'BM25') \
+        .error().contains('BM25 scorer is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_sortby_argument(env):
+    """Test that SORTBY argument is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
+        .error().contains('SORTBY is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_temporary_indexes(env):
     """Test that TEMPORARY indexes are not supported in Flex mode"""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'TEMPORARY', '120',
                'SCHEMA', 'field', 'TEXT') \
         .error().contains('Unsupported argument for Flex index: `TEMPORARY`')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_withsuffixtrie_text_field(env):
+    """Test that WITHSUFFIXTRIE on TEXT fields is blocked in Redis Flex"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
+               'SCHEMA', 'field', 'TEXT', 'WITHSUFFIXTRIE') \
+        .error().contains('WITHSUFFIXTRIE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_withsuffixtrie_tag_field(env):
+    """Test that WITHSUFFIXTRIE on TAG fields is blocked in Redis Flex"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
+               'SCHEMA', 'field', 'TAG', 'WITHSUFFIXTRIE') \
+        .error().contains('WITHSUFFIXTRIE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_deprecated_add_commands(env):
+    """Test that FT.ADD and FT.SAFEADD are blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.ADD', 'idx', 'doc:2', '1.0', 'FIELDS', 't', 'test') \
+        .error().contains('FT.ADD is not supported in Redis Flex')
+    env.expect('FT.SAFEADD', 'idx', 'doc:2', '1.0', 'FIELDS', 't', 'test') \
+        .error().contains('FT.SAFEADD is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_deprecated_del_command(env):
+    """Test that FT.DEL is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.DEL', 'idx', 'doc:1') \
+        .error().contains('FT.DEL is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_deprecated_get_commands(env):
+    """Test that FT.GET and FT.MGET are blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.GET', 'idx', 'doc:1') \
+        .error().contains('FT.GET is not supported in Redis Flex')
+    env.expect('FT.MGET', 'idx', 'doc:1') \
+        .error().contains('FT.MGET is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_tagvals_command(env):
+    """Test that FT.TAGVALS is blocked in Redis Flex"""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN',
+               'SCHEMA', 'tag_field', 'TAG').ok()
+    env.expect('HSET', 'doc:1', 'tag_field', 'value1').equal(1)
+
+    env.expect('FT.TAGVALS', 'idx', 'tag_field') \
+        .error().contains('FT.TAGVALS is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_spellcheck_command(env):
+    """Test that FT.SPELLCHECK is blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    env.expect('FT.SPELLCHECK', 'idx', 'helo') \
+        .error().contains('FT.SPELLCHECK is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_synonym_commands(env):
+    """Test that FT.SYNUPDATE, FT.SYNDUMP, and FT.SYNADD are blocked in Redis Flex"""
+    _create_flex_search_fixture(env)
+
+    # FT.SYNUPDATE is blocked
+    env.expect('FT.SYNUPDATE', 'idx', 'group1', 'hello', 'hi', 'hey') \
+        .error().contains('FT.SYNUPDATE is not supported in Redis Flex')
+
+    # FT.SYNDUMP is blocked
+    env.expect('FT.SYNDUMP', 'idx') \
+        .error().contains('FT.SYNDUMP is not supported in Redis Flex')
+
+    # FT.SYNADD is deprecated and blocked (returns different error but should be blocked)
+    env.expect('FT.SYNADD', 'idx', 'hello', 'hi') \
+        .error().contains('FT.SYNADD is not supported in Redis Flex')

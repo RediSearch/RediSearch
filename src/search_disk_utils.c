@@ -25,6 +25,15 @@ bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, cons
   return true;
 }
 
+bool SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(const char *argName, QueryError *status) {
+  if (SearchDisk_IsEnabledForValidation()) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+      "%s is not supported in Redis Flex", argName);
+    return false;
+  }
+  return true;
+}
+
 bool SearchDisk_MarkUnsupportedCommandIfDiskEnabled(RedisModuleCtx *ctx, const char *command) {
   if (!SearchDisk_IsEnabledForValidation()) {
     return false;
