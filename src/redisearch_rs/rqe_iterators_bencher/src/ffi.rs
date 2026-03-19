@@ -271,7 +271,7 @@ impl QueryIterator {
                 weight,
                 ffi::QueryNodeType_QN_UNION,
                 std::ptr::null(), // q_str
-                &config as *const ffi::IteratorsConfig as *mut ffi::IteratorsConfig,
+                &config,
             )
         })
     }
