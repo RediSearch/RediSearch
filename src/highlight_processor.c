@@ -153,7 +153,10 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   Array bufTmp;
   Array_InitEx(&bufTmp, ArrayAlloc_RM);
 
-  Array_Write(&bufTmp, docStr, headLen);
+  if (!Array_Write(&bufTmp, docStr, headLen)) {
+    Array_Free(&bufTmp);
+    return NULL;
+  }
   headLen = stripDuplicateSpaces(bufTmp.data, headLen);
   Array_Resize(&bufTmp, headLen);
 
@@ -165,7 +168,10 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   }
 
   bufTmp.len = trimTrailingSpaces(bufTmp.data, bufTmp.len);
-  Array_Write(&bufTmp, "\0", 1);
+  if (!Array_Write(&bufTmp, "\0", 1)) {
+    Array_Free(&bufTmp);
+    return NULL;
+  }
   char *ret = Array_Steal(&bufTmp, docLen);
   return ret;
 }
@@ -191,6 +197,10 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
+      if (summarized == NULL) {
+        FragmentList_Free(&frags);
+        return NULL;
+      }
       return RSValue_NewString(summarized, docLen - 1); // Exclude nul-terminator from reported length
     } else {
       // Otherwise, just return the whole field, but without highlighting
@@ -227,7 +237,11 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     size_t lastSize = bufTmp.len;
 
     for (size_t jj = 0; jj < numIovs; ++jj) {
-      Array_Write(&bufTmp, iovs[jj].iov_base, iovs[jj].iov_len);
+      if (!Array_Write(&bufTmp, iovs[jj].iov_base, iovs[jj].iov_len)) {
+        Array_Free(&bufTmp);
+        FragmentList_Free(&frags);
+        return NULL;
+      }
     }
 
     // Duplicate spaces for the current snippet are eliminated here. We shouldn't
@@ -235,13 +249,21 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     // of whitespace.
     size_t newSize = stripDuplicateSpaces(bufTmp.data + lastSize, bufTmp.len - lastSize);
     Array_Resize(&bufTmp, lastSize + newSize);
-    Array_Write(&bufTmp, fieldInfo->summarizeSettings.separator,
-                strlen(fieldInfo->summarizeSettings.separator));
+    if (!Array_Write(&bufTmp, fieldInfo->summarizeSettings.separator,
+                strlen(fieldInfo->summarizeSettings.separator))) {
+      Array_Free(&bufTmp);
+      FragmentList_Free(&frags);
+      return NULL;
+    }
   }
 
   // Set the string value to the contents of the array. It might be nice if we didn't
   // need to strndup it.
-  Array_Write(&bufTmp, "\0", 1);
+  if (!Array_Write(&bufTmp, "\0", 1)) {
+    Array_Free(&bufTmp);
+    FragmentList_Free(&frags);
+    return NULL;
+  }
   size_t hlLen;
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);

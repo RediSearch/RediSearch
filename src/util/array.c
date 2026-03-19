@@ -37,6 +37,7 @@ int Array_Resize(Array *array, uint32_t newSize) {
   while (newCapacity - array->len < newSize) {
     newCapacity *= 2;
     if (newCapacity < array->capacity) {
+      // overflow
       return -1;
     }
   }
@@ -62,9 +63,13 @@ void *Array_Add(Array *array, uint32_t toAdd) {
   return array->data + oldLen;
 }
 
-void Array_Write(Array *arr, const void *data, size_t len) {
+bool Array_Write(Array *arr, const void *data, size_t len) {
   void *ptr = Array_Add(arr, len);
+  if (ptr == NULL) {
+    return false;
+  }
   memcpy(ptr, data, len);
+  return true;
 }
 
 void Array_ShrinkToSize(Array *array) {
