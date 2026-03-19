@@ -34,7 +34,10 @@ void CursorMapping_Release(CursorMapping *mapping) {
 
 static void processHybridError(processCursorMappingCallbackContext *ctx, MRReply *rep) {
     const char *errorMessage = MRReply_String(rep, NULL);
-    QueryErrorCode errCode = QueryError_GetCodeFromMessage(errorMessage);
+    QueryErrorCode errCode =
+        !strcmp(errorMessage, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT))
+            ? QUERY_ERROR_CODE_TIMED_OUT
+            : QueryError_GetCodeFromMessage(errorMessage);
     QueryError error = QueryError_Default();
     // Shard reply already contains the prefixed error string — set directly.
     QueryError_SetCode(&error, errCode);
@@ -247,6 +250,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef 
         for (size_t i = 0; i < array_len(ctx->errors); i++) {
             if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return ) {
                 QueryError_SetQueryOOMWarning(status);
+            } else if (QueryError_GetCode(&ctx->errors[i]) == QUERY_ERROR_CODE_TIMED_OUT) {
+                QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
             } else {
                 QueryError_SetWithoutUserDataFmt(status, QueryError_GetCode(&ctx->errors[i]), "Failed to process shard responses, first error: %s, total error count: %zu",
                     QueryError_GetUserError(&ctx->errors[i]), array_len(ctx->errors));

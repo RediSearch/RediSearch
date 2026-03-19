@@ -549,6 +549,7 @@ error:
 // Copy request configuration from source to destination
 static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
   dest->queryTimeoutMS = src->queryTimeoutMS;
+  dest->timeoutExhaustedBeforeExecution = src->timeoutExhaustedBeforeExecution;
   dest->dialectVersion = src->dialectVersion;
   dest->timeoutPolicy = src->timeoutPolicy;
   dest->printProfileClock = src->printProfileClock;

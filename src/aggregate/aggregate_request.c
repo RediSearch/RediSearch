@@ -1197,6 +1197,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
     goto error;
   }
 
+  if (IsInternal(req)) {
+    RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime);
+  }
+
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");

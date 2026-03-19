@@ -10,6 +10,11 @@ ON_TIMEOUT_CONFIG = 'search-on-timeout'
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
+def assert_timeout_warning(env, res, message=''):
+    warnings = res.get('warning', res.get('warnings', []))
+    env.assertTrue(warnings, message=message + " expected timeout warning")
+    env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")
+
 def pid_cmd(conn):
     """Get the process ID of a Redis connection."""
     return conn.execute_command('info', 'server')['process_id']
@@ -95,6 +100,17 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
             client_id = get_query_client(env, query, msg)
             if client_id:
                 return client_id
+            time.sleep(0.1)
+
+def wait_for_blocked_query_client_any(env, queries, msg='Client for query not found', timeout=30):
+    """Wait for a client to become blocked on any of the given query names."""
+    with TimeLimit(timeout, msg):
+        while True:
+            output = env.execute_command('CLIENT', 'LIST')
+            clients = parse_client_list(output)
+            for client in clients:
+                if client.get('cmd') in queries and 'b' in client.get('flags', ''):
+                    return client['id']
             time.sleep(0.1)
 
 class TestCoordinatorTimeout:
@@ -272,6 +288,128 @@ class TestCoordinatorTimeout:
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
+
+    def _test_remaining_timeout_exhausted_before_shard_execution_impl(self, query_args,
+                                                                      blocked_query_names,
+                                                                      verify_result):
+        env = self.env
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        query_result = []
+
+        try:
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return').ok()
+            env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
+                'Timeout while waiting for coordinator threads to pause', timeout=30)
+
+            t_query = threading.Thread(
+                target=call_and_store,
+                args=(env.cmd, query_args, query_result),
+                daemon=True
+            )
+            t_query.start()
+
+            wait_for_blocked_query_client_any(
+                env,
+                blocked_query_names,
+                f'Client for query {blocked_query_names} not found'
+            )
+
+            time.sleep(0.2)
+
+            env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 0, {}),
+                'Timeout while waiting for coordinator threads to resume', timeout=30)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+
+            env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
+            verify_result(query_result[0])
+        finally:
+            if env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1:
+                env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+
+    def test_remaining_timeout_exhausted_before_shard_execution_search(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            ['FT.SEARCH', 'idx', '*', 'TIMEOUT', '50'],
+            ['FT.SEARCH'],
+            lambda res: (
+                self.env.assertEqual(res['total_results'], 0, message="Expected 0 results"),
+                assert_timeout_warning(self.env, res, message="FT.SEARCH")
+            )
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_aggregate(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name', 'TIMEOUT', '50'],
+            ['FT.AGGREGATE'],
+            lambda res: (
+                self.env.assertEqual(len(res['results']), 0, message="Expected 0 aggregate results"),
+                assert_timeout_warning(self.env, res, message="FT.AGGREGATE")
+            )
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_hybrid(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            [
+                'FT.HYBRID', 'hybrid_idx',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+                'TIMEOUT', '50'
+            ],
+            ['FT.HYBRID'],
+            lambda res: (
+                self.env.assertEqual(res['total_results'], 0, message="Expected 0 hybrid results"),
+                assert_timeout_warning(self.env, res, message="FT.HYBRID")
+            )
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_profile_search(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            ['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'TIMEOUT', '50'],
+            ['FT.PROFILE'],
+            lambda res: (
+                self.env.assertContains('Results', res, message="Expected FT.PROFILE results"),
+                self.env.assertContains('Profile', res, message="Expected FT.PROFILE profile"),
+                self.env.assertEqual(res['Results']['total_results'], 0, message="Expected 0 profiled search results"),
+                assert_timeout_warning(self.env, res['Results'], message="FT.PROFILE SEARCH")
+            )
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_profile_aggregate(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', '1', '@name', 'TIMEOUT', '50'],
+            ['FT.PROFILE'],
+            lambda res: (
+                self.env.assertContains('Results', res, message="Expected FT.PROFILE results"),
+                self.env.assertContains('Profile', res, message="Expected FT.PROFILE profile"),
+                self.env.assertEqual(len(res['Results']['results']), 0, message="Expected 0 profiled aggregate results"),
+                assert_timeout_warning(self.env, res['Results'], message="FT.PROFILE AGGREGATE")
+            )
+        )
+
+    def test_remaining_timeout_exhausted_before_shard_execution_profile_hybrid(self):
+        self._test_remaining_timeout_exhausted_before_shard_execution_impl(
+            [
+                'FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',
+                'SEARCH', '*',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+                'TIMEOUT', '50'
+            ],
+            ['FT.PROFILE'],
+            lambda res: (
+                self.env.assertContains('Profile', res, message="Expected FT.PROFILE profile"),
+                self.env.assertEqual(res['total_results'], 0, message="Expected 0 profiled hybrid results"),
+                assert_timeout_warning(self.env, res, message="FT.PROFILE HYBRID")
+            )
+        )
+
 
     def test_fail_timeout_after_fanout_search(self):
         """Test timeout occurring after the fanout (after query is dispatched to shards - best effort)."""

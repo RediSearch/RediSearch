@@ -484,6 +484,21 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   return false;
 }
 
+static int replyForPreExecutionTimeout(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv,
+                                       int argc, ProfileOptions profileOptions, QueryError *status) {
+  const bool shouldReplyWithError =
+      ShouldReplyWithError(QUERY_ERROR_CODE_TIMED_OUT, req->reqConfig.timeoutPolicy, IsProfile(req));
+
+  if (shouldReplyWithError) {
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+    return QueryError_ReplyAndClear(ctx, status);
+  }
+
+  return single_shard_common_query_reply_empty(ctx, argv, argc, profileOptions,
+                                               QUERY_ERROR_CODE_TIMED_OUT);
+}
+
 /**
  * Sets up resultsLen, updates optimizer, and prepares reply arrays.
  * Returns the calculated resultsLen value.
@@ -893,6 +908,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 // Based on sendChunk_Resp2/3 patterns.
  void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  QueryError *err = AREQ_QueryProcessingCtx(req)->err;
 
   if (reply->resp3) {
 
@@ -926,7 +942,13 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     // warning
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
+    if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+      ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+    }
+
+    if (QueryError_HasQueryOOMWarning(err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
       // Shards should use SHARD warning
       // SA and Coordinator should use COORD warning
@@ -978,7 +1000,12 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     RedisModule_Reply_ArrayEnd(reply);
 
-    if (QueryError_HasQueryOOMWarning(AREQ_QueryProcessingCtx(req)->err)) {
+    if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
+    }
+
+    if (QueryError_HasQueryOOMWarning(err)) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, !IsInternal(req));
       ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
     }
@@ -1579,6 +1606,12 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
+  if (r->reqConfig.timeoutExhaustedBeforeExecution) {
+    int rc = replyForPreExecutionTimeout(r, ctx, argv, argc, profileOptions, &status);
+    AREQ_DecrRef(r);
+    return rc;
+  }
+
   if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
     goto error;
   }
@@ -1938,6 +1971,12 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
     goto error;
+  }
+
+  if (r->reqConfig.timeoutExhaustedBeforeExecution) {
+    int rc = replyForPreExecutionTimeout(r, ctx, argv, argc - debug_argv_count, profileOptions, &status);
+    AREQ_DecrRef(r);
+    return rc;
   }
 
   if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {

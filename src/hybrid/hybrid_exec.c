@@ -78,6 +78,20 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
   return timeoutOccurred;
 }
 
+static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, HybridRequest *hybridRequest,
+                                             bool internal) {
+  const bool shouldReplyWithError =
+      ShouldReplyWithError(QUERY_ERROR_CODE_TIMED_OUT, hybridRequest->reqConfig.timeoutPolicy,
+                           IsProfile(hybridRequest));
+
+  if (shouldReplyWithError) {
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !internal);
+    return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
+  }
+
+  return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, internal);
+}
+
 // Reply with warnings, adding suffixes to indicate the originating context (search/vsim/post-processing)
 static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
                                        QueryProcessingCtx *qctx, int postProcessingRC) {
@@ -268,6 +282,11 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
     // Cluster mode only: handled directly here instead of through handleAndReplyWarning()
     // because this warning is not related to subqueries or post-processing terminology
     RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+  }
+  if (QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+    QueryError_ClearError(qctx->err);
   }
 
   replyWarningsWithSuffixes(reply, hreq, qctx, rc);
@@ -522,7 +541,12 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
 
     // warning
     RedisModule_Reply_SimpleString(reply, "warnings");
-    if (QueryError_HasQueryOOMWarning(err)) {
+    if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+        RedisModule_Reply_Array(reply);
+        RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
+        RedisModule_Reply_ArrayEnd(reply);
+    } else if (QueryError_HasQueryOOMWarning(err)) {
         QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
         RedisModule_Reply_Array(reply);
         // This function is called by Coordinator or SA
@@ -1060,6 +1084,14 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
+  if (internal) {
+    RequestConfig_ApplyCoordinatorElapsedTime(&hybridRequest->reqConfig,
+                                              hybridRequest->profileClocks.coordDispatchTime);
+    for (size_t i = 0; i < hybridRequest->nrequests; i++) {
+      hybridRequest->requests[i]->reqConfig = hybridRequest->reqConfig;
+    }
+  }
+
   // Check if we should check for timeout in pipeline
   HybridRequest_SetSkipTimeoutChecks(hybridRequest, !shouldCheckInPipelineTimeoutHybrid(hybridRequest));
 
@@ -1073,6 +1105,10 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     rs_wall_clock_init(&parseClock);
     // Calculate the time elapsed for profileParseTime by using the initialized parseClock
     hybridRequest->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hybridRequest->profileClocks.initClock, &parseClock);
+  }
+
+  if (hybridRequest->reqConfig.timeoutExhaustedBeforeExecution) {
+    return replyForHybridPreExecutionTimeout(ctx, hybridRequest, internal);
   }
 
   // Initialize timeout for all subqueries BEFORE building pipelines

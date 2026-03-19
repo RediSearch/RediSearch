@@ -26,6 +26,8 @@
 
 #include "rmutil/rm_assert.h"
 
+#define NS_IN_MS 1000000ULL
+
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
@@ -591,6 +593,26 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   if (req->sctx) {
     req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
   }
+}
+
+static inline void RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
+                                                             rs_wall_clock_ns_t coordinatorElapsedTime) {
+  reqConfig->timeoutExhaustedBeforeExecution = false;
+
+  if (reqConfig->queryTimeoutMS == 0) {
+    return;
+  }
+
+  const unsigned long long elapsedMSRoundedUp =
+      ((unsigned long long)coordinatorElapsedTime + NS_IN_MS - 1) / NS_IN_MS;
+
+  if (elapsedMSRoundedUp >= (unsigned long long)reqConfig->queryTimeoutMS) {
+    reqConfig->queryTimeoutMS = 0;
+    reqConfig->timeoutExhaustedBeforeExecution = true;
+    return;
+  }
+
+  reqConfig->queryTimeoutMS -= (long long)elapsedMSRoundedUp;
 }
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
