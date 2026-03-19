@@ -15,7 +15,7 @@ extern "C" {
 #include "src/forward_index.h"
 #include "src/index_result.h"
 #include "src/query_parser/tokenizer.h"
-#include "src/spec.h"
+#include "src/spec/spec.h"
 #include "src/tokenize.h"
 #include "varint.h"
 #include "src/iterators/inverted_index_iterator.h"

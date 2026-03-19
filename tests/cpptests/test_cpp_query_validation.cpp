@@ -8,7 +8,7 @@
 */
 
 #include "src/redisearch.h"
-#include "src/spec.h"
+#include "src/spec/spec.h"
 #include "query_test_utils.h"
 
 #include "gtest/gtest.h"
