@@ -365,7 +365,7 @@ static inline void append_string(myArgArray_t *arr, const char *src) {
 }
 static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
   char s[64] = {0};
-  sprintf(s, "%llu", ll);
+  snprintf(s, sizeof(s), "%llu", ll);
   append_string(arr, s);
 }
 static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {

@@ -21,6 +21,9 @@ bool SearchDisk_HasAPI();
 __attribute__((weak))
  RedisSearchDiskAPI *SearchDisk_GetAPI();
 
+__attribute__((weak))
+void SearchDisk_SetAPI();
+
 extern RedisSearchDisk *disk_db;
 
 /**
@@ -30,6 +33,13 @@ extern RedisSearchDisk *disk_db;
  * @return true if successful, false otherwise
  */
 bool SearchDisk_Initialize(RedisModuleCtx *ctx);
+
+/**
+ * @brief Check if SearchDisk Is initialized and their APIs can be called
+ *
+ * @return true if it has been initialized
+ */
+bool SearchDisk_IsInitialized();
 
 /**
  * @brief Register BigModule callbacks for disk usage reporting
@@ -45,7 +55,7 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
 /**
  * @brief Close the search disk module
  */
-void SearchDisk_Close();
+void SearchDisk_Close(RedisModuleCtx *ctx);
 
 // Basic API wrappers
 
@@ -64,7 +74,8 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *
 /**
  * @brief Mark an index for deletion, the index will be deleted from the disk only after SearchDisk_CloseIndex is called
  *
-*/
+ * @param index Pointer to the index
+ */
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
@@ -420,3 +431,15 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  */
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Update the buffer budget and WBM in response to RAM configuration changes
+ *
+ * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
+ * and updates the WriteBufferManager with the new size. Should be called in response
+ * to REDISMODULE_SUBEVENT_CONFIG_RAM_CHANGED events.
+ *
+ * @param ctx Redis module context
+ * @param percentage Percentage of available memory to request (0-100)
+ */
+void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);

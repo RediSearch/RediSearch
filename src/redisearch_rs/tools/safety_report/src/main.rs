@@ -249,8 +249,7 @@ fn main() -> Result<()> {
         };
 
         // Classify as FFI or other
-        let is_ffi =
-            pkg.name.contains("ffi") || pkg.name == "buffer" || pkg.name == "rqe_iterators_interop";
+        let is_ffi = pkg.name.contains("ffi") || pkg.name == "buffer";
 
         if is_ffi {
             ffi_stats.push(stats);

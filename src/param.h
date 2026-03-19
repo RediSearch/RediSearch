@@ -14,6 +14,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
   PARAM_NONE = 0,
   PARAM_ANY,
@@ -52,3 +56,7 @@ int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len
 const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status);
 void Param_DictFree(dict *);
 dict *Param_DictClone(dict *source);
+
+#ifdef __cplusplus
+}
+#endif

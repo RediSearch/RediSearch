@@ -12,8 +12,8 @@ use ffi::{
     t_docId,
 };
 use inverted_index::RSIndexResult;
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new iterator over a list of sorted document IDs.

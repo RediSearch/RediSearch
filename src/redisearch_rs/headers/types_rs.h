@@ -759,6 +759,22 @@ const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResu
 const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RSIndexResult *result);
 
 /**
+ * Get a mutable aggregate result reference without performing a runtime check
+ * on the enum discriminant.
+ *
+ * Use this method if and only if you've already checked the enum
+ * discriminant in C code and you don't want to incur the (small)
+ * performance penalty of an additional redundant check.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 2. `result`'s data payload must be of the aggregate kind
+ */
+union RSAggregateResult *IndexResult_AggregateRefMutUnchecked(struct RSIndexResult *result);
+
+/**
  * Reset the result if it is an aggregate result. This will clear the children vector
  * and reset the kind mask.
  *
@@ -792,6 +808,19 @@ const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *a
  */
 const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregateResult *agg,
                                                          uintptr_t index);
+
+/**
+ * Get a mutable result at the specified index in the aggregate result, without checking bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 2. `index` must be lower than the length of the aggregate result children vector.
+ * 3. `agg` must be of the `Owned` variant.
+ */
+struct RSIndexResult *AggregateResult_GetMutUnchecked(union RSAggregateResult *agg,
+                                                      uintptr_t index);
 
 /**
  * Get the element count of the aggregate result.

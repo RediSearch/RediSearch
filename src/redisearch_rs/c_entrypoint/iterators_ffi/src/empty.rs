@@ -9,7 +9,7 @@
 
 use ffi::{IteratorType_EMPTY_ITERATOR, QueryIterator};
 use rqe_iterators::Empty;
-use rqe_iterators_interop::RQEIteratorWrapper;
+use rqe_iterators::interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new empty iterator.

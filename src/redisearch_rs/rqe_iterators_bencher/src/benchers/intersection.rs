@@ -50,7 +50,7 @@ const NUM_DOCS: u64 = 100_000;
 /// - `StoreTermOffsets` is required for positional data; without it `max_slop`/`in_order`
 ///   benchmarks would be meaningless.
 /// - `StoreByteOffsets` instructs the `Full` encoder to also write byte-level offsets per entry (used by
-/// highlighting), keeping the benchmark data representative of a real index.
+///   highlighting), keeping the benchmark data representative of a real index.
 const FLAGS: IndexFlags = IndexFlags_Index_StoreFreqs
     | IndexFlags_Index_StoreTermOffsets
     | IndexFlags_Index_StoreFieldFlags

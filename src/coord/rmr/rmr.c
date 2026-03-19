@@ -753,9 +753,9 @@ void iterCursorMappingCb(void *p) {
   it->cbxs = rm_realloc(it->cbxs, numShardsWithMapping * sizeof(*it->cbxs));
   // Command should already not own a target shard
   MRCommand *cmd = &it->cbxs->cmd;
-  char buf[128];
-  sprintf(buf, "%lld", vsimOrSearch->mappings[0].cursorId);
-  MRCommand_Append(cmd, buf, strlen(buf));
+  char buf[24];
+  int buf_len = snprintf(buf, sizeof(buf), "%lld", vsimOrSearch->mappings[0].cursorId);
+  MRCommand_Append(cmd, buf, buf_len);
 
   // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 1; i < numShardsWithMapping; i++) {
@@ -768,9 +768,9 @@ void iterCursorMappingCb(void *p) {
     vsimOrSearch->mappings[i].targetShard = NULL; // transfer ownership
     it->cbxs[i].cmd.targetShardIdx = vsimOrSearch->mappings[i].targetShardIdx;
     it->cbxs[i].cmd.num = 4;
-    char buf[128];
-    sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
-    MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
+    char buf[24];
+    int buf_len = snprintf(buf, sizeof(buf), "%lld", vsimOrSearch->mappings[i].cursorId);
+    MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, buf_len);
   }
   // Set the first command to target the shard of the first mapping (while not having copied it)
   cmd->targetShard = vsimOrSearch->mappings[0].targetShard;
