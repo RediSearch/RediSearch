@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <assert.h>
 
-#include <spec.h>
+#include <spec/spec.h>
 #include <search_ctx.h>
 #include "value.h"
 #include "sortable.h"

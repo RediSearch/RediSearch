@@ -9,7 +9,7 @@
 
 #include "search_disk.h"
 #include "config.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;

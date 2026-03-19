@@ -11,7 +11,7 @@
 
 #include "redismock/redismock.h"
 #include "redismock/util.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "document.h"
 
 #ifdef __cplusplus

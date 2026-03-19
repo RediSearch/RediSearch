@@ -8,7 +8,7 @@
 */
 
 #include "gtest/gtest.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "common.h"
 #include "redisearch_api.h"
 #include "fork_gc.h"

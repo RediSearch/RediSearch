@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include "config.h"
 #include "search_ctx.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "types_rs.h"
 
 /**

@@ -8,7 +8,7 @@
 */
 
 #include "redismodule.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "util/references.h"
 #include "query.h"
 #include "aggregate/aggregate.h"

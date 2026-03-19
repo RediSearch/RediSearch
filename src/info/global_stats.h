@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "spec.h"
+#include "spec/spec.h"
 #include "rs_wall_clock.h"
 
 #ifdef __cplusplus

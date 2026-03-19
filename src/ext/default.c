@@ -13,7 +13,7 @@
 #include <sys/param.h>
 
 #include "redisearch.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "types_rs.h"
 #include "query.h"
 #include "synonym_map.h"

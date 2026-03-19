@@ -40,6 +40,7 @@ fn main() {
         let vecsim = deps.join("VectorSimilarity").join("src");
         let buffer = src.join("buffer");
         let ttl_table = src.join("ttl_table");
+        let spec = src.join("spec");
         let trie = src.join("trie");
         let rmalloc = deps.join("rmalloc");
 
@@ -51,6 +52,7 @@ fn main() {
             vecsim,
             buffer,
             ttl_table,
+            spec,
             trie,
             rmalloc,
         ]
@@ -86,9 +88,9 @@ fn main() {
         src.join("search_disk_api.h"),
         src.join("search_result.h"),
         src.join("sortable.h"),
-        src.join("spec.h"),
-        src.join("spec_cache.h"),
-        src.join("spec_registry.h"),
+        src.join("spec").join("spec.h"),
+        src.join("spec").join("spec_cache.h"),
+        src.join("spec").join("spec_registry.h"),
         src.join("stopwords.h"),
         src.join("tag_index.h"),
         src.join("trie").join("trie.h"),

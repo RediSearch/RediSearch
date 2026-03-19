@@ -12,7 +12,7 @@
 #include "redismock/redismock.h"
 
 extern "C" {
-#include "spec.h"
+#include "spec/spec.h"
 #include "query_error.h"
 
 // Forward declarations for RDB functions

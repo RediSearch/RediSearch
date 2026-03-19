@@ -17,7 +17,7 @@
 #include <limits.h>
 #include "rmalloc.h"
 #include "rules.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
