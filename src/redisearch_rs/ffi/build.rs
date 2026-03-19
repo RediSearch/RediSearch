@@ -87,6 +87,7 @@ fn main() {
         src.join("search_result.h"),
         src.join("sortable.h"),
         src.join("spec.h"),
+        src.join("spec_cache.h"),
         src.join("stopwords.h"),
         src.join("tag_index.h"),
         src.join("trie").join("trie.h"),
