@@ -8,6 +8,7 @@
 */
 #include "spec_rdb.h"
 #include "spec.h"
+#include "spec_field_parse.h"
 
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -44,7 +45,6 @@ extern dict *legacySpecRules;
 // Internal helpers from spec.c
 extern void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
                                 int16_t numFields);
-extern void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index);
 extern void IndexSpec_InitLock(IndexSpec *sp);
 extern void addPendingIndexDrop(void);
 extern void Cursors_initSpec(IndexSpec *spec);
