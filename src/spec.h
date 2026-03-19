@@ -403,21 +403,9 @@ static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
 }
 
-/**
- * This lightweight object contains a COPY of the actual index spec.
- * This makes it safe for other modules to use for information such as
- * field names, WITHOUT worrying about the index schema changing.
- *
- * If the index schema changes, this object is simply recreated rather
- * than modified, making it immutable.
- *
- * It is freed when its reference count hits 0
- */
-typedef struct IndexSpecCache {
-  FieldSpec *fields;
-  size_t nfields;
-  size_t refcount;
-} IndexSpecCache;
+// IndexSpecCache — immutable, refcounted snapshot of index fields.
+// Full definition and functions in spec_cache.h.
+#include "spec_cache.h"
 
 /**
  * For testing only
@@ -428,19 +416,6 @@ void Spec_AddToDict(RefManager *w_spec);
  * Compare redis versions
  */
 int CompareVersions(Version v1, Version v2);
-
-/**
- * Retrieves the current spec cache from the index, incrementing its
- * reference count by 1. Use IndexSpecCache_Decref to free
- */
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
-
-/**
- * Decrement the reference count of the spec cache. Should be matched
- * with a previous call of GetSpecCache()
- * Can handle NULL
- */
-void IndexSpecCache_Decref(IndexSpecCache *cache);
 
 /*
  * Get a field spec by field name. Case insensitive!
