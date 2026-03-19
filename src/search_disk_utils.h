@@ -35,6 +35,15 @@ bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes);
 bool SearchDisk_MarkUnsupportedFieldIfDiskEnabled(const char *fieldTypeStr, const FieldSpec *fs, QueryError *status);
 
 /**
+ * @brief Mark an argument as unsupported in Flex indexes
+ *
+ * @param argName Argument name string (e.g., "SLOP", "WITHSUFFIXTRIE")
+ * @param status Query error status
+ * @return true if the argument is supported, false otherwise
+ */
+bool SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(const char *argName, QueryError *status);
+
+/**
  * @brief Reply with unsupported-command error if disk mode is enabled.
  *
  * @param ctx Redis module context
