@@ -267,8 +267,12 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   // Release the RQ slot here before unblocking or handing off to reduction.
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
     if (!timedOut && ctx->fn) {
+      IORuntimeCtx *ioRuntime = ctx->ioRuntime;
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
-      MRCtx_RequestCompleted(ctx);
+      // `ctx->fn` may hand off to an async reducer that can unblock and free `ctx`
+      // before this libuv callback is scheduled again. Complete the RQ request via
+      // the saved ioRuntime instead of dereferencing `ctx` after the handoff.
+      IORuntimeCtx_RequestCompleted(ioRuntime);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
       RS_ASSERT(bc);
