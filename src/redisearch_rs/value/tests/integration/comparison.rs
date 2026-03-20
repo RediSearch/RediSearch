@@ -13,14 +13,6 @@ use std::cmp::Ordering;
 use value::comparison::{CompareError, compare};
 use value::{Array, Map, RsString, RsValue, RsValueTrio, SharedRsValue};
 
-use redis_mock::mock_or_stub_missing_redis_c_symbols;
-
-mock_or_stub_missing_redis_c_symbols!();
-
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
-
 fn array(values: impl IntoIterator<Item = RsValue>) -> RsValue {
     RsValue::Array(Array::new(
         values.into_iter().map(SharedRsValue::new).collect(),
