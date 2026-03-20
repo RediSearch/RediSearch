@@ -62,20 +62,20 @@ impl<'a> Debug for DebugFormatter<'a> {
             RsValue::Array(array) => {
                 let entries = array
                     .iter()
-                    .map(|item| item.value().debug_formatter(self.obfuscate));
+                    .map(|item| item.debug_formatter(self.obfuscate));
                 f.debug_list().entries(entries).finish()
             }
             RsValue::Map(map) => {
                 let entries = map.iter().map(|(key, value)| {
                     (
-                        key.value().debug_formatter(self.obfuscate),
-                        value.value().debug_formatter(self.obfuscate),
+                        key.debug_formatter(self.obfuscate),
+                        value.debug_formatter(self.obfuscate),
                     )
                 });
                 f.debug_map().entries(entries).finish()
             }
-            RsValue::Ref(ref_value) => ref_value.value().debug_formatter(self.obfuscate).fmt(f),
-            RsValue::Trio(trio) => trio.left().value().debug_formatter(self.obfuscate).fmt(f),
+            RsValue::Ref(ref_value) => ref_value.debug_formatter(self.obfuscate).fmt(f),
+            RsValue::Trio(trio) => trio.left().debug_formatter(self.obfuscate).fmt(f),
         }
     }
 }
