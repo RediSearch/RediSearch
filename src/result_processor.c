@@ -550,6 +550,10 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
 
   arrayof(RSYieldableMetric) arr = SearchResult_GetIndexResult(res)->metrics;
   for (size_t i = 0; i < array_len(arr); i++) {
+    if (RLookupKey_IsTombstone(arr[i].key)) {
+        continue;
+    }
+
     RLookup_WriteKey(arr[i].key, SearchResult_GetRowDataMut(res), arr[i].value);
   }
 
