@@ -187,10 +187,6 @@ int MRCtx_GetNumReplied(struct MRCtx *ctx) {
   return ctx->numReplied;
 }
 
-void MRCtx_RequestCompleted(struct MRCtx *ctx) {
-  IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
-}
-
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx) {
   return ctx->replies;
 }
