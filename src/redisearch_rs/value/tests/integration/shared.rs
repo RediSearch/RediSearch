@@ -9,15 +9,7 @@
 
 #![allow(clippy::missing_safety_doc, clippy::undocumented_unsafe_blocks)]
 
-use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use value::{RsValue, SharedRsValue};
-
-mock_or_stub_missing_redis_c_symbols!();
-
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
 
 #[test]
 fn null_static_holds_null() {
