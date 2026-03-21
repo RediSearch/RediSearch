@@ -10,7 +10,7 @@ apt_get_cmd() {
 
 apt_get_cmd update -qq
 apt_get_cmd install -yqq git wget build-essential lcov openssl libssl-dev \
-        rsync unzip curl libclang-dev gdb
+        rsync unzip curl gdb
 
 # Need clang for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
