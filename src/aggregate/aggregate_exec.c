@@ -1176,14 +1176,10 @@ static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
     return REDISMODULE_OK;
   }
 
+  // If HasSortBy is true, arrange step and sortKeys must exist
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-  if (!arng || !arng->sortKeys || array_len(arng->sortKeys) == 0) {
-    return REDISMODULE_OK;  // No sort keys to validate
-  }
-
-  // In flex mode, FT.SEARCH supports only a single SORTBY field
-  size_t numSortKeys = array_len(arng->sortKeys);
-  RS_LOG_ASSERT(numSortKeys == 1, "Flex mode expects exactly one SORTBY field");
+  RS_LOG_ASSERT(arng && arng->sortKeys && array_len(arng->sortKeys) == 1,
+                "Flex mode expects exactly one SORTBY field");
 
   // Get the metric requests from the AST (vector score fields)
   MetricRequest *metricRequests = req->ast.metricRequests;
