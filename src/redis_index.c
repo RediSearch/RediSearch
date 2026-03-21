@@ -107,6 +107,11 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
   RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
+  // Also pause rehashing on the TTL table if it exists, to avoid concurrent
+  // rehash steps from multiple query threads corrupting the dict during reads.
+  if (ctx->spec->docs.ttl) {
+    RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->docs.ttl));
+  }
   ctx->flags = RS_CTX_READONLY;
   return REDISMODULE_OK;
 }
