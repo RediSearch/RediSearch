@@ -3287,6 +3287,22 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
     return REDISMODULE_OK;
   }
 
+#ifdef ENABLE_ASSERT
+  // Debug-only hook to pause after claiming reducing but before reducer setup.
+  // This lets tests force the timeout race where the background reducer exits
+  // before initializing req->rctx.
+  if (CoordReduceDebugCtx_GetPauseBeforeN() == -2) {
+    CoordReduceDebugCtx_SetPause(true);
+    while (CoordReduceDebugCtx_IsPaused()) {
+      if (MRCtx_IsTimedOut(mc)) {
+        CoordReduceDebugCtx_SetPause(false);
+        break;
+      }
+      usleep(1000);  // Spin-wait with 1ms sleep
+    }
+  }
+#endif
+
   // Timeout may have fired after the reducer was queued but before it started.
   // In that case the timeout callback owns the blocked-client lifetime, so the
   // background reducer must exit before touching `bc`.
@@ -4248,6 +4264,13 @@ static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString
   } else {
     // Reducer already running or bailout claimed it - wait for completion
     MRCtx_WaitForReducerComplete(mrctx);
+
+    // A background reducer may have claimed reducing, observed the timeout,
+    // and exited before initializing req->rctx. In that case adopt the
+    // timeout-owned reduction path now that the competing reducer has finished.
+    if (!QueryError_HasError(MRCtx_GetStatus(mrctx)) && req->rctx == NULL) {
+      searchResultReducer(mrctx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
+    }
   }
 
   // Check if bailout set an error (e.g., index dropped before fanout)

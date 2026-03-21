@@ -65,7 +65,7 @@ bool QueryDebugCtx_HasDebugRP(void);
 // Only available in debug builds to avoid affecting release performance
 typedef struct CoordReduceDebugCtx {
   atomic_bool pause;           // Atomic bool to wait for the resume command
-  atomic_int pauseBeforeN;     // N value: 0=no pause, -1=pause after last, N>0=pause before Nth result
+  atomic_int pauseBeforeN;     // 0=no pause, -2=before reducer ctx init, -1=after last, N>0=before Nth result
   atomic_int reduceCount;      // Counter of results reduced so far
 } CoordReduceDebugCtx;
 

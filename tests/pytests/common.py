@@ -982,6 +982,7 @@ def setPauseBeforeReduce(env, N):
     """
     Set the coordinator to pause before reducing the Nth result.
     N=0: no pause
+    N=-2: pause after claiming reducing but before reducer context init
     N=-1: pause after the last result is reduced
     N>0: pause before the Nth result (1-based index)
     """

@@ -2194,6 +2194,7 @@ DEBUG_COMMAND(getIsRPPaused) {
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_BEFORE_REDUCE <N>
  * N=0: no pause
+ * N=-2: pause after claiming reducing but before reducer context init
  * N=-1: pause after the last result is reduced
  * N>0: pause before the Nth result is reduced (1-based)
  */
