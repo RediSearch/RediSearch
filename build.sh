@@ -473,7 +473,7 @@ prepare_cmake_arguments() {
         echo "$_search_paths"
         # Fail if clang's actual search paths include C++ headers from a GCC other than system
         _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
-        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(/|$)" || true)
+        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(\.[0-9]+){0,2}(/|$)" || true)
         if [[ -n "$_bad_paths" ]]; then
             echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}:"
             echo "$_bad_paths"
