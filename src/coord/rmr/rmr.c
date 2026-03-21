@@ -40,9 +40,9 @@
 #include "asm_state_machine.h"
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
-  RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);
+  RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount)
 #define REFCOUNT_DECR_MSG(caller, refcount) \
-  RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, refcount);
+  RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, refcount)
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
 
