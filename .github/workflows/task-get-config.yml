@@ -167,7 +167,8 @@ jobs:
                   "x86_64": {
                       'container': 'ubuntu:focal',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal x86_64'
+                      'name': 'Ubuntu Focal x86_64',
+                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:focal',
