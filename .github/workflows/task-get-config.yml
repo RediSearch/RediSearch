@@ -168,7 +168,6 @@ jobs:
                       'container': 'ubuntu:focal',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Ubuntu Focal x86_64',
-                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'ubuntu:focal',
@@ -234,7 +233,6 @@ jobs:
                       'container': 'gcc:11-bullseye',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Debian Bullseye x86_64',
-                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'gcc:11-bullseye',
@@ -248,7 +246,6 @@ jobs:
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
                       'name': 'Debian Bookworm x86_64',
-                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
