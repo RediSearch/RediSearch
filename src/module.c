@@ -3271,27 +3271,38 @@ bool should_return_error(QueryErrorCode errCode) {
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, bool fromTimeout) {
-  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  RedisModuleBlockedClient *bc = NULL;
+  RedisModuleCtx *ctx = NULL;
   searchRequestCtx *req = NULL;
   searchReducerCtx *rCtx = NULL;
   int profile = 0;
   size_t num = 0;
 
   // Try to claim the REDUCING state - if timeout callback already claimed it,
-  // skip reduction but still call UnblockClient to trigger free_privdata.
+  // skip reduction and return without touching the blocked client.
   // If called from timeout callback, we already own reducing (claimed before calling).
   bool ownsReducing = fromTimeout || MRCtx_TryClaimReducing(mc);
   if (!ownsReducing) {
-    // Timeout callback is handling the reduction, just unblock and return
-    goto unblock_client;
+    // Timeout callback is handling the reduction / reply path.
+    return REDISMODULE_OK;
   }
+
+  // Timeout may have fired after the reducer was queued but before it started.
+  // In that case the timeout callback owns the blocked-client lifetime, so the
+  // background reducer must exit before touching `bc`.
+  if (!fromTimeout && MRCtx_IsTimedOut(mc)) {
+    goto cleanup;
+  }
+
+  bc = MRCtx_GetBlockedClient(mc);
+  ctx = RedisModule_GetThreadSafeContext(bc);
 
   req = MRCtx_GetPrivData(mc);
 
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
 
-  // Save the rctx in the request so it can be used in reply_callback of unblock client
+  // Save the reducer state in the request so it is available to the
+  // blocked-client reply callback after the normal unblock path.
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
@@ -3304,7 +3315,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   // got no replies
   if (!fromTimeout && (count == 0 || req->limit < 0)) {
     QueryError_SetError(MRCtx_GetStatus(mc), QUERY_ERROR_CODE_GENERIC, "Could not send query to cluster");
-    goto unblock_client;
+    goto cleanup;
   }
 
   // Traverse the replies, check for early bail-out which we want for all errors
@@ -3320,7 +3331,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
         // Shard reply already contains the prefixed error string — set directly.
         QueryError_SetCode(MRCtx_GetStatus(mc), errCode);
         QueryError_SetDetail(MRCtx_GetStatus(mc), errStr);
-        goto unblock_client;
+        goto cleanup;
       }
     }
   }
@@ -3402,24 +3413,28 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
 
   if (rCtx->errorOccurred && !rCtx->lastError) {
     QueryError_SetError(MRCtx_GetStatus(mc), QUERY_ERROR_CODE_GENERIC, "could not parse redisearch results");
-    goto unblock_client;
+    goto cleanup;
   }
 
-  // Post process before unblocking the client
+  // Post process before cleanup and, on the normal reply path, client unblock.
   rCtx->postProcess(rCtx);
 
-unblock_client:
-  // Signal reducer complete - timeout callback may be waiting for this
-  if (ownsReducing) {
-    MRCtx_SignalReducerComplete(mc);
-  }
-
-  if (!fromTimeout) {
+cleanup:
+  if (!fromTimeout && !MRCtx_IsTimedOut(mc)) {
     // Timeout callback should not call unblockClient
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mc);
   }
-  RedisModule_FreeThreadSafeContext(ctx);
+
+  if (ctx) {
+    RedisModule_FreeThreadSafeContext(ctx);
+  }
+
+  // Signal reducer complete only after all blocked-client usage is finished.
+  if (ownsReducing) {
+    MRCtx_SignalReducerComplete(mc);
+  }
+
   return REDISMODULE_OK;
 }
 
@@ -4190,6 +4205,14 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
     MRCtx_SetTimedOut(mrctx);
+
+    // Coordinate with any queued/in-flight reducer so the blocked client is not
+    // destroyed while it is still being used on a background thread.
+    if (MRCtx_TryClaimReducing(mrctx)) {
+      MRCtx_SignalReducerComplete(mrctx);
+    } else {
+      MRCtx_WaitForReducerComplete(mrctx);
+    }
   }
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);

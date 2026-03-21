@@ -92,9 +92,9 @@ def _print_debug_stats(label, env, coord_initial_jobs_done, coord_initial_pendin
 
 
 @skip(cluster=False)
-def test_mixed_search_aggregate_burst_no_deadlock():
+def test_search_and_aggregate_burst():
     env = Env(
-        testName='MOD-14268 RQ deadlock regression',
+        testName='Search and aggregate burst',
         shardsCount=SHARD_COUNT,
         moduleArgs='SEARCH_IO_THREADS 1',
         enableDebugCommand=True,
@@ -149,7 +149,7 @@ def test_mixed_search_aggregate_burst_no_deadlock():
             thread = threading.Thread(
                 target=_run_burst_command,
                 args=(env, command, exceptions, completed, lock),
-                name=f'mod14268-query-{i}',
+                name=f'search-and-aggregate-burst-query-{i}',
                 daemon=True,
             )
             thread.start()
