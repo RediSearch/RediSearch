@@ -20,6 +20,14 @@ jobs:
     secrets: inherit
     with:
       platform: debian:bullseye
+  debian-bookworm-test:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/flow-test.yml
+    secrets: inherit
+    with:
+      platform: debian:bookworm
   ubuntu-focal-test:
     permissions:
       contents: read
