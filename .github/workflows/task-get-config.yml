@@ -252,7 +252,8 @@ jobs:
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bookworm ARM64'
+                      'name': 'Debian Bookworm ARM64',
+                      'enable_lto': '1'
                   }
               },
               "amazonlinux:2023": {
