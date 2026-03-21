@@ -24,6 +24,7 @@ mod rs_value_ffi;
 pub use rs_value_ffi::*;
 
 pub mod collection;
+pub mod comparison;
 pub mod debug;
 pub mod hash;
 pub mod redis_string;
