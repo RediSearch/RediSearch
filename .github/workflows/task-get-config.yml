@@ -247,7 +247,8 @@ jobs:
                   "x86_64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bookworm x86_64'
+                      'name': 'Debian Bookworm x86_64',
+                      'enable_lto': '1'
                   },
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
