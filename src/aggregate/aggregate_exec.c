@@ -1152,6 +1152,62 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
+/**
+ * Validate SORTBY for disk indexes.
+ * In disk/flex mode, SORTBY is only allowed on vector score (distance) fields.
+ * Must be called after QAST_Iterate so that metricRequests is populated.
+ *
+ * Current flex assumptions (asserted):
+ * - FT.SEARCH allows only a single SORTBY field
+ * - KNN is allowed only once per query, yielding a single vector score field
+ *
+ * @param req The AREQ to validate
+ * @param status Error details set here
+ * @return REDISMODULE_OK if valid, REDISMODULE_ERR otherwise
+ */
+static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
+  // Skip validation if disk is not enabled
+  if (!SearchDisk_IsEnabledForValidation()) {
+    return REDISMODULE_OK;
+  }
+
+  // Skip if no SORTBY
+  if (!HasSortBy(req)) {
+    return REDISMODULE_OK;
+  }
+
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+  if (!arng || !arng->sortKeys || array_len(arng->sortKeys) == 0) {
+    return REDISMODULE_OK;  // No sort keys to validate
+  }
+
+  // In flex mode, FT.SEARCH supports only a single SORTBY field
+  size_t numSortKeys = array_len(arng->sortKeys);
+  RS_LOG_ASSERT(numSortKeys == 1, "Flex mode expects exactly one SORTBY field");
+
+  // Get the metric requests from the AST (vector score fields)
+  MetricRequest *metricRequests = req->ast.metricRequests;
+  size_t numMetrics = array_len(metricRequests);
+
+  // In flex mode, KNN is allowed only once, so at most one vector score field
+  RS_LOG_ASSERT(numMetrics <= 1, "Flex mode expects at most one vector score field");
+
+  // If there's no vector score field, or the sort key doesn't match it, block
+  const char *sortKey = arng->sortKeys[0];
+  bool isVectorScoreField = (numMetrics == 1) &&
+                            metricRequests[0].metric_name &&
+                            (strcasecmp(sortKey, metricRequests[0].metric_name) == 0);
+
+  if (!isVectorScoreField) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+      "SORTBY in Redis Flex is restricted to sorting results by vector distance in vector queries. "
+      "Otherwise, results are always sorted by the default document score.");
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
 int prepareExecutionPlan(AREQ *req, QueryError *status) {
@@ -1178,6 +1234,12 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   }
 
   if (QueryError_HasError(status)) {
+    return REDISMODULE_ERR;
+  }
+
+  // Validate SORTBY for disk indexes - must be after QAST_Iterate so that
+  // vector score field names are populated in metricRequests
+  if (validateSortbyForDiskIndex(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

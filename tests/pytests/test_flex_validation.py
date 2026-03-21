@@ -596,12 +596,60 @@ def test_flex_blocks_bm25_scorer(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_sortby_argument(env):
-    """Test that SORTBY argument is blocked in Redis Flex"""
+def test_flex_blocks_sortby_on_non_vector_fields(env):
+    """Test that SORTBY on non-vector-score fields is blocked in Redis Flex"""
     _create_flex_search_fixture(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
-        .error().contains('SORTBY is not supported in Redis Flex')
+        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_allows_sortby_on_vector_distance_fields(env):
+    """Test that SORTBY on vector distance fields (from KNN queries) is allowed in Redis Flex"""
+    # Create index with both text and vector fields
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+               't', 'TEXT',
+               'v', 'VECTOR', 'HNSW', '14',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+               'M', '16', 'EF_CONSTRUCTION', '100', 'EF_RUNTIME', '10', 'RERANK', 'TRUE',
+    ).ok()
+
+    # Add test documents
+    docs = {
+        'doc:1': ([0.1, 0.1], 'hello world'),
+        'doc:2': ([0.2, 0.2], 'hello again'),
+        'doc:3': ([0.5, 0.5], 'hello there'),
+    }
+
+    with env.getClusterConnectionIfNeeded() as conn:
+        for doc_id, (vector, text) in docs.items():
+            conn.execute_command('HSET', doc_id, 'v', create_np_array_typed(vector, 'FLOAT32').tobytes(), 't', text)
+
+    query_blob = create_np_array_typed([0.0, 0.0], 'FLOAT32').tobytes()
+
+    # SORTBY on default vector distance field (__v_score) should be allowed
+    # Note: Pure KNN queries (with *) don't require HYBRID_POLICY
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b]', 'NOCONTENT',
+                  'SORTBY', '__v_score', 'ASC',
+                  'PARAMS', '2', 'b', query_blob,
+                  'DIALECT', '2')
+    env.assertEqual(res[0], 3)
+
+    # SORTBY on custom vector distance field (using AS) should be allowed
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b AS my_dist]', 'NOCONTENT',
+                  'SORTBY', 'my_dist', 'ASC',
+                  'PARAMS', '2', 'b', query_blob,
+                  'DIALECT', '2')
+    env.assertEqual(res[0], 3)
+
+    # SORTBY on non-vector field should still be blocked
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b]', 'NOCONTENT',
+               'SORTBY', 't', 'ASC',
+               'PARAMS', '2', 'b', query_blob,
+               'DIALECT', '2') \
+        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
 
 
 @skip(cluster=True)
