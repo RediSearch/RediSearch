@@ -2024,16 +2024,14 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
     }
   }
 
-  // Check if any depleter failed to acquire the lock
-  int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
-
   // Note: The main thread's lock was already released in WaitForDepletionToStart
   // after all depleters acquired their locks (or when any failed).
   // This early release prevents deadlock with SafeLoader GIL acquisition.
 
+  // Check if any depleter skipped the lock phase (timeout before start or lock failure)
+  int num_skipped_lock = atomic_load(&sync->num_skipped_lock);
   if (num_skipped_lock > 0) {
-    // At least one depleter failed to acquire the lock
-    // Return error to propagate the failure up the call stack
+    // At least one depleter skipped the lock phase
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
       "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
     return RS_RESULT_ERROR;
