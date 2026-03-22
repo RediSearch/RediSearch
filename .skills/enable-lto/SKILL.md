@@ -35,13 +35,17 @@ Look up `$ARGUMENTS` in `.github/workflows/task-get-config.yml` to find:
 
 Use this value as `<CONTAINER_IMAGE>` in the commands below.
 
+Derive `<PLATFORM_SLUG>` from the platform name by replacing colons with dashes
+(e.g. `rockylinux:9` → `rockylinux-9`). This is used for unique Docker image/container names
+so multiple platforms can be tested in parallel.
+
 ### 2. Build the Docker Image
 
 The repo has a `Dockerfile` that takes a `BASE_IMAGE` build arg. It copies the repo into the
 image and runs the platform's install script, Rust toolchain setup, and all other dependencies.
 
 ```bash
-docker build --build-arg BASE_IMAGE=<CONTAINER_IMAGE> -t lto-test .
+docker build --build-arg BASE_IMAGE=<CONTAINER_IMAGE> -t lto-<PLATFORM_SLUG> .
 ```
 
 This runs:
@@ -66,9 +70,9 @@ Create a named container from the built image with the repo mounted (so host edi
 reflected immediately). All subsequent steps run inside it via `docker exec`.
 
 ```bash
-docker run -d --name lto-test \
+docker run -d --name lto-<PLATFORM_SLUG> \
   -v $(pwd):/redisearch -w /redisearch \
-  lto-test sleep infinity
+  lto-<PLATFORM_SLUG> sleep infinity
 ```
 
 For aarch64 testing on an x86_64 host, add `--platform linux/arm64` to both the `docker build`
@@ -80,19 +84,19 @@ Gather toolchain info:
 
 ```bash
 # System GCC version (clang will link against its libstdc++)
-docker exec lto-test gcc --version
+docker exec lto-<PLATFORM_SLUG> gcc --version
 
 # glibc version (affects SVS symbol compatibility on x86_64)
-docker exec lto-test ldd --version
+docker exec lto-<PLATFORM_SLUG> ldd --version
 
 # Rust's LLVM version (must match clang)
-docker exec lto-test bash -c 'rustc --version --verbose | grep LLVM'
+docker exec lto-<PLATFORM_SLUG> bash -c 'rustc --version --verbose | grep LLVM'
 
 # Verify clang was installed
-docker exec lto-test bash -c 'clang-21 --version 2>/dev/null || clang --version'
+docker exec lto-<PLATFORM_SLUG> bash -c 'clang-21 --version 2>/dev/null || clang --version'
 
 # Check GCC C++ header search paths (what clang will use)
-docker exec lto-test bash -c "g++ -E -x c++ -v /dev/null 2>&1 | sed -n '/#include <\.\.\.>/,/^End/{ /^ /p }'"
+docker exec lto-<PLATFORM_SLUG> bash -c "g++ -E -x c++ -v /dev/null 2>&1 | sed -n '/#include <\.\.\.>/,/^End/{ /^ /p }'"
 ```
 
 Record:
@@ -117,29 +121,29 @@ If this doesn't work for the target platform, add a case to `install_llvm.sh`.
 After editing, rebuild the image and recreate the container to pick up the changes:
 
 ```bash
-docker rm -f lto-test
-docker build --build-arg BASE_IMAGE=<CONTAINER_IMAGE> -t lto-test .
-docker run -d --name lto-test \
+docker rm -f lto-<PLATFORM_SLUG>
+docker build --build-arg BASE_IMAGE=<CONTAINER_IMAGE> -t lto-<PLATFORM_SLUG> .
+docker run -d --name lto-<PLATFORM_SLUG> \
   -v $(pwd):/redisearch -w /redisearch \
-  lto-test sleep infinity
+  lto-<PLATFORM_SLUG> sleep infinity
 ```
 
 Verify clang is now available:
 
 ```bash
-docker exec lto-test bash -c 'clang-21 --version 2>/dev/null || clang --version'
+docker exec lto-<PLATFORM_SLUG> bash -c 'clang-21 --version 2>/dev/null || clang --version'
 ```
 
 ### 6. Build with LTO
 
 ```bash
-docker exec lto-test bash -c './build.sh LTO=1'
+docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1'
 ```
 
 On x86_64, if the build fails with GLIBCXX or glibc symbol errors from SVS, retry with:
 
 ```bash
-docker exec lto-test bash -c './build.sh LTO=1 BUILD_INTEL_SVS_OPT=0'
+docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1 BUILD_INTEL_SVS_OPT=0'
 ```
 
 Watch for:
@@ -157,16 +161,16 @@ Verify `redisearch.so` doesn't reference symbols unavailable on the platform:
 
 ```bash
 # GLIBCXX symbols in the binary
-docker exec lto-test bash -c 'nm -D bin/linux-*/search/redisearch.so | grep GLIBCXX | sort -t@ -k2 -V'
+docker exec lto-<PLATFORM_SLUG> bash -c 'nm -D bin/linux-*/search/redisearch.so | grep GLIBCXX | sort -t@ -k2 -V'
 
 # GLIBCXX symbols available on the platform
-docker exec lto-test bash -c 'strings /usr/lib/*/libstdc++.so.6 | grep GLIBCXX | sort -V'
+docker exec lto-<PLATFORM_SLUG> bash -c 'strings /usr/lib/*/libstdc++.so.6 | grep GLIBCXX | sort -V'
 
 # glibc symbols in the binary (x86_64 SVS concern)
-docker exec lto-test bash -c 'nm -D bin/linux-*/search/redisearch.so | grep GLIBC_ | sort -t@ -k2 -V'
+docker exec lto-<PLATFORM_SLUG> bash -c 'nm -D bin/linux-*/search/redisearch.so | grep GLIBC_ | sort -t@ -k2 -V'
 
 # glibc symbols available on the platform
-docker exec lto-test bash -c 'strings /lib/*/libc.so.6 | grep GLIBC_ | sort -V'
+docker exec lto-<PLATFORM_SLUG> bash -c 'strings /lib/*/libc.so.6 | grep GLIBC_ | sort -V'
 ```
 
 Every GLIBCXX/GLIBC version referenced by the binary must exist in the platform's runtime
@@ -176,10 +180,10 @@ libraries. If not, the binary will fail to load on that platform.
 
 ```bash
 # Unit tests
-docker exec lto-test bash -c './build.sh LTO=1 RUN_UNIT_TESTS'
+docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1 RUN_UNIT_TESTS'
 
 # Python integration tests
-docker exec lto-test bash -c './build.sh LTO=1 RUN_PYTEST'
+docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1 RUN_PYTEST'
 ```
 
 If x86_64 needed `BUILD_INTEL_SVS_OPT=0` for the build, add it to the test commands too.
@@ -187,7 +191,7 @@ If x86_64 needed `BUILD_INTEL_SVS_OPT=0` for the build, add it to the test comma
 ### 9. Clean Up the Container
 
 ```bash
-docker rm -f lto-test
+docker rm -f lto-<PLATFORM_SLUG>
 ```
 
 ### 10. Test Both Architectures
