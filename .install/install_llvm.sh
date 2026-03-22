@@ -31,6 +31,124 @@ LLVM_FULL_VER="${LLVM_FULL_VERSION}"
 INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
 MODE="${1:-}"
 
+# ---------------------------------------------------------------------------
+# Fix GLIBCXX compatibility for LLVM tarball binaries.
+#
+# The official LLVM tarballs are built on a system with GCC 12+ (GLIBCXX_3.4.30).
+# On RHEL/Rocky 9, the system libstdc++.so.6 only has up to GLIBCXX_3.4.29
+# (GCC 11). clang-21 and lld need exactly one symbol from GLIBCXX_3.4.30:
+#   std::condition_variable::wait(std::unique_lock<std::mutex>&)
+# which moved from inline to exported in GCC 12.
+#
+# Fix: build a small compat shim providing the missing symbol, binary-patch the
+# VERNEED entries in clang/lld to reference GLIBCXX_3.4.29 instead, and use
+# patchelf to wire the shim into the binaries' NEEDED list.
+# ---------------------------------------------------------------------------
+fix_glibcxx_compat() {
+    local clang_bin="${INSTALL_DIR}/bin/clang-${LLVM_VER}"
+    local lld_bin="${INSTALL_DIR}/bin/lld"
+
+    # Quick check: does clang already work?
+    local clang_err
+    if clang_err=$("${clang_bin}" --version 2>&1); then
+        echo ">>> clang-${LLVM_VER} runs fine, no GLIBCXX compat fix needed"
+        return 0
+    fi
+
+    # Check if this is the GLIBCXX issue
+    if ! echo "$clang_err" | grep -q "GLIBCXX_3.4.30"; then
+        echo ">>> clang-${LLVM_VER} fails for a reason other than GLIBCXX_3.4.30:"
+        echo "$clang_err"
+        return 1
+    fi
+
+    echo ">>> System libstdc++ lacks GLIBCXX_3.4.30 — applying compat fix"
+
+    # Need g++ to build the shim and patchelf to wire it in
+    if ! command -v g++ &>/dev/null; then
+        echo "ERROR: g++ not found. Install gcc-c++ before install_llvm.sh."
+        return 1
+    fi
+    if ! command -v patchelf &>/dev/null; then
+        echo ">>> Installing patchelf..."
+        if command -v dnf &>/dev/null; then
+            $MODE dnf install -y epel-release 2>/dev/null || true
+            $MODE dnf install -y patchelf --nobest --skip-broken
+        elif command -v yum &>/dev/null; then
+            $MODE yum install -y epel-release 2>/dev/null || true
+            $MODE yum install -y patchelf
+        else
+            echo "ERROR: Cannot install patchelf. Install it manually."
+            return 1
+        fi
+    fi
+
+    # 1. Build the compat shim
+    local shim_src
+    shim_src=$(mktemp /tmp/glibcxx_compat_XXXXXX.cpp)
+    cat > "$shim_src" << 'SHIMEOF'
+#include <mutex>
+#include <pthread.h>
+// Provide std::condition_variable::wait which moved from inline (GCC < 12)
+// to exported (GCC 12+, GLIBCXX_3.4.30). The first member of
+// std::condition_variable is a pthread_cond_t.
+extern "C" {
+    void _ZNSt18condition_variable4waitERSt11unique_lockISt5mutexE(
+        void* cv, std::unique_lock<std::mutex>& lock) {
+        pthread_cond_t* cond = static_cast<pthread_cond_t*>(cv);
+        pthread_cond_wait(cond, lock.mutex()->native_handle());
+    }
+}
+SHIMEOF
+    g++ -shared -fPIC -o "${INSTALL_DIR}/lib/libglibcxx_compat.so" "$shim_src" -lpthread
+    rm -f "$shim_src"
+
+    # 2. Binary-patch VERNEED: GLIBCXX_3.4.30 -> GLIBCXX_3.4.29
+    #    Must patch both the version string and the ELF hash.
+    python3 -c "
+import struct, sys
+
+def elf_hash(name):
+    h = 0
+    for c in name.encode():
+        h = (h << 4) + c
+        g = h & 0xf0000000
+        if g:
+            h ^= g >> 24
+        h &= 0x0fffffff
+    return h
+
+old_str = b'GLIBCXX_3.4.30\x00'
+new_str = b'GLIBCXX_3.4.29\x00'
+old_hash = struct.pack('<I', elf_hash('GLIBCXX_3.4.30'))
+new_hash = struct.pack('<I', elf_hash('GLIBCXX_3.4.29'))
+
+for path in sys.argv[1:]:
+    with open(path, 'rb') as f:
+        data = f.read()
+    if old_str not in data:
+        continue
+    data = data.replace(old_str, new_str)
+    data = data.replace(old_hash, new_hash)
+    with open(path, 'wb') as f:
+        f.write(data)
+    print(f'Patched VERNEED in {path}')
+" "${clang_bin}" "${lld_bin}"
+
+    # 3. Add the compat shim to each binary's NEEDED list and set RPATH
+    patchelf --add-needed libglibcxx_compat.so --set-rpath "${INSTALL_DIR}/lib" "${clang_bin}"
+    patchelf --add-needed libglibcxx_compat.so --set-rpath "${INSTALL_DIR}/lib" "${lld_bin}"
+
+    # Verify
+    if "${clang_bin}" --version &>/dev/null 2>&1; then
+        echo ">>> GLIBCXX compat fix applied successfully"
+    else
+        echo "ERROR: clang-${LLVM_VER} still fails after compat fix:"
+        "${clang_bin}" --version 2>&1 || true
+        return 1
+    fi
+}
+
 # Download and unpack the official LLVM tarball into $INSTALL_DIR.
 # Works on any glibc-based Linux. Will NOT work on musl/Alpine.
 install_from_tarball() {
@@ -55,6 +173,7 @@ install_from_tarball() {
     rm -rf "$tmpdir"
 
     export_path_gha
+    fix_glibcxx_compat
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
 }
 
