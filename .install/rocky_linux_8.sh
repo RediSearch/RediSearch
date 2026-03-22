@@ -26,3 +26,6 @@ if [ "$(uname -m)" = "aarch64" ]; then
 fi
 
 cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+
+# Need clang for LTO
+source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
