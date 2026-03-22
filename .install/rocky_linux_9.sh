@@ -10,5 +10,9 @@ cp /opt/rh/gcc-toolset-14/enable /etc/profile.d/gcc-toolset-14.sh
 # install other stuff after installing gcc-toolset-14 to avoid dependencies conflicts
 $MODE dnf install -y openssl openssl-devel which rsync unzip curl clang  clang-devel gdb --nobest --skip-broken --allowerasing
 
-# Need clang for LTO
+# Need xz for extracting LLVM tarball, epel for patchelf (used by GLIBCXX compat fix)
+$MODE dnf install -y xz epel-release --nobest --skip-broken --allowerasing
+$MODE dnf install -y patchelf --nobest --skip-broken --allowerasing
+
+# Install LLVM for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
