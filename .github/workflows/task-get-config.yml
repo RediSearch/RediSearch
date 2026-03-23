@@ -236,7 +236,8 @@ jobs:
                   "aarch64": {
                       'container': 'gcc:11-bullseye',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bullseye ARM64'
+                      'name': 'Debian Bullseye ARM64',
+                      'enable_lto': '1'
                   }
               },
               "debian:bookworm": {
