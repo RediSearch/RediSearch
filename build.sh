@@ -436,7 +436,68 @@ prepare_cmake_arguments() {
     fi
 
     echo "Enabling C/Rust LTO"
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$C_COMPILER -DCMAKE_CXX_COMPILER=$CXX_COMPILER -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+
+    # Pin clang to the system GCC's C++ headers to avoid header/runtime mismatch.
+    # --gcc-install-dir alone does NOT override the C++ header search path,
+    # so we use -nostdinc++ and re-add the correct paths via -isystem.
+    GCC_COMMON_FLAGS=""
+    GCC_CXX_FLAGS=""
+    if command -v g++ &>/dev/null; then
+        # Extract the C++ include paths that system g++ actually uses.
+        _cxx_includes=$(g++ -E -x c++ -v /dev/null 2>&1 | \
+            sed -n '/#include <\.\.\.>/,/^End/{ /^ /p }' | \
+            sed 's/^ *//' | \
+            grep -E '(/c\+\+/|/backward)')
+
+        if [[ -n "$_cxx_includes" ]]; then
+            GCC_CXX_FLAGS="-nostdinc++"
+            while IFS= read -r dir; do
+                GCC_CXX_FLAGS+=" -isystem ${dir}"
+            done <<< "$_cxx_includes"
+        fi
+
+        # Still pin the GCC internal library dir (for crtbegin.o, libgcc, etc.)
+        GCC_INSTALL_DIR=$(gcc -print-search-dirs | sed -n 's/^install: //p')
+        if [[ -n "$GCC_INSTALL_DIR" ]]; then
+            GCC_COMMON_FLAGS="--gcc-install-dir=${GCC_INSTALL_DIR}"
+        fi
+
+        # --- Diagnostic: verify C++ header pinning ---
+        echo ">>> GCC common flags: ${GCC_COMMON_FLAGS}"
+        echo ">>> GCC C++ flags: ${GCC_CXX_FLAGS}"
+        echo ">>> Installed C++ header directories:"
+        ls -d /usr/include/c++/*/ 2>/dev/null || echo "  (none found)"
+        echo ">>> Clang C++ include search paths:"
+        _search_paths=$($CXX_COMPILER ${GCC_COMMON_FLAGS} ${GCC_CXX_FLAGS} -x c++ -v -fsyntax-only /dev/null 2>&1 \
+            | sed -n '/#include <\.\.\.>/,/^End/p')
+        echo "$_search_paths"
+        # Fail if clang's actual search paths include C++ headers from a GCC other than system
+        _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
+        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(/|$)" || true)
+        if [[ -n "$_bad_paths" ]]; then
+            echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}:"
+            echo "$_bad_paths"
+            echo "       C++ header pinning is not working correctly."
+            echo "       This will cause GLIBCXX symbol mismatch at link time."
+            exit 1
+        fi
+    fi
+
+    # Pass LTO C/CXX flags to CMake via CFLAGS/CXXFLAGS env vars so cmake picks them
+    # up without word-splitting issues.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # Export CC/CXX so that Rust's cc crate also uses clang, matching the
+    # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
+    export CC="$C_COMPILER"
+    export CXX="$CXX_COMPILER"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
+        -DCMAKE_C_COMPILER=$C_COMPILER \
+        -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
+        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER \
+        -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
     # Include LLVM bitcode information for cross-language LTO
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
   fi
