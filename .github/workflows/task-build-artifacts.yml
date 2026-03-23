@@ -80,7 +80,7 @@ jobs:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
-      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      BUILD_CMD: echo '::group::Build' && make build MAX_WORKER_THREADS=8192 VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
       SETUP_RETRY_LOOP: |
         SUCCESS=0
