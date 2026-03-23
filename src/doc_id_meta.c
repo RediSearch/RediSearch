@@ -11,6 +11,7 @@
 #include "util/arr/arr.h"
 #include "util/dict.h"
 #include "rdb.h"
+#include "spec.h"
 #include <stdbool.h>
 
 #define DOCID_META_INVALID 0
@@ -90,6 +91,29 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   return 0;
 }
 
+/* Unlink callback - called when a key is being deleted/unlinked, before freeing.
+ * This is where we mark the documents as deleted in their respective indexes. */
+static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+  REDISMODULE_NOT_USED(ctx);
+  if (meta == NULL || *meta == 0) return;
+  struct DocIdMeta *docIdMeta = (struct DocIdMeta *)*meta;
+  if (!docIdMeta->entries) return;
+
+  // Iterate through all entries and mark documents as deleted in their indexes
+  dictIterator *iter = dictGetIterator(docIdMeta->entries);
+  dictEntry *de;
+  while ((de = dictNext(iter))) {
+    DocIdEntry *entry = dictGetVal(de);
+    if (entry->docId == DOCID_META_INVALID) {
+      continue;
+    }
+
+    // Find the IndexSpec by name and mark the document as deleted
+    IndexSpec_DeleteDocByDocId(entry->specName, entry->specNameLen, entry->docId);
+  }
+  dictReleaseIterator(iter);
+}
+
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   REDISMODULE_NOT_USED(encver);
   struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
@@ -166,7 +190,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .copy = (RedisModuleKeyMetaCopyFunc)docIdMetaCopy,
     .rename = NULL, // If NULL, meta is kept during rename
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
-    .unlink = NULL, // If NULL, meta is ignored during unlink
+    .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink, // Mark docs as deleted when key is unlinked
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
     .rdb_load = NULL, // (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad,
     .rdb_save = NULL, // (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave,

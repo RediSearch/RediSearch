@@ -766,15 +766,10 @@ DEBUG_COMMAND(DocIdToId) {
   size_t specNameLen;
   const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   uint64_t docId;
-  // Try to get docId from key metadata first
   if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, &docId) == REDISMODULE_OK) {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, docId);
   } else {
-    // Fall back to DocTable lookup
-    size_t n;
-    const char *key = RedisModule_StringPtrLen(argv[3], &n);
-    t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
-    RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+    RedisModule_ReplyWithLongLong(sctx->redisCtx, 0);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -1362,7 +1357,14 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[2]);
 
-  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+  uint64_t docId;
+  if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, &docId) != REDISMODULE_OK) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Document not found in index");
+  }
+  const RSDocumentMetadata *dmd = DocTable_Borrow(&sctx->spec->docs, docId);
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
@@ -1475,30 +1477,30 @@ DEBUG_COMMAND(DeleteCursors) {
 }
 
 void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
-	int **neighbours_data = NULL;
-	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
-	RedisModule_Reply reply = RedisModule_NewReply(ctx);
-	if (res == VecSimDebugCommandCode_LabelNotExists){
-		RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
-		RedisModule_EndReply(&reply);
-		return;
-	}
-	START_POSTPONED_LEN_ARRAY(response);
-	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
+  int **neighbours_data = NULL;
+  VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
+  RedisModule_Reply reply = RedisModule_NewReply(ctx);
+  if (res == VecSimDebugCommandCode_LabelNotExists){
+    RedisModule_Reply_Stringf(&reply, "Doc id %d doesn't contain the given field", doc_id);
+    RedisModule_EndReply(&reply);
+    return;
+  }
+  START_POSTPONED_LEN_ARRAY(response);
+  REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
 
-	size_t level = 0;
-	while (neighbours_data[level]) {
-		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
-		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
-		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
-			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
-		}
+  size_t level = 0;
+  while (neighbours_data[level]) {
+    RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
+    RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
+    for (size_t i = 0; i < neighbours_data[level][0]; i++) {
+      RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
+    }
     level++; ARRAY_LEN_VAR(response)++;
-	}
-	END_POSTPONED_LEN_ARRAY(response);
-	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
-	RedisModule_EndReply(&reply);
-}
+  }
+  END_POSTPONED_LEN_ARRAY(response);
+  VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
+  RedisModule_EndReply(&reply);
+  }
 
 DEBUG_COMMAND(dumpHNSWData) {
   FieldSpec *fs;
@@ -1517,7 +1519,7 @@ DEBUG_COMMAND(dumpHNSWData) {
   fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {
     RedisModule_ReplyWithError(ctx, "Vector index not found");
-	  goto cleanup;
+    goto cleanup;
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
@@ -1531,24 +1533,24 @@ DEBUG_COMMAND(dumpHNSWData) {
 
   info = VecSimIndex_BasicInfo(vecsimIndex);
   if (info.algo != VecSimAlgo_HNSWLIB) {
-	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
-	  goto cleanup;
+    RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
+    goto cleanup;
   }
   if (info.isMulti) {
-	  RedisModule_ReplyWithError(ctx, "Command not supported for HNSW multi-value index");
-	  goto cleanup;
+    RedisModule_ReplyWithError(ctx, "Command not supported for HNSW multi-value index");
+    goto cleanup;
   }
 
   if (argc == 5) {  // we want the neighbors of a specific vector only
-	  size_t key_len;
-	  const char *key_name = RedisModule_StringPtrLen(argv[4], &key_len);
-	  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
-	  if (doc_id == 0) {
-		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
-		  goto cleanup;
-	  }
-	  replyDumpHNSW(ctx, vecsimIndex, doc_id);
-	  goto cleanup;
+    size_t specNameLen;
+    const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+    uint64_t doc_id;
+    if (DocIdMeta_Get(ctx, argv[4], specName, specNameLen, &doc_id) != REDISMODULE_OK) {
+      RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
+      goto cleanup;
+    }
+    replyDumpHNSW(ctx, vecsimIndex, doc_id);
+    goto cleanup;
   }
   // Otherwise, dump neighbors for every document in the index.
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);

@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
-#include "triemap.h"
 #include "redisearch.h"
 #include "sortable.h"
 #include "byte_offsets.h"
@@ -36,22 +35,6 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
   return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
 }
 
-/* Map between external id an incremental id */
-typedef struct {
-  TrieMap *tm;
-} DocIdMap;
-
-DocIdMap NewDocIdMap();
-/* Get docId from a did-map. Returns 0  if the key is not in the map */
-t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n);
-
-/* Put a new doc id in the map if it does not already exist */
-void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId);
-
-int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n);
-/* Free the doc id map */
-void DocIdMap_Free(DocIdMap *m);
-
 /* The DocTable is a simple mapping between incremental ids and the original document key and
  * metadata. It is also responsible for storing the id incrementor for the index and assigning
  * new
@@ -74,7 +57,6 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
-  DocIdMap dim;             // Mapping between document name to internal id
   TimeToLiveTable* ttl;
 } DocTable;
 
@@ -94,8 +76,6 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * If docId is not inside the table, we return NULL */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
-
-const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *r, RedisModuleString *s);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
@@ -154,39 +134,16 @@ static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable
   return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
 }
 
-
-/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
-t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
-
-#define STRVARS_FROM_RSTRING(r) \
-  size_t n;                     \
-  const char *s = RedisModule_StringPtrLen(r, &n);
-
-static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_GetId(dt, s, n);
-}
-
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
-static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Pop(t, s, n);
-}
+/* Pop a document from the table by its docId. Returns the metadata if found, NULL otherwise.
+ * The caller is responsible for freeing the returned metadata. */
+RSDocumentMetadata *DocTable_Pop(DocTable *t, t_docId docId);
 
-static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const char *key) {
-  t_docId id = DocTable_GetId(dt, key, strlen(key));
-  if (id == 0) {
-    return NULL;
-  }
-  return DocTable_Borrow(dt, id);
-}
-
-/* Change name of document hash in the same spec without reindexing */
-int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
-                     size_t to_len);
+/* Change name of document hash in the same spec without reindexing.
+ * The docId must be a valid document ID in the table. */
+int DocTable_Replace(DocTable *t, t_docId docId, const char *to_str, size_t to_len);
 
 /* increasing the ref count of the given dmd */
 /*

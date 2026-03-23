@@ -547,6 +547,16 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 /**
+ * Delete a document by its docId directly. Used by the DocIdMeta unlink callback
+ * when a key is being deleted/expired and we need to remove it from the index.
+ * This function locks the spec for writing.
+ * @param specName The index spec name
+ * @param specNameLen The length of the spec name
+ * @param docId The document ID to delete
+ */
+void IndexSpec_DeleteDocByDocId(const char *specName, size_t specNameLen, t_docId docId);
+
+/**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace
  */

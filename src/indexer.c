@@ -141,31 +141,36 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
-    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
-    if (dmd) {
-      // Update stats of the index only if the document was there
-      RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
-      --spec->stats.scoring.numDocuments;
-      RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
-      spec->stats.scoring.totalDocsLen -= dmd->docLen;
-      *updated = true;
-      if (spec->flags & Index_HasVecSim) {
-        for (int i = 0; i < spec->numFields; ++i) {
-          if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            // ctx is NULL because we don't create the index here
-            VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
-            if(!vecsim)
-              continue;
-            VecSimIndex_DeleteVector(vecsim, dmd->id);
-            // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
+    size_t specNameLen;
+    const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+    uint64_t existingDocId;
+    if (DocIdMeta_Get(ctx, doc->docKey, specName, specNameLen, &existingDocId) == REDISMODULE_OK) {
+      RSDocumentMetadata *dmd = DocTable_Pop(table, existingDocId);
+      if (dmd) {
+        // Update stats of the index only if the document was there
+        RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+        --spec->stats.scoring.numDocuments;
+        RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
+        spec->stats.scoring.totalDocsLen -= dmd->docLen;
+        *updated = true;
+        if (spec->flags & Index_HasVecSim) {
+          for (int i = 0; i < spec->numFields; ++i) {
+            if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+              // ctx is NULL because we don't create the index here
+              VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
+              if(!vecsim)
+                continue;
+              VecSimIndex_DeleteVector(vecsim, dmd->id);
+              // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
+            }
           }
         }
-      }
-      if (spec->flags & Index_HasGeometry) {
-        GeometryIndex_RemoveId(spec, dmd->id);
-      }
+        if (spec->flags & Index_HasGeometry) {
+          GeometryIndex_RemoveId(spec, dmd->id);
+        }
 
-      DMD_Return(dmd);
+        DMD_Return(dmd);
+      }
     }
   }
 

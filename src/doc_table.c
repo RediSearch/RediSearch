@@ -11,8 +11,6 @@
 #include <string.h>
 #include <stdio.h>
 #include "redismodule.h"
-#include "util/fnv.h"
-#include "triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
 #include "spec.h"
@@ -27,7 +25,6 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
-      .dim = NewDocIdMap(),
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
@@ -112,13 +109,7 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
   return 0;
 }
 
-const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *t, RedisModuleString *s) {
-  const char *kstr;
-  size_t klen;
-  kstr = RedisModule_StringPtrLen(s, &klen);
-  t_docId id = DocTable_GetId(t, kstr, klen);
-  return DocTable_Borrow(t, id);
-}
+
 
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
   uint32_t bucket = DocTable_GetBucket(t, docId);
@@ -154,11 +145,6 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   // Adding the dmd to the chain
   dmd->nextInChain = chain->root;
   chain->root = dmd;
-}
-
-/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
-t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n) {
-  return DocIdMap_Get(&dt->dim, s, n);
 }
 
 /* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
@@ -262,15 +248,11 @@ void DocTable_ClearExpirationData(DocTable *t) {
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
  *
- * Return 0 if the document is already in the index  */
+ * NOTE: The caller is responsible for checking if the document already exists in the index
+ * using DocIdMeta_Get before calling this function. */
 RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags,
                                  const char *payload, size_t payloadSize, DocumentType type) {
 
-  t_docId xid = DocIdMap_Get(&t->dim, s, n);
-  // if the document is already in the index, return 0
-  if (xid) {
-    return (RSDocumentMetadata *)DocTable_Borrow(t, xid);
-  }
   t_docId docId = ++t->maxDocId;
 
   RSDocumentMetadata *dmd;
@@ -307,7 +289,6 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   DocTable_Set(t, docId, dmd);
   ++t->size;
   t->memsize += sdsAllocSize(keyPtr);
-  DocIdMap_Put(&t->dim, s, n, docId);
   DMD_Incref(dmd); // Reference for the caller
   return dmd;
 }
@@ -368,59 +349,51 @@ void DocTable_Free(DocTable *t) {
   }
   rm_free(t->buckets);
   TimeToLiveTable_Destroy(&t->ttl);
-  DocIdMap_Free(&t->dim);
 }
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
-  t_docId docId = DocIdMap_Get(&t->dim, s, n);
-
-  if (docId && docId <= t->maxDocId) {
-
-    RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
-    if (!md) {
-      return NULL;
-    }
-
-    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
-      TimeToLiveTable_Remove(t->ttl, md->id);
-      if (TimeToLiveTable_IsEmpty(t->ttl)) {
-        TimeToLiveTable_Destroy(&t->ttl);
-      }
-    }
-
-    // Assuming we already locked the spec for write, and we don't have multiple writers,
-    // all the next operations don't need to be atomic
-    md->flags |= Document_Deleted;
-
-    t->memsize -= sdsAllocSize(md->keyPtr);
-    if (!hasPayload(md->flags)) {
-      t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
-    } else {
-      t->memsize -= sizeof(RSDocumentMetadata);
-      t->memsize -= md->payload->len + sizeof(RSPayload);
-    }
-    if (md->sortVector) {
-      t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
-    }
-
-    DocIdMap_Delete(&t->dim, s, n);
-    --t->size;
-    // Move ownership of the metadata to the caller, without changing the ref count
-    return md;
+RSDocumentMetadata *DocTable_Pop(DocTable *t, t_docId docId) {
+  if (docId == 0 || docId > t->maxDocId) {
+    return NULL;
   }
-  return NULL;
+
+  RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
+  if (!md) {
+    return NULL;
+  }
+
+  if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+    TimeToLiveTable_Remove(t->ttl, md->id);
+    if (TimeToLiveTable_IsEmpty(t->ttl)) {
+      TimeToLiveTable_Destroy(&t->ttl);
+    }
+  }
+
+  // Assuming we already locked the spec for write, and we don't have multiple writers,
+  // all the next operations don't need to be atomic
+  md->flags |= Document_Deleted;
+
+  t->memsize -= sdsAllocSize(md->keyPtr);
+  if (!hasPayload(md->flags)) {
+    t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
+  } else {
+    t->memsize -= sizeof(RSDocumentMetadata);
+    t->memsize -= md->payload->len + sizeof(RSPayload);
+  }
+  if (md->sortVector) {
+    t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
+  }
+
+  --t->size;
+  // Move ownership of the metadata to the caller, without changing the ref count
+  return md;
 }
 
 // Not thread safe. Assumes the caller has locked the spec for write
-int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
-                     size_t to_len) {
-  t_docId id = DocIdMap_Get(&t->dim, from_str, from_len);
-  if (id == 0) {
+int DocTable_Replace(DocTable *t, t_docId docId, const char *to_str, size_t to_len) {
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (!dmd) {
     return REDISMODULE_ERR;
   }
-  DocIdMap_Delete(&t->dim, from_str, from_len);
-  DocIdMap_Put(&t->dim, to_str, to_len, id);
-  RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
@@ -516,7 +489,6 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       ++deletedElements;
       DMD_Free(dmd);
     } else {
-      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
       DocTable_Set(t, dmd->id, dmd);
       t->memsize += sizeof(RSDocumentMetadata) + len;
     }
@@ -526,41 +498,4 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {
   return t->maxDocId;
-}
-
-DocIdMap NewDocIdMap() {
-
-  TrieMap *m = NewTrieMap();
-  return (DocIdMap){m};
-}
-
-t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n) {
-
-  void *val = TrieMap_Find(m->tm, (char *)s, n);
-  if (val && val != TRIEMAP_NOTFOUND) {
-    return *((t_docId *)val);
-  }
-  return 0;
-}
-
-void *_docIdMap_replace(void *oldval, void *newval) {
-  if (oldval) {
-    rm_free(oldval);
-  }
-  return newval;
-}
-
-void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
-
-  t_docId *pd = rm_malloc(sizeof(t_docId));
-  *pd = docId;
-  TrieMap_Add(m->tm, s, n, pd, _docIdMap_replace);
-}
-
-void DocIdMap_Free(DocIdMap *m) {
-  TrieMap_Free(m->tm, rm_free);
-}
-
-int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
-  return TrieMap_Delete(m->tm, s, n, rm_free);
 }
