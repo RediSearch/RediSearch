@@ -10,8 +10,8 @@
 //! Supporting types for [`Metric`].
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, id_list::IdList,
-    utils::OwnedSlice,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    downcasting::IteratorTypeKnownAtCompileTime, id_list::IdList, utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle, t_docId};
 use inverted_index::RSIndexResult;
@@ -118,6 +118,18 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     }
 }
 
+impl<'index, const SORTED_BY_ID: bool> IteratorTypeKnownAtCompileTime
+    for Metric<'index, SORTED_BY_ID>
+{
+    const TYPE: IteratorType = {
+        if SORTED_BY_ID {
+            IteratorType::MetricSortedById
+        } else {
+            IteratorType::MetricSortedByScore
+        }
+    };
+}
+
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SORTED_BY_ID> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -183,5 +195,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.base.revalidate()
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
     }
 }

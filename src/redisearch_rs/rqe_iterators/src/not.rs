@@ -15,8 +15,8 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, maybe_empty::MaybeEmpty,
-    util::TimeoutContext,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    downcasting::IteratorTypeKnownAtCompileTime, maybe_empty::MaybeEmpty, util::TimeoutContext,
 };
 
 /// An iterator that negates the results of its child iterator.
@@ -120,6 +120,13 @@ where
     pub fn take_child(&mut self) -> Option<I> {
         self.child.take_iterator()
     }
+}
+
+impl<'index, I> IteratorTypeKnownAtCompileTime for Not<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    const TYPE: IteratorType = IteratorType::Not;
 }
 
 impl<'index, I> RQEIterator<'index> for Not<'index, I>
@@ -265,5 +272,9 @@ where
                 Ok(RQEValidateStatus::Ok)
             }
         }
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
     }
 }

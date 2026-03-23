@@ -12,6 +12,8 @@ use std::ptr::NonNull;
 use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::downcasting::{IteratorTypeKnownAtCompileTime, downcast_as_ref_raw};
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Numeric};
 
@@ -75,6 +77,10 @@ impl<'index> NumericIterator<'index> {
             IteratorVariant::Geo(iter) => iter.range_max(),
         }
     }
+}
+
+impl<'index> IteratorTypeKnownAtCompileTime for NumericIterator<'index> {
+    const TYPE: IteratorType = IteratorType::InvIdxNumeric;
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
@@ -157,6 +163,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
             IteratorVariant::NumericFiltered(iter) => iter.at_eof(),
             IteratorVariant::Geo(iter) => iter.at_eof(),
         }
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        downcast_as_ref_raw(self, type_)
     }
 }
 

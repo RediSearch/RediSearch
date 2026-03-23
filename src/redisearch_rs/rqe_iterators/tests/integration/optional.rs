@@ -906,6 +906,13 @@ mod optional_iterator_non_sequential_reads {
     }
 
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
+        fn downcast_as_ref_raw(
+            &self,
+            _type_: rqe_iterators::IteratorType,
+        ) -> *const std::ffi::c_void {
+            std::ptr::null()
+        }
+
         fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
             Some(&mut self.result)
         }

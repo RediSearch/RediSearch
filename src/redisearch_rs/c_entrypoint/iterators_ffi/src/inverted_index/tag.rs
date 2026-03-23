@@ -14,6 +14,8 @@ use inverted_index::{
     IndexReader, RSIndexResult, RSQueryTerm, doc_ids_only::DocIdsOnly,
     raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::downcasting::{IteratorTypeKnownAtCompileTime, downcast_as_ref_raw};
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Tag};
 
@@ -55,6 +57,10 @@ macro_rules! tag_it_dispatch {
             TagIterator::Raw(t) => t.$method($($arg),*),
         }
     };
+}
+
+impl<'index> IteratorTypeKnownAtCompileTime for TagIterator<'index> {
+    const TYPE: IteratorType = IteratorType::InvIdxTag;
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
@@ -104,6 +110,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         tag_it_dispatch!(self, revalidate)
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        downcast_as_ref_raw(self, type_)
     }
 }
 

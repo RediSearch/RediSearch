@@ -13,9 +13,15 @@
 //! (read/skip counts and wall-clock time) from a child iterator without
 //! modifying its behavior.
 
-use std::time::{Duration, Instant};
+use std::{
+    ffi::c_void,
+    time::{Duration, Instant},
+};
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    downcasting::IteratorTypeKnownAtCompileTime,
+};
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
@@ -83,6 +89,10 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     }
 }
 
+impl<'index, I: RQEIterator<'index>> IteratorTypeKnownAtCompileTime for Profile<'index, I> {
+    const TYPE: IteratorType = IteratorType::Profile;
+}
+
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -138,5 +148,9 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
     fn is_wildcard(&self) -> bool {
         self.child.is_wildcard()
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
     }
 }

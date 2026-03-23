@@ -12,7 +12,9 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, empty::Empty};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, empty::Empty,
+};
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
 pub struct MaybeEmpty<I>(MaybeEmptyOption<I>);
@@ -140,6 +142,13 @@ where
         match &self.0 {
             MaybeEmptyOption::None(empty) => empty.at_eof(),
             MaybeEmptyOption::Some(it) => it.at_eof(),
+        }
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.downcast_as_ref_raw(type_),
+            MaybeEmptyOption::Some(it) => it.downcast_as_ref_raw(type_),
         }
     }
 }

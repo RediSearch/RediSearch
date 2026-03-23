@@ -309,6 +309,10 @@ impl<'index, const N: usize> Mock<'index, N> {
 }
 
 impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
+    fn downcast_as_ref_raw(&self, _type_: rqe_iterators::IteratorType) -> *const std::ffi::c_void {
+        std::ptr::null()
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
     }

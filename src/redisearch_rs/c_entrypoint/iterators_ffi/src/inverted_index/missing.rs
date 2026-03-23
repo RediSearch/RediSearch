@@ -13,6 +13,8 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{
     IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::downcasting::IteratorTypeKnownAtCompileTime;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Missing};
 
@@ -53,6 +55,10 @@ macro_rules! dispatch {
             MissingIterator::Raw(m) => m.$method($($arg),*),
         }
     };
+}
+
+impl<'index> IteratorTypeKnownAtCompileTime for MissingIterator<'index> {
+    const TYPE: IteratorType = IteratorType::InvIdxMissing;
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
@@ -102,6 +108,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
         dispatch!(self, revalidate)
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        rqe_iterators::downcasting::downcast_as_ref_raw(self, type_)
     }
 }
 

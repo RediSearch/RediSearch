@@ -12,13 +12,20 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    downcasting::IteratorTypeKnownAtCompileTime,
+};
 
 /// An iterator that yields no results.
 ///
 /// The [`Empty`] iterator is a sentinel iterator that represents an empty result set.
 #[derive(Default)]
 pub struct Empty;
+
+impl IteratorTypeKnownAtCompileTime for Empty {
+    const TYPE: IteratorType = IteratorType::Empty;
+}
 
 impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
@@ -60,5 +67,9 @@ impl<'index> RQEIterator<'index> for Empty {
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
     }
 }

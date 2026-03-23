@@ -15,6 +15,10 @@ use rqe_iterators::{
 struct Infinite<'index>(inverted_index::RSIndexResult<'index>);
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
+    fn downcast_as_ref_raw(&self, _type_: rqe_iterators::IteratorType) -> *const std::ffi::c_void {
+        std::ptr::null()
+    }
+
     fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
         Some(&mut self.0)
     }

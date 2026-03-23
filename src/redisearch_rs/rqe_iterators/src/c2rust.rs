@@ -159,6 +159,10 @@ impl CRQEIterator {
             self_.Rewind.is_some(),
             "The `Rewind` callback is a NULL function pointer"
         );
+        debug_assert!(
+            self_.DowncastRaw.is_some(),
+            "The `DowncastRaw` callback is a NULL function pointer"
+        );
         self_
     }
 
@@ -315,5 +319,15 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             self.type_,
             IteratorType::Wildcard | IteratorType::InvIdxWildcard
         )
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        let callback = unsafe { self.DowncastRaw.unwrap_unchecked() };
+        // SAFETY:
+        // - We have a unique handle over this iterator.
+        // - The C code must guarantee, by constructor, that callbacks
+        //   can be called on types that implement its C iterator API.
+        unsafe { callback(self.header.as_ptr(), type_) }
     }
 }
