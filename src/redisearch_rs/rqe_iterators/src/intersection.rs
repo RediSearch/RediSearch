@@ -16,7 +16,10 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    downcasting::IteratorTypeKnownAtCompileTime,
+};
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
 ///
@@ -260,6 +263,13 @@ where
     }
 }
 
+impl<'index, I> IteratorTypeKnownAtCompileTime for Intersection<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    const TYPE: IteratorType = IteratorType::Intersect;
+}
+
 impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
     I: RQEIterator<'index>,
@@ -411,5 +421,9 @@ where
             }),
             None => Ok(RQEValidateStatus::Moved { current: None }),
         }
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
     }
 }

@@ -12,7 +12,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
@@ -534,5 +534,12 @@ where
         } else {
             Ok(RQEValidateStatus::Ok)
         }
+    }
+
+    fn downcast_as_ref_raw(&self, _type_: IteratorType) -> *const std::ffi::c_void {
+        // Can't downcast since the type is generic, and therefore the
+        // iterator type tag isn't enough to pin down the exact Rust type
+        // we're working with.
+        std::ptr::null()
     }
 }

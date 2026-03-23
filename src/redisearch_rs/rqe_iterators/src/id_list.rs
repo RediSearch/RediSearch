@@ -13,7 +13,10 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 use std::cmp::Ordering;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, utils::OwnedSlice};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    downcasting::IteratorTypeKnownAtCompileTime, utils::OwnedSlice,
+};
 
 /// An iterator that yields results according to a sorted list of unique IDs, specified on construction.
 pub type IdListSorted<'index> = IdList<'index, true>;
@@ -191,6 +194,18 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     }
 }
 
+impl<'index, const SORTED_BY_ID: bool> IteratorTypeKnownAtCompileTime
+    for IdList<'index, SORTED_BY_ID>
+{
+    const TYPE: IteratorType = {
+        if SORTED_BY_ID {
+            IteratorType::IdListSorted
+        } else {
+            IteratorType::IdListUnsorted
+        }
+    };
+}
+
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -240,5 +255,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     #[inline(always)]
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         Ok(RQEValidateStatus::Ok)
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
     }
 }

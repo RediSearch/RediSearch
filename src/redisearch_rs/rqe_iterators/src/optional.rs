@@ -13,7 +13,10 @@ use ffi::{RS_FIELDMASK_ALL, t_docId};
 use inverted_index::RSIndexResult;
 use std::cmp;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    downcasting::IteratorTypeKnownAtCompileTime,
+};
 
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
@@ -235,4 +238,12 @@ where
     fn at_eof(&self) -> bool {
         self.result.doc_id >= self.max_doc_id
     }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
+    }
+}
+
+impl<'index, I> IteratorTypeKnownAtCompileTime for Optional<'index, I> {
+    const TYPE: IteratorType = IteratorType::Optional;
 }

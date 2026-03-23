@@ -12,6 +12,8 @@ use std::{fmt::Debug, ptr::NonNull};
 use inverted_index::{
     RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::downcasting::{IteratorTypeKnownAtCompileTime, downcast_as_ref_raw};
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::inverted_index::Wildcard;
 
@@ -32,6 +34,10 @@ impl Debug for WildcardIterator<'_> {
         };
         write!(f, "WildcardIterator({variant})")
     }
+}
+
+impl<'index> IteratorTypeKnownAtCompileTime for WildcardIterator<'index> {
+    const TYPE: IteratorType = IteratorType::InvIdxWildcard;
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
@@ -110,6 +116,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
     #[inline(always)]
     fn is_wildcard(&self) -> bool {
         true
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const std::ffi::c_void {
+        downcast_as_ref_raw(self, type_)
     }
 }
 

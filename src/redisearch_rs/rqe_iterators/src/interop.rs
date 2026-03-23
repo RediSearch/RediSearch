@@ -54,6 +54,7 @@ where
                 Revalidate: Some(revalidate::<I>),
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
+                DowncastRaw: Some(downcast_raw::<I>),
             },
             inner,
         });
@@ -223,4 +224,15 @@ extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut 
         //  return a raw header pointer.
         let _ = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
     }
+}
+
+extern "C" fn downcast_raw<'index, I: RQEIterator<'index> + 'index>(
+    base: *const QueryIterator,
+    type_: IteratorType,
+) -> *const std::ffi::c_void {
+    debug_assert!(!base.is_null());
+    debug_assert!(base.is_aligned());
+    // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
+    let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
+    wrapper.inner.downcast_as_ref_raw(type_)
 }

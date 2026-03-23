@@ -8,13 +8,14 @@
 */
 
 use ffi::t_docId;
-use std::sync::OnceLock;
+use std::{ffi::c_void, sync::OnceLock};
 use thiserror::Error;
 
 use ::inverted_index::{RSIndexResult, t_fieldMask};
 use query_term::RSQueryTerm;
 
 pub mod c2rust;
+pub mod downcasting;
 pub mod empty;
 pub mod expiration_checker;
 pub mod id_list;
@@ -127,6 +128,27 @@ pub trait RQEIterator<'index> {
     /// Returns an upper-bound estimation for the number of results the iterator is going to yield.
     fn num_estimated(&self) -> usize;
 
+    /// Downcast `self` to an opaque pointer if it matches the requested `type_`.
+    ///
+    /// # Beware
+    ///
+    /// You should never invoke this method directly.
+    /// Use the higher-level [`downcast_iterator_as_ref`] function instead.
+    ///
+    /// # Implementation Notes
+    ///
+    /// ## Why Do We Need This Method?
+    ///
+    /// In an ideal world, we'd add [`downcast_iterator_as_ref`] to [`RQEIterator`].
+    /// In practice, we need [`RQEIterator`] to be dyn-safe and this forbids us
+    /// from adding new methods to the trait definition with function-level
+    /// generic parameters.
+    ///
+    /// We thus follow the common workaround of splitting the required functionality into
+    /// two chunks: the "dyn-safe" one goes on the trait, the "dyn-unsafe" one goes out of
+    /// it.
+    fn downcast_as_ref_raw(&self, _type_: IteratorType) -> *const c_void;
+
     /**************** properties ****************/
 
     /// Returns the last doc id that was read or skipped to.
@@ -182,6 +204,10 @@ impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
 
     fn is_wildcard(&self) -> bool {
         (**self).is_wildcard()
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const c_void {
+        (**self).downcast_as_ref_raw(type_)
     }
 }
 

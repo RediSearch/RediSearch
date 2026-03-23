@@ -86,11 +86,23 @@ typedef struct QueryIterator {
 
   /* Rewind the iterator to the beginning and reset its state (including `atEOF` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
+
+  /* Downcast the iterator to an opaque pointer if it matches the given type */
+  const void* (*DowncastRaw)(const struct QueryIterator *self, IteratorType type);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
   // Default implementation does nothing.
   return VALIDATE_OK;
+}
+
+// All C iterators return a pointer to themselves if the type matches.
+static inline const void* DefaultDowncastRaw(const struct QueryIterator *base, IteratorType type) {
+    if (base->type == type) {
+        return base;
+    } else {
+        return NULL;
+    }
 }
 
 #endif

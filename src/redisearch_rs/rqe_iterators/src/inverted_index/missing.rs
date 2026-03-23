@@ -14,7 +14,10 @@ use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReaderCore, RSIndexResult, opaque::OpaqueEncoding,
 };
 
-use crate::{ExpirationChecker, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
+    SkipToOutcome,
+};
 
 use super::InvIndIterator;
 
@@ -134,6 +137,13 @@ where
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {
+    fn downcast_as_ref_raw(&self, _type_: IteratorType) -> *const std::ffi::c_void {
+        // Can't downcast since the type is generic, and therefore the
+        // iterator type tag isn't enough to pin down the exact Rust type
+        // we're working with.
+        std::ptr::null()
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()

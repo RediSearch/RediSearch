@@ -9,11 +9,11 @@
 
 //! Supporting types for [`Wildcard`].
 
-use std::ptr::NonNull;
+use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{RS_FIELDMASK_ALL, t_docId};
 
-use crate::IteratorType;
+use crate::{IteratorType, downcasting::IteratorTypeKnownAtCompileTime};
 use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
 use crate::{
@@ -41,6 +41,10 @@ impl Wildcard<'_> {
                 .build(),
         }
     }
+}
+
+impl IteratorTypeKnownAtCompileTime for Wildcard<'_> {
+    const TYPE: IteratorType = IteratorType::Wildcard;
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
@@ -100,6 +104,10 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn is_wildcard(&self) -> bool {
         true
+    }
+
+    fn downcast_as_ref_raw(&self, type_: IteratorType) -> *const c_void {
+        crate::downcasting::downcast_as_ref_raw(self, type_)
     }
 }
 
@@ -174,6 +182,11 @@ impl<'index> RQEIterator<'index> for EmptyWildcard {
     #[inline(always)]
     fn is_wildcard(&self) -> bool {
         true
+    }
+
+    fn downcast_as_ref_raw(&self, _type_: IteratorType) -> *const c_void {
+        // Can't downcast since it doesn't have a unique iterator type.
+        std::ptr::null()
     }
 }
 
@@ -381,6 +394,10 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator {
         // strictly speaking this is a wildcard iterator but the current reducers code from other
         // iterators do not account for it.
         false
+    }
+
+    fn downcast_as_ref_raw(&self, _type_: IteratorType) -> *const c_void {
+        std::ptr::null()
     }
 }
 
