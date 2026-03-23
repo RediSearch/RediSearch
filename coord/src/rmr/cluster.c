@@ -189,6 +189,8 @@ int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly) {
   return REDIS_OK;
 }
 
+/* Must be called from the uv event loop thread, as cl->topo and cl->mgr.map
+ * are not thread-safe. */
 void MRCluster_LogDisconnectedNodes(MRCluster *cl, bool mastersOnly) {
   for (size_t i = 0; i < cl->topo->numShards; i++) {
     MRClusterShard *sh = &cl->topo->shards[i];
