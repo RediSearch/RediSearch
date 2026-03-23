@@ -33,7 +33,6 @@
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
-#include "iterators/inverted_index_iterator.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error.h"
