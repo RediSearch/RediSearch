@@ -56,22 +56,45 @@ typedef struct BasicDiskAPI {
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
   /**
    * @brief Open an index spec
-   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
+   * @param ctx Redis module context for BigModule APIs (required for getting DB path)
    * @param disk Pointer to the disk
    * @param indexName Name of the index
    * @param indexNameLen Length of the index name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @return Pointer to the index spec, or NULL on error
+   *
+   * @note This opens the database but does NOT register it with Redis. Call registerIndex after this
+   *       to register with BigModule APIs.
    */
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const char *indexName, size_t indexNameLen, DocumentType type, bool deleteBeforeOpen);
   /**
    * @brief Close an index spec
-   * @param ctx Redis module context for BigModule APIs (may be NULL for backward compatibility)
    * @param disk Pointer to the disk context (for cleanup of index metrics)
    * @param index Pointer to the index spec
+   *
+   * @note This closes the database but does NOT unregister from Redis. Call unregisterIndex
+   *       before this to unregister from BigModule APIs.
    */
-  void (*closeIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
+  /**
+   * @brief Register an index's database with Redis BigModule APIs
+   * @param ctx Redis module context (required, must be valid)
+   * @param index Pointer to the index spec
+   *
+   * @note Must be called from the main thread with a valid RedisModuleCtx.
+   *       Call this after openIndexSpec to register the database with Redis.
+   */
+  void (*registerIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  /**
+   * @brief Unregister an index's database from Redis BigModule APIs
+   * @param ctx Redis module context (required, must be valid)
+   * @param index Pointer to the index spec
+   *
+   * @note Must be called from the main thread with a valid RedisModuleCtx.
+   *       Call this before closeIndexSpec to unregister the database from Redis.
+   */
+  void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   void (*indexSpecRdbSave)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
   u_int32_t (*indexSpecRdbLoad)(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index);
 

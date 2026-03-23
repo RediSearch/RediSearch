@@ -10,8 +10,8 @@
 #include "redismodule.h"
 
 void Backup_Globals();
-void Restore_Globals();
-void Discard_Globals_Backup();
+void Restore_Globals(RedisModuleCtx *ctx);
+void Discard_Globals_Backup(RedisModuleCtx *ctx);
 
 // For rdb short read
 

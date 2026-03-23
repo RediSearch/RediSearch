@@ -79,12 +79,33 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const char *
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
+ * @brief Register an index's database with Redis BigModule APIs
+ *
+ * Must be called from the main thread with a valid RedisModuleCtx.
+ * Call this after SearchDisk_OpenIndex to register the database with Redis.
+ *
+ * @param ctx Redis module context (required, must be valid)
+ * @param index Pointer to the index to register
+ */
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+
+/**
+ * @brief Unregister an index's database from Redis BigModule APIs
+ *
+ * Must be called from the main thread with a valid RedisModuleCtx.
+ * Call this before SearchDisk_CloseIndex to unregister the database from Redis.
+ *
+ * @param ctx Redis module context (required, must be valid)
+ * @param index Pointer to the index to unregister
+ */
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+
+/**
  * @brief Close an index, **Important** must be called once and only once for every index
  *
- * @param ctx Redis module context for BigModule APIs (may be NULL)
  * @param index Pointer to the index to close
  */
-void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
