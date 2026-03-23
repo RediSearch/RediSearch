@@ -2786,8 +2786,12 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
       RedisModule_InfoAddFieldCString(ctx, "identifier", path);
       RedisModule_InfoAddFieldCString(ctx, "attribute", name);
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "identifier", FieldSpec_FormatPath(fs, obfuscate));
-      RedisModule_InfoAddFieldCString(ctx, "attribute", FieldSpec_FormatName(fs, obfuscate));
+      const char *path = FieldSpec_FormatPath(fs, obfuscate);
+      const char *name = FieldSpec_FormatName(fs, obfuscate);
+      RedisModule_InfoAddFieldCString(ctx, "identifier", path);
+      RedisModule_InfoAddFieldCString(ctx, "attribute", name);
+      rm_free((void*)path);
+      rm_free((void*)name);
     }
 
     if (fs->options & FieldSpec_Dynamic)
