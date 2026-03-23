@@ -39,7 +39,7 @@ binstall cargo-llvm-cov@0.8.4
 # Use musl targets on Linux for maximum compatibility across glibc versions
 # (default builds dynamically against system glibc which causes issues on older systems)
 NEXTEST_ARGS=()
-if [ "$OS_TYPE" = "Linux" ] && [[ "$processor" =~ ^(x86_64|aarch64)$ ]]; then
+if [[ "$OS_TYPE" = "Linux" ]] && [[ "$processor" =~ ^(x86_64|aarch64)$ ]]; then
     NEXTEST_ARGS+=(--target="${processor}-unknown-linux-musl")
 fi
 binstall "${NEXTEST_ARGS[@]}" cargo-nextest@0.9.130
