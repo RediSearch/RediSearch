@@ -302,7 +302,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
         }
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxNumeric, iterator)
 }
 
 /// Gets the numeric filter from a numeric inverted index iterator.
@@ -320,7 +320,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
 ) -> *const ffi::NumericFilter {
     debug_assert!(!it.is_null());
     // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { *it }.type_ == ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR);
+    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
 
     // SAFETY: 1
     let wrapper =
@@ -351,7 +351,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
 ) -> f64 {
     debug_assert!(!it.is_null());
     // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { *it }.type_ == ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR);
+    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
 
     // SAFETY: 1
     let wrapper =
@@ -374,7 +374,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
 ) -> f64 {
     debug_assert!(!it.is_null());
     // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { *it }.type_ == ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR);
+    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
 
     // SAFETY: 1
     let wrapper =

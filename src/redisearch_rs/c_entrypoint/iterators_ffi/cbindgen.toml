@@ -14,5 +14,9 @@ usize_is_size_t = true
 parse_deps = true
 include = ["rqe_iterators"]
 
+[export]
+# IteratorType is exported by iterator_type_ffi's header; don't duplicate it here.
+exclude = ["IteratorType"]
+
 [export.rename]
 "NumericIndex" = "InvertedIndexNumeric"
