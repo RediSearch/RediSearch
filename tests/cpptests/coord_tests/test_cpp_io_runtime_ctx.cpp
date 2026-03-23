@@ -19,34 +19,38 @@
 #include <unistd.h>
 #include <atomic>
 
-// Test callback for queue operations
-static void testCallback(void *privdata) {
-  int *counter = (int *)privdata;
-  (*counter)++;
-}
+extern "C" {
+  // Test callback for queue operations
+  static void testCallback(void *privdata) {
+    int *counter = (int *)privdata;
+    (*counter)++;
+  }
+} // extern "C"
 
 // Test callback for topology updates - signals completion to test thread
 // by storing the capShards value in an atomic, avoiding race conditions
 // where the test thread might read a freed topology pointer.
 static std::atomic<uint32_t> lastAppliedCapShards{0};
 
-static void testTopoCallback(void *privdata) {
-  struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
-  IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
-  //Simulate what the TopologyValidationTimer should do
-  ioRuntime->uv_runtime.loop_th_ready = true;
-  MRClusterTopology *old_topo = ioRuntime->topo;
-  MRClusterTopology *new_topo = updateCtx->new_topo;
-  // Store the capShards value BEFORE updating the pointer, so test can safely check it
-  uint32_t newCapShards = new_topo->capShards;
-  ioRuntime->topo = new_topo;
-  // Signal to the test thread that this topology was applied
-  lastAppliedCapShards.store(newCapShards, std::memory_order_release);
-  rm_free(updateCtx);
-  if (old_topo) {
-    MRClusterTopology_Free(old_topo);
+extern "C" {
+  static void testTopoCallback(void *privdata) {
+    struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+    IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
+    //Simulate what the TopologyValidationTimer should do
+    ioRuntime->uv_runtime.loop_th_ready = true;
+    MRClusterTopology *old_topo = ioRuntime->topo;
+    MRClusterTopology *new_topo = updateCtx->new_topo;
+    // Store the capShards value BEFORE updating the pointer, so test can safely check it
+    uint32_t newCapShards = new_topo->capShards;
+    ioRuntime->topo = new_topo;
+    // Signal to the test thread that this topology was applied
+    lastAppliedCapShards.store(newCapShards, std::memory_order_release);
+    rm_free(updateCtx);
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
   }
-}
+} // extern "C"
 
 class IORuntimeCtxCommonTest : public ::testing::Test {
 protected:
