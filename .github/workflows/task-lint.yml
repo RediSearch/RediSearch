@@ -6,9 +6,22 @@ on:
   workflow_call:
 
 jobs:
+  build-image:
+    name: Build container for lint
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ubuntu:noble
+      runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+
   lint:
     name: Linting
+    needs: build-image
+    if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      needs.build-image.outputs.succeeded == 'true'
+        && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
+      || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -17,10 +30,46 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          if [[ "${{ needs.build-image.outputs.succeeded }}" == 'true' ]]; then
+            echo "mode=" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=sudo" >> "$GITHUB_OUTPUT"
+          fi
       - name: Setup
+        if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
-        run: ./install_script.sh sudo
-
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      # Cache Rust packages and binaries
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          # The cargo workspaces and target directory configuration.
+          # These entries are separated by newlines and have the form
+          # `$workspace -> $target`. The `$target` part is treated as a directory
+          # relative to the `$workspace` and defaults to "target" if not explicitly given.
+          # default: ". -> target"
+          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+      - name: Hakari
+        run: cargo install cargo-hakari --locked
       - name: Lint
         id: lint
         continue-on-error: true
