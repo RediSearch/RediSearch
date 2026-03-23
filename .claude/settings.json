@@ -66,6 +66,7 @@
       "Bash(jj status:*)",
       "Bash(jq:*)",
       "Bash(ls:*)",
+      "Bash(make:*)",
       "Bash(nm:*)",
       "Bash(rg:*)",
       "Bash(tail:*)",
