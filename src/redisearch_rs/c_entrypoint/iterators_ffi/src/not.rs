@@ -9,7 +9,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IteratorType_NOT_ITERATOR, QueryIterator, t_docId, timespec};
+use ffi::{QueryIterator, t_docId, timespec};
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::not::Not;
 
@@ -46,7 +47,7 @@ pub unsafe extern "C" fn NewNotIteratorNonOptimized(
 
     let rust_iterator = Not::new(child, max_doc_id, weight, rust_timeout, skip_timeout_checks);
 
-    RQEIteratorWrapper::boxed_new(IteratorType_NOT_ITERATOR, rust_iterator)
+    RQEIteratorWrapper::boxed_new(IteratorType::Not, rust_iterator)
 }
 
 #[unsafe(no_mangle)]
@@ -62,9 +63,9 @@ pub unsafe extern "C" fn GetNotIteratorNonOptimizedChild(
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1
-        unsafe { *header }.type_,
-        IteratorType_NOT_ITERATOR,
-        "Expected an not (Non-Optimized) iterator"
+        unsafe { (*header).type_ },
+        IteratorType::Not,
+        "Expected a not (Non-Optimized) iterator"
     );
     // SAFETY: Safe thanks to 1
     let wrapper = unsafe { RQEIteratorWrapper::<Not<CRQEIterator>>::ref_from_header_ptr(header) };
@@ -87,9 +88,9 @@ pub unsafe extern "C" fn TakeNotIteratorNonOptimizedChild(
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1
-        unsafe { *header }.type_,
-        IteratorType_NOT_ITERATOR,
-        "Expected an not (Non-Optimized) iterator"
+        unsafe { (*header).type_ },
+        IteratorType::Not,
+        "Expected a not (Non-Optimized) iterator"
     );
     // SAFETY: Safe thanks to 1
     let wrapper =
@@ -115,9 +116,9 @@ pub unsafe extern "C" fn SetNotIteratorNonOptimizedChild(
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: thanks to 1
-        unsafe { *header }.type_,
-        IteratorType_NOT_ITERATOR,
-        "Expected an not (Non-Optimized) iterator"
+        unsafe { (*header).type_ },
+        IteratorType::Not,
+        "Expected a not (Non-Optimized) iterator"
     );
     // SAFETY: thanks to 1
     let wrapper =

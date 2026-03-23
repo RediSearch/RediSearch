@@ -9,9 +9,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::{
-    IteratorType_INV_IDX_WILDCARD_ITERATOR, IteratorType_WILDCARD_ITERATOR, QueryIterator, t_docId,
-};
+use ffi::{QueryIterator, t_docId};
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{RQEIterator, Wildcard};
 
@@ -21,10 +20,7 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
     max_id: t_docId,
     weight: f64,
 ) -> *mut QueryIterator {
-    RQEIteratorWrapper::boxed_new(
-        IteratorType_WILDCARD_ITERATOR,
-        Wildcard::new(max_id, weight),
-    )
+    RQEIteratorWrapper::boxed_new(IteratorType::Wildcard, Wildcard::new(max_id, weight))
 }
 
 /// Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).
@@ -33,7 +29,6 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
 ///
 /// `it`, when non-null, must point to a valid [`QueryIterator`].
 #[unsafe(no_mangle)]
-#[expect(non_upper_case_globals)]
 pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> bool {
     // SAFETY: Caller guarantees `it`, when non-null, points to a valid `QueryIterator`.
     let Some(it) = (unsafe { it.as_ref() }) else {
@@ -41,7 +36,7 @@ pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> b
     };
     matches!(
         it.type_,
-        IteratorType_WILDCARD_ITERATOR | IteratorType_INV_IDX_WILDCARD_ITERATOR
+        IteratorType::Wildcard | IteratorType::InvIdxWildcard
     )
 }
 
