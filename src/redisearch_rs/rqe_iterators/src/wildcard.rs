@@ -126,6 +126,8 @@ impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
 {
 }
 
+impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
+
 /// [`Empty`] is used as wildcard in the optimized version if the spec has no document.
 struct EmptyWildcard(Empty);
 
