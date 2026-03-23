@@ -124,7 +124,7 @@ jobs:
                       'ec2_instance_type': 'c7i.xlarge'
                   }
               },
-              "ubuntu:default": {
+              "ubuntu:latest": {
                   "x86_64": {
                       'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
