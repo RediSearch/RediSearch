@@ -16,6 +16,14 @@
 extern "C" {
 #endif
 
+typedef struct {
+  QueryIterator base;         // base index iterator
+  QueryIterator *wcii;        // wildcard index iterator
+  QueryIterator *child;       // child index iterator
+  t_docId maxDocId;
+  TimeoutCtx timeoutCtx;
+} NotIteratorOptimized;
+
 /**
 * @param it - The iterator to negate
 * @param maxDocId - the maximum docId
