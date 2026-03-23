@@ -27,6 +27,7 @@
 #include "module.h"
 #include "cursor.h"
 #include "info/indexes_info.h"
+#include "doc_id_meta.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -264,8 +265,21 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
-  // TODO(Joan): Get key and use DocIdMeta_Get
-  t_docId id = DocTable_GetId(&sp->docs, docKey, len);
+  t_docId id = 0;
+  // Try to get docId from key metadata first
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(sp->specName, &specNameLen);
+  RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
+  uint64_t docId;
+  if (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, &docId) == REDISMODULE_OK) {
+    id = docId;
+    // Also delete from metadata
+    DocIdMeta_Delete(RSDummyContext, keyName, specName, specNameLen);
+  } else {
+    // Fall back to DocTable lookup
+    id = DocTable_GetId(&sp->docs, docKey, len);
+  }
+  RedisModule_FreeString(RSDummyContext, keyName);
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
@@ -681,8 +695,20 @@ end:
 
 int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
   IndexSpec* sp = __RefManager_Get_Object(rm);
-  // TODO: Get key and use DocIdMeta_Get
-  return DocTable_GetId(&sp->docs, docKey, len) != 0;
+  // Try to get docId from key metadata first
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(sp->specName, &specNameLen);
+  RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
+  uint64_t docId;
+  int exists = 0;
+  if (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, &docId) == REDISMODULE_OK) {
+    exists = 1;
+  } else {
+    // Fall back to DocTable lookup
+    exists = DocTable_GetId(&sp->docs, docKey, len) != 0;
+  }
+  RedisModule_FreeString(RSDummyContext, keyName);
+  return exists;
 }
 
 RS_ApiIter* RediSearch_IterateQuery(RefManager* rm, const char* s, size_t n, char** error) {

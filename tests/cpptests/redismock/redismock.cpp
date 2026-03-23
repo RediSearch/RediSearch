@@ -39,7 +39,7 @@
 static std::mutex RMCK_GlobalLock;
 
 // KeyMeta mock storage
-static std::map<RedisModuleKey*, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
+static std::map<std::string, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
 static RedisModuleKeyMetaClassId nextClassId = 1;
 static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
 
@@ -1455,7 +1455,11 @@ static RedisModuleKeyMetaClassId RMCK_CreateKeyMetaClass(RedisModuleCtx *ctx,
 static int RMCK_GetKeyMeta(RedisModuleKeyMetaClassId class_id,
                           RedisModuleKey *key,
                           uint64_t *meta) {
-  auto keyIt = keyMetaStorage.find(key);
+  if (!key) {
+    *meta = 0;
+    return REDISMODULE_ERR;
+  }
+  auto keyIt = keyMetaStorage.find(key->key);
   if (keyIt == keyMetaStorage.end()) {
     *meta = 0;
     return REDISMODULE_OK;
@@ -1474,7 +1478,10 @@ static int RMCK_GetKeyMeta(RedisModuleKeyMetaClassId class_id,
 static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
                           RedisModuleKey *key,
                           uint64_t meta) {
-  keyMetaStorage[key][class_id] = meta;
+  if (!key) {
+    return REDISMODULE_ERR;
+  }
+  keyMetaStorage[key->key][class_id] = meta;
   return REDISMODULE_OK;
 }
 

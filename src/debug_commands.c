@@ -37,6 +37,7 @@
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error.h"
+#include "doc_id_meta.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -762,11 +763,19 @@ DEBUG_COMMAND(DocIdToId) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  size_t n;
-  const char *key = RedisModule_StringPtrLen(argv[3], &n);
-  // TODO: Get key and use DocIdMeta_Get
-  t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
-  RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+  uint64_t docId;
+  // Try to get docId from key metadata first
+  if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, &docId) == REDISMODULE_OK) {
+    RedisModule_ReplyWithLongLong(sctx->redisCtx, docId);
+  } else {
+    // Fall back to DocTable lookup
+    size_t n;
+    const char *key = RedisModule_StringPtrLen(argv[3], &n);
+    t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
+    RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+  }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }

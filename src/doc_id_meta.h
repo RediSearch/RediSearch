@@ -18,33 +18,39 @@ extern "C" {
 void DocIdMeta_Init(RedisModuleCtx *ctx);
 
 /*
- * TODO: Review if idx is a good API
- * Set the docId for the given key and index. If the key already has a docId for the given index, overwrite it.
- * If the key does not have a docId for the given index, add it.
- * @param key The key to set the docId for
- * @param idx The index (as position in the index global array) to set the docId for
+ * Set the docId for the given key and index spec.
+ * @param ctx The Redis module context
+ * @param keyName The key name to set the docId for
+ * @param specName The index spec name (used to identify which index this docId belongs to)
+ * @param specNameLen The length of the spec name
  * @param docId The docId to set
  * @return REDISMODULE_OK if the docId was set, REDISMODULE_ERR otherwise
 */
-int DocIdMeta_SetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t docId);
+int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
+                  const char *specName, size_t specNameLen, uint64_t docId);
 
 /*
-* Get the docId for the given key and index.
-* @param key The key to get the docId for
-* @param idx The index (as position in the index global array) to get the docId for
-* @param docId The docId to get
-* @return REDISMODULE_OK if the docId was found, REDISMODULE_ERR otherwise
+ * Get the docId for the given key and index spec.
+ * @param ctx The Redis module context
+ * @param keyName The key name to get the docId for
+ * @param specName The index spec name
+ * @param specNameLen The length of the spec name
+ * @param docId Output parameter for the docId
+ * @return REDISMODULE_OK if the docId was found, REDISMODULE_ERR otherwise
 */
-int DocIdMeta_GetDocIdForIndex(RedisModuleKey *key, size_t idx, uint64_t *docId);
-
+int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
+                  const char *specName, size_t specNameLen, uint64_t *docId);
 
 /*
-* Delete the docId for the given key and index.
-* @param key The key to get the docId for
-* @param idx The index (as position in the index global array) to get the docId for
-* @return REDISMODULE_OK if the docId was found and deleted, REDISMODULE_ERR otherwise
+ * Delete the docId for the given key and index spec.
+ * @param ctx The Redis module context
+ * @param keyName The key name to delete the docId for
+ * @param specName The index spec name
+ * @param specNameLen The length of the spec name
+ * @return REDISMODULE_OK if the docId was found and deleted, REDISMODULE_ERR otherwise
 */
-int DocIdMeta_DeleteDocIdForIndex(RedisModuleKey *key, size_t idx);
+int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName,
+                     const char *specName, size_t specNameLen);
 
 // Functions exposed to ease unit testing
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver);

@@ -50,6 +50,7 @@
 #include "search_disk.h"
 #include "shard_window_ratio.h"
 #include "idf.h"
+#include "doc_id_meta.h"
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -1081,12 +1082,22 @@ static inline size_t deduplicateDocIds(t_docId *ids, size_t num) {
 static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
   size_t num = 0;
   t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(q->sctx->spec->specName, &specNameLen);
   for (size_t ii = 0; ii < node->len; ++ii) {
-    // TODO: Get key and use DocIdMeta_Get
-    t_docId did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
-    if (did) {
-      it_ids[num++] = did;
+    uint64_t docId;
+    // Try to get docId from key metadata first
+    RedisModuleString *keyName = RedisModule_CreateString(q->sctx->redisCtx, node->keys[ii], sdslen(node->keys[ii]));
+    if (DocIdMeta_Get(q->sctx->redisCtx, keyName, specName, specNameLen, &docId) == REDISMODULE_OK) {
+      it_ids[num++] = docId;
+    } else {
+      // Fall back to DocTable lookup
+      t_docId did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
+      if (did) {
+        it_ids[num++] = did;
+      }
     }
+    RedisModule_FreeString(q->sctx->redisCtx, keyName);
   }
   if (num) {
     qsort(it_ids, num, sizeof(t_docId), cmp_docids);
@@ -1995,11 +2006,23 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_IDS:
 
       s = sdscat(s, "IDS {");
-      for (int i = 0; i < qs->fn.len; i++) {
-        // TODO: Get key and use DocIdMeta_Get
-        t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
-        if (id != 0) {
-          s = sdscatprintf(s, "%lu,", id);
+      if (spec) {
+        size_t specNameLen;
+        const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+        for (int i = 0; i < qs->fn.len; i++) {
+          uint64_t docId;
+          // Try to get docId from key metadata first
+          RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
+          if (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, &docId) == REDISMODULE_OK) {
+            s = sdscatprintf(s, "%lu,", docId);
+          } else {
+            // Fall back to DocTable lookup
+            t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
+            if (id != 0) {
+              s = sdscatprintf(s, "%lu,", id);
+            }
+          }
+          RedisModule_FreeString(RSDummyContext, keyName);
         }
       }
       s = sdscat(s, "}");
