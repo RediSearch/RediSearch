@@ -118,6 +118,14 @@ static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
   return ITERATOR_OK;
 }
 
+static QueryIterator *OI_ProfileChildren(QueryIterator *base) {
+  OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
+  if (oi->child) {
+    oi->child = ProfileChild(oi->child);
+  }
+  return base;
+}
+
 // Revalidate for OPTIONAL iterator - Optimized version.
 static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
   OptionalOptimizedIterator *oi = (OptionalOptimizedIterator *)base;
@@ -223,6 +231,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId m
     ret->Read = OI_Read_Optimized;
     ret->SkipTo = OI_SkipTo_Optimized;
     ret->Revalidate = OI_Revalidate_Optimized;
+    ret->ProfileChildren = OI_ProfileChildren;
   } else {
     ret = NewOptionalNonOptimizedIterator(it, maxDocId, weight);
   }

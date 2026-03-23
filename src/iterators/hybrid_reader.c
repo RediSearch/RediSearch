@@ -585,6 +585,14 @@ static ValidateStatus HR_Revalidate(QueryIterator *ctx) {
   return VALIDATE_OK;
 }
 
+static QueryIterator *HR_ProfileChildren(QueryIterator *base) {
+  HybridIterator *hi = (HybridIterator *)base;
+  if (hi->child) {
+    hi->child = ProfileChild(hi->child);
+  }
+  return base;
+}
+
 QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
   RS_ASSERT(hParams.qParams.searchMode >= 0 && hParams.qParams.searchMode < VECSIM_LAST_SEARCHMODE);
@@ -654,6 +662,7 @@ QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   ri->Free = HybridIterator_Free;
   ri->Rewind = HR_Rewind;
   ri->Revalidate = HR_Revalidate;
+  ri->ProfileChildren = HR_ProfileChildren;
   ri->SkipTo = NULL; // As long as this iterator is always at the root, this is not needed.
   if (hi->searchMode == VECSIM_STANDARD_KNN) {
     ri->Read = HR_ReadKnnUnsorted;

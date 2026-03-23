@@ -430,6 +430,17 @@ static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool q
   return ret;
 }
 
+static QueryIterator *UI_ProfileChildren(QueryIterator *base) {
+  UnionIterator *ui = (UnionIterator *)base;
+  for (uint32_t i = 0; i < ui->num_orig; i++) {
+    if (ui->its_orig[i]) {
+      ui->its_orig[i] = ProfileChild(ui->its_orig[i]);
+    }
+  }
+  UI_SyncIterList(ui);
+  return base;
+}
+
 static ValidateStatus UI_Revalidate(QueryIterator *base) {
   UnionIterator *ui = (UnionIterator *)base;
   t_docId original_lastDocId = base->lastDocId;
@@ -510,6 +521,7 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
   ret->Free = UI_Free;
   ret->Rewind = UI_Rewind;
   ret->Revalidate = UI_Revalidate;
+  ret->ProfileChildren = UI_ProfileChildren;
 
   // Choose `Read` and `SkipTo` implementations.
   // We have 2 factors for the choice:

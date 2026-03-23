@@ -54,6 +54,7 @@ where
                 Revalidate: Some(revalidate::<I>),
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
+                ProfileChildren: Some(rust_profile_children),
             },
             inner,
         });
@@ -213,6 +214,44 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::ref_from_header_ptr(base) };
     wrapper.inner.num_estimated()
+}
+
+/// `ProfileChildren` callback for all Rust iterators wrapped in
+/// [`RQEIteratorWrapper`].
+///
+/// Dispatches on the iterator type tag: composite iterators (Not, Optional)
+/// profile their children in-place; everything else is a leaf and is returned
+/// unchanged.
+///
+extern "C" fn rust_profile_children(base: *mut QueryIterator) -> *mut QueryIterator {
+    // SAFETY: Guaranteed by the caller — `base` is a valid RQEIteratorWrapper.
+    let type_ = unsafe { (*base).type_ };
+
+    // Update the match when porting a new composite iterator to Rust.
+    match type_ {
+        IteratorType::Not => {
+            // SAFETY: Type tag guarantees this wraps Not<CRQEIterator>.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<crate::not::Not<'_, crate::c2rust::CRQEIterator>>::mut_ref_from_header_ptr(base)
+            };
+            if let Some(child) = wrapper.inner.take_child() {
+                wrapper.inner.set_child(crate::c2rust::into_profiled(child));
+            }
+            base
+        }
+        IteratorType::Optional => {
+            // SAFETY: Type tag guarantees this wraps Optional<CRQEIterator>.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<crate::optional::Optional<'_, crate::c2rust::CRQEIterator>>::mut_ref_from_header_ptr(base)
+            };
+            if let Some(child) = wrapper.inner.take_child() {
+                wrapper.inner.set_child(crate::c2rust::into_profiled(child));
+            }
+            base
+        }
+        // Leaf iterators — no children to profile.
+        _ => base,
+    }
 }
 
 extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {
