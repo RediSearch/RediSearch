@@ -37,6 +37,13 @@
  *         - Internally inserts a result processor (RP) as the downstream processor
  *           of the final execution step (e.g., `RP_INDEX` in SA or `RP_NETWORK` in the
  *           coordinator).
+ *         - **Policy constraints (shard-level queries only):** Requires `ON_TIMEOUT RETURN`
+ *           policy, or `ON_TIMEOUT FAIL` when running without workers (WORKERS=0).
+ *           `ON_TIMEOUT RETURN-STRICT` is never supported. This restriction applies to
+ *           shard-level queries (standalone or cluster shards) because `TIMEOUT_AFTER_N`
+ *           uses in-pipeline timeout simulation. With workers enabled, `ON_TIMEOUT FAIL`
+ *           relies on blocked client timeout instead of in-pipeline checks, making it
+ *           incompatible with `TIMEOUT_AFTER_N`.
  *       - **`INTERNAL_ONLY` (optional)**:
  *         - Only applicable in FT.AGGREGATE cluster mode.
  *         - If specified, the timeout applies solely to internal shard queries,
@@ -75,8 +82,10 @@
  * -----------------------------------------------------------------------------
  *
  * ### Limitations:
- * - `_FT.DEBUG` does not support `FT.PROFILE`.
  * - Pause debugging affects at most one query at a time (single debug pause RP at once).
+ * - `TIMEOUT_AFTER_N` policy constraints (shard-level queries only): Requires `ON_TIMEOUT
+ *   RETURN` policy, or `ON_TIMEOUT FAIL` without workers (WORKERS=0). `ON_TIMEOUT
+ *   RETURN-STRICT` is never supported.
  *
  * -----------------------------------------------------------------------------
  *
@@ -219,17 +228,19 @@
  *     it to hang indefinitely.
  *   - This bug has been fixed—the coordinator is now notified once **all** shards have returned a
  *     reply, even if all replies are empty.
- *   - To prevent similar issues, when `N == 0`, a real timeout is enforced at the coordinator
- *     level—large enough to allow shard timeouts to occur first.
  *
- *   NOTE: `FT.AGGREGATE TIMEOUT_AFTER_N 0 INTERNAL_ONLY` **without** `WITHCURSOR` is not allowed.
- *   It has no practical use and can lead to an infinite loop:
- *    - `N == 0` forces shards to return empty results instead of issuing a timeout.
- *    - `INTERNAL_ONLY` prevents the coordinator from enforcing its own timeout.
- *    - Since shard responses are empty but **not EOF**, the coordinator keeps requesting more
- *      results indefinitely.
- *    - This created an **infinite loop**, where the coordinator waited for non-empty results that
- *      would never arrive.
+ *   **RESP3 vs RESP2 behavior with `TIMEOUT_AFTER_N 0 INTERNAL_ONLY`:**
+ *   - In RESP3, timeout warnings from empty shard replies are now propagated to the coordinator
+ *     (MOD-12640 fix). The coordinator receives the timeout warning and terminates gracefully.
+ *   - In RESP2, there is no warning mechanism. To prevent infinite loops when `N == 0` and query
+ *     timeout is disabled, a forced timeout is enforced at the coordinator level—large enough to
+ *     allow shard timeouts to occur first.
+ *
+ *   NOTE: `FT.AGGREGATE TIMEOUT_AFTER_N 0 INTERNAL_ONLY` **without** `WITHCURSOR` behavior:
+ *    - `N == 0` forces shards to return empty results with a timeout warning.
+ *    - In RESP3: The timeout warning is propagated, and the coordinator terminates normally.
+ *    - In RESP2: Without the forced timeout workaround, the coordinator would hang indefinitely
+ *      since shard responses are empty but **not EOF**.
  *    **In production, this infinite loop does not occur** because shards will eventually return EOF
  *    once they have finished iterating all documents in the dataset.
  */

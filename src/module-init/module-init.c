@@ -30,9 +30,10 @@
 #include "cursor.h"
 #include "fork_gc.h"
 #include "info/info_command.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
+#include "asm_state_machine.h"
 #include "doc_id_meta.h"
 
 #define DEPLETER_POOL_SIZE 4
@@ -209,6 +210,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
+  ASM_StateMachine_Init();
   Initialize_ServerEventNotifications(ctx);
   Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);

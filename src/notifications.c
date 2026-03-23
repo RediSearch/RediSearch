@@ -16,9 +16,12 @@
 #include "util/workers.h"
 #include "dictionary.h"
 #include "slot_ranges.h"
+#include "asm_state_machine.h"
+#include "src/coord/rmr/redis_cluster.h"
+#include "cursor.h"
+#include "search_disk.h"
 
 #define JSON_LEN 5 // length of string "json."
-
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
@@ -147,9 +150,11 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case loaded_cmd:
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
-      key = RedisModule_CreateStringFromString(ctx, key);
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
-      RedisModule_FreeString(ctx, key);
+      if (!IS_SST_RDB_IN_PROCESS(ctx)) {
+        key = RedisModule_CreateStringFromString(ctx, key);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
+        RedisModule_FreeString(ctx, key);
+      }
       break;
 
     case hset_cmd:
@@ -159,7 +164,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case hincrbyfloat_cmd:
     case hdel_cmd:
     case hexpired_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      if (!IS_SST_RDB_IN_PROCESS(ctx)) {
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
+      }
+
       break;
 
 /********************************************************
@@ -180,7 +188,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
 
     case change_cmd:
@@ -194,7 +202,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (kType == DocumentType_Unsupported) {
         // in crdt empty key means that key was deleted
         // TODO:FIX
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, hashFields);
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
       } else {
         // todo: here we will open the key again, we can optimize it by
         //       somehow passing the key pointer
@@ -271,6 +279,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
 
   const RedisModuleString *keyStr = RedisModule_CommandFilterArgGet(filter, 1);
   RedisModuleString *copyKeyStr = RedisModule_CreateStringFromString(RSDummyContext, keyStr);
+  int fieldsNum = 0;
 
   RedisModuleKey *k = RedisModule_OpenKey(RSDummyContext, copyKeyStr, REDISMODULE_READ);
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -278,7 +287,7 @@ void CommandFilterCallback(RedisModuleCommandFilterCtx *filter) {
     goto done;
   }
 
-  int fieldsNum = (numArgs - 2) / cmdFactor;
+  fieldsNum = (numArgs - 2) / cmdFactor;
   hashFields = (RedisModuleString **)rm_calloc(fieldsNum + 1, sizeof(*hashFields));
 
   for (size_t i = 0; i < fieldsNum; ++i) {
@@ -292,6 +301,7 @@ done:
   RedisModule_CloseKey(k);
 }
 
+// These events do not use ASM State Machine
 void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   /**
    * On sharding event we need to do couple of things depends on the subevent given:
@@ -336,36 +346,121 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   }
 }
 
-static bool in_asm_trim = false;
-static bool in_asm_import = false;
+//We still do not rely on the TIMER_ID being 0 to check initialization state.
+#define UNITIALIZED_TIMER_ID 0
+
+struct TrimmingDelayCtx {
+  bool checkTrimmingStateTimerIdScheduled;
+  bool enableTrimmingTimerIdScheduled;
+  RedisModuleTimerID checkTrimmingStateTimerId;
+  RedisModuleTimerID enableTrimmingTimerId;
+};
+
+static struct TrimmingDelayCtx trimmingDelayCtx = {
+  .checkTrimmingStateTimerIdScheduled = false,
+  .enableTrimmingTimerIdScheduled = false,
+  .checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID,
+  .enableTrimmingTimerId = UNITIALIZED_TIMER_ID
+};
+
+static void checkTrimmingStateCallback(RedisModuleCtx *ctx, void *privdata) {
+  REDISMODULE_NOT_USED(privdata);
+  // 1. Check counter of queries with old version
+  // 2. If counter is 0, enable trimming and stop enableTrimmingTimer.
+  // 3. Otherwise, reschedule the timer after TRIMMING_STATE_CHECK_DELAY.
+
+  RedisModule_Log(ctx, "verbose", "Checking if we can start trimming migrated slots.");
+  if (ASM_CanStartTrimming()) {
+    RedisModule_Log(ctx, "notice", "No queries using the old version, Enabling trimming.");
+    RS_ASSERT(trimmingDelayCtx.enableTrimmingTimerIdScheduled);
+    RedisModule_StopTimer(ctx, trimmingDelayCtx.enableTrimmingTimerId, NULL);
+    trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+    trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
+    trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+    trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
+    RedisModule_ClusterEnableTrim(ctx);
+  } else {
+    RedisModule_Log(ctx, "verbose", "Queries still using the old version, rescheduling check in %d milliseconds.", RSGlobalConfig.trimmingStateCheckDelayMS);
+    trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.trimmingStateCheckDelayMS, checkTrimmingStateCallback, NULL);
+    trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
+  }
+}
+
+static void enableTrimmingCallback(RedisModuleCtx *ctx, void *privdata) {
+  REDISMODULE_NOT_USED(privdata);
+  // Cancel the checkTrimmingStateCallback timer (Ignore error if it did not exist it does not matter)
+  RedisModule_Log(ctx, "verbose", "Maximum delay reached. Enabling trimming.");
+  if (!ASM_CanStartTrimming()) {
+    RedisModule_Log(ctx, "warning", "Queries still using the old version, potential result inaccuracy.");
+    CursorList_MarkASMInaccuracy();
+  }
+  RS_ASSERT(trimmingDelayCtx.checkTrimmingStateTimerIdScheduled);
+  RedisModule_StopTimer(ctx, trimmingDelayCtx.checkTrimmingStateTimerId, NULL);
+  trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+  trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
+  trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+  trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
+  RedisModule_ClusterEnableTrim(ctx);
+}
 
 void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
-  REDISMODULE_NOT_USED(data);
+  RedisModuleClusterSlotMigrationInfo *info = (RedisModuleClusterSlotMigrationInfo *)data;
+  RedisModuleSlotRangeArray *slots = info->slots;
 
   switch (subevent) {
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import started event.");
-      in_asm_import = true;
-      should_filter_slots = true;
+      ASM_StateMachine_StartImport(slots);
       workersThreadPool_OnEventStart();
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
-      Slots_DropCachedLocalSlots(); // Local slots have changed, drop the cache
+      ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
-      in_asm_import = false;
-      should_filter_slots = in_asm_trim;
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
+      if (!IsEnterprise() && subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED) {
+        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
+      }
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED:
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED:
-      Slots_DropCachedLocalSlots(); // Local slots have changed, drop the cache
+      ASM_StateMachine_CompleteMigration(slots);
+      // Start 2 timers. One for the minimal delay, and one for the maximal delay.
+      RedisModule_Log(ctx, "notice", "Got ASM migrate completed event.");
+      RS_ASSERT(trimmingDelayCtx.enableTrimmingTimerIdScheduled == trimmingDelayCtx.checkTrimmingStateTimerIdScheduled);
+      if (trimmingDelayCtx.checkTrimmingStateTimerIdScheduled && trimmingDelayCtx.enableTrimmingTimerIdScheduled) {
+        RedisModule_StopTimer(ctx, trimmingDelayCtx.checkTrimmingStateTimerId, NULL);
+        trimmingDelayCtx.checkTrimmingStateTimerId = UNITIALIZED_TIMER_ID;
+        trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = false;
+        RedisModule_StopTimer(ctx, trimmingDelayCtx.enableTrimmingTimerId, NULL);
+        trimmingDelayCtx.enableTrimmingTimerId = UNITIALIZED_TIMER_ID;
+        trimmingDelayCtx.enableTrimmingTimerIdScheduled = false;
+        // This involves that a previous MIGRATION had already completed so we disable trimming, we need to enable trim to avoid a leak in
+        // counter of Modules enabling trimming
+        RedisModule_Log(ctx, "warning", "A migration completed while waiting to enable trimming from a previous migration");
+        RedisModule_ClusterEnableTrim(ctx);
+      }
+
+      // Check if number of indices is 0. If so, we can start trimming immediately.
+      if (Indexes_Count() == 0) {
+        RedisModule_Log(ctx, "notice", "No indices found, allowing trimming immediately.");
+        break;
+      }
+
+      RedisModule_ClusterDisableTrim(ctx);
+      trimmingDelayCtx.checkTrimmingStateTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.minTrimDelayMS, checkTrimmingStateCallback, NULL);
+      trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, NULL);
+      trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
+      trimmingDelayCtx.enableTrimmingTimerIdScheduled = true;
+      if (!IsEnterprise()) {
+        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
+      }
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
@@ -384,32 +479,47 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
   }
 }
 
+
 void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(ctx);
   REDISMODULE_NOT_USED(eid);
-  REDISMODULE_NOT_USED(data);
+  RedisModuleClusterSlotMigrationTrimInfo *info = (RedisModuleClusterSlotMigrationTrimInfo *)data;
+  RedisModuleSlotRangeArray *slots = info->slots;
 
   switch (subevent) {
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim started event.");
-      in_asm_trim = true;
-      should_filter_slots = true;
       workersThreadPool_OnEventStart();
+      ASM_StateMachine_StartTrim(slots);
       break;
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED:
       RedisModule_Log(RSDummyContext, "notice", "Got ASM trim completed event.");
-      in_asm_trim = false;
-      should_filter_slots = in_asm_import;
       // Since trimming is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
+      ASM_StateMachine_CompleteTrim(slots);
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
   }
 }
 
+static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  REDISMODULE_NOT_USED(data);
+  RedisModule_Log(ctx, "notice", "Got Server ready event.");
+  if (SearchDisk_IsEnabled()) {
+    bool disk_initialized = SearchDisk_Initialize(ctx);
+    RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
+    if (RSGlobalConfig.numWorkerThreads == 0) {
+      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+      workersThreadPool_SetNumWorkers();
+      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
+    }
+  }
+}
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
@@ -417,7 +527,14 @@ void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
+void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
+  SearchDisk_Close(ctx);
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
+}
+
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
+#define BIGREDIS_MAX_RAM "bigredis-max-ram"
 
 bool getHideUserDataFromLogs() {
   char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
@@ -449,6 +566,10 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
     if (!strcmp(conf, HIDE_USER_DATA_FROM_LOGS)) {
       onUpdatedHideUserDataFromLogs(ctx);
     }
+    if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
+      RS_ASSERT(SearchDisk_IsInitialized());
+      SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+    }
   }
 }
 
@@ -473,23 +594,32 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   // after resharding, its safe to filter keys which are not in our slot range.
   if (RedisModule_ShardingGetKeySlot) {
     // we have server events support, lets subscribe to relevant events.
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
+    RedisModule_Log(ctx, "notice", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
-
+  bool shutdownEventHandled = false;
   if (getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_Log(ctx, "notice", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
+    shutdownEventHandled = true;
   }
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
+  if (!shutdownEventHandled && SearchDisk_IsEnabled()) {
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownDiskClose);
+  }
+
+  RedisModule_Log(ctx, "notice", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
+  RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);
+  }
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
@@ -543,11 +673,12 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   if (CheckVersionForShortRead() == REDISMODULE_OK) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
-	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
+    int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
+    RedisModule_SetModuleOptions(ctx, optionsFlags);
     if (redisVersion.majorVersion < 7 || IsEnterprise()) {
-	    RedisModule_Log(ctx, "notice", "Enabled diskless replication");
-	    // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
-	    //  diskless replication, as diskless replication occurs only in 'swapdb' mode.
+      RedisModule_Log(ctx, "notice", "Enabled diskless replication");
+      // TODO: in OSS, in redis >= 7, we must set REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD as well to allow
+      //  diskless replication, as diskless replication occurs only in 'swapdb' mode.
     }
   }
 }
@@ -601,5 +732,6 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
 void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while loading is in progress (progress is %d)",
   ((RedisModuleLoadingProgress *)data)->progress);
+  // Here draining is safe because no read queries are expected to run while loading is in progress.
   workersThreadPool_Drain(ctx, 100);
 }

@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-HybridLookupContext* HybridLookupContext_New(arrayof(AREQ*) requests, RLookup *tailLookup) {
+HybridLookupContext* HybridLookupContext_New(arrayof(AREQ*) requests, RLookup *tailLookup, bool createMissingKeys) {
     RS_ASSERT(requests && tailLookup);
     size_t nrequests = array_len(requests);
 
@@ -15,6 +15,7 @@ HybridLookupContext* HybridLookupContext_New(arrayof(AREQ*) requests, RLookup *t
     HybridLookupContext *lookupCtx = rm_calloc(1, sizeof(HybridLookupContext));
     lookupCtx->tailLookup = tailLookup;
     lookupCtx->sourceLookups = array_newlen(const RLookup*, nrequests);
+    lookupCtx->createMissingKeys = createMissingKeys;
 
     // Add keys from all source lookups to create unified schema
     for (size_t i = 0; i < nrequests; i++) {

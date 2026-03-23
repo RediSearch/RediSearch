@@ -1,0 +1,232 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+use ffi::RedisModuleString;
+use libc::size_t;
+use std::ffi::{c_char, c_double};
+use value::util::str_to_float;
+use value::{RedisString, RsString, RsValue, RsValueTrio, SharedRsValue};
+
+/// Creates and returns a new **owned** [`RsValue::Undefined`].
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewUndefined() -> *mut RsValue {
+    SharedRsValue::new(RsValue::Undefined).into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::Null`].
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNull() -> *mut RsValue {
+    SharedRsValue::new(RsValue::Null).into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::Number`]
+/// containing the given numeric value.
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNumber(value: c_double) -> *mut RsValue {
+    SharedRsValue::new(RsValue::Number(value))
+        .into_raw()
+        .cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::Trio`] from three [`RsValue`]s.
+///
+/// Takes ownership of all three arguments.
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+///
+/// # Safety
+///
+/// 1. All three arguments must point to a valid **owned** [`RsValue`] obtained from an
+///    `RSValue_*` function returning an owned [`RsValue`] object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewTrio(
+    left: *mut RsValue,
+    middle: *mut RsValue,
+    right: *mut RsValue,
+) -> *mut RsValue {
+    // Safety: ensured by caller (1.)
+    let shared_left = unsafe { SharedRsValue::from_raw(left) };
+    // Safety: ensured by caller (1.)
+    let shared_middle = unsafe { SharedRsValue::from_raw(middle) };
+    // Safety: ensured by caller (1.)
+    let shared_right = unsafe { SharedRsValue::from_raw(right) };
+
+    SharedRsValue::new(RsValue::Trio(RsValueTrio::new(
+        shared_left,
+        shared_middle,
+        shared_right,
+    )))
+    .into_raw()
+    .cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// taking ownership of the given `RedisModule_Alloc`-allocated buffer.
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes
+///    allocated by `RedisModule_Alloc`.
+/// 2. A nul-terminator is expected in memory at `str+len`.
+/// 3. The size determined by `len` excludes the nul-terminator.
+/// 4. `str` **must not** be used or freed after this function is called, as this function
+///    takes ownership of the allocation.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewString(str: *mut c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2., 3., 4.)
+    let string = unsafe { RsString::rm_alloc_string(str, len) };
+
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// borrowing the given string buffer without taking ownership.
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a buffer of `len+1` bytes.
+/// 2. A nul-terminator is expected in memory at `str+len`.
+/// 3. The size determined by `len` excludes the nul-terminator.
+/// 4. The memory pointed to by `str` must remain valid and not be mutated for the entire
+///    lifetime of the returned [`RsValue`] and any clones of it.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewBorrowedString(str: *const c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2., 3., 4.)
+    let string = unsafe { RsString::borrowed_string(str, len) };
+
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// taking ownership of the given [`RedisModuleString`].
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a [`RedisModuleString`].
+/// 2. `str` **must not** be used or freed after this function is called, as this function
+///    takes ownership of the string.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewRedisString(str: *mut RedisModuleString) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2.)
+    let redis_string = unsafe { RedisString::from_raw(str) };
+
+    let value = RsValue::RedisString(redis_string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::String`],
+/// copying `len` bytes from the given string buffer into a new Rust-allocated [`Box<CStr>`].
+///
+/// The caller retains ownership of `str`.
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+///
+/// # Safety
+///
+/// 1. `str` must be a [valid], non-null pointer to a string buffer.
+/// 2. `str` must be [valid] for reads of `len` bytes.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2.)
+    let slice = unsafe { std::slice::from_raw_parts(str.cast::<u8>(), len as usize) };
+
+    let string = RsString::from_vec(slice.to_vec());
+    let value = RsValue::String(string);
+    let shared_value = SharedRsValue::new(value);
+    shared_value.into_raw().cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::Number`] by parsing the given
+/// string as a floating-point number. Returns a null pointer if the string
+/// cannot be parsed.
+///
+/// The caller retains ownership of `value`.
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+///
+/// # Safety
+///
+/// 1. `value` must be a [valid], non-null pointer to a string buffer.
+/// 2. `value` must be [valid] for reads of `len` bytes.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NewParsedNumber(
+    value: *const c_char,
+    len: size_t,
+) -> *mut RsValue {
+    // Safety: ensured by caller (1., 2.)
+    let slice = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len) };
+
+    let Some(number) = str_to_float(slice) else {
+        return std::ptr::null_mut();
+    };
+
+    SharedRsValue::new(RsValue::Number(number))
+        .into_raw()
+        .cast_mut()
+}
+
+/// Creates and returns a new **owned** [`RsValue::Number`] from an `i64`.
+///
+/// The `i64` is cast to `f64`, which may lose precision for values outside
+/// the exact representable range of `f64`.
+///
+/// The returned [`RsValue`] is heap-allocated. The caller must ensure it is
+/// eventually passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be transferred
+/// through other `RSValue_` functions before that happens.
+#[unsafe(no_mangle)]
+pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
+    SharedRsValue::new(RsValue::Number(number as f64))
+        .into_raw()
+        .cast_mut()
+}

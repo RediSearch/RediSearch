@@ -69,11 +69,12 @@ def test_hybrid_linear_default_weights():
         'FT.HYBRID', 'idx',
         'SEARCH', 'shoes',
             'YIELD_SCORE_AS', 's_score',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
         'COMBINE', 'LINEAR', '2',
-            'YIELD_SCORE_AS', 'fused_score')
+            'YIELD_SCORE_AS', 'fused_score',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
     env.assertGreater(len(results.keys()), 0)
     for doc_key, doc_result in results.items():
@@ -92,8 +93,8 @@ def test_hybrid_linear_partial_weights():
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    query_without_combine = ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '2', 'K', '10']
+    query_without_combine = ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+                        'KNN', '2', 'K', '10', 'PARAMS', '2', 'BLOB', query_vector]
 
     env.expect(*query_without_combine ,'COMBINE', 'LINEAR', '2', 'ALPHA', '0.5').error().contains('Missing value for BETA')
     env.expect(*query_without_combine ,'COMBINE', 'LINEAR', '2', 'BETA', '0.5').error().contains('Missing value for ALPHA')
@@ -111,11 +112,12 @@ def test_hybrid_linear_explicit_weights():
         'FT.HYBRID', 'idx',
         'SEARCH', 'shoes',
             'YIELD_SCORE_AS', 's_score',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
         'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
-            'YIELD_SCORE_AS', 'fused_score')
+            'YIELD_SCORE_AS', 'fused_score',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
     env.assertGreater(len(results.keys()), 0)
     for doc_key, doc_result in results.items():

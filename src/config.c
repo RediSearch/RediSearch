@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
-#include "deps/thpool/thpool.h"
+#include "thpool/thpool.h"
 #include "err.h"
 #include "rmutil/util.h"
 #include "rmutil/strings.h"
@@ -23,6 +23,7 @@
 #include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
+#include "search_disk.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -90,7 +91,12 @@ configPair_t __configPairs[] = {
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
   {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
+  {"BG_INDEX_SLEEP_DURATION_US",      "search-bg-index-sleep-duration-us"},
   {"ON_OOM",                          "search-on-oom"},
+  {"_MIN_TRIM_DELAY_MS",               "search-_min-trim-delay-ms"},
+  {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
+  {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
+  {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -103,7 +109,17 @@ static const char* FTConfigNameToConfigName(const char *name) {
   return NULL;
 }
 
-int set_long_numeric_config(const char *name, long long val, void *privdata,
+/******************************************************************************
+ * Config Callback Functions
+ *
+ * IMPORTANT: All config getter/setter callbacks MUST be declared as `static`.
+ * This prevents symbol collisions when multiple Redis modules are loaded
+ * together (e.g., RediSearch + vector-sets). Without `static`, the dynamic
+ * linker may resolve these generic function names to the wrong module's
+ * implementation, causing silent failures.
+ *****************************************************************************/
+
+static int set_long_numeric_config(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -111,12 +127,12 @@ int set_long_numeric_config(const char *name, long long val, void *privdata,
   return REDISMODULE_OK;
 }
 
-long long get_long_numeric_config(const char *name, void *privdata) {
+static long long get_long_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(long long *)privdata;
 }
 
-int set_size_t_numeric_config(const char *name, long long val, void *privdata,
+static int set_size_t_numeric_config(const char *name, long long val, void *privdata,
                            RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -124,12 +140,12 @@ int set_size_t_numeric_config(const char *name, long long val, void *privdata,
   return REDISMODULE_OK;
 }
 
-long long get_size_t_numeric_config(const char *name, void *privdata) {
+static long long get_size_t_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(size_t *)privdata);
 }
 
-int set_uint_numeric_config(const char *name, long long val,
+static int set_uint_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -137,12 +153,44 @@ int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_uint_numeric_config(const char *name, void *privdata) {
+static long long get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(unsigned int *)privdata);
 }
 
-int set_uint8_numeric_config(const char *name, long long val,
+// Custom setter for _MIN_TRIM_DELAY with validation
+static int set_min_trim_delay_numeric_config(const char *name, long long val,
+                                     void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  if (val >= (long long)RSGlobalConfig.maxTrimDelayMS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-_min-trim-delay-ms (%lld) must be less than search-_max-trim-delay-ms (%u)",
+      val, RSGlobalConfig.maxTrimDelayMS);
+    return REDISMODULE_ERR;
+  }
+
+  *(uint32_t *)privdata = (uint32_t)val;
+  return REDISMODULE_OK;
+}
+
+// Custom setter for _MAX_TRIM_DELAY with validation
+static int set_max_trim_delay_numeric_config(const char *name, long long val,
+                                     void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  if (val <= (long long)RSGlobalConfig.minTrimDelayMS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-_max-trim-delay-ms (%lld) must be greater than search-_min-trim-delay-ms (%u)",
+      val, RSGlobalConfig.minTrimDelayMS);
+    return REDISMODULE_ERR;
+  }
+
+  *(uint32_t *)privdata = (uint32_t)val;
+  return REDISMODULE_OK;
+}
+
+static int set_uint8_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -150,12 +198,23 @@ int set_uint8_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_uint8_numeric_config(const char *name, void *privdata) {
+static int set_search_disk_buffer_percentage_config(const char *name, long long val,
+  void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(uint8_t *)privdata = (uint8_t) val;
+  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
+    SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
+  }
+  return REDISMODULE_OK;
+}
+
+static long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(uint8_t *)privdata);
 }
 
-int set_bool_config(const char *name, int val, void *privdata,
+static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -163,7 +222,7 @@ int set_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int set_inverted_bool_config(const char *name, int val, void *privdata,
+static int set_inverted_bool_config(const char *name, int val, void *privdata,
                              RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -171,17 +230,57 @@ int set_inverted_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int get_bool_config(const char *name, void *privdata) {
+static int get_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(bool *)privdata;
 }
 
-int get_inverted_bool_config(const char *name, void *privdata) {
+static int get_inverted_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return !*(bool *)privdata;
 }
 
-int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
+// When changing expiration monitoring, update all existing indexes.
+// Disabling: clean up TTL tables. Enabling: set monitor flags (TTL table created lazily).
+// This must be done with the per-spec write lock to avoid race conditions with query threads.
+static int set_monitor_expiration(const char *name, int val, void *privdata,
+                                  RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+
+  bool *monitorExpiration = (bool *)privdata;
+  bool oldVal = *monitorExpiration;
+  *monitorExpiration = val;
+
+  // Update all existing indexes if value changed
+  if (oldVal != val && specDict_g) {
+    dictIterator *iter = dictGetIterator(specDict_g);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+      StrongRef spec_ref = dictGetRef(entry);
+      IndexSpec *sp = StrongRef_Get(spec_ref);
+      if (sp) {
+        IndexSpec_AcquireWriteLock(sp);
+        if (val) {
+          // Enabling: set flags, TTL table will be created lazily when needed
+          sp->monitorDocumentExpiration = true;
+          sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
+        } else {
+          // Disabling: clear flags and clean up TTL data
+          sp->monitorDocumentExpiration = false;
+          sp->monitorFieldExpiration = false;
+          DocTable_ClearExpirationData(&sp->docs);
+        }
+        IndexSpec_ReleaseWriteLock(sp);
+      }
+    }
+    dictReleaseIterator(iter);
+  }
+
+  return REDISMODULE_OK;
+}
+
+static int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
                       RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -195,35 +294,35 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   return REDISMODULE_OK;
 }
 
-int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
-    REDISMODULE_NOT_USED(name);
-    if (RSGlobalConfig.defaultScorer == NULL) {
-      RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
-    }
+static int set_default_scorer_config(const char *name, RedisModuleString *val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
 
-    // Get the scorer name from the Redis module string
-    size_t len;
-    const char *newScorerName = RedisModule_StringPtrLen(val, &len);
+  if (RSGlobalConfig.defaultScorer == NULL) {
+    RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  }
 
-    // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
-    if (Extensions_InitDone()) {
-      // Validate the scorer name against registered scorers only when the extension system is initialized
-      ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
-      if (scoreCtx == NULL) {
-          if (err) {
-              *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
-          }
-          return REDISMODULE_ERR;
-      }
-    }
+  // Get the scorer name from the Redis module string
+  size_t len;
+  const char *newScorerName = RedisModule_StringPtrLen(val, &len);
 
-    // Validation passed, now allocate and apply it to RSGlobalConfig
-    char **ptr = (char **)privdata;
-    if (*ptr) {
-        rm_free(*ptr);   // Free the existing default scorer string
+  // If Extension is not yet initialized, we will validate the defaultScorer after initialization for validation
+  if (Extensions_InitDone()) {
+    // Validate the scorer name against registered scorers only when the extension system is initialized
+    ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, newScorerName);
+    if (scoreCtx == NULL) {
+      RS_ASSERT(err);
+      *err = RedisModule_CreateStringPrintf(NULL, "Invalid default scorer value");
+      return REDISMODULE_ERR;
     }
-    *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
-    return REDISMODULE_OK;
+  }
+
+  // Validation passed, now allocate and apply it to RSGlobalConfig
+  char **ptr = (char **)privdata;
+  if (*ptr) {
+    rm_free(*ptr);   // Free the existing default scorer string
+  }
+  *ptr = rm_strndup(newScorerName, len);;  // Transfer ownership
+  return REDISMODULE_OK;
 }
 
 // EXTLOAD
@@ -248,7 +347,7 @@ CONFIG_GETTER(getExtLoad) {
 }
 
 // ext-load
-RedisModuleString* get_ext_load(const char *name, void *privdata) {
+static RedisModuleString* get_ext_load(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   char *str = *(char **)privdata;
   if (str == NULL) {
@@ -307,13 +406,13 @@ CONFIG_GETTER(getMinStemLen) {
 
 // FORKGC_SLEEP_BEFORE_EXIT
 CONFIG_SETTER(setForkGCSleep) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcSleepBeforeExit, AC_F_GE0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcSleepBeforeExit, AC_F_GE0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGCSleep) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%zu", config->gcConfigParams.forkGc.forkGcSleepBeforeExit);
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcSettings.forkGcSleepBeforeExit);
 }
 
 // MAXDOCTABLESIZE
@@ -413,10 +512,15 @@ CONFIG_SETTER(setWorkThreads) {
   if (newNumThreads > MAX_WORKER_THREADS) {
     return errorTooManyThreads(status);
   }
+  if (newNumThreads < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
+    RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
+    newNumThreads = MIN_WORKER_THREADS_FLEX;
+  }
   config->numWorkerThreads = newNumThreads;
 
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  // It is safe to set it even if change in worker threads is asynchronous, only the ratio Connections/real threads may be not real for a transitional time
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
@@ -427,18 +531,24 @@ CONFIG_GETTER(getWorkThreads) {
 }
 
 // workers
-int set_workers(const char *name, long long val, void *privdata,
-RedisModuleString **err) {
+static int set_workers(const char *name, long long val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
+    RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
+    val = MIN_WORKER_THREADS_FLEX;
+  }
   uint32_t externalTriggerId = 0;
   RSConfig *config = (RSConfig *)privdata;
   config->numWorkerThreads = val;
   workersThreadPool_SetNumWorkers();
   // Trigger the connection per shard to be updated (only if we are in coordinator mode)
+  // It is safe to set it even if change in worker threads is asynchronous, only the ratio Connections/real threads may be not real for a transitional time
   COORDINATOR_TRIGGER();
   return REDISMODULE_OK;
 }
 
-long long get_workers(const char *name, void *privdata) {
+static long long get_workers(const char *name, void *privdata) {
   RSConfig *config = (RSConfig *)privdata;
   return config->numWorkerThreads;
 }
@@ -464,7 +574,7 @@ CONFIG_GETTER(getMinOperationWorkers) {
 }
 
 // min-operation-workers
-int set_min_operation_workers(const char *name,
+static int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -475,7 +585,7 @@ int set_min_operation_workers(const char *name,
   return REDISMODULE_OK;
 }
 
-long long get_min_operation_workers(const char *name, void *privdata) {
+static long long get_min_operation_workers(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long) (*(size_t *)privdata);
 }
@@ -484,6 +594,7 @@ static inline int errorMemoryLimitG100(QueryError *status) {
   QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
+
 // SET MEMORY LIMIT PERCENTAGE
 CONFIG_SETTER(setIndexingMemoryLimit) {
   uint8_t newLimit;
@@ -664,7 +775,7 @@ CONFIG_GETTER(getFrisoINI) {
 }
 
 // friso-ini
-RedisModuleString * get_friso_ini(const char *name, void *privdata) {
+static RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   if (str == NULL) {
     return NULL;
@@ -676,7 +787,7 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   return config_friso_ini;
 }
 
-RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
+static RedisModuleString *get_default_scorer_config(const char *name, void *privdata) {
   char *str = *(char **)privdata;
   RS_ASSERT(str != NULL);
   if (config_default_scorer) {
@@ -737,7 +848,7 @@ CONFIG_GETTER(getOnTimeout) {
 }
 
 // on-timeout
-int set_on_timeout(const char *name, int val, void *privdata,
+static int set_on_timeout(const char *name, int val, void *privdata,
                    RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -745,7 +856,7 @@ int set_on_timeout(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int get_on_timeout(const char *name, void *privdata){
+static int get_on_timeout(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSTimeoutPolicy *)privdata);
 }
@@ -763,35 +874,35 @@ CONFIG_GETTER(getGcScanSize) {
 
 // FORK_GC_RUN_INTERVAL
 CONFIG_SETTER(setForkGcInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRunIntervalSec, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRunIntervalSec, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRunIntervalSec);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcRunIntervalSec);
 }
 
 // FORK_GC_CLEAN_THRESHOLD
 CONFIG_SETTER(setForkGcCleanThreshold) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcCleanThreshold, 0);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcCleanThreshold, 0);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcCleanThreshold);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.forkGc.forkGcRetryInterval, AC_F_GE1);
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getForkGcRetryInterval) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.forkGc.forkGcRetryInterval);
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcRetryInterval);
 }
 
 // UNION_ITERATOR_HEAP
@@ -818,15 +929,15 @@ CONFIG_GETTER(getCursorMaxIdle) {
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
 CONFIG_SETTER(setForkGCCleanNumericEmptyNodes) {
-  config->gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = 1;
+  config->gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = 1;
   return REDISMODULE_OK;
 }
 
-CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_GETTER(getForkGCCleanNumericEmptyNodes, gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes, 0)
 
 // _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
-CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
-CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes, 0)
+CONFIG_BOOLEAN_SETTER(set_ForkGCCleanNumericEmptyNodes, gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes)
+CONFIG_BOOLEAN_GETTER(get_ForkGCCleanNumericEmptyNodes, gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes, 0)
 
 // MIN_PHONETIC_TERM_LEN
 CONFIG_SETTER(setMinPhoneticTermLen) {
@@ -878,12 +989,15 @@ CONFIG_GETTER(getNumericTreeMaxDepthRange) {
 CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL,
+                                 "Default dialect version cannot be higher than ", "%u",
+                                 MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
-  RETURN_STATUS(acrc);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getDefaultDialectVersion) {
@@ -1057,6 +1171,7 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
   config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
@@ -1065,6 +1180,90 @@ CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
 }
+
+// BG_INDEX_SLEEP_DURATION_US
+// Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+#define BG_INDEX_SLEEP_DURATION_US_MAX 999999
+CONFIG_SETTER(setBGIndexSleepDurationUS) {
+  unsigned int sleepDurationUS;
+  int acrc = AC_GetUnsigned(ac, &sleepDurationUS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (sleepDurationUS > BG_INDEX_SLEEP_DURATION_US_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+      "BG_INDEX_SLEEP_DURATION_US must be between 1 and %d (usleep POSIX limit)",
+      BG_INDEX_SLEEP_DURATION_US_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->bgIndexingSleepDurationMicroseconds = sleepDurationUS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBGIndexSleepDurationUS) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingSleepDurationMicroseconds);
+}
+
+// MIN_TRIM_DELAY
+CONFIG_SETTER(setMinTrimDelay) {
+  uint32_t minTrimDelayMS;
+  int acrc = AC_GetUnsigned(ac, &minTrimDelayMS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+
+  // Validate that minTrimDelay is less than maxTrimDelayMS
+  if (minTrimDelayMS >= config->maxTrimDelayMS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "_MIN_TRIM_DELAY_MS (%u) must be less than _MAX_TRIM_DELAY_MS (%u)",
+      minTrimDelayMS, config->maxTrimDelayMS);
+    return REDISMODULE_ERR;
+  }
+
+  config->minTrimDelayMS = minTrimDelayMS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMinTrimDelay) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->minTrimDelayMS);
+}
+
+// MAX_TRIM_DELAY
+CONFIG_SETTER(setMaxTrimDelay) {
+  uint32_t maxTrimDelayMS;
+  int acrc = AC_GetUnsigned(ac, &maxTrimDelayMS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+
+  // Validate that maxTrimDelay is greater than minTrimDelay
+  if (maxTrimDelayMS <= config->minTrimDelayMS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "_MAX_TRIM_DELAY_MS (%u) must be greater than _MIN_TRIM_DELAY_MS (%u)",
+                                     maxTrimDelayMS, config->minTrimDelayMS);
+    return REDISMODULE_ERR;
+  }
+
+  config->maxTrimDelayMS = maxTrimDelayMS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxTrimDelay) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->maxTrimDelayMS);
+}
+
+// TRIMMING_STATE_CHECK_DELAY
+CONFIG_SETTER(setTrimmingStateCheckDelay) {
+  uint32_t trimmingStateCheckDelayMS;
+  int acrc = AC_GetUnsigned(ac, &trimmingStateCheckDelayMS, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->trimmingStateCheckDelayMS = trimmingStateCheckDelayMS;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getTrimmingStateCheckDelay) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->trimmingStateCheckDelayMS);
+}
+
+// DEBUG_SIMULATE_IN_FLEX
+CONFIG_BOOLEAN_SETTER(setDebugSimulateInFlex, simulateInFlex)
+CONFIG_BOOLEAN_GETTER(getDebugSimulateInFlex, simulateInFlex, 0)
 
 // ON_OOM
 CONFIG_SETTER(setOnOom) {
@@ -1086,19 +1285,17 @@ CONFIG_GETTER(getOnOom) {
 }
 
 // on-oom
-int set_on_oom(const char *name, int val, void *privdata,
-               RedisModuleString **err) {
+static int set_on_oom(const char *name, int val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *((RSOomPolicy *)privdata) = (RSOomPolicy)val;
   return REDISMODULE_OK;
 }
 
-int get_on_oom(const char *name, void *privdata){
+static int get_on_oom(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSOomPolicy *)privdata);
 }
-
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1430,10 +1627,31 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
+        {.name = "BG_INDEX_SLEEP_DURATION_US",
+         .helpText = "Sleep duration in microseconds during background indexing periodic sleep (max 999999, usleep POSIX limit)",
+         .setValue = setBGIndexSleepDurationUS,
+         .getValue = getBGIndexSleepDurationUS},
         {.name = "ON_OOM",
          .helpText = "Action to perform when search OOM is exceeded (choose RETURN, FAIL or IGNORE)",
          .setValue = setOnOom,
          .getValue = getOnOom},
+        {.name = "_MIN_TRIM_DELAY_MS",
+         .helpText = "Minimum delay before checking trimming state after slot migration (in milliseconds)",
+         .setValue = setMinTrimDelay,
+         .getValue = getMinTrimDelay},
+        {.name = "_MAX_TRIM_DELAY_MS",
+         .helpText = "Maximum delay before enabling trimming after slot migration (in milliseconds)",
+         .setValue = setMaxTrimDelay,
+         .getValue = getMaxTrimDelay},
+        {.name = "_TRIMMING_STATE_CHECK_DELAY_MS",
+         .helpText = "Delay between trimming state checks (in milliseconds)",
+         .setValue = setTrimmingStateCheckDelay,
+         .getValue = getTrimmingStateCheckDelay},
+        {.name = "_SIMULATE_IN_FLEX",
+         .helpText = "Simulate working under Flex conditions. This is used for testing only.",
+         .setValue = setDebugSimulateInFlex,
+         .getValue = getDebugSimulateInFlex,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1626,7 +1844,7 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
     return REDISMODULE_ERR;
   }
   if (var->flags & RSCONFIGVAR_F_IMMUTABLE) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Not modifiable at runtime");
+    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_OPTION, "Not modifiable at runtime");
     return REDISMODULE_ERR;
   }
   ArgsCursor ac;
@@ -1647,6 +1865,8 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
     return TimeoutPolicy_Return;
   } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_Fail])) {
     return TimeoutPolicy_Fail;
+  } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_ReturnStrict])) {
+    return TimeoutPolicy_ReturnStrict;
   } else {
     return TimeoutPolicy_Invalid;
   }
@@ -1675,7 +1895,7 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 }
 
 
-int RegisterModuleConfig(RedisModuleCtx *ctx) {
+int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(
@@ -1708,10 +1928,11 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
+      ctx, "search-fork-gc-clean-threshold",
+      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
     )
   )
 
@@ -1720,16 +1941,17 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval)
     )
   )
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
+      ctx, "search-fork-gc-run-interval",
+      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_RUN_INTERVAL : DEFAULT_FORK_GC_RUN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec)
     )
   )
 
@@ -1738,7 +1960,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-fork-gc-sleep-before-exit", 0,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit)
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcSleepBeforeExit)
     )
   )
 
@@ -1945,6 +2167,43 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     )
   )
 
+  // Max is 999999 because usleep() requires values < 1,000,000 per POSIX specification.
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bg-index-sleep-duration-us", DEFAULT_BG_INDEX_SLEEP_DURATION_US,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      BG_INDEX_SLEEP_DURATION_US_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.bgIndexingSleepDurationMicroseconds)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_min-trim-delay-ms", DEFAULT_MIN_TRIM_DELAY,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_min_trim_delay_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.minTrimDelayMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_max-trim-delay-ms", DEFAULT_MAX_TRIM_DELAY,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_max_trim_delay_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.maxTrimDelayMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_trimming-state-check-delay-ms", DEFAULT_TRIMMING_STATE_CHECK_DELAY,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.trimmingStateCheckDelayMS)
+    )
+  )
+
   // String parameters
   RM_TRY(
     RedisModule_RegisterStringConfig(
@@ -1978,7 +2237,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterEnumConfig(
       ctx, "search-on-timeout", TimeoutPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
-      on_timeout_vals, on_timeout_enums, 2,
+      on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
       (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
     )
@@ -2073,6 +2332,42 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_simulate-in-flex", 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.simulateInFlex)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_info-on-zero-indexes", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.infoEmitOnZeroIndexes)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-monitor-expiration", 1,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_monitor_expiration, NULL,
+      (void *)&(RSGlobalConfig.monitorExpiration)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-buffer-percentage", DEFAULT_DISK_BUFFER_PERCENTAGE,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
+      (void *)&(RSGlobalConfig.diskBufferPercentage)
     )
   )
 

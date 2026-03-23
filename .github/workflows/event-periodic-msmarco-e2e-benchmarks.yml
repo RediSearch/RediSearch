@@ -1,0 +1,13 @@
+name: Periodic E2E MS MARCO Benchmarks
+
+on:
+  schedule:
+    - cron: "0 3 */3 * *"
+
+jobs:
+  run-benchmarks:
+    uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit
+    with:
+      notify_failure: true
+      allowed_setup: oss-cluster-08-primaries-250gb-threads-8

@@ -53,10 +53,10 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   REDISMODULE_NOT_USED(encver);
   // Load the size of the docId array
+  struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
   size_t size = LoadUnsigned_IOError(rdb, goto cleanup);
   RS_LOG_ASSERT(size > 0, "DocIDMeta size stored in RDB should be greater than 0");
   // Allocate the DocIdMeta structure
-  struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
   docIdMeta->size = size;
   docIdMeta->docId = array_newlen(uint64_t, size);
   // Load each docId entry

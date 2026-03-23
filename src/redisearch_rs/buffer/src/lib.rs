@@ -12,7 +12,7 @@
 //! This crate provides Rust wrappers for the `Buffer`, `BufferReader` and `BufferWriter` structs
 //! from `buffer.h`.
 
-use ffi::Buffer_Grow;
+use ffi::{Buffer_Free, Buffer_Grow};
 use std::{ptr::NonNull, slice};
 
 pub use reader::BufferReader;
@@ -119,6 +119,14 @@ impl Buffer {
     pub unsafe fn advance(&mut self, n: usize) {
         debug_assert!(n <= self.remaining_capacity());
         self.0.offset += n;
+    }
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        // Safety: `Buffer_Free` is a C function that frees the buffer's memory. It expects a valid
+        // buffer pointer.
+        unsafe { Buffer_Free(&mut self.0 as *mut _) };
     }
 }
 

@@ -21,11 +21,12 @@ pub mod counter;
 #[cfg(test)]
 mod test_utils;
 
-use libc::{c_int, timespec};
 use pin_project::pin_project;
+use search_result::SearchResult;
 #[cfg(debug_assertions)]
 use std::any::{TypeId, type_name};
 use std::{
+    ffi::c_int,
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
     ptr::{self, NonNull},
@@ -55,6 +56,7 @@ pub enum Error {
 ///
 /// ```rust
 /// # use result_processor::{ResultProcessor, Error, Context};
+/// # use search_result::SearchResult;
 ///
 /// /// A simple result processor that simply prints out the search result received from the previous processor
 /// /// before passing it on.
@@ -63,7 +65,7 @@ pub enum Error {
 /// impl ResultProcessor for Logger {
 ///    const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType::MAX;
 ///
-///     fn next(&mut self, mut cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+///     fn next(&mut self, mut cx: Context, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
 ///         let mut upstream = cx
 ///             .upstream()
 ///             .expect("There is no processor upstream of this counter.");
@@ -89,7 +91,7 @@ pub trait ResultProcessor {
     ///
     /// In both cases `Ok(None)` and `Err(_)` indicate to the caller that calling `next`
     /// will not yield values anymore, thus ending iteration.
-    fn next(&mut self, cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error>;
+    fn next(&mut self, cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error>;
 }
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
@@ -156,7 +158,7 @@ impl Upstream<'_> {
     /// # Errors
     ///
     /// Returns `Err(_)` for exceptional error cases.
-    pub fn next(&mut self, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+    pub fn next(&mut self, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
         // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
         // is correct.
         let next = unsafe { self.ptr.as_ref() }
@@ -203,7 +205,7 @@ impl Upstream<'_> {
 /// For intrusive data types like this we need to tell the compiler "don't move this please I have pointers to it" which is called
 /// pinning in Rust.
 ///
-/// We wrap a reference in the Pin<T> type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
+/// We wrap a reference in the `Pin<T>` type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
 /// Crucially though, the way Pin disallows is not magic, it simply doesn't implement any methods and traits that would
 /// allow a caller to move the value. Unfortunately this means banning all mutable access to the value T (you cannot get a
 /// &mut T from a Pin<&mut T> for example) since with a &mut T you can always move the value very easily (via mem::replace for example).
@@ -224,18 +226,18 @@ struct Header {
     upstream: *mut Header,
     /// Type of result processor
     ty: ffi::ResultProcessorType,
-    gil_time: timespec,
+    rp_gil_time: ffi::rs_wall_clock_ns_t,
     /// "VTable" function. Pulls [`ffi::SearchResult`]s out of this result processor.
     ///
     /// Populates the result pointed to by `res`. The existing data of `res` is
     /// not read, so it is the responsibility of the caller to ensure that there
     /// are no refcount leaks in the structure.
     ///
-    /// Users can use [`ffi::SearchResult_Clear`] to reset the structure without freeing it.
+    /// Users can use [`search_result::SearchResult::clear`] to reset the structure without freeing it.
     ///
     /// The populated structure (if [`ffi::RPStatus_RS_RESULT_OK`] is returned) does contain references
     /// to document data. Callers *MUST* ensure they are eventually freed.
-    next: Option<unsafe extern "C" fn(self_: *mut Header, res: *mut ffi::SearchResult) -> c_int>,
+    next: Option<unsafe extern "C" fn(self_: *mut Header, res: *mut SearchResult) -> c_int>,
     /// "VTable" function. Frees the processor and any internal data related to it.
     free: Option<unsafe extern "C" fn(self_: *mut Header)>,
 
@@ -275,10 +277,7 @@ where
                 parent: ptr::null_mut(), // will be set by `QITR_PushRP` when inserting this result processor into the chain
                 upstream: ptr::null_mut(), // will be set by `QITR_PushRP` when inserting this result processor into the chain
                 ty: P::TYPE,
-                gil_time: timespec {
-                    tv_sec: 0,
-                    tv_nsec: 0,
-                },
+                rp_gil_time: 0,
                 next: Some(Self::result_processor_next),
                 free: Some(Self::result_processor_free),
                 #[cfg(debug_assertions)]
@@ -343,10 +342,7 @@ where
     /// The caller (C code) must uphold the following safety invariants:
     /// 1. `ptr` must be a non-null, well-aligned, valid pointer to a result processor (struct [`Header`]).
     /// 2. `res` must be a non-null, well-aligned, valid pointer to an *initialized* [`ffi::SearchResult`].
-    unsafe extern "C" fn result_processor_next(
-        ptr: *mut Header,
-        res: *mut ffi::SearchResult,
-    ) -> c_int {
+    unsafe extern "C" fn result_processor_next(ptr: *mut Header, res: *mut SearchResult) -> c_int {
         let ptr = NonNull::new(ptr).unwrap();
         debug_assert!(ptr.is_aligned());
 
@@ -410,7 +406,7 @@ where
     /// # Safety
     ///
     /// 1. `me` must be a well-aligned, valid pointer to a result processor (struct [`Header`]).
-    #[allow(clippy::missing_const_for_fn)]
+    #[cfg_attr(not(debug_assertions), expect(clippy::missing_const_for_fn))]
     unsafe fn debug_assert_same_type(_me: NonNull<Header>) {
         #[cfg(debug_assertions)]
         {
@@ -430,7 +426,7 @@ where
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, ResultRP, default_search_result};
+    use crate::test_utils::{Chain, ResultRP};
 
     // Compile time check to ensure that `Header` (which currently duplicates `ffi::ResultProcessor`)
     // has the exact same size, alignment, and field layout.
@@ -452,8 +448,8 @@ pub(crate) mod test {
                 == ::std::mem::offset_of!(ffi::ResultProcessor, type_)
         );
         assert!(
-            ::std::mem::offset_of!(Header, gil_time)
-                == ::std::mem::offset_of!(ffi::ResultProcessor, GILTime)
+            ::std::mem::offset_of!(Header, rp_gil_time)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, rpGILTime)
         );
         assert!(
             ::std::mem::offset_of!(Header, next)
@@ -467,6 +463,7 @@ pub(crate) mod test {
 
     /// Assert that Rust error types translate to the correct C ret code
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
             let mut chain = Chain::new();
@@ -474,7 +471,7 @@ pub(crate) mod test {
 
             let rp = unsafe { chain.last_raw() };
             let found =
-                unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut default_search_result()) };
+                unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
 
             assert_eq!(found, expected);
         }
@@ -485,32 +482,33 @@ pub(crate) mod test {
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn none_signals_eof() {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_none());
 
         let rp = unsafe { chain.last_raw() };
-        let found =
-            unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut default_search_result()) };
+        let found = unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
 
         assert_eq!(found, ffi::RPStatus_RS_RESULT_EOF as i32);
     }
 
     /// Assert that `Ok(Some(())` in Rust translates to the `OK` in C
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn ok_some_signals_ok() {
         let mut chain = Chain::new();
         chain.append(ResultRP::new_ok_some());
 
         let rp = unsafe { chain.last_raw() };
-        let found =
-            unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut default_search_result()) };
+        let found = unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
 
         assert_eq!(found, ffi::RPStatus_RS_RESULT_OK as i32);
     }
 
     /// Assert that C return codes translate to the correct Rust error types
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn c_ret_code_to_error() {
         // This function sets up a result processor in memory that mimics a C result processor
         // sidestepping all the the rust logic
@@ -523,7 +521,7 @@ pub(crate) mod test {
 
             unsafe extern "C" fn result_processor_next(
                 me: *mut Header,
-                _res: *mut ffi::SearchResult,
+                _res: *mut SearchResult,
             ) -> c_int {
                 unsafe { me.cast::<RP>().as_ref().unwrap().ret_code }
             }
@@ -537,10 +535,7 @@ pub(crate) mod test {
                     parent: ptr::null_mut(),
                     upstream: ptr::null_mut(),
                     ty: ffi::ResultProcessorType_RP_MAX,
-                    gil_time: timespec {
-                        tv_sec: 0,
-                        tv_nsec: 0,
-                    },
+                    rp_gil_time: 0,
                     next: Some(result_processor_next),
                     free: Some(result_processor_free),
 
@@ -564,7 +559,7 @@ pub(crate) mod test {
             fn next(
                 &mut self,
                 mut cx: Context,
-                res: &mut ffi::SearchResult,
+                res: &mut SearchResult,
             ) -> Result<Option<()>, Error> {
                 let mut upstream = cx.upstream().unwrap();
                 upstream.next(res)
@@ -579,7 +574,7 @@ pub(crate) mod test {
             let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
             // we don't care about the exact search result value here
-            let res = rp.next(cx, &mut default_search_result());
+            let res = rp.next(cx, &mut SearchResult::new());
             assert_eq!(res, expected);
         }
 
@@ -594,17 +589,14 @@ pub(crate) mod test {
 
     /// Assert that the search result is passed correctly
     #[test]
+    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
     fn search_result_passing() {
         struct Upstream;
         impl ResultProcessor for Upstream {
             const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-            fn next(
-                &mut self,
-                _cx: Context,
-                res: &mut ffi::SearchResult,
-            ) -> Result<Option<()>, Error> {
-                res.score = 42.0;
+            fn next(&mut self, _cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
+                res.set_score(42.0);
                 Ok(Some(()))
             }
         }
@@ -616,7 +608,7 @@ pub(crate) mod test {
             fn next(
                 &mut self,
                 mut cx: Context,
-                res: &mut ffi::SearchResult,
+                res: &mut SearchResult,
             ) -> Result<Option<()>, Error> {
                 let mut upstream = cx.upstream().unwrap();
                 upstream.next(res)
@@ -630,10 +622,10 @@ pub(crate) mod test {
 
         let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
-        let mut res = default_search_result();
+        let mut res = SearchResult::new();
         rp.next(cx, &mut res).unwrap().unwrap();
 
-        assert_eq!(res.score, 42.0);
+        assert_eq!(res.score(), 42.0);
     }
 
     #[test]

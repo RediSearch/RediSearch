@@ -20,6 +20,9 @@
 >
 > See https://github.com/redis/redis
 
+> [!NOTE]
+> 32 bit systems are not supported.
+
 ## Overview
 
 RediSearch is a [Redis module](https://redis.io/modules) that provides querying, secondary indexing, and full-text search for Redis. To use RediSearch, you first declare indexes on your Redis data. You can then use the RediSearch query language to query that data.

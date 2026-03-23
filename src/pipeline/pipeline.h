@@ -82,12 +82,11 @@ typedef struct QueryPipelineParams {
      *  This is the top-level iterator in the search iterator tree, typically a union
      *  or intersection iterator that coordinates child iterators for different
      *  search terms and filters. It produces the initial set of candidate documents. */
-    const QueryIterator *rootiter;
+    QueryIterator *rootiter;
 
     /** Slot ranges for the root iterator, used for cluster-aware query execution. */
-    const SharedSlotRangeArray *slotRanges;
     const RedisModuleSlotRangeArray *querySlots;
-    uint32_t slotsVersion;
+    uint32_t keySpaceVersion;
 
     /** Name of the scoring function to use for document relevance calculation.
      *  Examples include "BM25", "TFIDF", or custom scorer names. This determines
@@ -113,13 +112,6 @@ typedef struct HybridPipelineParams {
      *  including field loading, sorting, filtering, and output formatting that
      *  will be applied to the merged hybrid search results. */
     AggregationPipelineParams aggregationParams;
-
-    /** Whether to synchronize read locks between depleter result processors.
-     *  When true, ensures that all depleter processors coordinate their read
-     *  operations to prevent race conditions and maintain consistency when
-     *  multiple search threads are accessing shared index data concurrently.
-     *  Set to false for better performance when thread safety is not required. */
-    bool synchronize_read_locks;
 
     /** Hybrid scoring context containing algorithms and parameters for result merging.
      *  This context defines how results from different search modalities (vector, text, etc.)

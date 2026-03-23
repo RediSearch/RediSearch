@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "util/logging.h"
+#include "coord/config.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -46,12 +47,29 @@ typedef struct ConcurrentCmdCtx {
   int argc;
   int options;
   WeakRef spec_ref;
+  rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
+  size_t numShards;                   // Number of shards in the cluster (captured from main thread)
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type) {
   redisearch_thpool_t *p = threadpools_g[type];
   redisearch_thpool_add_work(p, func, arg, THPOOL_PRIORITY_HIGH);
+}
+
+/* return number of currently working threads */
+size_t ConcurrentSearchPool_WorkingThreadCount() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_num_jobs_in_progress(threadpools_g[0]);
+}
+
+size_t ConcurrentSearchPool_HighPriorityPendingJobsCount() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_high_priority_pending_jobs(threadpools_g[0]);
 }
 
 static void threadHandleCommand(void *p) {
@@ -65,7 +83,9 @@ static void threadHandleCommand(void *p) {
 
   RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
 
-  RedisModule_UnblockClient(ctx->bc, NULL);
+  void *privdata = RedisModule_BlockClientGetPrivateData(ctx->bc);
+
+  RedisModule_UnblockClient(ctx->bc, privdata);
   rm_free(ctx->argv);
   rm_free(p);
 }
@@ -78,14 +98,37 @@ WeakRef ConcurrentCmdCtx_GetWeakRef(ConcurrentCmdCtx *cctx) {
   return cctx->spec_ref;
 }
 
+rs_wall_clock_ns_t ConcurrentCmdCtx_GetCoordStartTime(ConcurrentCmdCtx *cctx) {
+  return cctx->coordStartTime;
+}
+
+size_t ConcurrentCmdCtx_GetNumShards(const ConcurrentCmdCtx *cctx) {
+  return cctx->numShards;
+}
+
+RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(ConcurrentCmdCtx *cctx) {
+  return cctx->bc;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                          WeakRef spec_ref) {
+                                          ConcurrentSearchHandlerCtx *handlerCtx) {
   ConcurrentCmdCtx *cmdCtx = rm_malloc(sizeof(*cmdCtx));
 
-  cmdCtx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  // If timeoutMS is not 0, both timeout callback and reply callback must be set
+  RS_ASSERT(handlerCtx->bcCtx.timeoutMS == 0 ||
+            (handlerCtx->bcCtx.timeout_callback != NULL && handlerCtx->bcCtx.reply_callback != NULL));
+
+  cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback, handlerCtx->bcCtx.timeout_callback, handlerCtx->bcCtx.free_privdata, handlerCtx->bcCtx.timeoutMS);
+
+  if (handlerCtx->bcCtx.privdata) {
+    RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);
+  }
+
   cmdCtx->argc = argc;
-  cmdCtx->spec_ref = spec_ref;
+  cmdCtx->spec_ref = handlerCtx->spec_ref;
+  cmdCtx->coordStartTime = handlerCtx->coordStartTime;
+  cmdCtx->numShards = handlerCtx->numShards;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;
@@ -100,4 +143,45 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
 
   ConcurrentSearch_ThreadPoolRun(threadHandleCommand, cmdCtx, poolType);
   return REDISMODULE_OK;
+}
+
+/********************************************* for debugging **********************************/
+
+int ConcurrentSearch_isPaused() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_paused(threadpools_g[0]);
+}
+
+int ConcurrentSearch_pause() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+
+  if (clusterConfig.coordinatorPoolSize == 0 || ConcurrentSearch_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_pause_threads(threadpools_g[0]);
+  return REDISMODULE_OK;
+}
+
+int ConcurrentSearch_resume() {
+  RS_ASSERT(threadpools_g);
+  // Assert we only have 1 pool
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  if (clusterConfig.coordinatorPoolSize == 0 || !ConcurrentSearch_isPaused()) {
+    return REDISMODULE_ERR;
+  }
+  redisearch_thpool_resume_threads(threadpools_g[0]);
+  return REDISMODULE_OK;
+}
+
+thpool_stats ConcurrentSearch_getStats() {
+  thpool_stats stats = {0};
+  if (!threadpools_g) {
+    return stats;
+  }
+  RS_LOG_ASSERT(array_len(threadpools_g) == 1, "assuming 1 ConcurrentSearch pool");
+  return redisearch_thpool_get_stats(threadpools_g[0]);
 }

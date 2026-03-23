@@ -15,9 +15,10 @@ build_utils = { path = "../../build_utils" }
 [dependencies]
 lending-iterator.workspace = true
 libc.workspace = true
-low_memory_thin_vec.workspace = true
+thin_vec.workspace = true
 trie_rs = { workspace = true }
 wildcard = { workspace = true }
+workspace_hack.workspace = true
 
 [dev-dependencies]
 redis_mock.workspace = true

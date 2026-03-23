@@ -21,6 +21,7 @@
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
+#include "query_error.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -167,7 +168,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(specForOpeningIndexes, fs, DONT_CREATE_INDEX);
+      // Cast is safe: OpenGeometryIndex only mutates fs when create_if_missing is true.
+      const GeometryIndex *idx = OpenGeometryIndex((FieldSpec *)fs, DONT_CREATE_INDEX);
       if (idx) {
         const GeometryApi *api = GeometryApi_Get(idx);
         geom_idx_sz += api->report(idx);
@@ -249,9 +251,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
-  REPLY_KVINT("num_docs", sp->stats.numDocuments);
+  REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
   REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
-  REPLY_KVINT("num_terms", sp->stats.numTerms);
+  REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
@@ -273,7 +275,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     tags_overhead, text_overhead, vector_indexes_size) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
-              (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
+              (float)sp->stats.numRecords / (float)sp->stats.scoring.numDocuments);
   REPLY_KVNUM("bytes_per_record_avg",
               (float)sp->stats.invertedSize / (float)sp->stats.numRecords);
   REPLY_KVNUM("offsets_per_term_avg",
@@ -324,8 +326,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
-    const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs, specForOpeningIndexes, obfuscate);
+    FieldSpec *fs = &sp->fields[i];
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
     FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
     FieldSpecInfo_Clear(&info);
   }
@@ -343,7 +345,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   CurrentThread_SetIndexSpec(sp->own_ref);
   const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));

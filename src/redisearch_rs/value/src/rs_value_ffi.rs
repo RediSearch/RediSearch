@@ -7,52 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::marker::PhantomData;
+use std::ops::Deref;
+use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, slice};
 
-/// A trait that defines the behavior of a RediSearch RSValue.
-///
-/// The trait is temporary until we have a proper Rust port of the RSValue type.
-///
-/// This trait is used to create, manipulate, and free RSValue instances. It can be implemented
-/// as a mock type for testing purposes, and by a new-type in the ffi layer to interact with the
-/// C API.
-pub trait RSValueTrait: Clone
-where
-    Self: Sized,
-{
-    /// Creates a new RSValue instance which is null
-    fn create_null() -> Self;
+pub struct RSValueFFIRef<'a>(ManuallyDrop<RSValueFFI>, PhantomData<&'a ffi::RSValue>);
 
-    /// Creates a new RSValue instance with a string value.
-    fn create_string(s: String) -> Self;
+impl Deref for RSValueFFIRef<'_> {
+    type Target = RSValueFFI;
 
-    /// Creates a new RSValue instance with a number (double) value.
-    fn create_num(num: f64) -> Self;
-
-    /// Creates a new RSValue instance that is a reference to the given value.
-    fn create_ref(value: Self) -> Self;
-
-    /// Checks if the RSValue is null
-    fn is_null(&self) -> bool;
-
-    /// gets a reference to the RSValue instance, if it is a reference type or None.
-    fn get_ref(&self) -> Option<&Self>;
-
-    /// gets the string slice of the RSValue instance, if it is a string type or None otherwise.
-    fn as_str(&self) -> Option<&str>;
-
-    /// gets the number (double) value of the RSValue instance, if it is a number type or None otherwise.
-    fn as_num(&self) -> Option<f64>;
-
-    /// gets the type of the RSValue instance, it either null, string, number, or reference.
-    fn get_type(&self) -> ffi::RSValueType;
-
-    /// returns true if the RSValue is stored as a pointer on the heap (the C implementation)
-    fn is_ptr_type() -> bool;
-
-    /// returns the approximate memory size of the RSValue instance.
-    fn mem_size() -> usize {
-        std::mem::size_of::<Self>()
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -65,22 +30,11 @@ where
 #[repr(transparent)]
 pub struct RSValueFFI(NonNull<ffi::RSValue>);
 
-impl RSValueFFI {
-    /// Constructs an `RSValueFFI` from a raw pointer.
-    ///
-    /// # Safety
-    ///
-    /// 1. The `ptr` must be a [valid] pointer to a [`ffi::RSValue`].
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub const unsafe fn from_raw(ptr: NonNull<ffi::RSValue>) -> Self {
-        Self(ptr)
-    }
-
-    pub const fn as_ptr(&self) -> *mut ffi::RSValue {
-        self.0.as_ptr()
-    }
-}
+// const assertion to ensure that the layout of `RSValueFFI` is AND STAYS the same as `*mut ffi::RSValue`
+const _: () = {
+    assert!(size_of::<RSValueFFI>() == size_of::<*mut ffi::RSValue>());
+    assert!(align_of::<RSValueFFI>() == align_of::<*mut ffi::RSValue>());
+};
 
 // Clone is used to increment the reference count of the underlying C struct.
 impl Clone for RSValueFFI {
@@ -99,110 +53,191 @@ impl Drop for RSValueFFI {
     }
 }
 
-impl RSValueTrait for RSValueFFI {
-    fn create_null() -> Self {
+impl RSValueFFI {
+    /// Constructs an `RSValueFFI` from a raw pointer.
+    ///
+    /// # Safety
+    ///
+    /// 1. The `ptr` must be a [valid] pointer to a [`ffi::RSValue`].
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub const unsafe fn from_raw(ptr: NonNull<ffi::RSValue>) -> Self {
+        Self(ptr)
+    }
+
+    pub const fn as_ptr(&self) -> *mut ffi::RSValue {
+        self.0.as_ptr()
+    }
+
+    pub fn ptr_eq(this: &Self, other: &Self) -> bool {
+        this.0 == other.0
+    }
+
+    pub fn null_static() -> Self {
         // Safety: RSValue_NullStatic returns an immutable global ptr
         let val = unsafe { ffi::RSValue_NullStatic() };
         RSValueFFI(NonNull::new(val).expect("RSValue_NullStatic returned a null pointer"))
     }
 
-    fn create_string(_: String) -> Self {
-        // This method gets a Rust String which is not directly compatible with the C side
-        // and we don't want to implement the conversion here.
-        panic!("create_string is not implemented for RSValueFFI");
-        // The C side, i.e. the function `RSSortingVector_PutStr`
-        // uses `RSSortingVector::try_insert_val` to insert a pre-created value.
-    }
-
-    fn create_num(num: f64) -> Self {
+    pub fn new_num(num: f64) -> Self {
         // Safety: RSValue_FromDouble expects a valid double value.
         let num = unsafe { ffi::RSValue_NewNumber(num) };
         RSValueFFI(NonNull::new(num).expect("RSValue_NewNumber returned a null pointer"))
     }
 
-    fn create_ref(value: Self) -> Self {
-        RSValueFFI(value.0)
+    pub fn new_string(str: Vec<u8>) -> Self {
+        let len = str.len();
+        assert!(len <= u32::MAX as usize);
+        // Safety: RSValue_NewString receives a valid C string pointer (1) and length
+        let value = unsafe { ffi::RSValue_NewCopiedString(str.as_ptr().cast(), len as u32) };
+
+        Self(NonNull::new(value).expect("RSValue_NewCopiedString returned a null pointer"))
     }
 
-    fn is_null(&self) -> bool {
+    pub fn new_array(
+        values: impl IntoIterator<IntoIter: ExactSizeIterator, Item = RSValueFFI>,
+    ) -> Self {
+        let iter = values.into_iter();
+        let len = u32::try_from(iter.len()).unwrap();
+
+        // Safety: RSValue_NewArrayBuilder allocates memory for `len` RSValue pointers
+        let builder = NonNull::new(unsafe { ffi::RSValue_NewArrayBuilder(len) })
+            .expect("RSValue_AllocateArray returned null pointer");
+
+        for (i, value) in iter.enumerate() {
+            // Safety: `arr` was allocated for `len` elements, and `i < len`
+            let ptr = unsafe { builder.add(i) };
+            // Safety: we allocated the array above
+            unsafe {
+                ptr.write(value.as_ptr());
+            }
+
+            // Prevent the RSValueFFI from decrementing the refcount when dropped,
+            // as ownership is transferred to the array.
+            std::mem::forget(value);
+        }
+
+        // Safety: RSValue_NewArray takes ownership of the `arr` pointer
+        let value = unsafe { ffi::RSValue_NewArrayFromBuilder(builder.as_ptr(), len) };
+
+        Self(NonNull::new(value).expect("RSValue_NewArray returned a null pointer"))
+    }
+
+    pub fn new_map(
+        entries: impl IntoIterator<IntoIter: ExactSizeIterator, Item = (RSValueFFI, RSValueFFI)>,
+    ) -> Self {
+        let iter = entries.into_iter();
+        let len = u32::try_from(iter.len()).unwrap();
+
+        // Safety: RSValueMap_AllocUninit allocates memory for `len` RSValueMapEntry structs
+        let builder = NonNull::new(unsafe { ffi::RSValue_NewMapBuilder(len) })
+            .expect("RSValue_AllocateArray returned null pointer");
+
+        for (i, (key, value)) in iter.enumerate() {
+            // Safety: `map` was allocated for `len` entries, and `i < len`
+            unsafe {
+                ffi::RSValue_MapBuilderSetEntry(builder.as_ptr(), i, key.as_ptr(), value.as_ptr());
+            }
+            // Prevent the RSValueFFI from decrementing the refcount when dropped,
+            // as ownership is transferred to the map.
+            std::mem::forget(key);
+            std::mem::forget(value);
+        }
+
+        // Safety: RSValue_NewMap takes ownership of the `map`
+        let value = unsafe { ffi::RSValue_NewMapFromBuilder(builder.as_ptr()) };
+
+        Self(NonNull::new(value).expect("RSValue_NewMap returned a null pointer"))
+    }
+
+    pub fn new_trio(left: RSValueFFI, middle: RSValueFFI, right: RSValueFFI) -> Self {
+        // Safety: RSValue_NewTrio takes ownership of all three values
+        let value = unsafe { ffi::RSValue_NewTrio(left.as_ptr(), middle.as_ptr(), right.as_ptr()) };
+        // Prevent the RSValueFFI from decrementing the refcount when dropped,
+        // as ownership is transferred to the trio.
+        std::mem::forget(left);
+        std::mem::forget(middle);
+        std::mem::forget(right);
+
+        Self(NonNull::new(value).expect("RSValue_NewTrio returned a null pointer"))
+    }
+
+    pub fn get_type(&self) -> ffi::RSValueType {
+        // Safety: self.0 is a valid pointer to an RSValue struct which RSValue_Type expects.
+        unsafe { ffi::RSValue_Type(self.0.as_ptr()) }
+    }
+
+    pub fn is_null(&self) -> bool {
         // Safety: RSValue_NullStatic returns an immutable global ptr
         self.0.as_ptr() == unsafe { ffi::RSValue_NullStatic() }
     }
 
-    fn get_ref(&self) -> Option<&Self> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        if p._t() == ffi::RSValueType_RSValueType_Reference {
-            // Safety: We tested that the type is a reference, so we access it over the union safely.
-            let ref_ptr = unsafe { p.__bindgen_anon_1._ref };
-
-            // Safety: We assume that a valid pointer is given by the C side
-            Some(unsafe { &*(ref_ptr as *const RSValueFFI) })
+    pub fn as_num(&self) -> Option<f64> {
+        if self.get_type() == ffi::RSValueType_RSValueType_Number {
+            // Safety: we checked the RSValue to be a number above.
+            let value = unsafe { ffi::RSValue_Number_Get(self.0.as_ptr()) };
+            Some(value)
         } else {
             None
         }
     }
 
-    fn as_str(&self) -> Option<&str> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        if p._t() == ffi::RSValueType_RSValueType_String {
+    pub fn as_str_bytes(&self) -> Option<&[u8]> {
+        if self.get_type() == ffi::RSValueType_RSValueType_String {
+            let mut len: u32 = 0;
             // Safety: We tested that the type is a string, so we access it over the union safely.
-            let c_str: *mut c_char = unsafe { p.__bindgen_anon_1._strval }.str_;
+            let cstr: *const c_char =
+                unsafe { ffi::RSValue_String_Get(self.0.as_ptr(), &mut len as *mut _) };
 
-            // Safety: We assume that a valid C string is generated by the C side (valid and null-terminated).
-            Some(unsafe { std::ffi::CStr::from_ptr(c_str).to_str().unwrap() })
+            // Safety: We assume the returned char pointer and associated len are valid.
+            Some(unsafe { slice::from_raw_parts(cstr.cast(), len as usize) })
         } else {
             None
         }
     }
 
-    fn as_num(&self) -> Option<f64> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        if p._t() == ffi::RSValueType_RSValueType_Number {
-            // Safety: We tested that the type is a number, so we access it over the union safely.
-            Some(unsafe { p.__bindgen_anon_1._numval })
-        } else {
-            None
-        }
+    pub fn deep_deref(&self) -> RSValueFFIRef<'_> {
+        // Safety: self.0 is a valid pointer to an RSValue struct.
+        let deref_ptr = unsafe { ffi::RSValue_Dereference(self.0.as_ptr()) };
+        // Safety: deref_ptr is a valid pointer to an RSValue struct returned by RSValue_Dereference.
+        let self_ = unsafe { RSValueFFI::from_raw(NonNull::new(deref_ptr).unwrap()) };
+        RSValueFFIRef(ManuallyDrop::new(self_), PhantomData)
     }
 
-    fn get_type(&self) -> ffi::RSValueType {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        p._t()
+    pub fn mem_size() -> usize {
+        // Safety: Simply reading out a constant
+        unsafe { ffi::RSValueSize }
     }
 
-    fn is_ptr_type() -> bool {
-        // Returns true if the RSValue is stored as a pointer on the heap (the C implementation).
-        true
-    }
-
-    fn mem_size() -> usize {
-        // The size of the RSValue struct in C is fixed, so we can use the size of the FFI struct.
-        std::mem::size_of::<ffi::RSValue>()
+    pub fn refcount(&self) -> u16 {
+        // Safety: self.0 is a valid pointer to an RSValue struct.
+        unsafe { ffi::RSValue_Refcount(self.0.as_ptr()) }
     }
 }
 
 impl std::fmt::Debug for RSValueFFI {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_ref() };
-        match p._t() {
+        write!(f, "RSValueFFI::")?;
+
+        match self.get_type() {
             ffi::RSValueType_RSValueType_String => {
                 // Safety: We just checked the union type.
-                let c_str: *mut c_char = unsafe { p.__bindgen_anon_1._strval }.str_;
+                let str_val = self.as_str_bytes().unwrap();
                 // Safety: We assume that a valid C string is generated by the C side (valid and null-terminated).
-                let str_val = unsafe { std::ffi::CStr::from_ptr(c_str).to_str().unwrap() };
-                write!(f, "String({})", str_val)
+                let str_val = str::from_utf8(str_val).unwrap();
+                write!(f, "String({str_val})")
             }
             ffi::RSValueType_RSValueType_Number => {
                 // Safety: We just checked the union type.
-                let num_val = unsafe { p.__bindgen_anon_1._numval };
-                write!(f, "Number({})", num_val)
+                let num_val = self.as_num().unwrap();
+                write!(f, "Number({num_val})")
             }
-            _ => write!(f, "Unknown value type: {}", p._t()),
+            ffi::RSValueType_RSValueType_Null => {
+                write!(f, "Null")
+            }
+            unknown_type => {
+                write!(f, "Unknown(<type> {unknown_type})")
+            }
         }
     }
 }

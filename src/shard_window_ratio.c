@@ -9,11 +9,29 @@
 
 #include "shard_window_ratio.h"
 #include "param.h"
+#include "util/strconv.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include "vector_index.h"
+
+bool validateShardKRatio(const char *value, double *ratio, QueryError *status) {
+  if (!ParseDouble(value, ratio, 1)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+      "Invalid shard k ratio value", " '%s'", value);
+    return false;
+  }
+
+  if (*ratio <= MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+      "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
+      MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
+    return false;
+  }
+
+  return true;
+}
 
 void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK, VectorQuery *vq) {
     // Get original K value from the VectorQuery
@@ -32,4 +50,14 @@ void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK,
 
     // Replace just the K value substring at the exact position
     MRCommand_ReplaceArgSubstring(cmd, query_arg_index, k_pos, k_len, effectiveK_str, newK_len);
+}
+
+void modifyVsimKNN(MRCommand *cmd, int kArgIndex, size_t effectiveK, size_t originalK) {
+    // Fast path: No modification needed if K values are the same
+    if (originalK == effectiveK) {
+        return;
+    }
+    char effectiveK_str[32];
+    size_t newK_len = snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
+    MRCommand_ReplaceArg(cmd, kArgIndex, effectiveK_str, newK_len);
 }

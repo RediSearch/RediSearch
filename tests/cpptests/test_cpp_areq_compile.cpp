@@ -17,6 +17,7 @@
 #include "rmalloc.h"
 #include "module.h"
 #include "redismodule.h"
+#include "asm_state_machine.h"
 
 #include <vector>
 #include <cstring>
@@ -24,15 +25,34 @@
 class AREQTest : public ::testing::Test {
 protected:
     RedisModuleCtx* ctx = nullptr;
+    RedisModuleSlotRangeArray* local_slots = nullptr;
 
     void SetUp() override {
         ctx = RedisModule_GetThreadSafeContext(NULL);
+        ASM_StateMachine_Init();
+        local_slots = createSlotRangeArray(0, 16383);
+        ASM_StateMachine_SetLocalSlots(local_slots);
+        // Just assume all slots are local for testing
     }
 
     void TearDown() override {
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
+            ASM_StateMachine_End();
         }
+        if (local_slots) {
+            rm_free(local_slots);
+        }
+    }
+
+    // Helper function to create a RedisModuleSlotRangeArray for testing
+    RedisModuleSlotRangeArray* createSlotRangeArray(uint16_t start, uint16_t end) {
+        size_t array_size = sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange);
+        RedisModuleSlotRangeArray* array = (RedisModuleSlotRangeArray*)rm_malloc(array_size);
+        array->num_ranges = 1;
+        array->ranges[0].start = start;
+        array->ranges[0].end = end;
+        return array;
     }
 
     // Helper function to create binary slot range data using the Serialization API
@@ -111,7 +131,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
+    int result = AREQ_Compile(req, argv.data(), argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error for: " << test_data.description;
@@ -138,7 +158,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }
 
 // Test data for parameterized tests - includes ranges that create null bytes in binary data
@@ -146,22 +166,18 @@ INSTANTIATE_TEST_SUITE_P(
     BinarySlotRangeVariations,
     AREQBinarySlotRangeTest,
     ::testing::Values(
-        // Original test case - standard cluster ranges
-        SlotRangeTestData{{{0, 5460}, {5461, 10922}, {10923, 16383}}, "standard_cluster_ranges"},
-
-        // Single range
+        // Original test case - single_full_range
         SlotRangeTestData{{{0, 16383}}, "single_full_range"},
 
-        // Ranges with null bytes in binary representation
-        // Range 0-0 creates 0x0000 0x0000 in binary (4 null bytes)
-        SlotRangeTestData{{{0, 0}, {1, 1}}, "ranges_with_zero_slots"},
+        // Original test case - standard cluster ranges
+        SlotRangeTestData{{{0, 5460}, {5462, 10922}, {10924, 16383}}, "almost_full_range"},
 
-        // Ranges with null bytes in binary representation
-        // Range 0-0 creates 0x0000 0x0000 in binary (4 null bytes)
-        SlotRangeTestData{{{1, 1}, {0, 0}}, "ranges_with_zero_slots"},
+        // Single range
+        SlotRangeTestData{{{0, 5460}}, "single_partial_range"},
+
 
         // Range 0-255 creates 0x0000 0x00FF in binary (2 null bytes at start)
-        SlotRangeTestData{{{0, 255}, {256, 511}}, "ranges_starting_with_zero"},
+        SlotRangeTestData{{{0, 254}, {256, 511}}, "ranges_starting_with_zero"},
 
         // Range 256-256 creates 0x0100 0x0100 in binary (null byte in middle)
         SlotRangeTestData{{{256, 256}, {512, 512}}, "ranges_with_embedded_nulls"},
@@ -176,7 +192,7 @@ INSTANTIATE_TEST_SUITE_P(
         SlotRangeTestData{{{0, 256}, {512, 768}, {1024, 1280}}, "ranges_creating_null_sequences"},
 
         // Small ranges with potential null bytes
-        SlotRangeTestData{{{0, 1}, {2, 3}, {4, 5}}, "small_consecutive_ranges"},
+        SlotRangeTestData{{{0, 1}, {3, 4}, {6, 7}}, "small_ranges_with_null_potential"},
 
         // Ranges where end values create null bytes (e.g., 256 = 0x0100)
         SlotRangeTestData{{{100, 256}, {300, 512}, {600, 768}}, "ranges_ending_with_null_patterns"}
@@ -205,7 +221,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
+    int result = AREQ_Compile(req, argv.data(), argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
@@ -221,7 +237,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }
 
 // Test error handling for insufficient arguments
@@ -240,7 +256,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
 
     // Test AREQ_Compile - should fail due to insufficient arguments
-    int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
+    int result = AREQ_Compile(req, argv.data(), argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_ERR) << "AREQ_Compile should fail with insufficient arguments";
     EXPECT_TRUE(QueryError_HasError(&status)) << "Should have query error";
@@ -250,7 +266,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }
 
 // Test complex aggregate query with cursor, scorer, and slot ranges
@@ -282,7 +298,7 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
     argv.push_back(RedisModule_CreateString(ctx, "@__score", 8));
 
     // Test AREQ_Compile
-    int result = AREQ_Compile(req, argv.data(), argv.size(), &status);
+    int result = AREQ_Compile(req, argv.data(), argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
@@ -298,5 +314,5 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
         RedisModule_FreeString(ctx, str);
     }
     QueryError_ClearError(&status);
-    AREQ_Free(req);
+    AREQ_DecrRef(req);
 }

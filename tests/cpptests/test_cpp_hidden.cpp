@@ -151,7 +151,7 @@ TEST_F(HiddenTest, testHiddenDropFromKeySpace) {
     RedisModule_FreeCallReply(reply);
 
     HiddenString *name = NewHiddenString(key, strlen(key), true);
-    HiddenString_DropFromKeySpace(ctx, key, name);
+    HiddenString_LegacyDropFromKeySpace(ctx, key, name);
     ASSERT_EQ(RedisModule_Call(ctx, "GET", "ss", redisKey), noReply);
     RedisModule_FreeString(ctx, redisKey);
     HiddenString_Free(name, true);

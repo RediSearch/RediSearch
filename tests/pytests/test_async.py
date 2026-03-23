@@ -37,27 +37,32 @@ def testDeleteIndex(env):
     r.expect('ft.create', 'idx', 'ON', 'HASH', 'ASYNC', 'schema', 'name', 'text').ok()
     r.expect('ft.drop', 'idx').ok()
 
-    r.expect('ft.info', 'idx').contains('no such index')
+    r.expect('ft.info', 'idx').contains('SEARCH_INDEX_NOT_FOUND Index not found')
     # time.sleep(1)
 
 
-def test_mod4745(env):
+def test_yield_while_bg_indexing_mod4745(env):
     conn = getConnectionByEnv(env)
-    r = env
-    # Create an index with large dim so that a single indexing operation will take a long time
-    N = 1000 * env.shardsCount
-    dim = 30000
-    for i in range(N):
-        res = conn.execute_command('hset', 'foo:%d' % i, 'name', f'some string with information to index in the '
-                                                                 f'background later on for id {i}',
-                                   'v', create_np_array_typed(np.random.random((1, dim))).tobytes())
-        env.assertEqual(res, 2)
+    # Create an index in which each shard has > 1000 docs.
+    n = 1010 * env.shardsCount
+    for i in range(n):
+        res = conn.execute_command('hset', f'doc:{i}', 'name', f'hello world')
+        env.assertEqual(res, 1)
 
-    r.expect('ft.create', 'idx', 'schema', 'name', 'text', 'v', 'VECTOR', 'HNSW', '6', 'distance_metric', 'l2', 'DIM',
-             dim, 'type', 'float32').ok()
-    # Make sure we are getting here without having cluster mark itself as fail since the server is not responsive and
-    # fail to send cluster PING on time before we reach cluster-node-timeout.
-    waitForIndex(r, 'idx')
+    # Baseline - zero yields before index has created.
+    env.assertEqual(run_command_on_all_shards(env, debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
+                    [0]*env.shardsCount)
+    env.expect('ft.create', 'idx', 'schema', 'name', 'text').ok()
+    allShards_waitForIndexFinishScan(env)
+    # Validate that we yielded at least once (we should after every 100 bg indexing iterations).
+    # The background scan in Redis may scan keys more than once (see RM_Scan() docs), so we assert that each shard
+    # yields *at least* once for each 100 documents.
+    for shard in env.getOSSMasterNodesConnectionList():
+        env.assertGreaterEqual(shard.execute_command(debug_cmd(), 'YIELDS_COUNTER', 'BG_INDEX'),
+                               int((n/env.shardsCount) // 100))
+    # The yield mechanism was introduced is to make sure cluster will not mark itself as fail since the server is not
+    # responsive and fail to send cluster PING on time before we reach cluster-node-timeout. Every time we yield, we
+    # give the main thread a chance to reply to PINGs.
 
 def test_eval_node_errors_async():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 1 ON_TIMEOUT FAIL')
@@ -84,7 +89,7 @@ def test_eval_node_errors_async():
                   f' index\'s expected size ({dim*4}).')
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10000000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_docs,
                'PARAMS', 2, 'vec_param', create_np_array_typed([0]*dim).tobytes(),
-               'TIMEOUT', 1).error().equal('Timeout limit was reached')
+               'TIMEOUT', 1).error().equal('SEARCH_TIMEOUT Timeout limit was reached')
 
     # This error is caught during building the implicit pipeline (also should occur in BG thread)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v}', 'timeout', 0, 'PARAMS', '2', 'b',

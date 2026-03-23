@@ -88,7 +88,9 @@ static bool spellCheckReplySanity_resp2(MRReply *reply, uint64_t *totalDocNum, Q
   int type = MRReply_Type(reply);
 
   if (type == MR_REPLY_ERROR) {
-    QueryError_SetError(qerr, QUERY_ERROR_CODE_GENERIC, MRReply_String(reply, NULL));
+    // Shard reply already contains the prefixed error string — set directly.
+    QueryError_SetCode(qerr, QUERY_ERROR_CODE_GENERIC);
+    QueryError_SetDetail(qerr, MRReply_String(reply, NULL));
     return false;
   }
 
@@ -114,7 +116,9 @@ static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, Q
   int type = MRReply_Type(reply);
 
   if (type == MR_REPLY_ERROR) {
-    QueryError_SetError(qerr, QUERY_ERROR_CODE_GENERIC, MRReply_String(reply, NULL));
+    // Shard reply already contains the prefixed error string — set directly.
+    QueryError_SetCode(qerr, QUERY_ERROR_CODE_GENERIC);
+    QueryError_SetDetail(qerr, MRReply_String(reply, NULL));
     return false;
   }
 
@@ -304,11 +308,13 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
     }
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Array(reply);
-    spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
-  RedisModule_Reply_ArrayEnd(reply);
-  RedisModule_EndReply(reply);
+  {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    RedisModule_Reply_Array(reply);
+      spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_EndReply(reply);
+  }
 
 finish:
   spellcheckReducerCtx_Free(spellcheckCtx);
@@ -370,12 +376,14 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
     }
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Map(reply);
-    RedisModule_Reply_SimpleString(reply, "results");
-    spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
-  RedisModule_Reply_MapEnd(reply);
-  RedisModule_EndReply(reply);
+  {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    RedisModule_Reply_Map(reply);
+      RedisModule_Reply_SimpleString(reply, "results");
+      spellCheckSendResult(reply, spellcheckCtx, totalDocNum);
+    RedisModule_Reply_MapEnd(reply);
+    RedisModule_EndReply(reply);
+  }
 
 finish:
   spellcheckReducerCtx_Free(spellcheckCtx);

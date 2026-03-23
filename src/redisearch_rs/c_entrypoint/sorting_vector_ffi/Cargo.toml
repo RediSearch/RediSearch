@@ -5,11 +5,18 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[lib]
+# This crate has no tests nor benches.
+# Compiling a no-op bench/test binary can cause linking issues with C.
+test = false
+bench = false
+
 [dependencies]
 ffi.workspace = true
 libc.workspace = true
 sorting_vector.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
+workspace_hack.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

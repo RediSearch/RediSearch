@@ -14,6 +14,7 @@
 #include "result_processor.h"
 #include "rmutil/args.h"
 #include "rmalloc.h"
+#include "search_disk_utils.h"
 
 // Debug parameters structure for hybrid queries
 typedef struct {
@@ -208,14 +209,21 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   cmd.hybridParams = &hybridParams;
   cmd.tailPlan = &hreq->tailPipeline->ap;
   cmd.reqConfig = &hreq->reqConfig;
+  cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
-  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false);
+  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
-    HybridRequest_Free(hreq);
+    HybridRequest_DecrRef(hreq);
     return NULL;
+  }
+
+  SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
+  for (int i = 0; i < hreq->nrequests; i++) {
+    AREQ *subquery = hreq->requests[i];
+    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
   }
 
   // Set request flags from hybridParams
@@ -224,7 +232,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
     if (hybridParams.scoringCtx) {
       HybridScoringContext_Free(hybridParams.scoringCtx);
     }
-    HybridRequest_Free(hreq);
+    HybridRequest_DecrRef(hreq);
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline");
     return NULL;
   }
@@ -242,7 +250,7 @@ static void HybridRequest_Debug_Free(HybridRequest_Debug *debug_req) {
   }
 
   if (debug_req->hreq) {
-    HybridRequest_Free(debug_req->hreq);
+    HybridRequest_DecrRef(debug_req->hreq);
   }
 
   rm_free(debug_req);
@@ -253,13 +261,16 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return RedisModule_WrongArity(ctx);
   }
 
+  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
+    return REDISMODULE_OK;
+  }
   QueryError status = QueryError_Default();
 
   // Get index name and create search context (same pattern as regular hybridCommandHandler)
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "No such index", " %s", indexname);
+    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 

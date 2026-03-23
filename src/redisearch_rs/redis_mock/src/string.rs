@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 
 /// Mock implementation of RedisModuleString from redismodule.h for testing purposes.
 #[derive(Default, Copy, Clone)]
@@ -22,10 +22,10 @@ pub(crate) struct UserString {
 /// Safety:
 /// 1. ptr must be a valid pointer to a C string of length len.
 #[unsafe(export_name = "_RedisModule_CreateString.1")]
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_CreateString(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
-    ptr: *const ::std::os::raw::c_char,
+    ptr: *const ::std::ffi::c_char,
     len: usize,
 ) -> *mut redis_module::raw::RedisModuleString {
     let val = Box::new(UserString {
@@ -40,11 +40,11 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateString(
 /// Safety:
 /// 1. s must be a valid pointer to a RedisModuleString created by this mock implementation.
 /// 2. len must be a valid pointer to a usize.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_StringPtrLen(
     s: *const redis_module::raw::RedisModuleString,
     len: *mut usize,
-) -> *const ::std::os::raw::c_char {
+) -> *const ::std::ffi::c_char {
     // Safety: we know we're using UserString here (1)
     let s = unsafe { &*(s.cast::<UserString>()) };
     // Safety: Caller provides valid len pointer (2)
@@ -59,11 +59,79 @@ pub(crate) unsafe extern "C" fn RedisModule_StringPtrLen(
 /// Safety:
 /// 1. s must be a valid pointer to a RedisModuleString created by this mock
 /// 2. The function must not be called more than once for the same string.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub(crate) unsafe extern "C" fn RedisModule_FreeString(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
     s: *mut redis_module::raw::RedisModuleString,
 ) {
     // Safety: we own the memory (1) and the caller promised to call this only once (2)
     drop(unsafe { Box::from_raw(s.cast::<UserString>()) });
+}
+
+/// Mock implementation of RedisModule_Strdup from redismodule.h for testing purposes.
+///
+/// # Safety
+/// 1. `s` must be a valid pointer to a NULL-terminated string.
+#[expect(non_snake_case)]
+pub unsafe extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
+    if s.is_null() {
+        std::ptr::null_mut()
+    } else {
+        // Safety: s is a valid pointer to a NULL-terminated string (1).
+        let c_str = unsafe { CStr::from_ptr(s) };
+        // Need an extra byte for null terminator
+        let len = c_str.count_bytes() + 1;
+        // Allocate memory using the mock allocator
+        let out = crate::allocator::alloc_shim(len) as *mut c_char;
+        assert!(!out.is_null());
+
+        // Safety:
+        // - 1. ensures the source is valid.
+        // - we just allocated the destination memory.
+        unsafe {
+            std::ptr::copy_nonoverlapping(s, out, len);
+        }
+
+        out
+    }
+}
+
+/// Mock implementation of RedisModule_TrimStringAllocation from redismodule.h for testing purposes.
+#[expect(non_snake_case)]
+pub(crate) const unsafe extern "C" fn RedisModule_TrimStringAllocation(
+    _s: *mut redis_module::raw::RedisModuleString,
+) {
+    // no-op we do not need to trim in tests.
+}
+
+/// Mock implementation of RedisModule_HoldString from redismodule.h for testing purposes.
+///
+/// Safety:
+/// 1. s must be a valid pointer to a RedisModuleString created by this mock
+#[expect(non_snake_case)]
+pub(crate) unsafe extern "C" fn RedisModule_HoldString(
+    _ctx: *mut redis_module::raw::RedisModuleCtx,
+    s: *mut redis_module::raw::RedisModuleString,
+) -> *mut redis_module::raw::RedisModuleString {
+    // Safety: we know we're using UserString here (1)
+    let s = unsafe { &*(s.cast::<UserString>()) };
+    let val = Box::new(*s);
+    Box::into_raw(val).cast()
+}
+
+/// Mock implementation of RedisModule_CreateStringPrintf from redismodule.h for testing purposes.
+///
+/// Safety:
+/// 1. fmt must be a valid pointer to a NULL-terminated C string.
+#[expect(non_snake_case)]
+pub(crate) unsafe extern "C" fn RedisModule_CreateStringPrintf(
+    ctx: *mut redis_module::raw::RedisModuleCtx,
+    fmt: *const c_char,
+) -> *mut redis_module::raw::RedisModuleString {
+    // Safety: 1. ensures fmt is a valid pointer to a NULL-terminated C string.
+    let c_str = unsafe { CStr::from_ptr(fmt) };
+
+    // C variadic are not stable so we cannot actually format the string.
+    // Safety: 1. ensures fmt is a valid pointer and we counting the bytes to pass the proper length.
+    unsafe { RedisModule_CreateString(ctx, fmt, c_str.count_bytes()) }
 }

@@ -65,6 +65,7 @@
 #define VECSIM_LEANVEC_8X8 "LeanVec8x8"
 #define VECSIM_TRAINING_THRESHOLD "TRAINING_THRESHOLD"
 #define VECSIM_REDUCED_DIM "REDUCE"
+#define VECSIM_RERANK "RERANK"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
@@ -146,7 +147,7 @@ typedef struct VecSimLogCtx {
     const char *index_field_name;  // should point to the field_spec name string.
 } VecSimLogCtx;
 
-VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
+VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fs, bool create_if_missing);
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
@@ -162,6 +163,7 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode);
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
@@ -182,14 +184,15 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
 
-int VecSim_CallTieredIndexesGC(WeakRef spRef);
+bool VecSim_CallTieredIndexesGC(WeakRef spRef);
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
-                                                          bool yields_metric);
+                                                          bool yields_metric,
+                                                          bool sorted_by_id);
 #ifdef __cplusplus
 }
 #endif

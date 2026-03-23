@@ -9,12 +9,13 @@
 
 use super::TrieMap;
 use lending_iterator::LendingIterator as _;
+use libc::size_t;
 use std::ffi::{c_char, c_int, c_void};
 use trie_rs::iter::{RangeBoundary, RangeFilter, RangeLendingIter};
 
 /// Callback type for passing to [`TrieMap_IterateRange`].
 pub type TrieMapRangeCallback =
-    Option<unsafe extern "C" fn(*const c_char, libc::size_t, *mut c_void, *mut c_void)>;
+    Option<unsafe extern "C" fn(*const c_char, size_t, *mut c_void, *mut c_void)>;
 
 /// Iterate the trie within the specified key range.
 ///

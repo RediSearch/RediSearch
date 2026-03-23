@@ -5,6 +5,12 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[lib]
+# This crate has no tests nor benches.
+# Compiling a no-op bench/test binary can cause linking issues with C.
+test = false
+bench = false
+
 [lints]
 workspace = true
 
@@ -13,4 +19,6 @@ cbindgen.workspace = true
 build_utils = { path = "../../build_utils" }
 
 [dependencies]
+field.workspace = true
 inverted_index.workspace = true
+workspace_hack.workspace = true

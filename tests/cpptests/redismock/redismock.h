@@ -27,6 +27,7 @@ std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx
 
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage();
+std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
 
 extern "C" {
 #else
@@ -64,6 +65,8 @@ RedisModuleString *RMCK_LoadString(RedisModuleIO *io);
 char *RMCK_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr);
 int RMCK_IsIOError(RedisModuleIO *io);
 RedisModuleCtx *RMCK_GetContextFromIO(RedisModuleIO *io);
+int RMCK_StringToULongLong(const RedisModuleString *str, unsigned long long *ull);
+
 
 #ifdef __cplusplus
 }

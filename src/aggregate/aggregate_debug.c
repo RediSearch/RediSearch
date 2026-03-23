@@ -8,6 +8,7 @@
 */
 #include "aggregate_debug.h"
 #include "module.h"
+#include "result_processor.h"
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
@@ -52,7 +53,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, debug_argv, debug_params_count);
   ArgsCursor timeoutArgs = {0};
-  int crash = 0;
+  int crash_in_c = 0;
+  int crash_in_rust = 0;
   int internal_only = 0;
   ArgsCursor pauseBeforeArgs = {0};
   ArgsCursor pauseAfterArgs = {0};
@@ -62,8 +64,10 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
        .type = AC_ARGTYPE_SUBARGS_N,
        .target = &timeoutArgs,
        .slicelen = 1},
-      // crash at the start of the query
-      {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash},
+      // crash at the start of the query, in C code
+      {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash_in_c},
+      // crash at the start of the query, in Rust code
+      {.name = "CRASH_IN_RUST", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash_in_rust},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
       // pause after specific RP after N results
@@ -95,16 +99,25 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   }
 
   // Handle crash
-  if (crash) {
+  if (crash_in_c) {
     // Verify internal_only is not used with CRASH
     if (internal_only) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "INTERNAL_ONLY is not supported with CRASH");
       return REDISMODULE_ERR;
     }
 
-    PipelineAddCrash(&debug_req->r);
+    PipelineAddCrash(&debug_req->r, CRASH_IN_C);
   }
 
+  if (crash_in_rust) {
+    // Verify internal_only is not used with CRASH_IN_RUST
+    if (internal_only) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "INTERNAL_ONLY is not supported with CRASH_IN_RUST");
+      return REDISMODULE_ERR;
+    }
+
+    PipelineAddCrash(&debug_req->r, CRASH_IN_RUST);
+  }
 
   // Handle timeout
   if (AC_IsInitialized(&timeoutArgs)) {
@@ -113,21 +126,30 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N count");
       return REDISMODULE_ERR;
     }
+    // Debug timeout for shards is only supported in `return` policy or `fail` policy without running in background
+    if (!isClusterCoord(debug_req)) {
+      if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
+        return REDISMODULE_ERR;
+      }
+      if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0");
+        return REDISMODULE_ERR;
+      }
+    }
 
     // Check if timeout should be applied only in the shard query pipeline
     if (internal_only && isClusterCoord(debug_req)) {
-      if (results_count == 0) {
-        if (!(AREQ_RequestFlags(&debug_req->r) & QEXEC_F_IS_CURSOR)) {
-          QueryError_SetError(
-              status, QUERY_ERROR_CODE_PARSE_ARGS,
-              "INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR");
-          return REDISMODULE_ERR;
-        } else if (debug_req->r.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
-          RedisModule_Log(RSDummyContext, "debug",
-                          "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
-                          "to avoid infinite loop");
-          debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-        }
+      if (debug_req->r.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
+          // In RESP3, timeout warning from empty shard replies is now propagated (MOD-12640).
+          // In RESP2, we still need to force a timeout to avoid infinite loop.
+          if (debug_req->r.protocol != 3) {
+            RedisModule_Log(RSDummyContext, "debug",
+                            "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
+                            "to avoid infinite loop (RESP2 only)");
+            debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+            SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
+          }
       }
     } else {  // INTERNAL_ONLY was not provided, or we are not in a cluster coordinator
       // Add timeout to the pipeline

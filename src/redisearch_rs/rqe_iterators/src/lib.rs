@@ -8,15 +8,36 @@
 */
 
 use ffi::t_docId;
+use std::sync::OnceLock;
 use thiserror::Error;
 
-use ::inverted_index::RSIndexResult;
+use ::inverted_index::{RSIndexResult, t_fieldMask};
+use query_term::RSQueryTerm;
 
+pub mod c2rust;
 pub mod empty;
+pub mod expiration_checker;
 pub mod id_list;
+pub mod interop;
+pub mod intersection;
 pub mod inverted_index;
+pub mod maybe_empty;
 pub mod metric;
+pub mod not;
+pub mod optional;
+pub mod profile;
+pub mod utils;
 pub mod wildcard;
+
+pub mod util;
+
+pub use empty::Empty;
+pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
+pub use id_list::IdList;
+pub use intersection::Intersection;
+pub use inverted_index::{Missing, Numeric, Tag, Term};
+pub use metric::Metric;
+pub use wildcard::{Wildcard, WildcardIterator};
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
@@ -40,35 +61,52 @@ pub enum RQEIteratorError {
 }
 
 #[derive(Debug, PartialEq)]
-/// The status of the iterator after a call to `revalidate`
+/// The status of the iterator after a call to [`revalidate`](RQEIterator::revalidate)
 pub enum RQEValidateStatus<'iterator, 'index> {
     /// The iterator is still valid and at the same position.
     Ok,
     /// The iterator is still valid but its internal state has changed.
     Moved {
-        /// The new current current document the iterator is at, or `None` if the iterator is at EOF.
+        /// The new current document the iterator is at, or `None` if the iterator is at EOF.
         current: Option<&'iterator mut RSIndexResult<'index>>,
     },
     /// The iterator is no longer valid, and should not be used or rewound. Should be dropped.
     Aborted,
 }
 
+/// Trait providing the iterators API.
 pub trait RQEIterator<'index> {
+    /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
+    ///
+    /// Calls to [`read`](Self::read), [`skip_to`](Self::skip_to) and
+    /// [`revalidate`](Self::revalidate) (moved case) also return this reference.
+    /// Sometimes however, especially in the case of wrapper iterators, you might
+    /// not have an immediate use for the actual result, and would instead want to keep it aside
+    /// for later in time. The child iterator already has that result anyway,
+    /// and it is this method which provides the ability to expose it (for later use).
+    ///
+    /// # Usage
+    ///
+    /// Calling this method before the first [`read`](Self::read) or [`skip_to`](Self::skip_to),
+    /// or directly after [`rewind`](Self::rewind) will return a default result
+    /// without meaningful data.
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
+
     /// Read the next entry from the iterator.
     ///
-    /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
+    /// On a successful read, the iterator must set its [`last_doc_id`](Self::last_doc_id) property to the new current result id.
     /// This function returns Ok with the current result for valid results, or None if the iterator is depleted.
     /// The function will return Err(RQEIteratorError) for any error.
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
     ///
-    /// It is assumed that when `skip_to` is called, `self.lastDocId() < docId`.
+    /// It is assumed that when [`skip_to`](Self::skip_to) is called, `self.last_doc_id() < doc_id`.
     ///
-    /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
+    /// On a successful read, the iterator must set its [`last_doc_id`](Self::last_doc_id) property to the new current result id.
     ///
-    /// Return `Ok(SkipToOutcome::Found)` if the iterator has found a record with the `docId` and `Ok(SkipToOutcome::NotFound)`
-    /// if the iterator found a result greater than `docId`. 'None" will be returned if the iterator has reached the end of the index.
+    /// Return `Ok(`[`SkipToOutcome::Found`]`)` if the iterator has found a record with the `docId` and `Ok(`[`SkipToOutcome::NotFound`]`)`
+    /// if the iterator found a result greater than `docId`. `None` will be returned if the iterator has reached the end of the index.
     fn skip_to(
         &mut self,
         doc_id: t_docId,
@@ -77,12 +115,9 @@ pub trait RQEIterator<'index> {
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
     /// The iterator should check if it is still valid.
-    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Default implementation does nothing.
-        Ok(RQEValidateStatus::Ok)
-    }
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError>;
 
-    ///Rewind the iterator to the beginning and reset its properties.
+    /// Rewind the iterator to the beginning and reset its properties.
     fn rewind(&mut self);
 
     /// Returns an upper-bound estimation for the number of results the iterator is going to yield.
@@ -94,6 +129,92 @@ pub trait RQEIterator<'index> {
     fn last_doc_id(&self) -> t_docId;
 
     /// Returns `false` if the iterator can yield more results.
-    /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
+    /// The iterator implementation must ensure that [`at_eof`](Self::at_eof) returns `true`
+    /// when [`read`](Self::read) would return `Ok(None)`.
     fn at_eof(&self) -> bool;
+
+    /// Returns `true` if this iterator matches all documents.
+    fn is_wildcard(&self) -> bool {
+        false
+    }
+}
+
+// Implement RQEIterator for Box<dyn RQEIterator> to support dynamic dispatch
+impl<'index> RQEIterator<'index> for Box<dyn RQEIterator<'index> + 'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        (**self).current()
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        (**self).read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        (**self).skip_to(doc_id)
+    }
+
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        (**self).revalidate()
+    }
+
+    fn rewind(&mut self) {
+        (**self).rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        (**self).num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        (**self).last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        (**self).at_eof()
+    }
+
+    fn is_wildcard(&self) -> bool {
+        (**self).is_wildcard()
+    }
+}
+
+/// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`
+/// to get access to iterators it does not know about.
+pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterators>> =
+    OnceLock::new();
+
+/// A trait to allow SearchEnterprise to provide iterators for on-disk search. The actual
+/// implementation will provide iterators `rqe_iterators` does not know about.
+pub trait SearchEnterpriseIterators: Send + Sync {
+    /// Iterate over all the documents in the index. Each document in the iterator will have the
+    /// given weight.
+    fn new_wildcard_on_disk<'index>(
+        &self,
+        index: &'index ffi::RedisSearchDiskIndexSpec,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over all the terms in the index. Each document in the iterator will have the term
+    /// inside the given query_term and will have the given weight. The iterator will also filter
+    /// the results according to the given field mask.
+    fn new_term_on_disk<'index>(
+        &self,
+        index: &'index ffi::RedisSearchDiskIndexSpec,
+        query_term: Box<RSQueryTerm>,
+        field_mask: t_fieldMask,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
+    /// then iterator will have the given weight.
+    fn new_tag_on_disk<'index>(
+        &self,
+        index: &'index ffi::RedisSearchDiskIndexSpec,
+        token: &ffi::RSToken,
+        field_index: ffi::t_fieldIndex,
+        weight: f64,
+    ) -> Result<Box<dyn RQEIterator<'index> + 'index>, Box<dyn std::error::Error>>;
 }

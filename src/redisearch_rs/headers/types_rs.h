@@ -6,11 +6,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "low_memory_thin_vec.h"
+#include "thin_vec.h"
+#include "query_term.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
-typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
@@ -27,6 +27,20 @@ typedef uint64_t t_fieldMask;
 
 typedef struct FieldSpec FieldSpec;
 
+
+/**
+ * Field expiration predicate used when checking fields.
+ */
+typedef enum FieldExpirationPredicate {
+  /**
+   * one of the fields need to be valid.
+   */
+  FIELD_EXPIRATION_PREDICATE_DEFAULT = 0,
+  /**
+   * one of the fields need to be expired for the entry to be considered missing.
+   */
+  FIELD_EXPIRATION_PREDICATE_MISSING = 1,
+} FieldExpirationPredicate;
 
 /**
  * Filter details to apply to numeric values
@@ -73,9 +87,17 @@ typedef struct NumericFilter {
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVecRSIndexResult {
-  Header *ptr;
-} LowMemoryThinVecRSIndexResult;
+typedef struct ThinVec______RSIndexResult__u16 {
+  Header_u16 *ptr;
+} ThinVec______RSIndexResult__u16;
+
+/**
+ * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ *
+ * This is useful when you know the vector will never exceed 65,535 elements
+ * and want to minimize header overhead (4 bytes instead of 16).
+ */
+typedef struct ThinVec______RSIndexResult__u16 SmallThinVecRSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -197,16 +219,24 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVecRSIndexResultOwned {
-  Header *ptr;
-} LowMemoryThinVecRSIndexResultOwned;
+typedef struct ThinVec_____RSIndexResult__u16 {
+  Header_u16 *ptr;
+} ThinVec_____RSIndexResult__u16;
+
+/**
+ * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ *
+ * This is useful when you know the vector will never exceed 65,535 elements
+ * and want to minimize header overhead (4 bytes instead of 16).
+ */
+typedef struct ThinVec_____RSIndexResult__u16 SmallThinVecRSIndexResultOwned;
 
 /**
  * Represents an aggregate array of values in an index record.
  *
  * The C code should always use `AggregateResult_New` to construct a new instance of this type
  * using Rust since the internals cannot be constructed directly in C. The reason is because of
- * the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+ * the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
  * managed correctly.
  */
 enum RSAggregateResult_Tag
@@ -226,19 +256,19 @@ typedef struct RSAggregateResult_Borrowed_Body {
   /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
+   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    *
    * This requires `'index` on the reference because adding a new lifetime will cause the
-   * type to be `LowMemoryThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
+   * type to be `ThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
    * `'index: 'refs` else it would mean the `'index` can be cleaned up while some reference
    * will still try to access it (ie a dangling pointer). Now the decoders will never return
    * any aggregate results so `'refs == 'static` when decoding. Because of the requirement
    * above, this means `'index: 'static` which is just incorrect since the index data will
    * never be `'static` when decoding.
    */
-  struct LowMemoryThinVecRSIndexResult records;
+  SmallThinVecRSIndexResult records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -250,11 +280,11 @@ typedef struct RSAggregateResult_Owned_Body {
   /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
+   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  struct LowMemoryThinVecRSIndexResultOwned records;
+  SmallThinVecRSIndexResultOwned records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -268,14 +298,17 @@ typedef union RSAggregateResult {
 } RSAggregateResult;
 
 /**
- * Represents the encoded offsets of a term in a document. You can read the offsets by iterating
- * over it with RSIndexResult_IterateOffsets
+ * Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
+ * iterating over it with RSIndexResult_IterateOffsets.
+ *
+ * This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
+ * Use [`RSOffsetVector`] for owned offset data.
  */
 typedef struct RSOffsetVector {
   /**
-   * At this point the data ownership is still managed by the caller.
+   * Pointer to the borrowed offset data.
    */
-  char *data;
+  const uint8_t *data;
   uint32_t len;
 } RSOffsetVector;
 
@@ -297,10 +330,13 @@ typedef uint8_t RSTermRecord_Tag;
 typedef struct RSTermRecord_Borrowed_Body {
   RSTermRecord_Tag tag;
   /**
-   * The term that brought up this record
+   * The term that brought up this record.
    *
-   * This term was created using `NewQueryTerm`, and in the borrowed case, it is actually
-   * the owner of the memory. So it should be freed when this record is dropped.
+   * The term is owned by the record. The name of the variant, `Borrowed`,
+   * refers to the `offsets` field.
+   *
+   * The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
+   * variants have the same memory layout.
    */
   RSQueryTerm *term;
   /**
@@ -314,18 +350,18 @@ typedef struct RSTermRecord_Borrowed_Body {
 typedef struct RSTermRecord_Owned_Body {
   RSTermRecord_Tag tag;
   /**
-   * The term that brought up this record
+   * The term that brought up this record.
    *
-   * The owned version points to the original borrowed term, and should therefore never clean
-   * up this memory.
+   * It borrows the term from another record.
+   * The name of the variant, `Owned`, refers to the `offsets` field.
    */
-  RSQueryTerm *term;
+  const RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
-   * The owned version will make a copy of the offsets data, hence that `'static` lifetime.
+   * The owned version owns a copy of the offsets data, which is freed on drop.
    */
-  struct RSOffsetVector offsets;
+  RSOffsetVector offsets;
 } RSTermRecord_Owned_Body;
 
 typedef union RSTermRecord {
@@ -338,7 +374,7 @@ typedef union RSTermRecord {
  * Holds the actual data of an ['IndexResult']
  *
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
- * the bitflags on [`RSResultKindMask`]
+ * the bitflags on [`super::kind::RSResultKindMask`]
  *
  * The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
  */
@@ -526,6 +562,20 @@ typedef union FieldMaskOrIndex {
   };
 } FieldMaskOrIndex;
 
+/**
+ * Field filter context used when querying fields.
+ */
+typedef struct FieldFilterContext {
+  /**
+   * the field mask or index to filter on.
+   */
+  union FieldMaskOrIndex field;
+  /**
+   * our field expiration predicate.
+   */
+  enum FieldExpirationPredicate predicate;
+} FieldFilterContext;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -589,6 +639,11 @@ struct RSIndexResult *NewHybridResult(void);
 /**
  * Allocate a new token record with a given term and weight. This result should be freed using
  * [`IndexResult_Free`].
+ *
+ * # Safety
+ *
+ * `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
+ * caller transfers ownership — it must not be freed separately.
  */
 struct RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
@@ -677,17 +732,6 @@ RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result);
 const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResult *result);
 
 /**
- * Get a mutable term offsets from a result if it is a term result. If the result is not a term,
- * then this function will return a `NULL` pointer.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-struct RSOffsetVector *IndexResult_TermOffsetsRefMut(struct RSIndexResult *result);
-
-/**
  * Get the aggregate result reference if the result is an aggregate result. If the result is
  * not an aggregate, this function will return a `NULL` pointer.
  *
@@ -713,6 +757,22 @@ const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResu
  * 2. `result`'s data payload must be of the aggregate kind
  */
 const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RSIndexResult *result);
+
+/**
+ * Get a mutable aggregate result reference without performing a runtime check
+ * on the enum discriminant.
+ *
+ * Use this method if and only if you've already checked the enum
+ * discriminant in C code and you don't want to incur the (small)
+ * performance penalty of an additional redundant check.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 2. `result`'s data payload must be of the aggregate kind
+ */
+union RSAggregateResult *IndexResult_AggregateRefMutUnchecked(struct RSIndexResult *result);
 
 /**
  * Reset the result if it is an aggregate result. This will clear the children vector
@@ -748,6 +808,19 @@ const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *a
  */
 const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregateResult *agg,
                                                          uintptr_t index);
+
+/**
+ * Get a mutable result at the specified index in the aggregate result, without checking bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 2. `index` must be lower than the length of the aggregate result children vector.
+ * 3. `agg` must be of the `Owned` variant.
+ */
+struct RSIndexResult *AggregateResult_GetMutUnchecked(union RSAggregateResult *agg,
+                                                      uintptr_t index);
 
 /**
  * Get the element count of the aggregate result.
@@ -822,36 +895,38 @@ void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult
 struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggregateResult *agg);
 
 /**
- * Retrieve the offsets array from [`RSOffsetVector`].
+ * Retrieve the offsets array from an offset vector.
  *
  * Set the array length into the `len` pointer.
- * The returned array is borrowed from the [`RSOffsetVector`] and should not be modified.
+ * The returned array is borrowed and should not be modified.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
  */
 const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
 
 /**
- * Set the offsets array on a [`RSOffsetVector`].
+ * Set the offsets array on an offset vector.
  *
- * The [`RSOffsetVector`] will borrow the passed array so it's up to the caller to
- * ensure it stays alive during the [`RSOffsetVector`] lifetime.
+ * The vector will borrow the passed array so it's up to the caller to
+ * ensure it stays alive during its lifetime.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  * - `data` must point to an array of `len` offsets.
  * - if `data` is NULL then `len` should be 0.
  */
 void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
 
 /**
- * Free the data inside an [`RSOffsetVector`]'s offset
+ * Free the data inside an offset vector.
  *
  * # Safety
  *
@@ -860,7 +935,7 @@ void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, ui
  * - The data pointer of `offsets` had been allocated via the global allocator
  *   and points to an array matching the length of `offsets`.
  */
-void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
+void RSOffsetVector_FreeData(RSOffsetVector *offsets);
 
 /**
  * Copy the data from one offset vector to another.
@@ -872,18 +947,20 @@ void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
  *
  * The following invariants must be upheld when calling this function:
  * - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
- * - `src` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  * - `src` data should point to a valid array of `src.len` offsets.
  */
-void RSOffsetVector_CopyData(struct RSOffsetVector *dest, const struct RSOffsetVector *src);
+void RSOffsetVector_CopyData(RSOffsetVector *dest, const struct RSOffsetVector *src);
 
 /**
- * Retrieve the number of offsets in [`RSOffsetVector`].
+ * Retrieve the number of offsets in an offset vector.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+ *   and cannot be NULL.
  */
 uint32_t RSOffsetVector_Len(const struct RSOffsetVector *offsets);
 

@@ -23,18 +23,32 @@ extern "C" {
 
 #define GC_THREAD_POOL_SIZE 1
 
+typedef struct InfoGCStats {
+  // Total bytes collected by the GCs
+  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
+  // allocated by a GC than the number of bytes collected.
+  ssize_t totalCollectedBytes;
+  size_t totalCycles;   // Total number of cycles ran
+  size_t totalTime;     // In ms
+  long long lastRunTimeMs;
+} InfoGCStats;
+
 typedef struct GCCallbacks {
-  int  (*periodicCallback)(void* gcCtx);
+  // Returns true if the GC should be rescheduled, false if the GC should be stopped.
+  bool (*periodicCallback)(void* gcCtx, bool force);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
   void (*onDelete)(void* ctx);
+  void (*onWrite)(void* ctx);
+  void (*onUpdate)(void* ctx);
   void (*onTerm)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
+  void (*getStats)(void* gcCtx, InfoGCStats* out);
 } GCCallbacks;
 
 typedef struct GCContext {
   void* gcCtx;
-  RedisModuleTimerID timerID; // Guarded by the GIL
+  RedisModuleTimerID timerID;  // Guarded by the GIL
   GCCallbacks callbacks;
 } GCContext;
 
@@ -45,13 +59,20 @@ void GCContext_Start(GCContext* gc);
 void GCContext_StartNow(GCContext* gc);
 void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
-#ifdef FTINFO_FOR_INFO_MODULES
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
-#endif
 void GCContext_OnDelete(GCContext* gc);
+void GCContext_OnWrite(GCContext* gc);
+void GCContext_OnUpdate(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
+void GCContext_GetStats(GCContext* gc, InfoGCStats* out);
+
+static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
+  dst->totalCollectedBytes += src->totalCollectedBytes;
+  dst->totalCycles += src->totalCycles;
+  dst->totalTime += src->totalTime;
+}
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();

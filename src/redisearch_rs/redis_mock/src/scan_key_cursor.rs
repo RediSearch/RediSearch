@@ -16,7 +16,7 @@ use crate::{
 ///
 /// # Safety
 /// Caller is is only allow to use RedisModule_ScanKey, we don't support restart and other operations, yet.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub const unsafe extern "C" fn RedisModule_ScanCursorCreate()
 -> *mut redis_module::raw::RedisModuleScanCursor {
     // we don't need to store any state for the mock, we store it at the context level
@@ -27,7 +27,7 @@ pub const unsafe extern "C" fn RedisModule_ScanCursorCreate()
 ///
 /// # Safety
 /// It's a no-op in the mock implementation.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub const unsafe extern "C" fn RedisModule_ScanCursorDestroy(
     _cursor: *mut redis_module::raw::RedisModuleScanCursor,
 ) {
@@ -42,7 +42,7 @@ pub const unsafe extern "C" fn RedisModule_ScanCursorDestroy(
 /// 2. `_cursor` should be null in the test mock implementation.
 /// 3. `_cb` must be a valid callback function pointer.
 /// 4. `_privdata` can be null and is not used by the mock implementation.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ScanKey(
     key: *mut redis_module::raw::RedisModuleKey,
     _cursor: *mut redis_module::raw::RedisModuleScanCursor,
@@ -51,11 +51,11 @@ pub unsafe extern "C" fn RedisModule_ScanKey(
             *mut redis_module::raw::RedisModuleKey,
             *mut redis_module::raw::RedisModuleString,
             *mut redis_module::raw::RedisModuleString,
-            *mut ::std::os::raw::c_void,
+            *mut ::std::ffi::c_void,
         ),
     >,
-    _privdata: *mut ::std::os::raw::c_void,
-) -> ::std::os::raw::c_int {
+    _privdata: *mut ::std::ffi::c_void,
+) -> ::std::ffi::c_int {
     // Safety: Caller has to ensure 1
     let key = unsafe { &*(key.cast::<UserKey>()) };
     let ctx = key.get_ctx();

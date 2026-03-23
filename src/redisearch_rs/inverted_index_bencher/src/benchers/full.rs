@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, vec};
+use std::{hint::black_box, io::Cursor, vec};
 
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use ffi::t_fieldMask;
 use inverted_index::{
     Decoder, Encoder, RSIndexResult,
@@ -28,7 +28,7 @@ struct TestValue {
     delta: u32,
     freq: u32,
     field_mask: t_fieldMask,
-    term_offsets: Vec<i8>,
+    term_offsets: Vec<u8>,
 
     encoded: Vec<u8>,
 }
@@ -67,13 +67,14 @@ impl Bencher {
             .cartesian_product(field_masks_values)
             .cartesian_product(term_offsets_values)
             .map(|(((freq, delta), field_mask), term_offsets)| {
-                let record = TestTermRecord::new(100, field_mask, freq, term_offsets.clone());
+                let term_offsets2 = term_offsets.clone();
+                let record = TestTermRecord::new(100, field_mask, freq, &term_offsets);
                 let mut buffer = Cursor::new(Vec::new());
 
                 let _grew_size = if wide {
-                    FullWide.encode(&mut buffer, delta, &record.record).unwrap()
+                    FullWide::encode(&mut buffer, delta, &record.record).unwrap()
                 } else {
-                    Full.encode(&mut buffer, delta, &record.record).unwrap()
+                    Full::encode(&mut buffer, delta, &record.record).unwrap()
                 };
 
                 let encoded = buffer.into_inner();
@@ -83,7 +84,7 @@ impl Bencher {
                     delta,
                     encoded,
                     field_mask,
-                    term_offsets,
+                    term_offsets: term_offsets2,
                 }
             })
             .collect();
@@ -105,16 +106,13 @@ impl Bencher {
                             100,
                             test.field_mask,
                             test.freq,
-                            test.term_offsets.clone(),
+                            &test.term_offsets,
                         );
 
                         let grew_size = if self.wide {
-                            FullWide
-                                .encode(&mut buffer, test.delta, &record.record)
-                                .unwrap()
+                            FullWide::encode(&mut buffer, test.delta, &record.record).unwrap()
                         } else {
-                            Full.encode(&mut buffer, test.delta, &record.record)
-                                .unwrap()
+                            Full::encode(&mut buffer, test.delta, &record.record).unwrap()
                         };
 
                         black_box(grew_size);
@@ -131,7 +129,12 @@ impl Bencher {
         c.bench_function(&id, |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = if self.wide {
                             FullWide::decode(cursor, 100, result)

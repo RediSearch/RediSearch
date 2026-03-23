@@ -6,11 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-use redis_mock::bind_redis_alloc_symbols_to_mock_impl;
+use libc::size_t;
+use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::ffi::{c_char, c_int, c_void};
 use triemap_ffi::*;
 
-bind_redis_alloc_symbols_to_mock_impl!();
+mock_or_stub_missing_redis_c_symbols!();
 
 macro_rules! assert_entries {
     ($pattern:literal, $mode:expr, $expected:expr $(,)?) => {
@@ -403,7 +404,7 @@ fn test_trie_iter_range() {
 
     unsafe extern "C" fn callback(
         key: *const c_char,
-        key_len: libc::size_t,
+        key_len: size_t,
         ctx: *mut c_void,
         value: *mut c_void,
     ) {

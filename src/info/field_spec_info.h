@@ -45,7 +45,7 @@ typedef struct {
 } AggregatedFieldSpecInfo;
 
 // Get the information of the field 'fs' in the index 'sp'.
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp, bool obfuscate);
+FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate);
 
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();

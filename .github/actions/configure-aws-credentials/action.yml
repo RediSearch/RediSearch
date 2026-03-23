@@ -1,0 +1,127 @@
+name: Configure AWS Credentials
+description: |
+  Configures AWS credentials using either IAM role (OIDC) or access keys.
+  Handles both node20-supported and legacy platforms.
+
+inputs:
+  use_role:
+    description: "Whether to use IAM role (OIDC) authentication"
+    required: true
+  role_to_assume:
+    description: "ARN of the IAM role to assume (required if use_role is true)"
+    required: false
+  aws_access_key_id:
+    description: "AWS access key ID (required if use_role is false)"
+    required: false
+  aws_secret_access_key:
+    description: "AWS secret access key (required if use_role is false)"
+    required: false
+  aws_region:
+    description: "AWS region"
+    required: true
+  node20_supported:
+    description: "Whether node20 is supported on this platform"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Role-based auth with node20
+    - name: Configure AWS Credentials Using Role (node20)
+      if: ${{ inputs.use_role == 'true' && inputs.node20_supported == 'true' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role_to_assume }}
+        aws-region: ${{ inputs.aws_region }}
+
+    # Role-based auth without node20 (manual OIDC)
+    - name: Configure AWS Credentials Using Role (legacy)
+      if: ${{ inputs.use_role == 'true' && inputs.node20_supported != 'true' }}
+      shell: bash
+      env:
+        ROLE_ARN: ${{ inputs.role_to_assume }}
+        AWS_REGION: ${{ inputs.aws_region }}
+      run: |
+        if ! command -v jq &> /dev/null; then
+          echo "Error: jq is not installed."
+          exit 1
+        fi
+
+        echo "Requesting GitHub OIDC token..."
+        OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value // empty') || {
+          echo "Failed to get OIDC token from GitHub"
+          exit 1
+        }
+
+        if [ -z "$OIDC_TOKEN" ]; then
+          echo "Failed to get OIDC token from GitHub"
+          exit 1
+        fi
+
+        echo "Assuming AWS role using OIDC..."
+        CREDS_JSON=$(aws sts assume-role-with-web-identity \
+          --role-arn "$ROLE_ARN" \
+          --role-session-name "GitHubActions" \
+          --web-identity-token "$OIDC_TOKEN" \
+          --region "$AWS_REGION") || {
+          echo "Failed to assume AWS role using OIDC"
+          exit 1
+        }
+
+        AWS_ACCESS_KEY_ID=$(echo "$CREDS_JSON" | jq -r '.Credentials.AccessKeyId')
+        AWS_SECRET_ACCESS_KEY=$(echo "$CREDS_JSON" | jq -r '.Credentials.SecretAccessKey')
+        AWS_SESSION_TOKEN=$(echo "$CREDS_JSON" | jq -r '.Credentials.SessionToken')
+
+        if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_SESSION_TOKEN" ]; then
+          echo "Failed to parse AWS credentials from assume-role response"
+          exit 1
+        fi
+
+        echo "::add-mask::$AWS_ACCESS_KEY_ID"
+        echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
+        echo "::add-mask::$AWS_SESSION_TOKEN"
+
+        {
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
+          echo "AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN"
+          echo "AWS_REGION=$AWS_REGION"
+        } >> "$GITHUB_ENV"
+
+        echo "AWS credentials configured successfully using OIDC."
+
+    # Key-based auth with node20
+    - name: Configure AWS Credentials Using Keys (node20)
+      if: ${{ inputs.use_role != 'true' && inputs.node20_supported == 'true' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws_access_key_id }}
+        aws-secret-access-key: ${{ inputs.aws_secret_access_key }}
+        aws-region: ${{ inputs.aws_region }}
+
+    # Key-based auth without node20
+    - name: Configure AWS Credentials Using Keys (legacy)
+      if: ${{ inputs.use_role != 'true' && inputs.node20_supported != 'true' }}
+      shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws_access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws_secret_access_key }}
+        AWS_REGION: ${{ inputs.aws_region }}
+      run: |
+        if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_REGION" ]; then
+          echo "Missing AWS credentials or region configuration."
+          exit 1
+        fi
+
+        echo "::add-mask::$AWS_ACCESS_KEY_ID"
+        echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
+
+        {
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
+          echo "AWS_REGION=$AWS_REGION"
+        } >> "$GITHUB_ENV"
+
+        echo "AWS credentials configured successfully using access keys."
+

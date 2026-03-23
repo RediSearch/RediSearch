@@ -28,6 +28,10 @@ static void CursorList_Lock(CursorList *cl) {
   pthread_mutex_lock(&cl->lock);
 }
 
+static int CursorList_TryLock(CursorList *cl) {
+  return pthread_mutex_trylock(&cl->lock);
+}
+
 static void CursorList_Unlock(CursorList *cl) {
   pthread_mutex_unlock(&cl->lock);
 }
@@ -75,7 +79,7 @@ static void Cursor_FreeInternal(Cursor *cur) {
     StrongRef_Release(cur->hybrid_ref);
     cur->execState = NULL;
   } else if (cur->execState) {
-    AREQ_Free(cur->execState);
+    AREQ_DecrRef(cur->execState);
     cur->execState = NULL;
   }
   // if There's a spec associated with the cursor
@@ -204,15 +208,36 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
   return id;
 }
 
+static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
+  if (cur->execState) {
+    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  }
+}
+
+void CursorList_MarkASMInaccuracy() {
+  CursorList *cl = getCursorList(true);
+  CursorList_Lock(cl);
+  Cursors_ForEach(cl, cursorMarkASMInaccuracyCb, NULL);
+  CursorList_Unlock(cl);
+  cl = getCursorList(false);
+  CursorList_Lock(cl);
+  Cursors_ForEach(cl, cursorMarkASMInaccuracyCb, NULL);
+  CursorList_Unlock(cl);
+}
+
 Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned interval,
                         QueryError *status) {
+  Cursor *cur = NULL;
+  IndexSpec *spec = NULL;
+  int dummy = 0;
+  khiter_t iter = 0;
+
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  Cursor *cur = NULL;
 
   // If the cursor should be associated with a spec,
   // we assume that global_spec_ref points to a valid spec, else the function returns NULL.
-  IndexSpec *spec = StrongRef_Get(global_spec_ref);
+  spec = StrongRef_Get(global_spec_ref);
   // If we are in a coordinator ctx, the spec is NULL
   if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
@@ -235,8 +260,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
     spec->activeCursors++;
   }
 
-  int dummy;
-  khiter_t iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
+  iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
   kh_value(cl->lookup, iter) = cur;
 
 done:
@@ -345,10 +369,27 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *
   CursorList_Unlock(cl);
 }
 
-#ifdef FTINFO_FOR_INFO_MODULES
 void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx) {
-  CursorList_Lock(cl);
+  // pthread_mutex_trylock returns 0 on success, non-zero on failure
+  int lock_result = CursorList_TryLock(cl);
+  int lock_coord_result = CursorList_TryLock(cl_coord);
 
+  // If either lock failed (non-zero return), we can't safely access the cursor lists
+  if (lock_result != 0 || lock_coord_result != 0) {
+    RedisModule_InfoBeginDictField(ctx, "cursor_stats");
+    RedisModule_InfoAddFieldCString(ctx, "status", "locked");
+    RedisModule_InfoEndDictField(ctx);
+    // Unlock any locks we did acquire
+    if (lock_result == 0) {
+      CursorList_Unlock(cl);
+    }
+    if (lock_coord_result == 0) {
+      CursorList_Unlock(cl_coord);
+    }
+    return;
+  }
+
+  // Both locks acquired successfully, safe to access cursor lists
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) +
                                                         ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
@@ -357,9 +398,10 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
   RedisModule_InfoEndDictField(ctx);
 
+  // Unlock both locks
   CursorList_Unlock(cl);
+  CursorList_Unlock(cl_coord);
 }
-#endif // FTINFO_FOR_INFO_MODULES
 
 void CursorList_Empty(CursorList *cl) {
   CursorList_Lock(cl);

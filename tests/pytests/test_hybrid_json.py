@@ -47,64 +47,69 @@ def setup_basic_index(env):
         conn.execute_command('JSON.SET', doc_id, '$', json.dumps(json_doc))
 
 
-def test_hybrid_vector_direct_blob_knn():
+def test_hybrid_vector_knn():
     env = Env()
     setup_basic_index(env)
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'green',
-        'VSIM' ,'@embedding', vector_blob, 'KNN', '2', 'K', '1')
+        'VSIM' ,'@embedding', '$BLOB', 'KNN', '2', 'K', '1',
+        'PARAMS', '2', 'BLOB', vector_blob)
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:2"})
 
 
-def test_hybrid_vector_direct_blob_knn_with_filter():
+def test_hybrid_vector_knn_with_filter():
     env = Env()
     setup_basic_index(env)
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'green',
-        'VSIM' ,'@embedding', vector_blob, 'KNN', '2', 'K', '2',
-        'FILTER', '@description:blue')
+        'VSIM' ,'@embedding', '$BLOB', 'KNN', '2', 'K', '2',
+        'FILTER', '@description:blue',
+        'PARAMS', '2', 'BLOB', vector_blob)
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:4"})
 
 
-def test_hybrid_vector_direct_blob_range():
+def test_hybrid_vector_range():
     env = Env()
     setup_basic_index(env)
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'green',
-        'VSIM' ,'@embedding', vector_blob, 'RANGE', '2', 'RADIUS', '1')
+        'VSIM' ,'@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '1',
+        'PARAMS', '2', 'BLOB', vector_blob)
     results, count = get_results_from_hybrid_response(response)
     env.assertEqual(count, len(results.keys()))
     env.assertTrue(set(results.keys()) == {"doc:2", "doc:4"})
 
 
-def test_hybrid_vector_direct_blob_range_with_filter():
+def test_hybrid_vector_range_with_filter():
     env = Env()
     setup_basic_index(env)
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'green',
-        'VSIM' ,'@embedding', vector_blob, 'RANGE', '2', 'RADIUS', '1',
-        'FILTER', '@description:blue')
+        'VSIM' ,'@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '1',
+        'FILTER', '@description:blue',
+        'PARAMS', '2', 'BLOB', vector_blob)
     results, count = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:4"})
     env.assertEqual(count, len(results.keys()))
 
 
-def test_hybrid_vector_direct_blob_range_with_filter_and_limit():
+def test_hybrid_vector_range_with_filter_and_limit():
     env = Env()
     setup_basic_index(env)
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'green',
-        'VSIM' ,'@embedding', vector_blob, 'RANGE', '2', 'RADIUS', '1',
-        'FILTER', '@description:blue', 'LIMIT', '0', '1')
+        'VSIM' ,'@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '1',
+        'FILTER', '@description:blue', 'LIMIT', '0', '1',
+        'PARAMS', '2', 'BLOB', vector_blob)
     results, count = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:4"})
     env.assertEqual(count, len(results.keys()))
@@ -116,8 +121,9 @@ def test_knn_default_output():
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'blue',
-        'VSIM' ,'@embedding', vector_blob, 'KNN', '2', 'K', '2',
-        'COMBINE', 'RRF', '2', 'CONSTANT', '3')
+        'VSIM' ,'@embedding', '$BLOB', 'KNN', '2', 'K', '2',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '3',
+        'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 2)
     env.assertEqual(len(response['results']), 2)
     # DocId     | SEARCH_RANK | VECTOR_RANK | SCORE
@@ -135,8 +141,9 @@ def test_knn_reduce():
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', '*',
-        'VSIM' ,'@embedding', vector_blob, 'KNN', '2', 'K', '2',
-        'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
+        'VSIM' ,'@embedding', '$BLOB', 'KNN', '2', 'K', '2',
+        'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count',
+        'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 2)
     env.assertEqual(len(response['results']), 2)
     env.assertEqual(response['results'][0]['category'], "shoes")
@@ -150,8 +157,9 @@ def test_knn_load():
     vector_blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'blue',
-        'VSIM' ,'@embedding', vector_blob, 'KNN', '2', 'K', '2',
-        'LOAD', '6', '@__key', 'AS', 'my_key', '$.description', 'AS', 'my_desc')
+        'VSIM' ,'@embedding', '$BLOB', 'KNN', '2', 'K', '2',
+        'LOAD', '6', '@__key', 'AS', 'my_key', '$.description', 'AS', 'my_desc',
+        'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 2)
     env.assertEqual(len(response['results']), 2)
     env.assertEqual(response['results'][0]['my_key'], "doc:4")
@@ -168,7 +176,8 @@ def test_limit():
     search_query = 'red shoes=>{$weight:3.0} running =>{$weight:2.0}'
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', search_query,
-        'VSIM' ,'@embedding', vector_blob)
+        'VSIM' ,'@embedding', '$BLOB',
+        'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 4)
     env.assertEqual(len(response['results']), 4)
     expected_key_0 = response['results'][0]['__key']
@@ -179,8 +188,9 @@ def test_limit():
     # Test limit 0,0
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', search_query,
-        'VSIM' ,'@embedding', vector_blob,
-        'LIMIT', '0', '0')
+        'VSIM' ,'@embedding', '$BLOB',
+        'LIMIT', '0', '0',
+        'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 4)
     env.assertEqual(len(response['results']), 0)
     env.assertEqual(response['results'], [])
@@ -188,8 +198,9 @@ def test_limit():
     # Test limit 0,2
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', search_query,
-        'VSIM' ,'@embedding', vector_blob,
-        'LIMIT', '0', '2')
+        'VSIM' ,'@embedding', '$BLOB',
+        'LIMIT', '0', '2',
+        'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 4)
     env.assertEqual(len(response['results']), 2)
     env.assertEqual(response['results'][0]['__key'], expected_key_0)
@@ -198,8 +209,9 @@ def test_limit():
     # Test limit 3,1
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', search_query,
-        'VSIM' ,'@embedding', vector_blob,
-        'LIMIT', '3', '1')
+        'VSIM' ,'@embedding', '$BLOB',
+        'LIMIT', '3', '1',
+        'PARAMS', '2', 'BLOB', vector_blob)
     env.assertEqual(response['total_results'], 4)
     env.assertEqual(len(response['results']), 1)
     env.assertEqual(response['results'][0]['__key'], expected_key_3)

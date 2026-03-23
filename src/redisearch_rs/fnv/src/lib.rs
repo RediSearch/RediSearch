@@ -73,6 +73,13 @@ impl Hasher for Fnv32 {
     }
 }
 
+impl hash32::Hasher for Fnv32 {
+    #[inline]
+    fn finish32(&self) -> u32 {
+        self.0
+    }
+}
+
 /// A 64-bit FNV-1a hasher.
 pub struct Fnv64(u64);
 

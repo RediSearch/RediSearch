@@ -18,37 +18,42 @@
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
 
 // TIME(property, [fmt_string])
-static int timeFormat(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
+  char timebuf[1024];  // Should be enough for any human time string
+  double n = 0.0;
+  time_t tt = 0;
+  struct tm tm = {0};
+  size_t rv = 0;
+  char *buf = NULL;
+
   if (argc == 2) {
     VALIDATE_ARG_TYPE("time", argv, 1, RSValueType_String);
-    fmt = RSValue_StringPtrLen(&argv[1], NULL);
+    fmt = RSValue_StringPtrLen(argv[1], NULL);
   }
   // Get the format
-  char timebuf[1024] = {0};  // Should be enough for any human time string
-  double n;
   // value is not a number
-  if (!RSValue_ToNumber(&argv[0], &n)) {
+  if (!RSValue_ToNumber(argv[0], &n)) {
     goto err;
   }
-  time_t tt = (time_t)n;
-  struct tm tm;
+  tt = (time_t)n;
   if (!gmtime_r(&tt, &tm)) {
     // could not convert value to timestamp
     goto err;
   }
 
-  size_t rv = strftime(timebuf, sizeof timebuf, fmt, &tm);
+  rv = strftime(timebuf, sizeof timebuf, fmt, &tm);
   if (rv == 0) {
     // invalid format
     goto err;
   }
 
   // Finally, allocate a buffer to store the time!
-  char *buf = ExprEval_Strndup(ctx, timebuf, rv);
+  buf = ExprEval_Strndup(ctx, timebuf, rv);
 
   // It will be released by the block allocator destruction, so we refer to it is a static string so
   // the value ref counter will not release it
+  RS_ASSERT(rv <= UINT32_MAX);
   RSValue_SetConstString(result, buf, rv);
   return EXPR_EVAL_OK;
 err:
@@ -76,14 +81,15 @@ static time_t fast_timegm(const struct tm *ltm) {
   return (days * (24 * 60 * 60)) + (ltm->tm_hour * (60 * 60)) + (ltm->tm_min * 60) + ltm->tm_sec;
 }
 
-static int func_hour(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_hour(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
 
   gmtime_r(&ts, &tmm);
   tmm.tm_sec = 0;
@@ -99,10 +105,9 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_minute(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+static int func_minute(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
   RSValue_SetNumber(result, floor(d - fmod(d, 60)));
@@ -115,14 +120,15 @@ err:
 }
 
 /* Round timestamp to its day start */
-static int func_day(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_day(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
 
   gmtime_r(&ts, &tmm);
   tmm.tm_sec = 0;
@@ -138,14 +144,15 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofmonth(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_dayofmonth(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
   gmtime_r(&ts, &tmm);
 
   RSValue_SetNumber(result, (double)tmm.tm_mday);
@@ -157,14 +164,15 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofweek(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_dayofweek(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
   gmtime_r(&ts, &tmm);
 
   RSValue_SetNumber(result, (double)tmm.tm_wday);
@@ -176,14 +184,15 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofyear(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_dayofyear(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
   gmtime_r(&ts, &tmm);
 
   RSValue_SetNumber(result, (double)tmm.tm_yday);
@@ -195,14 +204,15 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_year(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_year(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
   gmtime_r(&ts, &tmm);
 
   RSValue_SetNumber(result, (double)tmm.tm_year + 1900);
@@ -214,14 +224,15 @@ err:
 }
 
 /* Round a timestamp to the beginning of the month */
-static int func_month(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_month(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
   gmtime_r(&ts, &tmm);
   tmm.tm_sec = 0;
   tmm.tm_hour = 0;
@@ -237,14 +248,15 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_monthofyear(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int func_monthofyear(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  double d = 0.0;
+  time_t ts = 0;
+  struct tm tmm = {0};
 
-  double d;
-  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
     goto err;
   }
-  time_t ts = (time_t)d;
-  struct tm tmm;
+  ts = (time_t)d;
   gmtime_r(&ts, &tmm);
   RSValue_SetNumber(result, (double)tmm.tm_mon);
   return EXPR_EVAL_OK;
@@ -255,19 +267,24 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int parseTime(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+static int parseTime(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  const char *val;
+  const char *fmt;
+  struct tm tm = {0};
+  char *rc;
+  time_t rv;
+
   VALIDATE_ARG_ISSTRING("parsetime", argv, 0);
   VALIDATE_ARG_ISSTRING("parsetime", argv, 1);
 
-  const char *val = RSValue_StringPtrLen(&argv[0], NULL);
-  const char *fmt = RSValue_StringPtrLen(&argv[1], NULL);
+  val = RSValue_StringPtrLen(argv[0], NULL);
+  fmt = RSValue_StringPtrLen(argv[1], NULL);
 
-  struct tm tm = {0};
-  char *rc = strptime(val, fmt, &tm);
+  rc = strptime(val, fmt, &tm);
   if (rc == NULL) {
     goto err;
   }
-  time_t rv = timegm(&tm);
+  rv = timegm(&tm);
   RSValue_SetNumber(result, rv);
   return EXPR_EVAL_OK;
 

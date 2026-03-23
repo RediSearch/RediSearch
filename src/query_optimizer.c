@@ -102,7 +102,7 @@ void QOptimizer_Parse(AREQ *req) {
     if (IsSearch(req) && !opt->limit) {
       opt->limit = DEFAULT_LIMIT;
     }
-    if (arng->sortKeys) {
+    if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
@@ -244,14 +244,18 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
       opt->nf = numSortbyNode->nn.nf;
     } else {
       // tree has only numeric range. scan range large enough for requested limit
-      opt->type = Q_OPT_PARTIAL_RANGE;
+      if (opt->type == Q_OPT_UNDECIDED) {
+        opt->type = Q_OPT_PARTIAL_RANGE;
+      }
       return;
     }
   }
 
   // there is no sorting field and scorer is required - we must check all results
   if ((!isSortby && opt->scorerReq) || (root->type == QN_VECTOR && root->vn.vq->type == VECSIM_QT_KNN)) {
-    opt->type = Q_OPT_NONE;
+    if (opt->type == Q_OPT_UNDECIDED) {
+      opt->type = Q_OPT_NONE;
+    }
     return;
   }
 
@@ -260,16 +264,19 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   // else, return after enough result found
   if (!opt->scorerReq) {
     if (isSortby) {
-      opt->type = Q_OPT_PARTIAL_RANGE;
+      if (opt->type == Q_OPT_UNDECIDED) {
+        opt->type = Q_OPT_PARTIAL_RANGE;
+      }
       return;
     } else {
-      opt->type = Q_OPT_NO_SORTER;
+      if (opt->type == Q_OPT_UNDECIDED) {
+        opt->type = Q_OPT_NO_SORTER;
+      }
       // No need for scorer, and there is no sorter. we can avoid calculating scores
       opt->scorerType = SCORER_TYPE_NONE;
       return;
     }
   }
-  opt->type = Q_OPT_UNDECIDED;
 }
 
 // creates an intersect from root and numeric
@@ -319,7 +326,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
         const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
-        FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
+        FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
         QueryIterator *numericIter = NewNumericFilterIterator(AREQ_SearchCtx(req), opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
                                                               &req->ast.config, &filterCtx);
         updateRootIter(req, root, numericIter);

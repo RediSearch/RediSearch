@@ -7,14 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
+#include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 #include "query_param.h"
 #include "rdb.h"
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 #include "redis_index.h"
+#include "search_disk.h"
 
+#include <string.h>
 
 #if defined(__x86_64__) && defined(__GLIBC__)
 #include <cpuid.h>
@@ -42,41 +45,28 @@ bool isLVQSupported() {
   return false; // In which case we know that LVQ not supported.
 }
 
-VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
-  KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
-  if (kdv) {
-    return kdv->p;
-  }
-  if (!create_if_index) {
-    return NULL;
-  }
+VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool create_if_missing) {
+  RS_ASSERT(FIELD_IS(fieldSpec, INDEXFLD_T_VECTOR));
+  RS_ASSERT(!create_if_missing || ctx != NULL);
 
-  size_t fieldLen;
-  const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
-  FieldSpec *fieldSpec = NULL;
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (!HiddenString_CaseInsensitiveCompareC(spec->fields[i].fieldName, fieldStr, fieldLen)) {
-      fieldSpec = &spec->fields[i];
-      break;
+  if (!fieldSpec->vectorOpts.vecSimIndex && create_if_missing) {
+    if (fieldSpec->vectorOpts.diskCtx.storage) {
+      // Disk path - create disk-based HNSW index
+      VecSimParamsDisk diskParams = {
+        .indexParams = &fieldSpec->vectorOpts.vecSimParams,
+        .diskContext = &fieldSpec->vectorOpts.diskCtx,
+      };
+      fieldSpec->vectorOpts.vecSimIndex = SearchDisk_CreateVectorIndex(
+        ctx, fieldSpec->vectorOpts.diskCtx.storage, &diskParams);
+    } else {
+      // RAM path - use standard VectorSimilarity
+      fieldSpec->vectorOpts.vecSimIndex = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
     }
   }
-  if (fieldSpec == NULL) {
-    return NULL;
-  }
-
-  // create new vector data structure
-  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-  if (!temp) {
-    return NULL;
-  }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = temp;
-  kdv->dtor = (void (*)(void *))VecSimIndex_Free;
-  dictAdd(spec->keysDict, keyName, kdv);
-  return kdv->p;
+  return fieldSpec->vectorOpts.vecSimIndex;
 }
 
-QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric) {
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric, const bool sorted_by_id) {
   size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
     VecSimQueryReply_Free(reply);
@@ -99,16 +89,49 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 
   // Move ownership on the arrays to the iterator.
   if (yields_metric) {
-    return NewMetricIterator(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+      if (sorted_by_id) {
+          return NewMetricIteratorSortedById(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+      } else {
+          return NewMetricIteratorSortedByScore(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+      }
   } else {
-    return NewIdListIterator(docIdsList, res_num, 1.0);
+      if (sorted_by_id) {
+          return NewSortedIdListIterator(docIdsList, res_num, 1.0);
+      } else {
+          return NewUnsortedIdListIterator(docIdsList, res_num, 1.0);
+      }
   }
+}
+
+static bool VectorQuery_HasParam(const VectorQuery *vq, const char *param_name, size_t param_name_len) {
+  for (size_t i = 0; i < array_len(vq->params.params); ++i) {
+    const VecSimRawParam *param = &vq->params.params[i];
+    if (param->nameLen == param_name_len && !strcasecmp(param->name, param_name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const VectorQuery *vq,
+                                                const QueryIterator *child_it) {
+  if (!SearchDisk_IsEnabledForValidation() || vq->type != VECSIM_QT_KNN || child_it == NULL) {
+    return REDISMODULE_OK;
+  }
+
+  if (!VectorQuery_HasParam(vq, VECSIM_HYBRID_POLICY, sizeof(VECSIM_HYBRID_POLICY) - 1)) {
+    QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
+                        "Redis Flex pre-filtered vector queries currently require explicit HYBRID_POLICY");
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
 }
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
-  RedisModuleString *key = IndexSpec_GetFormattedKey(ctx->spec, vq->field, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
+  // Cast is safe: openVectorIndex only mutates fieldSpec when create_if_missing is true.
+  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, (FieldSpec *)vq->field, DONT_CREATE_INDEX);
   if (!vecsim) {
     return NULL;
   }
@@ -119,7 +142,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -127,6 +150,9 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                       "Error parsing vector similarity query: query vector blob size",
                                       " (%zu) does not match index's expected size (%zu).",
                                       vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+        return NULL;
+      }
+      if (VectorQuery_ValidateDiskHybridPolicy(q, vq, child_it) != REDISMODULE_OK) {
         return NULL;
       }
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
@@ -183,7 +209,8 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       bool yields_metric = vq->scoreField != NULL;
-      return createMetricIteratorFromVectorQueryResults(results, yields_metric);
+      bool sorted_by_id = vq->range.order == BY_ID;
+      return createMetricIteratorFromVectorQueryResults(results, yields_metric, sorted_by_id);
     }
   }
   return NULL;
@@ -296,6 +323,23 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   }
   return NULL;
 }
+const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode) {
+    switch (vecsimSearchMode) {
+    case EMPTY_MODE:
+        return "EMPTY_MODE";
+    case STANDARD_KNN:
+        return "STANDARD_KNN";
+    case HYBRID_ADHOC_BF:
+        return "HYBRID_ADHOC_BF";
+    case HYBRID_BATCHES:
+        return "HYBRID_BATCHES";
+    case HYBRID_BATCHES_TO_ADHOC_BF:
+        return "HYBRID_BATCHES_TO_ADHOC_BF";
+    case RANGE_QUERY:
+        return "RANGE_QUERY";
+    }
+    return NULL;
+}
 
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
   return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
@@ -397,8 +441,11 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
 
 int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
                       const char *field_name) {
+  VecSimLogCtx *logCtx = NULL;
+  VecSimParams *primaryParams = NULL;
+
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
-  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx = rm_new(VecSimLogCtx);
   logCtx->index_field_name = field_name;
   vecsimParams->logCtx = logCtx;
 
@@ -411,7 +458,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     break;
   case VecSimAlgo_TIERED:
     VecSim_TieredParams_Init(&vecsimParams->algoParams.tieredParams, sp_ref);
-    VecSimParams *primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
+    primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
     primaryParams->logCtx = vecsimParams->logCtx;
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
@@ -456,8 +503,11 @@ fail:
 
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
                       const char *field_name) {
+  VecSimLogCtx *logCtx = NULL;
+  VecSimParams *primaryParams = NULL;
+
   vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
-  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx = rm_new(VecSimLogCtx);
   logCtx->index_field_name = field_name;
   vecsimParams->logCtx = logCtx;
 
@@ -472,7 +522,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     break;
   case VecSimAlgo_TIERED:
     VecSim_TieredParams_Init(&vecsimParams->algoParams.tieredParams, sp_ref);
-    VecSimParams *primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
+    primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
     primaryParams->logCtx = vecsimParams->logCtx;
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
 
@@ -630,8 +680,9 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
       RSErrorCode = QUERY_ERROR_CODE_GENERIC;
     }
   }
-  const char *error_msg = QueryError_Strerror(RSErrorCode);
-  QueryError_SetWithUserDataFmt(status, RSErrorCode, "Error parsing vector similarity parameters", ": %s", error_msg);
+  const char *default_msg = QueryError_StrerrorDefaultMessage(RSErrorCode);
+  QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg,
+                                " (Error parsing vector similarity parameters)");
   return vecSimCode;
 }
 
@@ -650,13 +701,13 @@ void VecSimLogCallback(void *ctx, const char *level, const char *message) {
   RedisModule_Log(RSDummyContext, level, "vector index '%s' - %s", log_ctx->index_field_name, message);
 }
 
-int VecSim_CallTieredIndexesGC(WeakRef spRef) {
+bool VecSim_CallTieredIndexesGC(WeakRef spRef) {
   // Get spec
   StrongRef strong = WeakRef_Promote(spRef);
   IndexSpec *sp = StrongRef_Get(strong);
   if (!sp) {
     // Index was deleted
-    return 0;
+    return false;
   }
   // Lock the spec for reading
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
@@ -666,9 +717,8 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
     for (size_t ii = 0; ii < sp->numFields; ++ii) {
       if (sp->fields[ii].types & INDEXFLD_T_VECTOR &&
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
-        // Get the vector index
-        RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, sp->fields + ii, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
+        // Get the vector index (ctx is NULL because we don't create the index here)
+        VecSimIndex *vecsim = openVectorIndex(NULL, sp->fields + ii, DONT_CREATE_INDEX);
         // Call the tiered index GC if the vector index is not empty
         if (vecsim) VecSimTieredIndex_GC(vecsim);
       }
@@ -677,7 +727,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   // Cleanup and return success
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
-  return 1;
+  return true;
 }
 
 VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
@@ -708,7 +758,7 @@ VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
     case VecSimAlgo_BF:
       return algo_params.bfParams.metric;
     default:
-      // Unknown algorithm type
-      RS_ABORT("Unknown algorithm in vector index");
+      RS_ABORT_ALWAYS("Unknown algorithm in vector index");
   }
+  __builtin_unreachable();
 }

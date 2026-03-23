@@ -47,6 +47,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   IndexSpec* spec = NewIndexSpec(NewHiddenString(name, strlen(name), true));
   spec->own_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
+  //TODO: Should not be supported for SearchDisk, but no way to return error in programmatic API
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
 
@@ -271,10 +272,10 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
     RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
     if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
-      RS_LOG_ASSERT(sp->stats.numDocuments > 0, "numDocuments cannot be negative");
-      sp->stats.numDocuments--;
-      RS_LOG_ASSERT(sp->stats.totalDocsLen >= md->len, "totalDocsLen is smaller than dmd->len");
-      sp->stats.totalDocsLen -= md->len;
+      RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+      sp->stats.scoring.numDocuments--;
+      RS_LOG_ASSERT(sp->stats.scoring.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+      sp->stats.scoring.totalDocsLen -= md->docLen;
       DMD_Return(md);
 
       if (sp->gc) {
@@ -345,12 +346,14 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
 int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char** errs) {
   RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
+  pthread_rwlock_wrlock(&sp->rwlock);
 
   RSError err = {.s = errs};
   QueryError status = QueryError_Default();
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   if (aCtx == NULL) {
     QueryError_ClearError(&status);
+    pthread_rwlock_unlock(&sp->rwlock);
     RWLOCK_RELEASE();
     return REDISMODULE_ERR;
   }
@@ -366,6 +369,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
         *errs = rm_strdup("Document already exists");
       }
       AddDocumentCtx_Free(aCtx);
+      pthread_rwlock_unlock(&sp->rwlock);
       RWLOCK_RELEASE();
       return REDISMODULE_ERR;
     }
@@ -376,6 +380,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   QueryError_ClearError(&status);
   rm_free(d);
 
+  pthread_rwlock_unlock(&sp->rwlock);
   RWLOCK_RELEASE();
   return err.hasErr ? REDISMODULE_ERR : REDISMODULE_OK;
 }
@@ -594,11 +599,20 @@ typedef struct {
 } QueryInput;
 
 static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** error) {
-  // here we only take the read lock and we will free it when the iterator will be freed
+  /* Two-level locking scheme:
+   * 1. RWLOCK (global) - protects access to all indexes, prevents index destruction
+   * 2. sp->rwlock (per-spec) - protects this index's data structures (e.g., TTL table)
+   * Both locks are acquired here and released in RediSearch_ResultsIteratorFree.
+   * On error, cleanup is done here if iter->sp wasn't set, otherwise in Free. */
   RWLOCK_ACQUIRE_READ();
+  pthread_rwlock_rdlock(&sp->rwlock);
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
+  /* Also pause rehashing on the TTL table if it exists */
+  if (sp->docs.ttl) {
+    dictPauseRehashing(sp->docs.ttl);
+  }
 
   RSSearchOptions options = {0};
   QueryError status = QueryError_Default();
@@ -606,6 +620,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   if(sp->rule != NULL && sp->rule->lang_default != DEFAULT_LANGUAGE) {
     options.language = sp->rule->lang_default;
   }
+
+  const char *defaultScorer = NULL;
+  ExtScoringFunctionCtx* scoreCtx = NULL;
 
   RS_ApiIter* it = rm_calloc(1, sizeof(*it));
   it->sctx = SEARCH_CTX_STATIC(NULL, sp);
@@ -630,9 +647,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  const char *defaultScorer = RSGlobalConfig.defaultScorer;
+  defaultScorer = RSGlobalConfig.defaultScorer;
   RS_LOG_ASSERT(defaultScorer, "No default scorer");
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
+  scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;
@@ -642,6 +659,16 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
 end:
 
   if (QueryError_HasError(&status)) {
+    /* Resume rehashing and release locks only if iter->sp was not set,
+     * since RediSearch_ResultsIteratorFree won't do it in that case.
+     * If iter->sp is set, RediSearch_ResultsIteratorFree will handle cleanup. */
+    if (!it->sp) {
+      dictResumeRehashing(sp->keysDict);
+      if (sp->docs.ttl) {
+        dictResumeRehashing(sp->docs.ttl);
+      }
+      pthread_rwlock_unlock(&sp->rwlock);
+    }
     RediSearch_ResultsIteratorFree(it);
     it = NULL;
     if (error) {
@@ -713,8 +740,17 @@ void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   }
   QAST_Destroy(&iter->qast);
   DMD_Return(iter->lastmd);
-  if (iter->sp && iter->sp->keysDict) {
-    dictResumeRehashing(iter->sp->keysDict);
+  /* Release locks only if iter->sp is set. On error paths in handleIterCommon,
+   * if iter->sp is NULL, locks were already released there before calling this.
+   * Lock release order: spec lock first, then global lock (reverse of acquisition). */
+  if (iter->sp) {
+    if (iter->sp->keysDict) {
+      dictResumeRehashing(iter->sp->keysDict);
+    }
+    if (iter->sp->docs.ttl) {
+      dictResumeRehashing(iter->sp->docs.ttl);
+    }
+    pthread_rwlock_unlock(&iter->sp->rwlock);
   }
   rm_free(iter);
   RWLOCK_RELEASE();
@@ -863,10 +899,17 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
   RWLOCK_ACQUIRE_READ();
   IndexSpec *sp = __RefManager_Get_Object(rm);
+  /* Acquire spec read lock to synchronize with config changes that may destroy TTL table */
+  pthread_rwlock_rdlock(&sp->rwlock);
   /* We might have multiple readers that reads from the index,
    * Avoid rehashing the terms dictionary */
   dictPauseRehashing(sp->keysDict);
+  /* Also pause rehashing on the TTL table if it exists */
+  if (sp->docs.ttl) {
+    dictPauseRehashing(sp->docs.ttl);
+  }
 
+  // Report fork when any GC is present
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
   if (sp->rule) {
     info->score = sp->rule->score_default;
@@ -882,12 +925,12 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
     RediSearch_FieldInfo(&info->fields[i], &sp->fields[i]);
   }
 
-  info->numDocuments = sp->stats.numDocuments;
+  info->numDocuments = sp->stats.scoring.numDocuments;
   info->maxDocId = sp->docs.maxDocId;
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
   info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
-  info->numTerms = sp->stats.numTerms;
+  info->numTerms = sp->stats.scoring.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
   info->invertedCap = 0;
@@ -899,16 +942,21 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->indexingFailures = sp->stats.indexError.error_count;
 
   if (sp->gc) {
-    // LLAPI always uses ForkGC
-    ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
-
-    info->totalCollected = gcStats.totalCollected;
-    info->numCycles = gcStats.numCycles;
-    info->totalMSRun = gcStats.totalMSRun;
+    InfoGCStats gcStats;
+    GCContext_GetStats(sp->gc, &gcStats);
+    info->totalCollected = (size_t)(gcStats.totalCollectedBytes >= 0 ? gcStats.totalCollectedBytes : 0);
+    info->numCycles = gcStats.totalCycles;
+    info->totalMSRun = (long long)gcStats.totalTime;
     info->lastRunTimeMs = gcStats.lastRunTimeMs;
   }
 
   dictResumeRehashing(sp->keysDict);
+  /* Also resume rehashing on the TTL table if it exists */
+  if (sp->docs.ttl) {
+    dictResumeRehashing(sp->docs.ttl);
+  }
+  /* Release spec read lock */
+  pthread_rwlock_unlock(&sp->rwlock);
   RWLOCK_RELEASE();
 
   return REDISEARCH_OK;

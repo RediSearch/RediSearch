@@ -39,7 +39,7 @@ jobs:
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: start
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
@@ -55,7 +55,7 @@ jobs:
     runs-on: ${{ needs.start-runner.outputs.runner_label }}
     steps:
       - name: Pre checkout deps
-        run:  sudo apt-get update && sudo apt-get -y install git
+        run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -71,6 +71,8 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: 3.11
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
       - name: Install benchmark dependencies
         run: |
           export HOME=/home/ubuntu
@@ -78,7 +80,7 @@ jobs:
           ./install_script.sh sudo
           cd ..
           # Then install Python dependencies
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.11.51
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.9
         env:
           DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
@@ -89,6 +91,8 @@ jobs:
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Collect results
         run: |
           # Determine OS name
@@ -166,7 +170,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
           aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2
+        uses: machulav/ec2-github-runner@v2.4.2
         with:
           mode: stop
           github-token: ${{ secrets.CI_GH_P_TOKEN }}

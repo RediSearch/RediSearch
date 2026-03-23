@@ -17,16 +17,23 @@
 
 pub mod allocator;
 pub mod call;
+pub mod context;
 pub mod globals;
 pub mod key;
+pub mod log;
+pub mod reply;
 pub mod scan_key_cursor;
 pub mod string;
 
-use std::ffi::CString;
+use std::ffi::{CString, c_char};
 
 use call::*;
+use context::*;
+pub use ffi;
 use key::*;
+use log::*;
 use redis_module::KeyType;
+use reply::*;
 use scan_key_cursor::*;
 use string::*;
 
@@ -105,12 +112,30 @@ impl Default for TestContext {
 ///
 /// This function must be called before mocks of Redis module API functions
 /// are called by test code.
-#[allow(clippy::undocumented_unsafe_blocks)]
+#[expect(clippy::undocumented_unsafe_blocks)]
 pub fn init_redis_module_mock() {
     // register string methods
     unsafe { redis_module::raw::RedisModule_CreateString = Some(RedisModule_CreateString) };
     unsafe { redis_module::raw::RedisModule_StringPtrLen = Some(RedisModule_StringPtrLen) };
     unsafe { redis_module::raw::RedisModule_FreeString = Some(RedisModule_FreeString) };
+    unsafe { redis_module::raw::RedisModule_Strdup = Some(RedisModule_Strdup) };
+    unsafe {
+        redis_module::raw::RedisModule_TrimStringAllocation = Some(RedisModule_TrimStringAllocation)
+    };
+    unsafe { redis_module::raw::RedisModule_HoldString = Some(RedisModule_HoldString) };
+    // We have to use the same type of transmute as for RedisModule_CallHgetAll because of the variadic arguments.
+    let raw_ptr = RedisModule_CreateStringPrintf as *const ();
+    let create_string_printf = unsafe {
+        std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut redis_module::RedisModuleCtx,
+                *const c_char,
+                ...
+            ) -> *mut redis_module::RedisModuleString,
+        >(raw_ptr)
+    };
+    unsafe { redis_module::raw::RedisModule_CreateStringPrintf = Some(create_string_printf) };
 
     // register key methods
     unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
@@ -150,8 +175,8 @@ pub fn init_redis_module_mock() {
             *const (),
             unsafe extern "C" fn(
                 *mut redis_module::RedisModuleCtx,
-                *const ::std::os::raw::c_char,
-                *const ::std::os::raw::c_char,
+                *const c_char,
+                *const c_char,
                 ...
             ) -> *mut redis_module::RedisModuleCallReply,
         >(raw_ptr)
@@ -163,54 +188,155 @@ pub fn init_redis_module_mock() {
     // In that case a call function that dispatches to different implementations based on the cmdname
     // would be more appropriate.
     unsafe { redis_module::raw::RedisModule_Call = Some(new_ftor) }
+
+    // Register log function.
+    // We have to use the same type of transmute as above because of the variadic arguments.
+    let raw_ptr = RedisModule_Log as *const ();
+    let new_log = unsafe {
+        std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut redis_module::RedisModuleCtx,
+                *const c_char,
+                *const c_char,
+                ...
+            ),
+        >(raw_ptr)
+    };
+    unsafe { redis_module::raw::RedisModule_Log = Some(new_log) };
+
+    // Register RedisModuleCtx functions.
+    unsafe {
+        redis_module::raw::RedisModule_GetThreadSafeContext = Some(RedisModule_GetThreadSafeContext)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_FreeThreadSafeContext =
+            Some(RedisModule_FreeThreadSafeContext)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_SubscribeToServerEvent =
+            Some(RedisModule_SubscribeToServerEvent)
+    }
+
+    // Register reply functions.
+    unsafe {
+        redis_module::raw::RedisModule_ReplyWithLongLong = Some(RedisModule_ReplyWithLongLong)
+    };
+    unsafe { redis_module::raw::RedisModule_ReplyWithDouble = Some(RedisModule_ReplyWithDouble) };
+    unsafe {
+        redis_module::raw::RedisModule_ReplyWithSimpleString =
+            Some(RedisModule_ReplyWithSimpleString)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_ReplyWithEmptyArray = Some(RedisModule_ReplyWithEmptyArray)
+    };
+    unsafe { redis_module::raw::RedisModule_ReplyWithArray = Some(RedisModule_ReplyWithArray) };
+    unsafe { redis_module::raw::RedisModule_ReplyWithMap = Some(RedisModule_ReplyWithMap) };
+    unsafe {
+        redis_module::raw::RedisModule_ReplySetArrayLength = Some(RedisModule_ReplySetArrayLength)
+    };
+    unsafe {
+        redis_module::raw::RedisModule_ReplySetMapLength = Some(RedisModule_ReplySetMapLength)
+    };
+}
+
+/// Define an empty stub function for the given list of C symbols.
+/// This is used to define C functions the linker requires but which are not actually used by Rust
+/// benches or tests.
+#[macro_export]
+macro_rules! stub_c_fn {
+    ($($fn_name:ident),* $(,)?) => {
+        $(
+            #[unsafe(no_mangle)]
+            pub extern "C" fn $fn_name() {
+                panic!(concat!(stringify!($fn_name), " should not be called by any of the benchmarks"));
+            }
+        )*
+    };
 }
 
 #[macro_export]
 /// A macro to define Redis' allocation symbols in terms of Rust's global allocator.
 ///
+/// It also defines empty stub functions for other C symbols that are not used by Rust.
+///
 /// It's designed to be used in tests and benchmarks.
-macro_rules! bind_redis_alloc_symbols_to_mock_impl {
+macro_rules! mock_or_stub_missing_redis_c_symbols {
     () => {
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut c_void {
-            // $crate::__libc::malloc(size)
+        unsafe extern "C" fn rm_alloc_impl(size: usize) -> *mut std::ffi::c_void {
             redis_mock::allocator::alloc_shim(size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_calloc_impl(nmemb: usize, size: usize) -> *mut std::ffi::c_void {
             redis_mock::allocator::calloc_shim(nmemb, size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_realloc_impl(ptr: *mut c_void, size: usize) -> *mut c_void {
+        unsafe extern "C" fn rm_realloc_impl(
+            ptr: *mut std::ffi::c_void,
+            size: usize,
+        ) -> *mut std::ffi::c_void {
             redis_mock::allocator::realloc_shim(ptr, size)
         }
 
         #[unsafe(no_mangle)]
-        unsafe extern "C" fn rm_free_impl(ptr: *mut c_void) {
+        unsafe extern "C" fn rm_free_impl(ptr: *mut std::ffi::c_void) {
             redis_mock::allocator::free_shim(ptr)
         }
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut c_void =
+        pub static mut RedisModule_Alloc: unsafe extern "C" fn(usize) -> *mut std::ffi::c_void =
             rm_alloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Calloc: unsafe extern "C" fn(usize, usize) -> *mut c_void =
-            rm_calloc_impl;
+        pub static mut RedisModule_Calloc: unsafe extern "C" fn(
+            usize,
+            usize,
+        ) -> *mut std::ffi::c_void = rm_calloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
         pub static mut RedisModule_Realloc: unsafe extern "C" fn(
-            *mut c_void,
+            *mut std::ffi::c_void,
             usize,
-        ) -> *mut c_void = rm_realloc_impl;
+        ) -> *mut std::ffi::c_void = rm_realloc_impl;
 
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut c_void) = rm_free_impl;
+        pub static mut RedisModule_Free: unsafe extern "C" fn(*mut std::ffi::c_void) = rm_free_impl;
+
+        // Those C symbols are required for the C code to link correctly, but they are never invoked in
+        // our tests or benchmarks.
+        // They are all SSL-related symbols provided by OpenSSL.
+        ::redis_mock::stub_c_fn! {
+            ERR_clear_error,
+            ERR_peek_last_error,
+            ERR_reason_error_string,
+            SSL_connect,
+            SSL_ctrl,
+            SSL_CTX_ctrl,
+            SSL_CTX_free,
+            SSL_CTX_load_verify_locations,
+            SSL_CTX_new,
+            SSL_CTX_set_default_passwd_cb,
+            SSL_CTX_set_default_passwd_cb_userdata,
+            SSL_CTX_set_default_verify_paths,
+            SSL_CTX_set_options,
+            SSL_CTX_set_verify,
+            SSL_CTX_use_certificate_chain_file,
+            SSL_CTX_use_PrivateKey_file,
+            SSL_free,
+            SSL_get_error,
+            SSL_new,
+            SSL_read,
+            SSL_set_connect_state,
+            SSL_set_fd,
+            SSL_write,
+            TLS_client_method,
+        }
     };
 }

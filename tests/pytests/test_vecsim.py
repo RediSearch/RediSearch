@@ -339,21 +339,21 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
-        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
-        expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
+        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
+        expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
 
         # SVS-VAMANA only supports FLOAT32 and FLOAT16 data types
         if data_type in ('FLOAT32', 'FLOAT16'):
             conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v_SVS_VAMANA', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_type,
                                  'DIM', '1024', 'DISTANCE_METRIC', 'L2')
             expected_SVS_VAMANA = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0,
-                                    'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
+                                    'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
                                     'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024,
                                     'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0,
-                                                       'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
+                                                       'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
                                                        'BLOCK_SIZE', 1024],
                                     'BACKEND_INDEX', ['ALGORITHM', 'SVS', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0,
-                                                      'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
+                                                      'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE',
                                                       'BLOCK_SIZE', 1024, 'QUANT_BITS', 'NONE', 'ALPHA', 1.2, 'GRAPH_MAX_DEGREE', 32, 'CONSTRUCTION_WINDOW_SIZE', 200,
                                                       'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'LAST_RESERVED_NUM_THREADS', 1,
                                                       'NUMBER_OF_MARKED_DELETED', 0, 'SEARCH_WINDOW_SIZE', 10, 'SEARCH_BUFFER_CAPACITY', 10, 'LEANVEC_DIMENSION', 0, 'EPSILON', 0.01],
@@ -496,15 +496,20 @@ def test_create_errors():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC').error().contains('Bad arguments for vector similarity FLAT index `DISTANCE_METRIC`')
     ## HNSW algorithm
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW').error().contains('Bad arguments for vector similarity number of parameters')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6').error().contains('Expected 6 parameters but got 0')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '1').error().contains('Bad number of arguments for vector similarity index: got 1 but expected even number')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'SIZE').error().contains('Bad arguments for algorithm HNSW: SIZE')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'TYPE').error().contains('Bad arguments for vector similarity HNSW index `TYPE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DIM').error().contains('Bad arguments for vector similarity HNSW index `DIM`')
+    # Not enough arguments provided for the declared parameter count
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6').error().contains('Bad arguments for vector similarity: not enough arguments')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '1').error().contains('Bad arguments for vector similarity: not enough arguments')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'SIZE').error().contains('Bad arguments for vector similarity: not enough arguments')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'TYPE').error().contains('Bad arguments for vector similarity: not enough arguments')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DIM').error().contains('Bad arguments for vector similarity: not enough arguments')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC').error().contains('Bad arguments for vector similarity: not enough arguments')
+    # Invalid parameter names (with correct argument count)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'SIZE', '100').error().contains('Bad arguments for algorithm HNSW: SIZE')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '2', 'TYPE', 'FLOAT32').error().contains('Missing mandatory parameter: cannot create HNSW index without specifying DIM argument')
+    # Missing mandatory parameters
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'DIM', '1024', 'DISTANCE_METRIC', 'IP').error().contains('Missing mandatory parameter: cannot create HNSW index without specifying TYPE argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'IP').error().contains('Missing mandatory parameter: cannot create HNSW index without specifying DIM argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '4', 'TYPE', 'FLOAT32', 'DIM', '1024').error().contains('Missing mandatory parameter: cannot create HNSW index without specifying DISTANCE_METRIC argument')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC').error().contains('Bad arguments for vector similarity HNSW index `DISTANCE_METRIC`')
     ## SVS-VAMANA algorithm
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA').error().contains('Bad arguments for vector similarity number of parameters')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '6').error().contains('Expected 6 parameters but got 0')
@@ -627,7 +632,7 @@ def test_index_errors():
         error_count += 1
         cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
-        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
+        env.assertEqual(cur_index_errors['last indexing error'], f'SEARCH_VECTOR_BLOB_SIZE_MISMATCH Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
         assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
@@ -635,7 +640,7 @@ def test_index_errors():
         error_count += 1
         cur_index_errors = index_errors(env)
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
-        env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
+        env.assertEqual(cur_index_errors['last indexing error'], f'SEARCH_VECTOR_BLOB_SIZE_MISMATCH Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
         assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
@@ -679,36 +684,36 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score]', 'PARAMS', '4', 'score', 't', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `v` already exists in schema')
 
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 5 EF_RUNTIME 6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME -42]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 5 EF_RUNTIME 6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_FUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EF_RUNTIME: 5; $EF_RUNTIME: 6;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
 
     # ef_runtime is invalid for FLAT index.
-    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN 2 @{v_flat} $b EF_RUNTIME 30]', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
 
     # Hybrid attributes with non-hybrid query is invalid.
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY BATCHES]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY BATCHES BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY BATCHES]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b HYBRID_POLICY BATCHES BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)')
 
     # Invalid hybrid attributes.
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE -6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 34_not_a_number]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 8 BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE -6]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 34_not_a_number]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b BATCH_SIZE 8 BATCH_SIZE 0]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY bad_policy]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
     env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$HYBRID_POLICY: bad_policy;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('invalid hybrid policy was given')
 
     # Invalid hybrid attributes combinations.
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'batch size' is irrelevant for 'ADHOC_BF' policy")
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("Error parsing vector similarity parameters: 'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF BATCH_SIZE 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("SEARCH_ADHOC_BATCH_SIZE_IRRELEVANT 'batch size' is irrelevant for the selected policy (Error parsing vector similarity parameters)")
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b HYBRID_POLICY ADHOC_BF EF_RUNTIME 100]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains("SEARCH_ADHOC_EF_RUNTIME_IRRELEVANT 'EF_RUNTIME' is irrelevant for the selected policy (Error parsing vector similarity parameters)")
 
     # Invalid query combination with query attributes syntax.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score2;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score2')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 100]=>{$EF_RUNTIME:200;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EF_RUNTIME 100]=>{$EF_RUNTIME:200;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b AS $score_1]=>{$yield_distance_as:$score_2;}', 'PARAMS', '6', 'b', 'abcdefgh', 'score_1', 'score_1_val', 'score_2', 'score_2_val').error().contains('Distance field was specified twice for vector query: score_1_val and score_2_val')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:__v_score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and __v_score')
     env.expect('FT.SEARCH', 'idx', 'hello=>[KNN 2 @v $b AS score]=>{$yield_distance_as:score;}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Distance field was specified twice for vector query: score and score')
@@ -718,25 +723,25 @@ def test_search_errors():
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefghi').error().contains('Error parsing vector similarity query: query vector blob size (9) does not match index\'s expected size (8).')
     env.expect('FT.SEARCH', 'idx', '@bad:[vector_range 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Unknown field at offset 0 near bad')
     env.expect('FT.SEARCH', 'idx', '@v:[vector 0.1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Syntax error')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range -1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('Error parsing vector similarity query: negative radius (-1) given in a range query')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range -1 $b]', 'PARAMS', '2', 'b', 'abcdefgh').error().equal('SEARCH_QUERY_BAD Error parsing vector similarity query: negative radius (-1) given in a range query')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:t}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `t` already exists in schema')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:dist} @v:[vector_range 0.2 $b]=>{$yield_distance_as:dist}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Property `dist` specified more than once')
     env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$yield_distance_as:$dist}', 'PARAMS', '4', 'b', 'abcdefgh', 'dist', 't').error().contains('Property `t` already exists in schema')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EF_RUNTIME:10}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$HYBRID_POLICY:BATCHES}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: hybrid query attributes were sent for a non-hybrid query')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EF_RUNTIME:10}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$HYBRID_POLICY:BATCHES}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)')
 
     # Invalid epsilon param for range queries
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: -1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: not_a_num}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid value was given')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EPSILON: 0.2}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Parameter was specified twice')
-    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EF_RUNTIME: 20}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: -1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: not_a_num}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_VALUE_BAD Invalid value was given (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EPSILON: 0.2}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_PARAM_DUP Parameter was specified twice (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@v:[vector_range 0.1 $b]=>{$EPSILON: 0.1; $EF_RUNTIME: 20}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
 
     # epsilon is invalid for non-range queries, and also for flat index.
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EPSILON 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EPSILON: 2.71828}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
-    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$EPSILON: 0.1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('Error parsing vector similarity parameters: range query attributes were sent for a non-range query')
-    env.expect('FT.SEARCH', 'idx', f'@{v_flat}:[vector_range 0.1 $b]=>{{$epsilon:0.1}}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').equal('Error parsing vector similarity parameters: Invalid option')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b EPSILON 2.71828]', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_RANGE_ATTR_NON_RANGE range query attributes were sent for a non-range query (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$EPSILON: 2.71828}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_RANGE_ATTR_NON_RANGE range query attributes were sent for a non-range query (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', '@s:hello=>[KNN 2 @v $b]=>{$EPSILON: 0.1}', 'PARAMS', '2', 'b', 'abcdefgh').error().contains('SEARCH_RANGE_ATTR_NON_RANGE range query attributes were sent for a non-range query (Error parsing vector similarity parameters)')
+    env.expect('FT.SEARCH', 'idx', f'@{v_flat}:[vector_range 0.1 $b]=>{{$epsilon:0.1}}', 'PARAMS', '2', 'b', 'abcdefghabcdefgh').equal('SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)')
 
 
 def test_with_fields():
@@ -930,9 +935,9 @@ def test_hybrid_query_with_text_vamana():
 
     # Expect empty score for the intersection (disjoint sets of results)
     # The hybrid policy changes to ad hoc after the first batch
-    # TODO: Re-enable once MOD-12063 is fixed
-    # execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't',
-    #                         hybrid_mode='HYBRID_BATCHES').equal([0])
+    # This one crashed before MOD-12063 is fixed
+    execute_hybrid_query(env, '(@t:other text)=>[KNN 10 @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 2]', query_data, 't',
+                            hybrid_mode='HYBRID_BATCHES').equal([0])
 
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
@@ -1771,11 +1776,12 @@ def test_rdb_memory_limit():
 
 class TestTimeoutReached(object):
     def __init__(self):
-        if SANITIZER or OS == 'macos':
-            raise SkipTest()
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
         n_shards = self.env.shardsCount
-        self.index_sizes = {'FLAT': 80000 * n_shards, 'HNSW': 10000 * n_shards, 'SVS-VAMANA': 10000 * n_shards}
+        # We need at least DEFAULT_BLOCK_SIZE at every shard, due to nature of hash slot distribution, we need a bit extra
+        # for that reason we multiply by 1.1
+        minimal_svs_index_size = int(DEFAULT_BLOCK_SIZE * 1.1 * n_shards)
+        self.index_sizes = {'FLAT': 100 * n_shards, 'HNSW': 100 * n_shards, 'SVS-VAMANA': minimal_svs_index_size}
         self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
         self.dim = 10
         self.type = 'FLOAT32'
@@ -1783,38 +1789,36 @@ class TestTimeoutReached(object):
     def tearDown(self): # cleanup after each test
         self.env.flush()
 
-    def run_long_queries(self, n_vec, query_vec):
+    def run_timeout_tests(self, n_vec, query_vec):
+        small_k = 10
         # STANDARD KNN
-        large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
-                                   'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                                   'PARAMS', 4, 'K', small_k, 'vec_param', query_vec.tobytes(),
                                    'TIMEOUT', 0)
-        self.env.assertEqual(res[0], large_k)
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect(
-            'FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
-            'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', n_vec,
-            'vec_param', query_vec.tobytes(), 'TIMEOUT', 1
-        ).error().contains('Timeout limit was reached')
+        self.env.assertEqual(res[0], small_k)
 
-        # RANGE QUERY
-        # run query with 1 millisecond timeout. should fail.
-        self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
-                   'PARAMS', 2, 'vec_param', query_vec.tobytes(),
-                   'TIMEOUT', 1).error().contains('Timeout limit was reached')
+        # Enable VECSIM mock timeout to simulate timeout in the vecsim library
+        with vecsimMockTimeoutContext(self.env):
+            # run query with timeout enabled in vecsim
+            self.env.expect('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]',
+                           'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 4, 'K', small_k,
+                           'vec_param', query_vec.tobytes()).error().contains('Timeout limit was reached')
 
-        # HYBRID MODES
-        # Add some dummy documents so `-dummy` won't be empty and optimized away.
-        with self.env.getClusterConnectionIfNeeded() as conn:
-            for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
-                conn.execute_command('HSET', i, 't', 'dummy')
-        for mode in self.hybrid_modes:
-            self.env.expect(
-                'FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
-                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec,
-                'vec_param', query_vec.tobytes(), 'hp', mode, 'TIMEOUT', 1
-            ).error().contains('Timeout limit was reached')
+            # RANGE QUERY
+            # run query with timeout enabled in vecsim
+            self.env.expect('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE 10000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_vec,
+                           'PARAMS', 2, 'vec_param', query_vec.tobytes()).error().contains('Timeout limit was reached')
+
+            # HYBRID MODES
+            # Add some dummy documents so `-dummy` won't be empty and optimized away.
+            with self.env.getClusterConnectionIfNeeded() as conn:
+                for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
+                    conn.execute_command('HSET', i, 't', 'dummy')
+            for mode in self.hybrid_modes:
+                self.env.expect('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
+                               'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', small_k,
+                               'vec_param', query_vec.tobytes(), 'hp', mode).error().contains('Timeout limit was reached')
 
     def test_flat(self):
         # Create index and load vectors.
@@ -1824,7 +1828,7 @@ class TestTimeoutReached(object):
                     'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
     def test_hnsw(self):
         # Create index and load vectors.
@@ -1834,7 +1838,7 @@ class TestTimeoutReached(object):
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
     def test_svs(self):
         # Create index and load vectors.
@@ -1844,7 +1848,7 @@ class TestTimeoutReached(object):
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2').ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_timeout_tests(n_vec, query_vec)
 
 @skip(no_json=True)
 def test_create_multi_value_json():
@@ -1857,7 +1861,7 @@ def test_create_multi_value_json():
     path = 'not a valid path'
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', 'FLAT',
                '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().equal(
-                f"Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
+                f"SEARCH_PATH_BAD Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
 
     for algo in VECSIM_ALGOS:
         for path in multi_paths:
@@ -1880,6 +1884,8 @@ def test_index_multi_value_json():
     per_doc = 5
 
     for data_t in VECSIM_DATA_TYPES:
+        # Skipping on sanitizer due to MOD-12768
+        run_svs_test = data_t in ('FLOAT32', 'FLOAT16')
         n = 100
         conn.flushall()
 
@@ -1890,7 +1896,7 @@ def test_index_multi_value_json():
         args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
                 '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
                 '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
-        if data_t in ('FLOAT32', 'FLOAT16'):
+        if run_svs_test:
             # Add enough vectors to trigger svs backend index initialization
             n = 250 * env.shardsCount
             args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'CONSTRUCTION_WINDOW_SIZE', n, 'SEARCH_WINDOW_SIZE', n]
@@ -1957,7 +1963,7 @@ def test_index_multi_value_json():
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range, message=f'data_t: {data_t}')
 
-            if data_t in ('FLOAT32', 'FLOAT16'):
+            if run_svs_test:
                 env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'svs')['INDEX_SIZE'], 0)
                 cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
                 svs_res = conn.execute_command(*cmd_knn)[1:]
@@ -2598,7 +2604,7 @@ def test_vector_index_ptr_valid(env):
     env.assertEqual(res, 1)
 
     index_errors_dict = index_errors(env, 'idx')
-    env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
+    env.assertEqual(index_errors_dict['last indexing error'], "SEARCH_GENERIC Could not open vector for indexing")
 
     # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer access
     # Server will reply OK but crash afterwards, so a PING is required to verify

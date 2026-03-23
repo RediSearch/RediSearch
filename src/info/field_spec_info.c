@@ -79,8 +79,13 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
     switch (fieldType) {
         case INDEXFLD_T_VECTOR:
             for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
-                size_t metricValue = MRReply_Integer(MRReply_MapElement(reply, VectorIndexStats_Metrics[i]));
-                VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+                // Handle missing metrics gracefully (e.g., during rolling upgrades when
+                // old shards don't output new metrics). Missing metrics default to 0.
+                MRReply *metricReply = MRReply_MapElement(reply, VectorIndexStats_Metrics[i]);
+                if (metricReply) {
+                    size_t metricValue = MRReply_Integer(metricReply);
+                    VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+                }
             }
             stats.type = INDEXFLD_T_VECTOR;
             break;
@@ -184,17 +189,19 @@ size_t IndexSpec_VectorIndexesSize(IndexSpec *sp) {
   return stats.memory;
 }
 
-// Get the stats of the vector field `fs` in the index `sp`.
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs){
+// Get the stats of the vector field `fs`.
+VectorIndexStats IndexSpec_GetVectorIndexStats(FieldSpec *fs){
   VectorIndexStats stats = {0};
-  RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
+  // ctx is NULL because we don't create the index here
+  VecSimIndex *vecsim = openVectorIndex(NULL, fs, DONT_CREATE_INDEX);
   if (!vecsim) {
     return stats;
   }
   const VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
   stats.memory += info.memory;
   stats.marked_deleted += info.numberOfMarkedDeleted;
+  stats.direct_hnsw_insertions += info.directHNSWInsertions;
+  stats.flat_buffer_size += info.flatBufferSize;
   return stats;
 }
 
@@ -202,35 +209,37 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   VectorIndexStats stats = {0};
   for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
+    FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(sp, fs);
+      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(fs);
       stats.memory += field_stats.memory;
       stats.marked_deleted += field_stats.marked_deleted;
+      stats.direct_hnsw_insertions += field_stats.direct_hnsw_insertions;
+      stats.flat_buffer_size += field_stats.flat_buffer_size;
     }
   }
   return stats;
 }
 
-// Get the stats of the field `fs` in the index `sp`.
-FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
+// Get the stats of the field `fs`.
+FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
   switch (stats.type) {
     case INDEXFLD_T_VECTOR:
-      stats.vecStats = IndexSpec_GetVectorIndexStats(sp, fs);
+      stats.vecStats = IndexSpec_GetVectorIndexStats(fs);
       return stats;
     default:
       return (FieldSpecStats){0};
   }
 }
 
-// Get the information of the field `fs` in the index `sp`.
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp, bool obfuscate) {
+// Get the information of the field `fs`.
+FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
   FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs, sp));
+  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs));
   return info;
 }

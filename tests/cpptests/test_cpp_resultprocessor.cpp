@@ -54,7 +54,7 @@ class ResultProcessorTest : public ::testing::Test {};
 
 TEST_F(ResultProcessorTest, testProcessorChain) {
   QueryProcessingCtx qitr = {0};
-  RLookup lk = {0};
+  RLookup lk = RLookup_New();
   processor1Ctx *p = new processor1Ctx();
   p->counter = 0;
   p->Next = p1_Next;
@@ -68,13 +68,13 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   QITR_PushRP(&qitr, p2);
 
   size_t count = 0;
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
     ASSERT_EQ(count, SearchResult_GetDocId(&r));
     ASSERT_EQ(count, SearchResult_GetScore(&r));
-    RSValue *v = RLookup_GetItem(p->kout, SearchResult_GetRowData(&r));
+    RSValue *v = RLookupRow_Get(p->kout, SearchResult_GetRowData(&r));
     ASSERT_TRUE(v != NULL);
     ASSERT_EQ(RSValueType_Number, RSValue_Type(v));
     ASSERT_EQ(count, RSValue_Number_Get(v));
@@ -95,8 +95,8 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
  * Test SearchResult_mergeFlags function with no flags set
  */
 TEST_F(ResultProcessorTest, testmergeFlags_NoFlags) {
-  SearchResult a = {0};
-  SearchResult b = {0};
+  SearchResult a = SearchResult_New();
+  SearchResult b = SearchResult_New();
 
   // Test merging no flags
   SearchResult_MergeFlags(&a, &b);
@@ -107,8 +107,8 @@ TEST_F(ResultProcessorTest, testmergeFlags_NoFlags) {
  * Test SearchResult_mergeFlags function with Result_ExpiredDoc flag
  */
 TEST_F(ResultProcessorTest, testmergeFlags_ExpiredDoc) {
-  SearchResult a = {0};
-  SearchResult b = {0};
+  SearchResult a = SearchResult_New();
+  SearchResult b = SearchResult_New();
   SearchResult_SetFlags(&b, Result_ExpiredDoc); // Source has expired flag
 
   // Test merging expired flag

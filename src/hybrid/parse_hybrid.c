@@ -21,6 +21,8 @@
 #include "spec.h"
 #include "param.h"
 #include "rmalloc.h"
+#include "config.h"
+#include "shard_window_ratio.h"
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
@@ -31,6 +33,10 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/parse/hybrid_optional_args.h"
+#include "asm_state_machine.h"
+#include "hybrid/parse/hybrid_callbacks.h"
+#include "util/arg_parser.h"
+#include "rs_wall_clock.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -107,13 +113,41 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     }
 
     // Unknown argument that's not VSIM - this is an error
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in SEARCH", cur);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
   }
   if (searchOpts->scoreAlias) {
     AREQ_AddRequestFlags(sreq, QEXEC_F_SEND_SCORES_AS_FIELD);
   }
 
+  return REDISMODULE_OK;
+}
+
+static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
+                                  QueryError *status) {
+  // VSIM @vectorfield vector KNN <nargs> ... SHARD_K_RATIO <ratio>
+  //                                          ^
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for SHARD_K_RATIO");
+    return REDISMODULE_ERR;
+  }
+
+  const char *ratioStr;
+  size_t ratioStrLen;
+  ratioStr = AC_GetStringNC(ac, &ratioStrLen);
+  double shardKRatio;
+  if (!validateShardKRatio(ratioStr, &shardKRatio, status)) {
+    return REDISMODULE_ERR;
+  }
+
+  // Add as QueryAttribute (will be applied to VectorQuery via QueryNode_ApplyAttributes)
+  QueryAttribute attr = {
+    .name = SHARD_K_RATIO_ATTR,
+    .namelen = strlen(SHARD_K_RATIO_ATTR),
+    .value = rm_strndup(ratioStr, ratioStrLen),
+    .vallen = ratioStrLen
+  };
+  pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
   return REDISMODULE_OK;
 }
 
@@ -135,6 +169,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -175,10 +210,20 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
 
+    } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
+      if (hasShardKRatio) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate SHARD_K_RATIO argument");
+        return REDISMODULE_ERR;
+      }
+      if (parseShardKRatioClause(ac, pvd, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+      hasShardKRatio = true;
+
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in KNN", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in KNN", current);
       return REDISMODULE_ERR;
     }
   }
@@ -251,7 +296,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown argument", " `%s` in RANGE", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s` in RANGE", current);
       return REDISMODULE_ERR;
     }
   }
@@ -262,10 +307,58 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   return REDISMODULE_OK;
 }
 
-static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
-  // VSIM @vectorfield vector [KNN/RANGE ...] FILTER ...
+static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, QueryError *status, unsigned long long count) {
+  // VSIM @vectorfield vector [KNN/RANGE ...] [FILTER <count> "filter-expression" [POLICY ADHOC/BATCHES] [BATCH_SIZE batch-size-value]]
   //                                                 ^
-  vreq->query = AC_GetStringNC(ac, NULL);
+
+  ArgsCursor argCursor= {0};
+  int res = AC_GetSlice(ac, &argCursor, count);
+  if (res == AC_ERR_NOARG) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
+    return REDISMODULE_ERR;
+  } else if (res != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", "FILTER", AC_Strerror(res));
+    return REDISMODULE_ERR;
+  }
+
+  // Parse filter-expression (required, positional) - store in vreq->query directly
+  vreq->query = AC_GetStringNC(&argCursor, NULL);
+  if (!vreq->query) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
+    return REDISMODULE_ERR;
+  }
+
+  // Use ArgParser for optional POLICY and BATCH_SIZE
+  ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
+  if (!parser) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create argument parser for FILTER");
+    return REDISMODULE_ERR;
+  }
+
+  // Parse POLICY (optional, enum)
+  const char *policy = NULL;
+  static const char *allowedPolicies[] = {"ADHOC", "BATCHES", NULL};
+  ArgParser_AddStringV(parser, "POLICY", "Filter policy",
+                      &policy, ARG_OPT_OPTIONAL,
+                      ARG_OPT_ALLOWED_VALUES, allowedPolicies,
+                      ARG_OPT_CALLBACK, handleFilterPolicy, pvd,
+                      ARG_OPT_END);
+
+  // Parse BATCH_SIZE (optional)
+  const char *batchSize = NULL;
+  ArgParser_AddStringV(parser, "BATCH_SIZE", "Batch size",
+                      &batchSize, ARG_OPT_OPTIONAL,
+                      ARG_OPT_CALLBACK, handleFilterBatchSize, pvd,
+                      ARG_OPT_END);
+
+  ArgParseResult result = ArgParser_Parse(parser);
+  if (!result.success) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, ArgParser_GetErrorString(parser));
+    ArgParser_Free(parser);
+    return REDISMODULE_ERR;
+  }
+
+  ArgParser_Free(parser);
   return REDISMODULE_OK;
 }
 
@@ -342,6 +435,9 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     vectorParam++;  // Skip '$'
     vectorParamLen--;  // Adjust length for skipped '$'
     pvd->isParameter = true;
+  } else {
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid vector argument, expected a parameter name starting with $");
+    goto error;
   }
 
   // Set default KNN values before checking for more arguments
@@ -364,18 +460,41 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       goto error;
     }
     vq->type = VECSIM_QT_RANGE;
+    // Default to BY_SCORE - the iterator returns results sorted by distance.
+    // This will be changed to BY_ID below if an explicit FILTER clause is
+    // provided, because filtering requires an intersection iterator that uses
+    // SkipTo.
     vq->range.order = BY_SCORE;
   }
 
   // Check for optional FILTER clause - argument may not be in our scope
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
-    if (parseFilterClause(ac, vreq, status) != REDISMODULE_OK) {
+    unsigned long long count = 0;
+    if (AC_IsAtEnd(ac)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument count for FILTER");
       goto error;
+    }
+    if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
+      // it's a string, not a number, preserving some degree of backward compatibility
+      vreq->query = AC_GetStringNC(ac, NULL);
+      if (!vreq->query) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
+        goto error;
+      }
+    } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
+      goto error;
+    }
+
+    // RANGE queries with explicit FILTER need BY_ID ordering because the filter
+    // creates a PHRASE node which uses an intersection iterator with SkipTo.
+    // SkipTo requires child iterators to be sorted by document ID.
+    if (vq->type == VECSIM_QT_RANGE) {
+      vq->range.order = BY_ID;
     }
   }
 
-  // Check for optional YIELD_SCORE_AS clause
-  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+  // Check for optional YIELD_SCORE_AS detecting duplicate arguments
+  while (!AC_IsAtEnd(ac) && AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
     if (parseYieldScoreClause(ac, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -387,8 +506,17 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  if (!vreq->query) {  // meaning there is no filter clause
+  // Set implicit "*" filter if no explicit filter was provided.
+  // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
+  // so the vector node becomes the root directly (no PHRASE/intersection needed).
+  // This preserves BY_SCORE ordering from the iterator.
+  if (!vreq->query) {
     vreq->query = "*";
+    // For RANGE without explicit filter, skip the filter integration
+    // so the vector node is the root and returns results sorted by score.
+    if (vq->type == VECSIM_QT_RANGE) {
+      pvd->skipFilterIntegration = true;
+    }
   }
 
   // Set vector data in VectorQuery based on type (KNN vs RANGE)
@@ -397,6 +525,7 @@ final:
     case VECSIM_QT_KNN:
       vq->knn.vector = (void*)vectorParam;
       vq->knn.vecLen = vectorParamLen;
+      vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;
@@ -430,6 +559,41 @@ static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
 static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
   dest->maxIdle = src->maxIdle;
   dest->chunkSize = src->chunkSize;
+}
+
+// Helper function to copy hybrid request configuration to a single subquery
+static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
+                                      ParseHybridCommandCtx *parsedCmdCtx,
+                                      RSSearchOptions *mergeSearchopts,
+                                      uint32_t mergeReqflags, size_t maxHybridResults,
+                                      ProfileOptions profileOptions) {
+  // Copy parameters if they exist
+  if (mergeSearchopts->params) {
+    subqueryRequest->searchopts.params = Param_DictClone(mergeSearchopts->params);
+  }
+
+  // Copy cursor configuration and flags if cursor is enabled
+  if (mergeReqflags & QEXEC_F_IS_CURSOR) {
+    // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
+    subqueryRequest->reqflags |= QEXEC_F_IS_CURSOR;
+    // Copy cursor configuration using the helper function
+    copyCursorConfig(&subqueryRequest->cursorConfig, parsedCmdCtx->cursorConfig);
+  }
+
+  // Copy score sending flags if enabled
+  if (mergeReqflags & QEXEC_F_SEND_SCORES) {
+    subqueryRequest->reqflags |= QEXEC_F_SEND_SCORES;
+  }
+
+  // Copy request configuration using the helper function
+  copyRequestConfig(&subqueryRequest->reqConfig, parsedCmdCtx->reqConfig);
+
+  // Copy max results limits
+  subqueryRequest->maxSearchResults = maxHybridResults;
+  subqueryRequest->maxAggregateResults = maxHybridResults;
+
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(subqueryRequest);
+  ApplyProfileOptions(qctx, &subqueryRequest->reqflags, profileOptions);
 }
 
 /**
@@ -527,10 +691,53 @@ static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchP
 }
 
 /**
+ * Parse the subqueries count at the beginning of the FT.HYBRID command.
+ *
+ * Expected position in command:
+ *   FT.HYBRID <index> <subqueries_count> SEARCH ...
+ *                    ^
+ *
+ * Currently supports only 2 subqueries. We also support the old format without
+ * the subqueries count for backward compatibility:
+ *   FT.HYBRID <index> SEARCH <query> VSIM <vector_args>
+ *
+ * @param ac ArgsCursor for parsing - should be right after the index name
+ * @param status Output parameter for error reporting
+ * @return true if parsing succeeded, false if an error occurred (error is set in status)
+ */
+static bool parseSubqueriesCount(ArgsCursor *ac, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing subqueries count for FT.HYBRID");
+    return false;
+  }
+
+  unsigned int subqueriesCount = 0;
+  bool hasSubqueryCount = AC_GetUnsigned(ac, &subqueriesCount, AC_F_GE1) == AC_OK; // Advances the cursor only if parsing succeeded
+
+  if (hasSubqueryCount) {
+    if (subqueriesCount != HYBRID_REQUEST_NUM_SUBQUERIES) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.HYBRID currently supports only two subqueries");
+      return false;
+    } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH keyword is required");
+      return false;
+    }
+  } else if (!AC_AdvanceIfMatch(ac, "SEARCH")) { // Old format: FT.HYBRID <index> <search_query> <vsim_query>
+    // error according to the new format
+    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid subqueries count: expected an unsigned integer");
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
  *                  [COMBINE <method> [params]] [aggregation_options]
+ *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
  *
  * @param ctx Redis module context
  * @param ac ArgsCursor for parsing command arguments - should start after the index name
@@ -542,14 +749,16 @@ static void handleLoadStepForHybridPipelines(AGGPlan *tailPlan, AGGPlan *searchP
  */
 int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
                        RedisSearchCtx *sctx, ParseHybridCommandCtx *parsedCmdCtx,
-                       QueryError *status, bool internal) {
+                       QueryError *status, bool internal, ProfileOptions profileOptions) {
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
   // Individual variables used for parsing the tail of the command
   uint32_t *mergeReqflags = &hybridParams->aggregationParams.common.reqflags;
+
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
+  ApplyProfileFlags(mergeReqflags, profileOptions);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
 
   // Use default dialect if > 1, otherwise use dialect 2
@@ -568,6 +777,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
+  if (internal) {
+    searchRequest->reqflags |= QEXEC_F_INTERNAL;
+    vectorRequest->reqflags |= QEXEC_F_INTERNAL;
+  }
 
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
@@ -577,10 +790,17 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
 
-  if (AC_IsAtEnd(ac) || !AC_AdvanceIfMatch(ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "SEARCH argument is required");
+  // Declare variables used after goto statements to avoid "jump skips variable initialization" errors
+  const char *vectorScoreFieldAlias = NULL;
+  PLN_VectorNormalizerStep *vnStep = NULL;
+  PLN_ArrangeStep *arrangeStep = NULL;
+  size_t prefixCount = 0;
+  AggregationPipelineParams params;
+  HybridParseContext hybridParseCtx;
+
+  if (!parseSubqueriesCount(ac, status)) {
     goto error;
   }
 
@@ -592,7 +812,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
-  HybridParseContext hybridParseCtx = {
+  hybridParseCtx = (HybridParseContext){
       .status = status,
       .specifiedArgs = 0,
       .hybridScoringCtx = hybridParams->scoringCtx,
@@ -605,7 +825,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .maxResults = &maxHybridResults,
       .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
-      .slotsVersion = &slotsVersion,
+      .keySpaceVersion = &keySpaceVersion,
+      .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
   // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
@@ -614,16 +835,22 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Set slots info in both subqueries
   if (internal) {
+    RS_ASSERT(requestSlotRanges != NULL);
     vectorRequest->querySlots = SlotRangeArray_Clone(requestSlotRanges);
-    vectorRequest->slotsVersion = slotsVersion;
+    vectorRequest->keySpaceVersion = keySpaceVersion;
+    if (vectorRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     searchRequest->querySlots = requestSlotRanges;
-    searchRequest->slotsVersion = slotsVersion;
+    searchRequest->keySpaceVersion = keySpaceVersion;
+    if (searchRequest->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(keySpaceVersion);
+    }
     requestSlotRanges = NULL; // ownership transferred
   }
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
-  const char *vectorScoreFieldAlias = NULL;
   if (vectorRequest->parsedVectorData->vectorScoreFieldAlias != NULL) {
     vectorScoreFieldAlias = vectorRequest->parsedVectorData->vectorScoreFieldAlias;
     vectorRequest->parsedVectorData->vectorScoreFieldAlias = NULL;
@@ -635,54 +862,36 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
   }
   // Store the key string so it could fetch the distance from the RlookupRow
-  PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
+  vnStep = PLNVectorNormalizerStep_New(
     vectorRequest->parsedVectorData->fieldName,
     vectorScoreFieldAlias
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
-  const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
-  if (hadArgumentBesidesCombine) {
+  // Copy hybrid request configuration to each subquery
+  copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
+                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+  copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
+                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+
+  // Clean up merge search options after copying
+  if (mergeSearchopts.params) {
+    Param_DictFree(mergeSearchopts.params);
+    mergeSearchopts.params = NULL;
+  }
+
+  if ((hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
-    if (mergeSearchopts.params) {
-      searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-      vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-      Param_DictFree(mergeSearchopts.params);
-      mergeSearchopts.params = NULL;
-    }
-
-    if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
-      // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
-      searchRequest->reqflags |= QEXEC_F_IS_CURSOR;
-      vectorRequest->reqflags |= QEXEC_F_IS_CURSOR;
-      // Copy cursor configuration using the helper function
-      copyCursorConfig(&searchRequest->cursorConfig, parsedCmdCtx->cursorConfig);
-      copyCursorConfig(&vectorRequest->cursorConfig, parsedCmdCtx->cursorConfig);
-    }
-    if (*mergeReqflags & QEXEC_F_SEND_SCORES) {
-      searchRequest->reqflags |= QEXEC_F_SEND_SCORES;
-      vectorRequest->reqflags |= QEXEC_F_SEND_SCORES;
-    }
-
-    // Copy max results limits
-    searchRequest->maxSearchResults = maxHybridResults;
-    searchRequest->maxAggregateResults = maxHybridResults;
-    vectorRequest->maxSearchResults = maxHybridResults;
-    vectorRequest->maxAggregateResults = maxHybridResults;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
   }
 
-  // Copy request configuration using the helper function
-  copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
-  copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
-
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
   // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
   // So it is important this is done before we add the load step to the subqueries plan
-  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+  arrangeStep = AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
   if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
     arrangeStep->limit = hybridParams->scoringCtx->rrfCtx.window;
   } else {
@@ -701,8 +910,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  IndexSpec *spec = parsedCmdCtx->search->sctx->spec;
-  const size_t prefixCount = array_len(*hybridParseCtx.prefixes);
+  prefixCount = array_len(*hybridParseCtx.prefixes);
   if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
@@ -721,7 +929,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   }
 
   // thread safe context
-  const AggregationPipelineParams params = {
+  params = (AggregationPipelineParams){
       .common =
           {
               .sctx = sctx,  // should be a separate context?
@@ -735,7 +943,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   };
 
   hybridParams->aggregationParams = params;
-  hybridParams->synchronize_read_locks = true;
 
   return REDISMODULE_OK;
 

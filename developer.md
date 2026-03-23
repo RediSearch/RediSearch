@@ -1,18 +1,307 @@
-# Developer notes
+# Developer Getting Started Guide
 
-## Cloning the project
+## Cloning the Project
 
-```bash
+Clone RediSearch with all its git submodule dependencies:
+
+```sh
 git clone --recursive https://github.com/RediSearch/RediSearch.git
+cd RediSearch
 ```
 
-## Dev container
-We have provided a dev container based on `ubuntu:latest` docker image with all the dependencies (Redis, build systems, rust, Python virtual environment) installed. Just clone the repo and open it in the dev container. It will take a few minutes for the first time to download and install the dependencies.
-If you would like to build it on your machine without a docker, proceed to the next sections.
-## Installing prerequisites
+If you already cloned without `--recursive`, initialize the submodules:
 
-### Build dependencies
-To build and test RediSearch you need to install several packages, depending on the underlying OS. The following OSes are supported and tested in our CI:
+```sh
+git submodule update --init --recursive
+```
+
+## Installing Dependencies
+
+Building and testing RediSearch requires the following dependencies:
+
+- `rust` (latest stable version)
+- `cmake >= 3.25.1`
+- `boost == 1.88.0` (optional — CMake will fetch it automatically, but with a build time penalty)
+- `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
+- `python3` and `python3-pip` (for running tests)
+- `openssl-devel` / `libssl-dev` (for secure connections)
+
+### Using Installation Scripts
+
+Install all required build tools using the provided scripts:
+
+```sh
+cd .install
+./install_script.sh
+cd ..
+```
+
+This uses your system's native package manager (apt, yum, homebrew, etc.).
+
+#### nextest
+
+Extra dependencies not yet installed through the install script is `nextest`.
+
+If you have `cargo-binstall` available, install it with:
+
+```sh
+cargo binstall cargo-nextest --secure
+```
+
+Or:
+
+```sh
+cargo install cargo-nextest --locked
+```
+
+### Alternative: Dev Container
+
+A dev container based on `ubuntu:latest` is available with all dependencies pre-installed. Open the repository in VS Code with the Dev Containers extension, and it will set up the environment automatically.
+
+### Installing Redis
+
+RediSearch requires `redis-server` in your PATH. We recommend building Redis from source since RediSearch `master` often requires unreleased features.
+
+Follow the steps in the [Redis Readme on building Redis from source](https://github.com/redis/redis#build-redis-from-source) to get it installed.
+
+## Building the Project
+
+RediSearch has two main CLIs at the moment the (old, legacy) `MAKEFILE` and the new preferred `build.sh` file. (The old `MAKEFILE` invokes `./build.sh` for all its actions)
+
+Do a regular build (with release optimizations):
+
+```sh
+./build.sh
+```
+
+Build in debug mode:
+
+```sh
+./build.sh DEBUG
+```
+
+Force a fresh rebuild (useful after switching branches):
+
+```sh
+./build.sh FORCE
+```
+
+Build including test binaries:
+
+```sh
+./build.sh TESTS
+```
+
+Build flags can also be combined, e.g:
+
+```sh
+./build.sh TESTS FORCE
+```
+
+The compiled module is located at:
+```
+bin/<target>-<release|debug>/search-community/redisearch.so
+```
+
+## Running Tests
+
+### Unit Tests (C/C++)
+
+Build and run C/C++ unit tests:
+
+```sh
+./build.sh RUN_UNIT_TESTS
+```
+
+### Rust Tests
+
+Build and run Rust tests:
+
+```sh
+./build.sh RUN_RUST_TESTS
+```
+
+For Rust coverage tests, install the nightly toolchain first:
+
+```sh
+rustup toolchain install nightly \
+    --allow-downgrade \
+    --component llvm-tools-preview \
+    --component miri
+
+# Tool required to compute test coverage for Rust code
+cargo install cargo-llvm-cov --locked
+
+# Make sure `miri` is fully operational before running tests with it.
+# See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
+# for more details.
+cargo +nightly miri setup
+```
+
+### Python Tests
+
+#### Setting Up the Python Environment
+
+Install `uv` (a fast Python package manager):
+
+```sh
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or via pip
+pip install uv
+```
+
+Create and activate a virtual environment:
+
+```sh
+uv venv --seed
+source .venv/bin/activate
+```
+
+Install test dependencies:
+
+```sh
+uv sync --locked --all-packages
+```
+
+#### Running Python Tests
+
+With the virtual environment activated:
+
+```sh
+# Run all Python tests
+./build.sh RUN_PYTEST
+
+# Run a specific test file
+./build.sh RUN_PYTEST TEST=<test_file_name>
+
+# Run a specific test function
+./build.sh RUN_PYTEST TEST=<test_file_name>:<test_function_name>
+```
+
+#### Skipping RedisJSON Tests
+
+Some tests require RedisJSON. To skip them:
+
+```sh
+./build.sh RUN_PYTEST REJSON=0
+```
+
+Or specify a path to an existing RedisJSON module:
+
+```sh
+./build.sh RUN_PYTEST REJSON_PATH=/path/to/redisjson.so
+```
+
+### Running All Tests
+
+To build and run all tests (unit, Rust, and integration):
+
+```sh
+./build.sh RUN_TESTS
+```
+
+### Sanitizers
+
+Currently address sanitizer is supported (Linux only). To run the tests with address sanitizer you can use the following command:
+
+```sh
+./build.sh RUN_TESTS SAN=address
+```
+
+## Debugging Tests
+
+### C/C++ Unit Tests
+
+Unit tests are compiled into standalone binaries that can be loaded into `lldb` or `gdb` as-is. 
+
+C unit test artifacts can be found in this folder: `bin/<your target>-<release or debug>/search-community/tests/ctests/`.
+
+C++ Unit tests use the [Google Test Framework](https://github.com/google/googletest) and are compiled into this binary `bin/<your target>-<release or debug>/search-community/tests/cpptests/rstest`.
+
+Run a specific C++ test:
+
+```sh
+bin/<your target>-<release or debug>/search-community/tests/cpptests/rstest --gtest_filter <test name>
+```
+
+### Rust Unit Tests
+
+Rust Unit tests can be found in the appropriate target folder (which for RediSearch is here `bin/redisearch_rs/`).
+
+### Debugging Integration Tests
+
+By default the Python test runner will spin up redis-server instances under the hood. Pass `EXT=1` to instruct the runner to connect to an existing external instance. You may optionally use `EXT_HOST=<ip addr>` and `EXT_PORT=<port>` to connect to a non-local or non-standard-port instance.
+
+To start the external redis-server instance:
+
+1. Create a `redis.conf` config file in your project root:
+   
+   ```
+   loadmodule bin/<your target>-<release or debug>/search-community/redisearch.so
+   enable-debug-command yes
+   ```
+
+2. Start redis using this configuration under lldb/gdb:
+   
+   ```sh
+   lldb redis-server redis.conf
+   # or
+   gdb redis-server redis.conf
+   ```
+
+3. Set up your breakpoints/watchpoints and run the binary.
+
+4. Run the integration tests:
+   
+   ```sh
+   ./build.sh RUN_PYTEST EXT=1 TEST=<name of the test>
+   ```
+
+## Benchmarking RediSearch
+
+### Dependencies
+
+#### Full-Text Search Benchmark (FTSB)
+
+Ensure you have Full-Text Search Benchmark (FTSB) installed. See installation instructions here: https://github.com/RediSearch/ftsb
+
+Make sure you have the `ftsb_redisearch` binary available in your `$PATH`.
+
+#### memtier_benchmark
+
+Also ensure you have `memtier_benchmark` installed. See installation instructions here: https://github.com/redis/memtier_benchmark
+
+#### Python packages
+
+Install necessary python packages:
+
+```sh
+pip3 install -r ./tests/benchmarks/requirements.txt
+```
+
+### Run benchmarks
+
+To run a specific benchmark, use the following command:
+
+```sh
+redisbench-admin run-local \
+    --module_path $(find $(pwd)/bin -name "redisearch.so" | head -1) \
+    --required-module search \
+    --allowed-setups oss-standalone \
+    --allowed-envs oss-standalone \
+    --skip-redis-spin True \
+    --test tests/benchmarks/<benchmark>.yml
+```
+
+Replace `<benchmark>` in the `--test` argument with the desired benchmark file. Look in `tests/benchmarks` for all available benchmarks.
+
+Use `--skip-redis-spin True` to skip spinning up a Redis instance.
+
+## Supported Platforms
+
+The following operating systems are supported and tested in CI:
 
 * Ubuntu 18.04
 * Ubuntu 20.04
@@ -26,115 +315,22 @@ To build and test RediSearch you need to install several packages, depending on 
 * Amazon linux 2023
 * Mariner 2.0
 * Azure linux 3
-* MacOS
+* macOS
 * Alpine linux 3
 
-For installing the prerequisites you can take the following approaches:
-1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. In general, the common installations are:
-   - `rust` (latest stable version)
-   - `cmake >= 3.25.1`
-   - `boost == 1.88.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
-   - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
-   - `python3` and `python3-pip` (for running tests)
-   - `openssl-devel` / `libssl-dev` (for secure connections)
+### Platform-specific compiler requirements
 
-   - Ubuntu 18.04: GCC 10 (not default, installed via PPA)
-   - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
-   - Ubuntu 22.04: GCC 12 (not default, PPA not required)
-   - Ubuntu 24.04: Default GCC is sufficient
-   - Debian 11: Default GCC is sufficient
-   - Debian 12: Default GCC is sufficient
-   - Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
-   - Rocky Linux 9: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
-   - Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
-   - Amazon Linux 2023: Default GCC is sufficient
-   - Mariner 2.0: Default GCC is sufficient
-    - Azure Linux 3: Default GCC is sufficient
-   - MacOS: Install clang-18 via brew
-   - Alpine Linux 3: Default GCC is sufficient
-
-- you can find the dependencies in each OS script under the [`.install`](.install) directory.
- 
-2. Use our CI installation scripts to install the dependencies - you can find the scripts under the [`.install`](.install) directory.
-
-    ```bash
-    cd .install
-    ./install_script.sh sudo  
-    ```
-    Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment and the script will fail calling it so). 
-
-### Redis
-You will not be able to run and test your code without Redis, since you need to load the module. You can build it from source and install it as described in [redis GitHub page](https://github.com/redis/redis).
-
-### RedisJSON
-Some of our behavioral tests require RedisJSON to be present. Our testing framework will clone and build RedisJSON for you.
-
-
-
-## Building from source
-To build RediSearch from source, you need to run the following commands:
-
-```bash
-make build
-```
-
-### Running Redis with RediSearch
-To run Redis with RediSearch, you need to load the module. You can do this by running the following command:
-
-```bash
-make run
-```
-
-## Testing
-
-### Running the tests
-To run the tests, you need to execute the following commands:
-
-```bash
-make test
-```
-For running specific tests you can use the following commands:
-* C tests, located in tests/ctests, run by `make c-tests`.
-* C++ tests (enabled by GTest), located in tests/cpptests, run by `make cpp-tests`.
-* Python behavioral tests (enabled by [RLTest](https://github.com/RedisLabsModules/RLTest)), located in tests/pytests, run by `make pytest`.
-
-### Test prerequisites
-To run the python behavioral tests you need to install the following dependencies:
-* python test requirements listed in [pyproject.toml](tests/pytests/pyproject.toml)
-* If you want to execute RediSearch+RedisJSON behavioral tests you need to install [rust](https://www.rust-lang.org/tools/install), which is required to compile the RedisJSON module 
-
-if you don't want to install those manually, you can use the CI installation scripts to install the dependencies.
-
-```bash
-.install/test_deps/common_installations.sh
-```
-Note those scripts will create a python virtual environment called `venv` and install the required dependencies in it.
-
-### RedisJSON
-Some of our behavioral tests require RedisJSON to be present. You can skip the RedisJSON tests by setting the `REJSON=0` in the command
-```bash
-make pytest REJSON=0
-```
-If you have RedisJSON module already built on your machine you can specify the path to it by setting the `REJSON_PATH` variable.
-```bash
-make pytest REJSON_PATH=/path/to/redisjson.so
-```
-If the module does not exist in the specified path, our testing framework will clone and build RedisJSON for you. You can specify the branch of RedisJSON you want to use by setting the `REJSON_BRANCH` variable.
-
-```bash
-make pytest REJSON_BRANCH=branch
-```
-
-### Sanitizers
-Currently address sanitizer is supported. To run the tests with address sanitizer you can use the following command:
-
-```bash
-make build test SAN=address
-```
-
-## Debug
-To build the code with debug symbols, you can use the following commands:
-
-```bash
-make DEBUG=1
-```
+- Ubuntu 18.04: GCC 10 (not default, installed via PPA)
+- Ubuntu 20.04: GCC 10 (not default, installed via PPA)
+- Ubuntu 22.04: GCC 12 (not default, PPA not required)
+- Ubuntu 24.04: Default GCC is sufficient
+- Debian 11: Default GCC is sufficient
+- Debian 12: Default GCC is sufficient
+- Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
+- Rocky Linux 9: GCC 14 (not default, installed via gcc-toolset-14-gcc and gcc-toolset-14-gcc-c++)
+- Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
+- Amazon Linux 2023: Default GCC is sufficient
+- Mariner 2.0: Default GCC is sufficient
+- Azure Linux 3: Default GCC is sufficient
+- macOS: Install llvm@21 via homebrew
+- Alpine Linux 3: Default GCC is sufficient

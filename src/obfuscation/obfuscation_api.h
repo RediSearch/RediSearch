@@ -41,6 +41,7 @@ void Obfuscate_Document(t_uniqueId docId, char *buffer);
 // Assumes buffer size is at least MAX_OBFUSCATED_KEY_NAME
 void Obfuscate_KeyWithTime(struct timespec spec, char *buffer);
 
+const char *Obfuscate_Prefix(const char *prefix);
 
 // Set of functions to obfuscate types of data we index
 // Currently done in a very simplified way

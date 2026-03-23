@@ -8,6 +8,7 @@
 */
 #include "result_processor.h"
 #include "fragmenter.h"
+#include "rlookup.h"
 #include "value.h"
 #include "util/minmax.h"
 #include "toksep.h"
@@ -51,7 +52,7 @@ static int fragmentizeOffsets(const RLookup *lookup, const char *fieldName, cons
                               size_t fieldLen, const RSIndexResult *indexResult,
                               const RSByteOffsets *byteOffsets, FragmentList *fragList,
                               int options) {
-  const FieldSpec *fs = findFieldInSpecCache(lookup, fieldName);
+  const FieldSpec *fs = RLookup_FindFieldInSpecCache(lookup, fieldName);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
     return 0;
   }
@@ -164,6 +165,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
   }
 
   bufTmp.len = trimTrailingSpaces(bufTmp.data, bufTmp.len);
+  Array_Write(&bufTmp, "\0", 1);
   char *ret = Array_Steal(&bufTmp, docLen);
   return ret;
 }
@@ -189,7 +191,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
       // If summarizing is requested then trim the field so that the user isn't
       // spammed with a large blob of text
       char *summarized = trimField(fieldInfo, docStr, &docLen, frags.estAvgWordSize);
-      return RSValue_NewString(summarized, docLen);
+      return RSValue_NewString(summarized, docLen - 1); // Exclude nul-terminator from reported length
     } else {
       // Otherwise, just return the whole field, but without highlighting
     }
@@ -203,7 +205,7 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
     // highlighted.
     char *hlDoc = FragmentList_HighlightWholeDocS(&frags, &tags);
     FragmentList_Free(&frags);
-    return RSValue_NewCString(hlDoc);
+    return RSValue_NewString(hlDoc, strlen(hlDoc));
   }
 
   size_t numIovArr = Min(fieldInfo->summarizeSettings.numFrags, FragmentList_GetNumFrags(&frags));
@@ -239,11 +241,12 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
 
   // Set the string value to the contents of the array. It might be nice if we didn't
   // need to strndup it.
+  Array_Write(&bufTmp, "\0", 1);
   size_t hlLen;
   char *hlText = Array_Steal(&bufTmp, &hlLen);
   Array_Free(&bufTmp);
   FragmentList_Free(&frags);
-  return RSValue_NewString(hlText, hlLen);
+  return RSValue_NewString(hlText, hlLen - 1); // Exclude nul-terminator from reported length
 }
 
 static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
@@ -261,9 +264,9 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
 
 static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
-  const RSValue *fieldValue = RLookup_GetItem(spec->lookupKey, docParams->row);
+  const RSValue *fieldValue = RLookupRow_Get(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsAnyString(fieldValue)) {
+  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
     return;
   }
   RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
@@ -336,17 +339,17 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       processField(hlp, &docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    for (const RLookupKey *k = hlp->lookup->head; k; k = k->next) {
-      if (k->flags & RLOOKUP_F_HIDDEN) {
+    RLOOKUP_FOREACH(k, hlp->lookup, {
+      if (RLookupKey_GetFlags(k) & RLOOKUP_F_HIDDEN) {
         continue;
       }
       ReturnedField spec = {0};
       normalizeSettings(NULL, &fields->defaultField, &spec);
       spec.lookupKey = k;
-      spec.name = k->name;
+      spec.name = RLookupKey_GetName(k);
       resetIovsArr(&docParams.iovsArr, &numIovsArr, spec.summarizeSettings.numFrags);
       processField(hlp, &docParams, &spec);
-    }
+    });
   }
   for (size_t ii = 0; ii < numIovsArr; ++ii) {
     Array_Free(&docParams.iovsArr[ii]);

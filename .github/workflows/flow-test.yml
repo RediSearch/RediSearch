@@ -1,0 +1,135 @@
+name: Build on Platforms
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+      job-test-config:
+        description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": ""}''). Use empty string for full tests.'
+        type: string
+        default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      redis-ref:
+        type: string
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests'
+      options:
+        type: string
+        default: coordinator,standalone,unit-tests,rejson,fail-fast
+        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize'
+      separate-coordinator-job:
+        type: boolean
+        default: false
+        description: "Run coordinator tests in a separate parallel job per platform"
+
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:noble
+          - ubuntu:jammy
+          - ubuntu:focal
+          - rockylinux:8
+          - rockylinux:9
+          - debian:bullseye
+          - debian:bookworm
+          - amazonlinux:2
+          - amazonlinux:2023
+          - mariner:2
+          - azurelinux:3
+          - alpine:3.22
+          - macos-15
+          - macos-26
+          - intel
+        description: 'Platform to test on. Use "all" to test on all platforms'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to test on. Use "all" to test on all architectures'
+        default: all
+      test-config:
+        description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
+        type: string
+        default: QUICK=1
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable"). Defaults to "unstable"'
+        type: string
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests (default: master)'
+      unit-tests:
+        description: 'Run unit tests'
+        type: boolean
+        default: true
+      standalone:
+        description: 'Run standalone tests'
+        type: boolean
+        default: true
+      cluster:
+        description: 'Run cluster mode tests'
+        type: boolean
+        default: true
+      rejson:
+        description: 'Include RedisJSON tests'
+        type: boolean
+        default: true
+      fail-fast:
+        description: 'Fail fast on test failures'
+        type: boolean
+        default: true
+      separate-coordinator-job:
+        type: boolean
+        default: false
+        description: "Run coordinator tests in a separate parallel job per platform"
+
+jobs:
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+      include-coverage: ${{ contains(inputs.options, 'coverage') }}
+      include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
+      separate-coordinator-job: ${{ inputs.separate-coordinator-job }}
+
+  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
+  test-matrix:
+    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
+    needs: [generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
+    strategy:
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+      get-redis: ${{ inputs.redis-ref }}
+      rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      coordinator: ${{ (contains(inputs.options, 'coordinator') || inputs.cluster == true) && matrix.test-mode != 'standalone' }}
+      standalone: ${{ (contains(inputs.options, 'standalone') || inputs.standalone == true) && matrix.test-mode != 'coordinator' }}
+      unit-tests: ${{ (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
+      test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
+      coverage: ${{ matrix.job-type == 'coverage' }}
+      san: ${{ matrix.job-type == 'sanitize' && 'address' || '' }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}

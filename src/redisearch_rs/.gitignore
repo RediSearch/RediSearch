@@ -11,4 +11,7 @@
 
 .vscode
 
+# Regressions in `proptest` tests
 **/proptest-regressions/**
+# `insta` pending snapshots
+**/*.pending-snap

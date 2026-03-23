@@ -63,8 +63,9 @@ def test_hybrid_search_explicit_scorer():
     setup_basic_index(env)
     for scorer in ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']:
         env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-        hybrid_response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'SCORER', scorer, 'VSIM' ,'@embedding', \
-            b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",'COMBINE', 'LINEAR', '4', 'ALPHA', '1.0', 'BETA', '0.0')
+        hybrid_response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'SCORER', scorer, 'VSIM' ,'@embedding', '$BLOB',
+            'COMBINE', 'LINEAR', '4', 'ALPHA', '1.0', 'BETA', '0.0',
+            'PARAMS', '2', 'BLOB',  b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e")
         results, count = get_results_from_hybrid_response(hybrid_response)
         env.assertEqual(count, len(results.keys()))
         results = {a: float(results[a][SCORE_FIELD]) for a in results}
@@ -78,14 +79,15 @@ def test_hybrid_knn_invalid_syntax():
 
     env.expect(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'VSIM' ,'@embedding', '$BLOB',
         'KNN', 4, 'K', 15
     ).error().contains('Expected arguments 4, but 2 were provided')
 
     env.expect(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-        'KNN', 'K', 15
+        'VSIM' ,'@embedding', '$BLOB',
+        'KNN', 'K', 15,
+        'PARAMS', '2', 'BLOB', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
     ).error().contains('Invalid argument count: expected an unsigned integer')
 
 def test_invalid_ef_runtime():
@@ -95,8 +97,9 @@ def test_invalid_ef_runtime():
     for invalid_value in ['text', '-1', '0', '1.5']:
         env.expect(
             'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
-            'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-            'KNN', 4, 'K', 15, 'EF_RUNTIME', invalid_value
+            'VSIM' ,'@embedding_hnsw', '$BLOB',
+            'KNN', 4, 'K', 15, 'EF_RUNTIME', invalid_value,
+            'PARAMS', '2', 'BLOB',  b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
         ).error().contains('Invalid EF_RUNTIME value')
 
 def test_invalid_epsilon():
@@ -106,8 +109,9 @@ def test_invalid_epsilon():
     for invalid_value in ['text', '-1', '-0.1', '0']:
         env.expect(
             'FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes',
-            'VSIM' ,'@embedding_hnsw', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-            'RANGE', 4, 'RADIUS', 1.1, 'EPSILON', invalid_value
+            'VSIM' ,'@embedding_hnsw', '$BLOB',
+            'RANGE', 4, 'RADIUS', 1.1, 'EPSILON', invalid_value,
+            'PARAMS', '2', 'BLOB',  b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
         ).error().contains('Invalid EPSILON value')
 
 def test_invalid_radius():
@@ -117,8 +121,9 @@ def test_invalid_radius():
     for invalid_value in ['text', '-1', '-0.1']:
         env.expect(
             'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-            'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
-            'RANGE', 2, 'RADIUS', invalid_value
+            'VSIM' ,'@embedding', '$BLOB',
+            'RANGE', 2, 'RADIUS', invalid_value,
+            'PARAMS', '2', 'BLOB',  b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
         ).error().contains('Invalid RADIUS value')
 
 def test_hybrid_range_invalid_syntax():
@@ -127,24 +132,24 @@ def test_hybrid_range_invalid_syntax():
 
     env.expect(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'VSIM' ,'@embedding', '$BLOB',
         'RANGE', 4, 'RADIUS', 1
     ).error().contains('Expected arguments 4, but 2 were provided')
 
     env.expect(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'VSIM' ,'@embedding', '$BLOB',
         'RANGE', 'RADIUS', 1
     ).error().contains('Invalid argument count: expected an unsigned integer')
 
     env.expect(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'VSIM' ,'@embedding', '$BLOB',
         'RANGE', -1, 'RADIUS', 1
     ).error().contains('Invalid argument count: expected an unsigned integer')
 
     env.expect(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes',
-        'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",
+        'VSIM' ,'@embedding', '$BLOB',
         'RANGE', 2, 'EPSILON', 0.1
     ).error().contains('Missing required argument RADIUS')

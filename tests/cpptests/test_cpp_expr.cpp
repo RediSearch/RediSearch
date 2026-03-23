@@ -23,7 +23,7 @@ class ExprTest : public ::testing::Test {
 
 struct TEvalCtx : ExprEval {
   QueryError status_s = QueryError_Default();
-  RSValue res_s = {RSValueType_Null};
+  RSValue *res_s = RSValue_NewUndefined();
 
   TEvalCtx() {
     root = NULL;
@@ -47,6 +47,7 @@ struct TEvalCtx : ExprEval {
     clear();
 
     memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
+    res_s = RSValue_NewUndefined();
 
     HiddenString* hidden = NewHiddenString(s, strlen(s), false);
     root = ExprAST_Parse(hidden, &status_s);
@@ -70,13 +71,13 @@ struct TEvalCtx : ExprEval {
   }
 
   int eval() {
-    return ExprEval_Eval(this, &res_s);
+    return ExprEval_Eval(this, res_s);
   }
 
   TEvalCtx operator=(TEvalCtx &) = delete;
   TEvalCtx(const TEvalCtx &) = delete;
 
-  RSValue &result() {
+  RSValue *result() {
     return res_s;
   }
 
@@ -91,8 +92,10 @@ struct TEvalCtx : ExprEval {
   void clear() {
     QueryError_ClearError(&status_s);
 
-    RSValue_Clear(&res_s);
-    memset((void *)&res_s, 0, sizeof(res_s));
+    if (res_s) {
+      RSValue_DecrRef(res_s);
+      res_s = NULL;
+    }
 
     if (root) {
       ExprAST_Free(const_cast<RSExpr *>(root));
@@ -114,9 +117,9 @@ TEST_F(ExprTest, testExpr) {
 
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  RSValue result = eval.result();
-  ASSERT_EQ(RSValueType_Number, RSValue_Type(&result));
-  ASSERT_EQ(6, RSValue_Number_Get(&result));
+  RSValue *result = eval.result();
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(result));
+  ASSERT_EQ(6, RSValue_Number_Get(result));
 }
 
 
@@ -153,7 +156,7 @@ TEST_F(ExprTest, testArithmetics) {
     ctx.assign(e);                                  \
     ASSERT_TRUE(ctx) << ctx.error();                \
     ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());            \
-    auto res = RSValue_Dereference(&ctx.result());  \
+    auto res = RSValue_Dereference(ctx.result());   \
     ASSERT_EQ(RSValueType_Number, RSValue_Type(res));   \
     auto numval = RSValue_Number_Get(res);          \
     if (std::isnan(expected)) {                     \
@@ -231,7 +234,7 @@ TEST_F(ExprTest, testParser) {
   TEvalCtx eval(root);
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  ASSERT_EQ(RSValueType_Number, RSValue_Type(&eval.result()));
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(eval.result()));
 }
 
 TEST_F(ExprTest, testGetFields) {
@@ -241,9 +244,8 @@ TEST_F(ExprTest, testGetFields) {
   RSExpr *root = ExprAST_Parse(hidden, &status);
   HiddenString_Free(hidden, false);
   ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
-  RLookup lk;
+  RLookup lk = RLookup_New();
 
-  RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   auto *kbaz = RLookup_GetKey_Write(&lk, "baz", RLOOKUP_F_NOFLAGS);
@@ -258,19 +260,19 @@ TEST_F(ExprTest, testFunction) {
   TEvalCtx ctx(e);
 
   EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK) << "Could not parse " << e << " " << ctx.error();
-  EXPECT_EQ(RSValueType_Number, RSValue_Type(&ctx.result()));
+  EXPECT_EQ(RSValueType_Number, RSValue_Type(ctx.result()));
 
   ctx.assign("banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 
   ctx.assign("!!banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
-  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
+  EXPECT_STREQ(ctx.error(), "SEARCH_EXPR Unknown function name 'banana'");
 }
 
 struct EvalResult {
@@ -305,15 +307,14 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
     return EvalResult::failure(&ctx.status_s);
   }
 
-  return EvalResult::ok(RSValue_Number_Get(RSValue_Dereference(&ctx.result())));
+  return EvalResult::ok(RSValue_Number_Get(RSValue_Dereference(ctx.result())));
 }
 
 TEST_F(ExprTest, testPredicate) {
-  RLookup lk = {0};
-  RLookup_Init(&lk, NULL);
+  RLookup lk = RLookup_New();
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(1));
   RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(2));
   QueryError status = QueryError_Default();
@@ -383,7 +384,7 @@ TEST_F(ExprTest, testNull) {
   ASSERT_TRUE(ctx) << ctx.error();
   int rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc) << ctx.error();
-  ASSERT_TRUE(RSValue_IsNull(&ctx.result()));
+  ASSERT_TRUE(RSValue_IsNull(ctx.result()));
 
   ctx.assign("null");
   ASSERT_FALSE(ctx);
@@ -391,9 +392,8 @@ TEST_F(ExprTest, testNull) {
 
 TEST_F(ExprTest, testPropertyFetch) {
   TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
-  RLookup lk;
-  RLookup_Init(&lk, NULL);
-  RLookupRow rr = {0};
+  RLookup lk = RLookup_New();
+  RLookupRow rr = RLookupRow_New();
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(10));
@@ -406,8 +406,8 @@ TEST_F(ExprTest, testPropertyFetch) {
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  ASSERT_EQ(RSValueType_Number, RSValue_Type(&ctx.result()));
-  ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), RSValue_Number_Get(&ctx.result()));
+  ASSERT_EQ(RSValueType_Number, RSValue_Type(ctx.result()));
+  ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), RSValue_Number_Get(ctx.result()));
   RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
@@ -417,7 +417,7 @@ TEST_F(ExprTest, testPropertyFetch) {
   {                                                         \
     ASSERT_TRUE(ctx_var) << ctx_var.error();                \
     ASSERT_EQ(EXPR_EVAL_OK, ctx_var.eval());                \
-    auto res = RSValue_Dereference(&ctx_var.result());      \
+    auto res = RSValue_Dereference(ctx_var.result());       \
     ASSERT_EQ(RSValueType_Number, RSValue_Type(res));           \
     ASSERT_EQ(expected_value, RSValue_Number_Get(res));     \
   }
@@ -448,11 +448,10 @@ TEST_F(ExprTest, testEvalFuncCase) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
-  RLookup lk = {0};
-  RLookup_Init(&lk, NULL);
+  RLookup lk = RLookup_New();
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
   RLookup_WriteOwnKey(kbar, &rr, RSValue_NewNumber(10));
 
@@ -469,10 +468,9 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithExists) {
-  RLookup lk = {0};
-  RLookup_Init(&lk, NULL);
+  RLookup lk = RLookup_New();
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(42));
 
   TEvalCtx ctx("case(exists(@foo), 1, 0)");  // @foo exists
@@ -503,21 +501,21 @@ TEST_F(ExprTest, testEvalFuncCaseNested) {
   ctx.assign("case(1, case(1, 'inner_true', 'inner_false'), 'outer_false')");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  auto res = RSValue_Dereference(&ctx.result());
+  auto res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("inner_true", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(1, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  res = RSValue_Dereference(&ctx.result());
+  res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("nested_true", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(0, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  res = RSValue_Dereference(&ctx.result());
+  res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("nested_false", RSValue_String_Get(res, NULL));
 }
@@ -529,20 +527,20 @@ TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
   ctx.assign("case(NULL, 'true_branch', 'false_branch')");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  auto res = RSValue_Dereference(&ctx.result());
+  auto res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("false_branch", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(1, NULL, 'false_branch')");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  res = RSValue_Dereference(&ctx.result());
+  res = RSValue_Dereference(ctx.result());
   ASSERT_TRUE(RSValue_IsNull(res));
 
   ctx.assign("case(0, 'true_branch', NULL)");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  res = RSValue_Dereference(&ctx.result());
+  res = RSValue_Dereference(ctx.result());
   ASSERT_TRUE(RSValue_IsNull(res));
 }
 
@@ -568,10 +566,9 @@ TEST_F(ExprTest, testEvalFuncCaseErrorConditions) {
 }
 
 TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
-  RLookup lk = {0};
-  RLookup_Init(&lk, NULL);
+  RLookup lk = RLookup_New();
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow rr = RLookupRow_New();
   RLookup_WriteOwnKey(kfoo, &rr, RSValue_NewNumber(5));
 
   TEvalCtx ctx("case(1, @foo + 10, @foo / 0)");
@@ -595,14 +592,14 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ctx.assign("case(1, 42, 'string_result')");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  auto res = RSValue_Dereference(&ctx.result());
+  auto res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
   ASSERT_EQ(42, RSValue_Number_Get(res));
 
   ctx.assign("case(0, 42, 'string_result')");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  res = RSValue_Dereference(&ctx.result());
+  res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_String, RSValue_Type(res));
   ASSERT_STREQ("string_result", RSValue_String_Get(res, NULL));
 
@@ -614,7 +611,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ctx.assign("case(1, 1==1, 2!=2)");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
-  res = RSValue_Dereference(&ctx.result());
+  res = RSValue_Dereference(ctx.result());
   ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
   ASSERT_EQ(1, RSValue_Number_Get(res));
 
@@ -660,6 +657,440 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypeComparison) {
 
   ctx.assign("case(NULL == 'hello', 1, 0)");
   ASSERT_EXPR_EVAL_NUMBER(ctx, 0);  // NULL == 'hello' should be false
+}
+
+TEST_F(ExprTest, testEvalCtxEvalExprNullExpr) {
+  // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when called with NULL expression
+  EvalCtx *ctx = EvalCtx_Create(EVAL_MODE_QUERY);
+  ASSERT_NE(ctx, nullptr);
+
+  // Calling EvalCtx_EvalExpr with NULL should set _expr to NULL and return error
+  int rc = EvalCtx_EvalExpr(ctx, nullptr);
+  ASSERT_EQ(EXPR_EVAL_ERR, rc);
+
+  EvalCtx_Destroy(ctx);
+}
+
+TEST_F(ExprTest, testEvalCtxEvalExprUnknownProperty) {
+  // Test that EvalCtx_EvalExpr returns EXPR_EVAL_ERR when the expression
+  // references a property that doesn't exist in the lookup registry
+  EvalCtx *ctx = EvalCtx_Create(EVAL_MODE_QUERY);
+  ASSERT_NE(ctx, nullptr);
+
+  // Create an expression that references a property @foo
+  // The lookup is empty (no properties registered), so this should fail
+  RSExpr *expr = RS_NewProp("foo", 3);
+
+  int rc = EvalCtx_EvalExpr(ctx, expr);
+  ASSERT_EQ(EXPR_EVAL_ERR, rc);
+
+  // Verify the error message mentions the missing property
+  const char *err = QueryError_GetUserError(&ctx->status);
+  ASSERT_NE(err, nullptr);
+  ASSERT_TRUE(strstr(err, "SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline: `foo`") != nullptr) << "Error should mention the missing property: " << err;
+
+  // Clean up - we own the expression since EvalCtx_EvalExpr sets _own_expr = false
+  ExprAST_Free(expr);
+  EvalCtx_Destroy(ctx);
+}
+
+// Test AND expressions with missing fields
+// This tests the fix for the issue where expression evaluation order affects results
+// when fields are missing from the document
+TEST_F(ExprTest, testAndExpressionWithMissingFields) {
+  // Create a lookup with both d1 and d2 keys, but only d2 has a value
+  RLookup lk = RLookup_New();
+  auto *kd1 = RLookup_GetKey_Write(&lk, "d1", RLOOKUP_F_NOFLAGS);
+  auto *kd2 = RLookup_GetKey_Write(&lk, "d2", RLOOKUP_F_NOFLAGS);
+  ASSERT_NE(kd1, nullptr);
+  ASSERT_NE(kd2, nullptr);
+
+  // Create a row with only d2=1 (d1 is not written, so it's missing)
+  RLookupRow row = {0};
+  RSValue *v2 = RSValue_NewNumber(1);
+  RLookup_WriteOwnKey(kd2, &row, v2);
+
+  // Test 1: @d1==0 && @d2==0
+  // d1 is missing, d2=1
+  // Expected: false (0) because d2==0 is false
+  {
+    TEvalCtx ctx("@d1==0 && @d2==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==0 && @d2==0 should be false when d1 is missing and d2=1";
+  }
+
+  // Test 2: @d2==0 && @d1==0
+  // d2=1, d1 is missing
+  // Expected: false (0) - same result as Test 1, regardless of order
+  {
+    TEvalCtx ctx("@d2==0 && @d1==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d2==0 && @d1==0 should be false when d2=1 and d1 is missing";
+  }
+
+  // Test 3: @d1==1 && @d2==1
+  // d1 is missing, d2=1
+  // Expected: false (0) because d1 is missing (treated as false)
+  {
+    TEvalCtx ctx("@d1==1 && @d2==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==1 && @d2==1 should be false when d1 is missing";
+  }
+
+  // Test 4: @d2==1 && @d1==1
+  // d2=1, d1 is missing
+  // Expected: false (0) - same result as Test 3, regardless of order
+  {
+    TEvalCtx ctx("@d2==1 && @d1==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d2==1 && @d1==1 should be false when d1 is missing";
+  }
+
+  // Test 5: Both fields missing
+  // Expected: false (0)
+  {
+    RLookup lk_empty = RLookup_New();
+    auto *kd1_empty = RLookup_GetKey_Write(&lk_empty, "d1", RLOOKUP_F_NOFLAGS);
+    auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
+    ASSERT_NE(kd1_empty, nullptr);
+    ASSERT_NE(kd2_empty, nullptr);
+    RLookupRow row_empty = {0};
+
+    TEvalCtx ctx("@d1==0 && @d2==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk_empty;
+    ctx.srcrow = &row_empty;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==0 && @d2==0 should be false when both fields are missing";
+
+    RLookup_Cleanup(&lk_empty);
+  }
+
+  // Test 6: Both fields present and match - should succeed
+  // Expected: true (1)
+  {
+    RLookup lk_full = RLookup_New();
+    auto *kd1_full = RLookup_GetKey_Write(&lk_full, "d1", RLOOKUP_F_NOFLAGS);
+    auto *kd2_full = RLookup_GetKey_Write(&lk_full, "d2", RLOOKUP_F_NOFLAGS);
+    ASSERT_NE(kd1_full, nullptr);
+    ASSERT_NE(kd2_full, nullptr);
+
+    RLookupRow row_full = {0};
+    RSValue *v1_full = RSValue_NewNumber(5);
+    RSValue *v2_full = RSValue_NewNumber(5);
+    RLookup_WriteOwnKey(kd1_full, &row_full, v1_full);
+    RLookup_WriteOwnKey(kd2_full, &row_full, v2_full);
+
+    TEvalCtx ctx("@d1==5 && @d2==5");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk_full;
+    ctx.srcrow = &row_full;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(1, RSValue_Number_Get(res)) << "@d1==5 && @d2==5 should be true when both fields are 5";
+
+    RLookupRow_Reset(&row_full);
+    RLookup_Cleanup(&lk_full);
+  }
+
+  RLookupRow_Reset(&row);
+  RLookup_Cleanup(&lk);
+}
+
+// Test OR expressions with missing fields
+TEST_F(ExprTest, testOrExpressionWithMissingFields) {
+  // Create a lookup with both d1 and d2 keys, but only d2 has a value
+  RLookup lk = RLookup_New();
+  auto *kd1 = RLookup_GetKey_Write(&lk, "d1", RLOOKUP_F_NOFLAGS);
+  auto *kd2 = RLookup_GetKey_Write(&lk, "d2", RLOOKUP_F_NOFLAGS);
+  ASSERT_NE(kd1, nullptr);
+  ASSERT_NE(kd2, nullptr);
+
+  // Create a row with only d2=1 (d1 is not written, so it's missing)
+  RLookupRow row = {0};
+  RSValue *v2 = RSValue_NewNumber(1);
+  RLookup_WriteOwnKey(kd2, &row, v2);
+
+  // Test 1: @d1==1 || @d2==1
+  // d1 is missing, d2=1
+  // Expected: true (1) because d2==1 is true
+  {
+    TEvalCtx ctx("@d1==1 || @d2==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(1, RSValue_Number_Get(res)) << "@d1==1 || @d2==1 should be true when d1 is missing and d2=1";
+  }
+
+  // Test 2: @d2==1 || @d1==1
+  // d2=1, d1 is missing
+  // Expected: true (1) - same result as Test 1, regardless of order
+  {
+    TEvalCtx ctx("@d2==1 || @d1==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(1, RSValue_Number_Get(res)) << "@d2==1 || @d1==1 should be true when d2=1 and d1 is missing";
+  }
+
+  // Test 3: @d1==0 || @d2==0
+  // d1 is missing, d2=1
+  // Expected: false (0) because both conditions are false
+  {
+    TEvalCtx ctx("@d1==0 || @d2==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==0 || @d2==0 should be false when d1 is missing and d2=1";
+  }
+
+  // Test 4: @d2==0 || @d1==0
+  // d2=1, d1 is missing
+  // Expected: false (0) - same result as Test 3, regardless of order
+  {
+    TEvalCtx ctx("@d2==0 || @d1==0");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d2==0 || @d1==0 should be false when d2=1 and d1 is missing";
+  }
+
+  // Test 5: Both fields missing
+  // Expected: false (0)
+  {
+    RLookup lk_empty = RLookup_New();
+    auto *kd1_empty = RLookup_GetKey_Write(&lk_empty, "d1", RLOOKUP_F_NOFLAGS);
+    auto *kd2_empty = RLookup_GetKey_Write(&lk_empty, "d2", RLOOKUP_F_NOFLAGS);
+    ASSERT_NE(kd1_empty, nullptr);
+    ASSERT_NE(kd2_empty, nullptr);
+    RLookupRow row_empty = {0};
+
+    TEvalCtx ctx("@d1==1 || @d2==1");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk_empty;
+    ctx.srcrow = &row_empty;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;  // Lenient mode: missing properties return NULL without error
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_OK, rc) << "Evaluation should succeed";
+
+    auto res = RSValue_Dereference(ctx.result());
+    ASSERT_EQ(RSValueType_Number, RSValue_Type(res));
+    EXPECT_EQ(0, RSValue_Number_Get(res)) << "@d1==1 || @d2==1 should be false when both fields are missing";
+
+    RLookup_Cleanup(&lk_empty);
+  }
+
+  RLookupRow_Reset(&row);
+  RLookup_Cleanup(&lk);
+}
+
+// Test that evalPredicate returns EXPR_EVAL_ERR when getPredicateBoolean encounters
+// a type mismatch error (e.g., comparing a number to a non-convertible string).
+TEST_F(ExprTest, testPredicateTypeMismatchReturnsError) {
+  // Setup: create a lookup with a string field that cannot be converted to a number
+  RLookup lk = RLookup_New();
+  auto *kstr = RLookup_GetKey_Write(&lk, "str", RLOOKUP_F_NOFLAGS);
+  auto *knum = RLookup_GetKey_Write(&lk, "num", RLOOKUP_F_NOFLAGS);
+  ASSERT_NE(kstr, nullptr);
+  ASSERT_NE(knum, nullptr);
+
+  RLookupRow row = RLookupRow_New();
+  // "hello" cannot be converted to a number
+  RLookup_WriteOwnKey(kstr, &row, RSValue_NewString(strdup("hello"), 5));
+  RLookup_WriteOwnKey(knum, &row, RSValue_NewNumber(5));
+
+  // Test: comparing @num > @str should fail because "hello" can't be converted to a number
+  // In EVAL_MODE_QUERY, this should return EXPR_EVAL_ERR
+  {
+    TEvalCtx ctx("@num > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;  // Query mode: errors should propagate
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch in comparison should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparing @str < @num should also fail
+  {
+    TEvalCtx ctx("@str < @num");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch in comparison should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparing with literal number: 5 > @str
+  {
+    TEvalCtx ctx("5 > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "Type mismatch with literal should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "QueryError should be set";
+  }
+
+  // Test: comparison operators >=, <= should also return errors on type mismatch.
+  // Note: == and != use RSValue_Equal which doesn't propagate errors (it passes NULL
+  // for qerr), so they don't trigger EXPR_EVAL_ERR on type mismatch.
+  {
+    TEvalCtx ctx("@num >= @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << ">= with type mismatch should return EXPR_EVAL_ERR";
+  }
+
+  {
+    TEvalCtx ctx("@num <= @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_QUERY;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "<= with type mismatch should return EXPR_EVAL_ERR";
+  }
+
+  // Test: EVAL_MODE_INDEX should also return EXPR_EVAL_ERR on type mismatch.
+  // We test a representative subset since the error handling path in evalPredicate
+  // is identical for all comparison operators regardless of mode.
+  {
+    TEvalCtx ctx("@num > @str");
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.lookup = &lk;
+    ctx.srcrow = &row;
+    ctx.err = &ctx.status_s;
+    ctx.mode = EVAL_MODE_INDEX;
+
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+    int rc = ctx.eval();
+    ASSERT_EQ(EXPR_EVAL_ERR, rc) << "EVAL_MODE_INDEX: type mismatch should return EXPR_EVAL_ERR";
+    ASSERT_TRUE(QueryError_HasError(&ctx.status_s)) << "EVAL_MODE_INDEX: QueryError should be set";
+  }
+
+  RLookupRow_Reset(&row);
+  RLookup_Cleanup(&lk);
 }
 
 #undef ASSERT_EXPR_EVAL_NUMBER

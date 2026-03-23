@@ -74,7 +74,7 @@ static void vvwFree(void *p) {
 
 static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
   idx->idxFlags = idxFlags;
-  idx->maxFreq = 0;
+  idx->maxTermFreq = 0;
   idx->totalFreq = 0;
 
   if (idx->stemmer && !ResetStemmer(idx->stemmer, SnowballStemmer, doc->language)) {
@@ -212,7 +212,7 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     score *= STEM_TOKEN_FACTOR;
   }
   h->freq += MAX(1, (uint32_t)score);
-  idx->maxFreq = MAX(h->freq, idx->maxFreq);
+  idx->maxTermFreq = MAX(h->freq, idx->maxTermFreq);
   if (options & TOKOPT_F_RAW) {
     // Account for this term as part of the document's length.
     idx->totalFreq += MAX(1, (uint32_t)score);
@@ -283,15 +283,14 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
 /** Write a forward-index entry to the index */
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
   RSIndexResult rec = {.data.term_tag = RSResultData_Term,
+                       .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  RSQueryTerm *term = IndexResult_QueryTermRef(&rec);
-  term = NULL;
-  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(&rec);
   if (ent->vw) {
-    RSOffsetVector_SetData(offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
+    rec.data.term.borrowed.offsets.data = VVW_GetByteData(ent->vw);
+    rec.data.term.borrowed.offsets.len = VVW_GetByteLength(ent->vw);
   }
   return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }

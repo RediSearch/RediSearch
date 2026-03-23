@@ -82,9 +82,10 @@ def test_hybrid_vsim_knn_yield_score_as():
     response = env.cmd(
         'FT.HYBRID', 'idx',
         'SEARCH', 'shoes',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
-            'YIELD_SCORE_AS', 'vector_score')
+            'YIELD_SCORE_AS', 'vector_score',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the score field for all returned results
@@ -108,9 +109,10 @@ def test_hybrid_vsim_range_yield_score_as():
     response = env.cmd(
         'FT.HYBRID', 'idx',
         'SEARCH', 'shoes',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'RANGE', '2', 'RADIUS', str(radius),
-            'YIELD_SCORE_AS', 'vector_score')
+            'YIELD_SCORE_AS', 'vector_score',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the vector_score field for all returned results
@@ -130,7 +132,8 @@ def test_hybrid_search_yield_score_as():
     setup_basic_index(env)
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'YIELD_SCORE_AS', 'search_score',
-                        'VSIM', '@embedding', np.array([0.0, 0.0]).astype(np.float32).tobytes())
+                        'VSIM', '@embedding', '$BLOB',
+                        'PARAMS', '2', 'BLOB', np.array([0.0, 0.0]).astype(np.float32).tobytes())
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the search_score field for all returned results
@@ -154,9 +157,10 @@ def test_hybrid_search_and_vsim_yield_parameters():
         'FT.HYBRID', 'idx',
         'SEARCH', '*',
             'YIELD_SCORE_AS', 'search_score',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
-        'YIELD_SCORE_AS', 'vector_distance')
+        'YIELD_SCORE_AS', 'vector_distance',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate both search_score and vector_distance fields
@@ -178,9 +182,10 @@ def test_hybrid_vsim_knn_both_yield_distance_and_score():
 
     # YIELD_DISTANCE_AS is not supported in VSIM clauses and should return an error
     env.expect(
-        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
         'KNN', '6', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance',
-        'YIELD_SCORE_AS', 'vector_score')\
+        'YIELD_SCORE_AS', 'vector_score',
+        'PARAMS', '2', 'BLOB', query_vector)\
             .error().contains('Unknown argument `YIELD_DISTANCE_AS` in KNN')
 
 def test_hybrid_vsim_range_both_yield_distance_and_score():
@@ -193,10 +198,11 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
 
     # YIELD_DISTANCE_AS is not supported in VSIM clauses and should return an error
     env.expect(
-        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
         'RANGE', '6', 'RADIUS', str(radius),
         'YIELD_DISTANCE_AS', 'vector_distance',
-        'YIELD_SCORE_AS', 'vector_score')\
+        'YIELD_SCORE_AS', 'vector_score',
+        'PARAMS', '2', 'BLOB', query_vector)\
             .error().contains('Unknown argument `YIELD_DISTANCE_AS` in RANGE')
 
 
@@ -208,9 +214,10 @@ def test_hybrid_yield_score_as_after_combine_error():
 
     # This should fail because YIELD_SCORE_AS appears after COMBINE
     env.expect(
-        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
         'KNN', '4', 'K', '10', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
-        'YIELD_SCORE_AS', 'vector_distance')\
+        'YIELD_SCORE_AS', 'vector_distance',
+        'PARAMS', '2', 'BLOB', query_vector)\
             .error().contains('Unknown argument `COMBINE` in KNN')
 
 def test_hybrid_search_yield_score_as_after_combine():
@@ -221,8 +228,9 @@ def test_hybrid_search_yield_score_as_after_combine():
 
     # YIELD_SCORE_AS after COMBINE should work
     response = env.cmd(
-        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score')
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the search_score field
@@ -242,9 +250,10 @@ def test_hybrid_multiple_yield_after_combine_error():
 
     # This should fail because both YIELD parameters appear after COMBINE
     env.expect(
-        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
         'KNN', '4', 'K', '10', 'COMBINE', 'LINEAR', '8', 'ALPHA', '0.5', 'BETA', '0.5',
-        'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score')\
+        'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score',
+        'PARAMS', '2', 'BLOB', query_vector)\
             .error().contains('Unknown argument `COMBINE` in KNN')
 
 def test_hybrid_yield_score_as_all_possible_scores():
@@ -258,12 +267,13 @@ def test_hybrid_yield_score_as_all_possible_scores():
         'FT.HYBRID', 'idx',
         'SEARCH', 'shoes',
             'YIELD_SCORE_AS', 's_score',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
         'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
             'YIELD_SCORE_AS', 'fused_score',
-        'APPLY', f"{alpha}*case(exists(@s_score), @s_score ,0) + {beta}*case(exists(@v_score), @v_score,0)", 'AS', 'calculated_score')
+        'APPLY', f"{alpha}*case(exists(@s_score), @s_score ,0) + {beta}*case(exists(@v_score), @v_score,0)", 'AS', 'calculated_score',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
 
     # Validate the vector_distance and vector_score fields
@@ -290,10 +300,11 @@ def test_vsim_yield_score_as_with_filter():
         'FT.HYBRID', 'idx',
         'SEARCH', 'shoes',
             'YIELD_SCORE_AS', 's_score',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'FILTER', '@description:blue',
-            'YIELD_SCORE_AS', 'v_score')
+            'YIELD_SCORE_AS', 'v_score',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
     # 3 results are returned:
     # - 3 containing "shoes" -> doc:1, doc:2, doc:4 -> s_score is present
@@ -315,11 +326,12 @@ def test_vsim_yield_score_as_with_filter_and_post_filter():
         'FT.HYBRID', 'idx',
         'SEARCH', 'shoes',
             'YIELD_SCORE_AS', 's_score',
-        'VSIM', '@embedding', query_vector,
+        'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'FILTER', '@description:blue',
             'YIELD_SCORE_AS', 'v_score',
-        'FILTER', '@__key=="doc:4"')
+        'FILTER', '@__key=="doc:4"',
+        'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
     # a single result is returned, due to post-filter:
     # - doc:4 -> v_score is present

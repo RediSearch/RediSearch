@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, vec};
+use std::{hint::black_box, io::Cursor, vec};
 
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use inverted_index::{Decoder, Encoder, RSIndexResult, raw_doc_ids_only::RawDocIdsOnly};
 
 pub struct Bencher {
@@ -36,10 +36,10 @@ impl Bencher {
         let test_values = deltas
             .into_iter()
             .map(|delta| {
-                let record = RSIndexResult::term().doc_id(100);
+                let record = RSIndexResult::build_term().doc_id(100).build();
 
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = RawDocIdsOnly.encode(&mut buffer, delta, &record).unwrap();
+                let _grew_size = RawDocIdsOnly::encode(&mut buffer, delta, &record).unwrap();
                 let encoded = buffer.into_inner();
 
                 TestValue { delta, encoded }
@@ -58,11 +58,10 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = RSIndexResult::term().doc_id(100);
+                        let record = RSIndexResult::build_term().doc_id(100).build();
 
-                        let grew_size = RawDocIdsOnly
-                            .encode(&mut buffer, test.delta, &record)
-                            .unwrap();
+                        let grew_size =
+                            RawDocIdsOnly::encode(&mut buffer, test.delta, &record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -76,7 +75,12 @@ impl Bencher {
         c.bench_function("Decode RawDocsIdsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = RawDocIdsOnly::decode(cursor, 100, result);
 

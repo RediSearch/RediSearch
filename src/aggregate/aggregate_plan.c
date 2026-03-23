@@ -139,7 +139,7 @@ static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
   // vectorFieldName is not owned (points to parser tokens), so don't free it
 
   if (vnStep->distanceFieldAlias) {
-    rm_free(vnStep->distanceFieldAlias);
+    rm_free((void *)vnStep->distanceFieldAlias);
   }
   rm_free(vnStep);
 
@@ -182,6 +182,13 @@ PLN_ArrangeStep *AGPLN_AddKNNArrangeStep(AGGPlan *pln, size_t k, const char *dis
   newStp->sortAscMap = SORTASCMAP_INIT;  // all ascending which is the default
   newStp->runLocal = true;  // the distributed KNN step will run in shards via the hybrid iterator
 
+  return newStp;
+}
+
+PLN_ArrangeStep *NewArrangeStep() {
+  PLN_ArrangeStep *newStp = rm_calloc(1, sizeof(*newStp));
+  newStp->base.type = PLN_T_ARRANGE;
+  newStp->base.dtor = arrangeDtor;
   return newStp;
 }
 
@@ -284,9 +291,10 @@ void AGPLN_Dump(const AGGPlan *pln) {
     const RLookup *lk = lookupFromNode(nn);
     if (lk) {
       printf("  NEW LOOKUP: %p\n", lk);
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        printf("    %s @%p: FLAGS=0x%x\n", kk->name, kk, kk->flags);
-      }
+
+      RLOOKUP_FOREACH(kk, lk, {
+        printf("    %s @%p: FLAGS=0x%x\n", RLookupKey_GetName(kk), kk, RLookupKey_GetFlags(kk));
+      });
     }
 
     switch (stp->type) {
@@ -303,7 +311,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
           printf("  OFFSET:%lu LIMIT:%lu\n", (unsigned long)astp->offset,
                  (unsigned long)astp->limit);
         }
-        if (astp->sortKeys) {
+        if (array_len(astp->sortKeys)) {
           printf("  SORT:\n");
           for (size_t ii = 0; ii < array_len(astp->sortKeys); ++ii) {
             const char *dir = SORTASCMAP_GETASC(astp->sortAscMap, ii) ? "ASC" : "DESC";
@@ -357,7 +365,7 @@ static inline void append_string(myArgArray_t *arr, const char *src) {
 }
 static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
   char s[64] = {0};
-  sprintf(s, "%llu", ll);
+  snprintf(s, sizeof(s), "%llu", ll);
   append_string(arr, s);
 }
 static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {

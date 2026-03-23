@@ -16,6 +16,7 @@
 #include "aggregate/aggregate.h"
 #include "query_error.h"
 #include "cursor.h"
+#include "profile/options.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,9 +32,10 @@ extern "C" {
  * @param argv Command arguments array (starting with "FT.HYBRID")
  * @param argc Number of arguments in argv
  * @param internal Whether the request is internal (true - shard in cluster setup, false - Coordinator in cluster setup or standalone)
+ * @param profileOptions Profile options for the command
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal);
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, ProfileOptions profileOptions);
 
 void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 
@@ -42,6 +44,25 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
 void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv);
 
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err);
+
+/**
+ * Store pipeline results for reply_callback path (FAIL policy with workers).
+ * Called after pipeline execution to store results for serialization on the main thread.
+ */
+void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv);
+
+/**
+ * Helper for error handling in coordinator HREQ execution.
+ * For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
+ * For RETURN policy: replies with error directly.
+ */
+void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
+
+/**
+ * Serialize results from stored state (reply_callback path for FAIL policy).
+ * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ */
+void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply);
 
 /**
  * Helper function to get the search context from a hybrid request.

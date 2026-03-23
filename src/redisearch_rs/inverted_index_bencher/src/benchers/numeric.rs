@@ -7,11 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{collections::HashMap, io::Cursor};
+use std::{collections::HashMap, hint::black_box, io::Cursor};
 
-use criterion::{
-    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box, measurement::Measurement,
-};
+use criterion::{BatchSize, BenchmarkGroup, BenchmarkId, Criterion, measurement::Measurement};
 use inverted_index::{
     Decoder, Encoder, IdDelta, RSIndexResult,
     numeric::{Numeric, NumericDelta},
@@ -172,11 +170,14 @@ fn generate_test_values() -> Vec<BenchGroup> {
                     .into_iter()
                     // We need to find the actual resulting output for the decoding benchmarks
                     .map(|value| {
-                        let record = inverted_index::RSIndexResult::numeric(value);
+                        let record = inverted_index::RSIndexResult::build_numeric(value).build();
                         let mut buffer = Cursor::new(Vec::new());
-                        let _grew_size = Numeric::new()
-                            .encode(&mut buffer, NumericDelta::from_u64(delta).unwrap(), &record)
-                            .unwrap();
+                        let _grew_size = Numeric::encode(
+                            &mut buffer,
+                            NumericDelta::from_u64(delta).unwrap(),
+                            &record,
+                        )
+                        .unwrap();
                         let buffer = buffer.into_inner();
 
                         (value, delta, buffer)
@@ -237,15 +238,14 @@ fn encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchGroup)
                 },
                 |mut buffer| {
                     for (value, delta, _) in values {
-                        let record = inverted_index::RSIndexResult::numeric(*value);
+                        let record = inverted_index::RSIndexResult::build_numeric(*value).build();
 
-                        let grew_size = Numeric::new()
-                            .encode(
-                                &mut buffer,
-                                NumericDelta::from_u64(*delta).unwrap(),
-                                &record,
-                            )
-                            .unwrap();
+                        let grew_size = Numeric::encode(
+                            &mut buffer,
+                            NumericDelta::from_u64(*delta).unwrap(),
+                            &record,
+                        )
+                        .unwrap();
 
                         black_box(grew_size);
                     }
@@ -272,7 +272,12 @@ fn decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchGroup)
         |b| {
             for (_, _, buffer) in values {
                 b.iter_batched_ref(
-                    || (Cursor::new(buffer.as_ref()), RSIndexResult::numeric(0.0)),
+                    || {
+                        (
+                            Cursor::new(buffer.as_ref()),
+                            RSIndexResult::build_numeric(0.0).build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = Numeric::decode(cursor, 100, result);
 

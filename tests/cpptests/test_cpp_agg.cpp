@@ -57,7 +57,7 @@ TEST_F(AggTest, testBasic) {
 
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
-  rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
+  rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), false, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
@@ -71,7 +71,7 @@ TEST_F(AggTest, testBasic) {
   auto rp = AREQ_RP(rr);
   ASSERT_FALSE(rp == NULL);
 
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   RLookup *lk = AGPLN_GetLookup(AREQ_AGGPlan(rr), NULL, AGPLN_GETLOOKUP_LAST);
   size_t count = 0;
   while ((rv = rp->Next(rp, &res)) == RS_RESULT_OK) {
@@ -92,7 +92,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&res);
-  AREQ_Free(rr);
+  AREQ_DecrRef(rr);
   IndexSpec_Free(spec);
   args.clear();
   aggArgs.clear();
@@ -139,7 +139,7 @@ class ReducerOptionsCXX : public ReducerOptions {
 TEST_F(AggTest, testGroupBy) {
   QueryProcessingCtx qitr = {0};
   RPMock ctx;
-  RLookup rk_in = {0};
+  RLookup rk_in = RLookup_New();
   const char *values[] = {"foo", "bar", "baz", "foo"};
   ctx.values = values;
   ctx.numvals = sizeof(values) / sizeof(values[0]);
@@ -152,7 +152,8 @@ TEST_F(AggTest, testGroupBy) {
     }
     SearchResult_SetDocId(res, ++p->counter);
 
-    RSValue *sval = RSValue_NewConstCString((char *)p->values[p->counter % p->numvals]);
+    const char *str = p->values[p->counter % p->numvals];
+    RSValue *sval = RSValue_NewBorrowedString(str, strlen(str));
     RSValue *scoreval = RSValue_NewNumber(p->counter);
     RLookup_WriteOwnKey(p->rkvalue, SearchResult_GetRowDataMut(res), sval);
     RLookup_WriteOwnKey(p->rkscore, SearchResult_GetRowDataMut(res), scoreval);
@@ -162,7 +163,7 @@ TEST_F(AggTest, testGroupBy) {
 
   QITR_PushRP(&qitr, &ctx);
 
-  RLookup rk_out = {0};
+  RLookup rk_out = RLookup_New();
   RLookupKey *v_out = RLookup_GetKey_Write(&rk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
@@ -178,7 +179,7 @@ TEST_F(AggTest, testGroupBy) {
   auto sumReducer = RDCRSum_New(&sumOptions);
   ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
 
@@ -206,8 +207,8 @@ class ArrayGenerator : public ResultProcessor {
 TEST_F(AggTest, testGroupSplit) {
   QueryProcessingCtx qitr = {0};
   ArrayGenerator gen;
-  RLookup lk_in = {0};
-  RLookup lk_out = {0};
+  RLookup lk_in = RLookup_New();
+  RLookup lk_out = RLookup_New();
   gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
@@ -216,7 +217,7 @@ TEST_F(AggTest, testGroupSplit) {
   ReducerOptions opt = {0};
   opt.args = &args;
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
-  SearchResult res = {0};
+  SearchResult res = SearchResult_New();
   size_t ii = 0;
 
   QITR_PushRP(&qitr, &gen);
@@ -226,8 +227,14 @@ TEST_F(AggTest, testGroupSplit) {
     ArrayGenerator *p = static_cast<ArrayGenerator *>(rp);
     if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
     SearchResult_SetDocId(res, ++p->counter);
-    RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res),
-                        RSValue_NewConstStringArray((char **)&p->values[0], p->values.size()));
+    uint32_t sz = p->values.size();
+    char **strs = (char **)&p->values[0];
+    RSValue **arr = RSValue_NewArrayBuilder(sz);
+    for (uint32_t i = 0; i < sz; i++) {
+      arr[i] = RSValue_NewBorrowedString(strs[i], strlen(strs[i]));
+    }
+    RSValue *array = RSValue_NewArrayFromBuilder(arr, sz);
+    RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res), array);
     //* res = * p->res;
     return RS_RESULT_OK;
   };
@@ -235,7 +242,7 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    RSValue *rv = RLookup_GetItem(val_out, SearchResult_GetRowData(&res));
+    RSValue *rv = RLookupRow_Get(val_out, SearchResult_GetRowData(&res));
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
     ASSERT_TRUE(RSValue_IsString(rv));
@@ -298,11 +305,11 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     AREQ *rr = AREQ_New();
     AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
-    int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
+    int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), false, &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);
-    AREQ_Free(rr);
+    AREQ_DecrRef(rr);
     return res;
   };
 

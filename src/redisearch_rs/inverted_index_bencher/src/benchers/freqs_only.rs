@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::Cursor;
+use std::{hint::black_box, io::Cursor};
 
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 use itertools::Itertools;
 
@@ -39,11 +39,12 @@ impl Bencher {
             .into_iter()
             .cartesian_product(deltas)
             .map(|(freq, delta)| {
-                let record = inverted_index::RSIndexResult::virt()
+                let record = inverted_index::RSIndexResult::build_virt()
                     .doc_id(100)
-                    .frequency(freq);
+                    .frequency(freq)
+                    .build();
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = FreqsOnly.encode(&mut buffer, delta, &record).unwrap();
+                let _grew_size = FreqsOnly::encode(&mut buffer, delta, &record).unwrap();
                 let encoded = buffer.into_inner();
 
                 TestValue {
@@ -66,11 +67,13 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = inverted_index::RSIndexResult::virt()
+                        let record = inverted_index::RSIndexResult::build_virt()
                             .doc_id(100)
-                            .frequency(test.freq);
+                            .frequency(test.freq)
+                            .build();
 
-                        let grew_size = FreqsOnly.encode(&mut buffer, test.delta, &record).unwrap();
+                        let grew_size =
+                            FreqsOnly::encode(&mut buffer, test.delta, &record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -84,7 +87,12 @@ impl Bencher {
         c.bench_function("Decode FreqsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = FreqsOnly::decode(cursor, 100, result);
                         let _ = black_box(res);

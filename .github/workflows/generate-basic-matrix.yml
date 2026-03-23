@@ -1,0 +1,86 @@
+name: Generate Basic Test Matrix
+
+# This workflow generates a dynamic matrix for basic-test, coverage, and sanitize jobs
+# It only includes jobs that should run based on the provided conditions
+
+on:
+  workflow_call:
+    inputs:
+      include-basic-test:
+        description: 'Include basic-test job in matrix'
+        type: boolean
+        default: false
+      include-coverage:
+        description: 'Include coverage job in matrix'
+        type: boolean
+        default: false
+      include-sanitize:
+        description: 'Include sanitize job in matrix'
+        type: boolean
+        default: false
+      separate-coordinator-job:
+        description: "Run coordinator tests in a separate parallel job"
+        type: boolean
+        default: false
+    outputs:
+      matrix:
+        description: "Generated matrix as JSON"
+        value: ${{ jobs.generate.outputs.matrix }}
+      has-jobs:
+        description: "Whether there are any jobs to run"
+        value: ${{ jobs.generate.outputs.has-jobs }}
+
+jobs:
+  generate:
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      has-jobs: ${{ steps.generate-matrix.outputs.has-jobs }}
+    steps:
+      - name: Generate filtered matrix
+        id: generate-matrix
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          include_basic_test = "${{ inputs.include-basic-test }}" == "true"
+          include_coverage = "${{ inputs.include-coverage }}" == "true"
+          include_sanitize = "${{ inputs.include-sanitize }}" == "true"
+          separate_coordinator = "${{ inputs.separate-coordinator-job }}" == "true"
+
+          def add_matrix_entry(items, job_type):
+              """Add matrix entry, splitting by test-mode if separate_coordinator is enabled."""
+              if separate_coordinator:
+                  items.append({'job-type': job_type, 'test-mode': 'standalone'})
+                  items.append({'job-type': job_type, 'test-mode': 'coordinator'})
+              else:
+                  items.append({'job-type': job_type, 'test-mode': 'all'})
+
+          # Build matrix items based on conditions
+          matrix_items = []
+
+          if include_basic_test:
+              add_matrix_entry(matrix_items, 'basic-test')
+
+          if include_coverage:
+              add_matrix_entry(matrix_items, 'coverage')
+
+          if include_sanitize:
+              add_matrix_entry(matrix_items, 'sanitize')
+
+          # Check if matrix is empty
+          has_jobs = len(matrix_items) > 0
+
+          # If matrix is empty, create a minimal valid matrix structure
+          # This prevents the workflow from failing while allowing downstream jobs to skip
+          if not matrix_items:
+              print("No jobs to run based on conditions - creating empty matrix")
+              matrix_items = []
+
+          # Write to GitHub output
+          has_jobs = len(matrix_items) > 0
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'matrix={json.dumps({"include": matrix_items})}\n')
+              f.write(f'has-jobs={str(has_jobs).lower()}\n')

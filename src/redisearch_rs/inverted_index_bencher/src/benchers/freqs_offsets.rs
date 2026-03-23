@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, vec};
+use std::{hint::black_box, io::Cursor, vec};
 
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use inverted_index::{
     Decoder, Encoder, RSIndexResult, freqs_offsets::FreqsOffsets, test_utils::TestTermRecord,
 };
@@ -23,7 +23,7 @@ pub struct Bencher {
 struct TestValue {
     delta: u32,
     freq: u32,
-    term_offsets: Vec<i8>,
+    term_offsets: Vec<u8>,
 
     encoded: Vec<u8>,
 }
@@ -51,12 +51,11 @@ impl Bencher {
             .cartesian_product(freqs)
             .cartesian_product(term_offsets_values)
             .map(|((delta, freq), term_offsets)| {
-                let record = TestTermRecord::new(100, 0, freq, term_offsets.clone());
+                let term_offsets2 = term_offsets.clone();
+                let record = TestTermRecord::new(100, 0, freq, &term_offsets);
                 let mut buffer = Cursor::new(Vec::new());
 
-                let _grew_size = FreqsOffsets
-                    .encode(&mut buffer, delta, &record.record)
-                    .unwrap();
+                let _grew_size = FreqsOffsets::encode(&mut buffer, delta, &record.record).unwrap();
 
                 let encoded = buffer.into_inner();
 
@@ -64,7 +63,7 @@ impl Bencher {
                     delta,
                     freq,
                     encoded,
-                    term_offsets,
+                    term_offsets: term_offsets2,
                 }
             })
             .collect();
@@ -81,12 +80,10 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record =
-                            TestTermRecord::new(100, 0, test.freq, test.term_offsets.clone());
+                        let record = TestTermRecord::new(100, 0, test.freq, &test.term_offsets);
 
-                        let grew_size = FreqsOffsets
-                            .encode(&mut buffer, test.delta, &record.record)
-                            .unwrap();
+                        let grew_size =
+                            FreqsOffsets::encode(&mut buffer, test.delta, &record.record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -100,7 +97,12 @@ impl Bencher {
         c.bench_function("Decode FreqsOffsets", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = FreqsOffsets::decode(cursor, 100, result);
 

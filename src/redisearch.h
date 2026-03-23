@@ -14,9 +14,11 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
+#include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
 #include "types_rs.h"
+#include "query_term.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -65,12 +67,6 @@ do {                                                                            
 extern "C" {
 #endif
 
-typedef enum {
-  DocumentType_Hash,
-  DocumentType_Json,
-  DocumentType_Unsupported,
-} DocumentType;
-
 #define isSpecHash(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Hash)
 #define isSpecJson(spec) ((spec)->rule && (spec)->rule->type == DocumentType_Json)
 #define SpecRuleTypeName(spec) ((spec)->rule ? DocumentType_ToString((spec)->rule->type) : "Unknown")
@@ -97,11 +93,6 @@ typedef enum {
                                 // This is an optimization to avoid attempting opening the document for loading. May be used UN-ATOMICALLY
 } RSDocumentFlags;
 
-enum FieldExpirationPredicate {
-  FIELD_EXPIRATION_DEFAULT, // one of the fields need to be valid
-  FIELD_EXPIRATION_MISSING // one of the fields need to be expired for the entry to be considered missing
-};
-
 #define hasPayload(x) (x & Document_HasPayload)
 #define hasExpirationTimeInformation(x) (x & Document_HasExpiration)
 
@@ -122,14 +113,14 @@ typedef struct RSDocumentMetadata_s {
   /* The a-priory document score as given by the user on insertion */
   float score;
 
-  /* The maximum frequency of any term in the index, used to normalize frequencies */
-  uint32_t maxFreq : 24;
+  /* The maximum frequency of any single term in this document, used to normalize frequencies */
+  uint32_t maxTermFreq : 24;
 
   /* Document flags  */
   RSDocumentFlags flags : 8;
 
-  /* The total weighted number of tokens in the document, weighted by field weights */
-  uint32_t len : 24;
+  /* The sum of all of the frequencies of all of the terms in the document */
+  uint32_t docLen : 24;
 
   // Type of source document. Hash or JSON.
   DocumentType type : 8;
@@ -139,7 +130,7 @@ typedef struct RSDocumentMetadata_s {
   struct RSSortingVector *sortVector;
   /* Offsets of all terms in the document (in bytes). Used by highlighter */
   struct RSByteOffsets *byteOffsets;
-  DLLIST2_node llnode;
+  struct RSDocumentMetadata_s *nextInChain;
 
   /* Optional user payload */
   RSPayload *payload;
@@ -152,12 +143,9 @@ struct QueryParseCtx;
 /* Forward declaration of the opaque query node object */
 struct RSQueryNode;
 
-/* We support up to 30 user given flags for each token, flags 1 and 2 are taken by the engine */
-typedef uint32_t RSTokenFlags;
-
 /* A token in the query. The expanders receive query tokens and can expand the query with more query
  * tokens */
-typedef struct {
+typedef struct RSToken {
   /* The token string - which may or may not be NULL terminated */
   char *str;
   /* The token length */
@@ -220,25 +208,6 @@ typedef struct RSQueryExpanderCtx {
 typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 /* A free function called after the query expansion phase is over, to release per-query data */
 typedef void (*RSFreeFunction)(void *);
-
-/* A single term being evaluated in query time */
-typedef struct RSQueryTerm {
-  /* The term string, not necessarily NULL terminated, hence the length is given as well */
-  char *str;
-  /* The term length */
-  size_t len;
-  /* Inverse document frequency of the term in the index. See
-   * https://en.wikipedia.org/wiki/Tf%E2%80%93idf */
-  double idf;
-
-  /* Each term in the query gets an incremental id */
-  int id;
-  /* Flags given by the engine or by the query expander */
-  RSTokenFlags flags;
-
-  /* Inverse document frequency of the term in the index for computing BM25 */
-  double bm25_idf;
-} RSQueryTerm;
 
 /**************************************
  * Scoring Function API

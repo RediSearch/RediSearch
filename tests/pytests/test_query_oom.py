@@ -5,7 +5,8 @@ import numpy as np
 from redis.exceptions import ResponseError
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
-OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 
 def run_cmd_expect_oom(env, query_args):
     env.expect(*query_args).error().contains(OOM_QUERY_ERROR)
@@ -72,6 +73,26 @@ class testOomStandaloneBehavior:
         self.env.assertEqual(res, [0])
         res = self.env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
         self.env.assertEqual(res, [0])
+
+@skip(cluster=True)
+def test_oom_verbosity_standalone():
+    env = Env(protocol=3)
+    _common_test_scenario(env)
+
+    # Check commands return SHARD_OOM_WARNING when returning empty results
+    change_oom_policy(env, 'return')
+    res = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
+    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
+    res = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', '1')
+    env.assertEqual(res['warnings'][0], COORD_OOM_WARNING)
+    # Check profile returns COORD_OOM_WARNING
+    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
+    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
+    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
+
 
 class testOomClusterBehavior:
     def __init__(self):
@@ -232,20 +253,20 @@ class testOomHybridStandaloneBehavior:
     def test_hybrid_oom_ignore(self):
         change_oom_policy(self.env, 'ignore')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
         # Should get results despite OOM condition
         self.env.assertEqual(res[1], 1)
 
     def test_hybrid_oom_fail(self):
         change_oom_policy(self.env, 'fail')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector])
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector])
 
     def test_hybrid_oom_return(self):
         change_oom_policy(self.env, 'return')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
         # Should return empty results
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector)
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1], 0)
 
 class testOomHybridClusterBehavior:
@@ -264,7 +285,7 @@ class testOomHybridClusterBehavior:
     def test_hybrid_oom_ignore(self):
         allShards_change_oom_policy(self.env, 'ignore')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1], self.n_docs)
 
     def test_hybrid_oom_coord_fail(self):
@@ -272,7 +293,7 @@ class testOomHybridClusterBehavior:
         allShards_change_oom_policy(self.env, 'fail')
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
         # Test class invariant - coord maxmemory is 1
-        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector])
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector])
 
     def test_hybrid_oom_shards_fail(self):
         # Test coord passing OOM but shards failing with OOM
@@ -281,7 +302,7 @@ class testOomHybridClusterBehavior:
         # Change back coord maxmemory to 0 so it doesn't fail
         set_unlimited_maxmemory_for_oom(self.env)
         query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
-        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000'])
+        run_cmd_expect_oom(self.env, ['FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000', 'PARAMS', '2', 'BLOB', query_vector])
 
     def test_hybrid_oom_shards_return(self):
         # Test coord passing OOM, but shards returning empty results due to OOM
@@ -293,10 +314,10 @@ class testOomHybridClusterBehavior:
         # Note - only the coordinator shard will return results
         n_keys = len(self.env.cmd('KEYS', '*'))
         # Verify partial results in hybrid search
-        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', query_vector, 'COMBINE', 'RRF', '2', 'WINDOW', '1000')
+        res = self.env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'WINDOW', '1000', 'PARAMS', '2', 'BLOB', query_vector)
         self.env.assertEqual(res[1] , n_keys)
         # Testing warnings verbosity
-        self.env.assertEqual(res[5][0], OOM_WARNING)
+        self.env.assertEqual(res[5][0], COORD_OOM_WARNING)
 
 @skip(cluster=False)
 def test_oom_verbosity_cluster_return():
@@ -322,30 +343,34 @@ def test_oom_verbosity_cluster_return():
 
     # FT.SEARCH
     res = env.cmd('FT.SEARCH', 'idx', '*')
-    env.assertEqual(res['warning'][0], OOM_WARNING)
+    env.assertEqual(res['warning'][0], SHARD_OOM_WARNING)
 
-    # TODO - Check warnings in FT.AGGREGATE when empty results are handled correctly
+    # FT.AGGREGATE (MOD-12640: warnings propagated from empty shard replies)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*')
+    env.assertEqual(res['warning'][0], COORD_OOM_WARNING)
 
     # Search Profile
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*')
-    env.assertEqual(res['Results']['warning'][0], OOM_WARNING)
-    shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
+    env.assertEqual(res['Results']['warning'][0], SHARD_OOM_WARNING)
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+    n_warnings = sum(1 for shard in res['Profile']['Shards'] if SHARD_OOM_WARNING in shard['Warning'])
+    env.assertEqual(n_warnings, 2)
 
-    # Aggregate Profile
+    # Aggregate Profile (MOD-12640: warnings propagated from empty shard replies)
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-    # TODO - Check 'Results' and 'Coordinator' warning when empty results are handled correctly
-    shards_warning_lst = [shard_profile['Warning'] for shard_profile in res['Profile']['Shards']]
+    env.assertEqual(res['Results']['warning'][0], COORD_OOM_WARNING)
+    env.assertContains(SHARD_OOM_WARNING, res['Profile']['Coordinator']['Warning'])
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+    n_warnings = sum(1 for shard in res['Profile']['Shards'] if SHARD_OOM_WARNING in shard['Warning'])
+    env.assertEqual(n_warnings, 2)
 
     # RESP2
     env.cmd('HELLO', 2)
 
     # Aggregate Profile
+    # In resp 2 the shard warnings are not detected by the coordinator
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-    # TODO - Check coordinator warning when empty results are handled correctly
-    shards_warning_lst = [shard_res[9] for shard_res in res[1][1]]
     # Since we don't know the order of responses, we need to count 2 errors
-    env.assertEqual(shards_warning_lst.count(OOM_WARNING), 2)
+    # Index 13 is Warning array (after adding Workers queue time field at indices 6-7)
+    n_warnings = sum(1 for shard_res in res[1][1] if SHARD_OOM_WARNING in shard_res[13])
+    env.assertEqual(n_warnings, 2, message=f"res: {res}")

@@ -4,7 +4,7 @@
 source "$(dirname "$0")/macos_update_profile.sh"
 
 if ! which brew &> /dev/null; then
-    echo "Brew is not installed. Install from https://brew.sh"
+    echo "Homebrew is not installed. Install from https://brew.sh"
     exit 1
 fi
 

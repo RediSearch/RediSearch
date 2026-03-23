@@ -110,6 +110,10 @@ ifneq ($(REDIS_STANDALONE),)
     BUILD_ARGS += REDIS_STANDALONE=$(REDIS_STANDALONE)
 endif
 
+ifeq ($(LTO),1)
+	BUILD_ARGS += LTO
+endif
+
 # Package variables (used by pack target)
 MODULE_NAME := search
 PACKAGE_NAME ?=
@@ -149,6 +153,7 @@ Build:
     RUST_PROFILE=name  Rust profile to use (default: release)
     RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
     VERBOSE=1          Verbose build output
+    LTO=1              Enable Rust/C LTO
 
   make clean         Remove build artifacts
     ALL=1              Remove entire artifacts directory
@@ -297,18 +302,20 @@ $(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 
 endef
 
 lint:
-	@echo "Running linters..."
+	@echo "Running linters for debug..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace --release $(call get_rust_exclude_crates) -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates)
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items
+	@echo "Running linters for release..."
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) --release -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items --release
 
 fmt:
 ifeq ($(CHECK),1)
 	@echo "Checking code formatting..."
-	@cd $(ROOT)/src/redisearch_rs && cargo fmt -- --check
+	@cd $(ROOT)/src/redisearch_rs && cargo fmt --check --all
 else
 	@echo "Formatting code..."
-	@cd $(ROOT)/src/redisearch_rs && cargo fmt
+	@cd $(ROOT)/src/redisearch_rs && cargo fmt --all
 endif
 
 license-check:

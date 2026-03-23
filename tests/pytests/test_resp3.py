@@ -116,18 +116,33 @@ def test_search():
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
-    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1 ON_TIMEOUT FAIL')
+    env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1')
     conn = getConnectionByEnv(env)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
     for i in range(num_range):
         conn.execute_command('HSET', f'doc{i}', 't', f'aa{i}', 'geo', f"{i/10000},{i/1000}")
 
-    # TODO: Add these tests again once MOD-5965 is merged
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range)). \
-    #   contains('Timeout limit was reached')
-    # env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', str(num_range), 'timeout', 1).\
-    #   contains('Timeout limit was reached')
+    # For RESP3, verify the structured warning reply under RETURN policy.
+    env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+
+    # RESP3 returns a dict; assert on `warning` and force a deterministic timeout via DEBUG.
+    res = runDebugQueryCommandTimeoutAfterN(
+      env,
+      ['FT.SEARCH', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'LIMIT', '0', str(num_range)],
+      timeout_res_count=1,
+    )
+    VerifyTimeoutWarningResp3(env, res, message="FT.SEARCH timeout warning")
+
+    res = runDebugQueryCommandTimeoutAfterN(
+      env,
+      ['FT.SEARCH', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'LIMIT', '0', str(num_range), 'TIMEOUT', '1'],
+      timeout_res_count=1,
+    )
+    VerifyTimeoutWarningResp3(env, res, message="FT.SEARCH explicit TIMEOUT warning")
+
+    # Switch to FAIL policy for the hard timeout error assertions below.
+    env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL')
 
     # (coverage) Later failure than the above tests - in pipeline execution
     # phase. For this, we need more documents in the index, such that we will
@@ -167,9 +182,9 @@ def test_profile(env):
         'Shards': [{
           'Total profile time': ANY,
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2},
           'Result processors profile': [
@@ -210,13 +225,13 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
+                      {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Workers queue time': ANY, 'Pipeline creation time': ANY, 'Coordinator dispatch time [ms]': ANY, 'Warning': ['None'],
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Sorter', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Loader', 'Time': ANY, 'Results processed': ANY}]}],
-        'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY},
+        'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY, 'Coordinator queue time': ANY},
       },
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING', 'SCORER', 'TFIDF')
@@ -237,21 +252,25 @@ def test_coord_profile():
       'Profile': {
         'Shards': ANY, # Checking separately. When profiling Aggregation, the number of shards is not fixed (empty replies are not returned)
         'Coordinator': {
+          'Shard ID': ANY,
           'Total profile time': ANY,
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
         }
       }
     }
     shard = {
+      'Shard ID': ANY,
       'Total profile time': ANY,
       'Parsing time': ANY,
+      'Workers queue time': ANY,
       'Pipeline creation time': ANY,
-      'Total GIL time': ANY,
-      'Warning': 'None',
+      'Coordinator dispatch time [ms]': ANY,
+      'Warning': ['None'],
+      'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},]
     }
@@ -381,7 +400,8 @@ def test_list():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT")
     env.cmd('FT.create', 'idx2', "PREFIX", 1, "doc",
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
-    env.expect('FT._LIST').equal(['idx2', 'idx1'])
+    # Normalize output type across RESP2/RESP3 (server may return a list or set).
+    env.expect('FT._LIST').apply(lambda x: set(x)).equal({'idx2', 'idx1'})
 
 @skip(redis_less_than="7.0.0")
 def test_info():
@@ -504,10 +524,8 @@ def test_dictdump():
             "SCHEMA", "f1", "TEXT", "f2", "TEXT", "f3", "TEXT")
 
     env.cmd("FT.DICTADD", "dict1", "foo", "1", "bar", "2")
-    def sort_dict(dict_list):
-        dict_list.sort()
-        return dict_list
-    env.expect("FT.DICTDUMP", "dict1").noError().apply(sort_dict).equal(['1', '2', 'bar', 'foo'])
+    # Normalize output type across RESP2/RESP3 (server may return a list or set).
+    env.expect("FT.DICTDUMP", "dict1").noError().apply(lambda x: set(x)).equal({'1', '2', 'bar', 'foo'})
 
 def testSpellCheckIssue437():
     env = Env(protocol=3)
@@ -568,11 +586,15 @@ def test_tagvals():
       r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
 
     env.cmd('FT.create', 'idx1', "PREFIX", 1, "doc",
-                        "SCHEMA", "f1", "TAG", "f2", "TAG", "f5", "TAG")
+                        "SCHEMA", "f1", "TAG", "f2", "TAG", "f4", "TEXT", "f5", "TAG")
     waitForIndex(env, 'idx1')
-    env.expect('FT.TAGVALS', 'idx1', 'f1').equal(['3'])
-    env.expect('FT.TAGVALS', 'idx1', 'f2').equal(['2', '3'])
-    env.expect('FT.TAGVALS', 'idx1', 'f5').equal([])
+    # RESP3 returns a SET for this reply, but RLTest may deserialize it as a Python list.
+    # Normalize to a set for robust comparison.
+    env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f1')), {'3'})
+    env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f2')), {'2', '3'})
+    env.assertEqual(set(env.cmd('FT.TAGVALS', 'idx1', 'f5')), set())
+    env.expect('FT.TAGVALS', 'idx1', 'f4').error().contains('SEARCH_ATTR_BAD Not a tag field')
+    env.expect('FT.TAGVALS', 'idx1', 'unexistent_field').error().contains('SEARCH_ATTR_BAD No such field')
 
 @skip(cluster=False)
 def test_clusterinfo():
@@ -637,9 +659,9 @@ def test_profile_crash_mod5323():
               'Type': 'INTERSECT'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Scorer' },
@@ -686,9 +708,9 @@ def test_profile_child_itrerators_array():
               'Type': 'UNION'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [
             {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
             {'Results processed': 2, 'Time': ANY, 'Type': 'Scorer'},
@@ -724,9 +746,9 @@ def test_profile_child_itrerators_array():
               'Type': 'INTERSECT'
             },
           'Parsing time': ANY,
+          'Workers queue time': ANY,
           'Pipeline creation time': ANY,
-          'Total GIL time': ANY,
-          'Warning': 'None',
+          'Warning': ['None'],
           'Result processors profile': [
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Scorer'},
@@ -1250,8 +1272,8 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 16) = 16072 bytes
-      initial_doc_table_size_mb = 16072 / (1024 * 1024)
+      #              = 72 + (1000 * 8) = 8072 bytes
+      initial_doc_table_size_mb = 8072 / (1024 * 1024)
       # Size of an empty TrieMap
       key_table_sz_mb = 24 / (1024 * 1024)
       total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
@@ -1575,7 +1597,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
   n_warnings = 0
   for i, shard in enumerate(res['Profile']['Shards']):
-      if shard['Warning']== 'Max prefix expansions limit was reached':
+      if 'Max prefix expansions limit was reached' in shard['Warning']:
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
 
@@ -1585,9 +1607,52 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['Results']['warning'], ['Max prefix expansions limit was reached'])
   n_warnings = 0
   for i, shard in enumerate(res['Profile']['Shards']):
-    if shard['Warning']== 'Max prefix expansions limit was reached':
+    if 'Max prefix expansions limit was reached' in shard['Warning']:
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
+
+def test_multiple_warnings():
+  """
+  Tests that a query can return multiple warnings when more than one warning
+  condition is triggered during execution.
+  Triggers both timeout and max prefix expansions warnings, and verifies
+  that both are present in the response.
+  """
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  for i in range(20):
+    conn.execute_command('HSET', f'doc{i}', 't', f'prefix{i}')
+  # Set very low max prefix expansions to trigger the warning
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '3')
+
+  # Query with wildcard that exceeds the limit and force timeout
+  query = ['FT.AGGREGATE', 'idx', 'prefix*']
+  timeout_after_n = 1
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  # Both warnings should be present in the response
+  env.assertTrue(any('Timeout limit was reached' in w for w in res['warning']),
+                 message=f"Expected timeout warning, got: {res['warning']}")
+  env.assertTrue(any('Max prefix expansions limit was reached' in w for w in res['warning']),
+                 message=f"Expected max prefix expansions warning, got: {res['warning']}")
+
+  # Query with wildcard that exceeds the limit and force timeout
+  query = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', 'prefix*']
+  timeout_after_n = 1
+  res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_after_n, internal_only=True)
+
+  shards_profile = get_shards_profile(env, res)
+  env.assertEqual(len(shards_profile), env.shardsCount, message=f"unexpected shard count: {res}")
+  for shard_profile in shards_profile:
+    env.assertTrue(any('Timeout limit was reached' in w for w in shard_profile['Warning']),
+                   message=f"Expected shard timeout warning, got: {shard_profile['Warning']}")
+    env.assertTrue(any('Max prefix expansions limit was reached' in w for w in shard_profile['Warning']),
+                   message=f"Expected shard max prefix expansions warning, got: {shard_profile['Warning']}")
+    # Verify internal cursor reads (In resp3 timeout is detected and we stop after 1 read)
+    if env.isCluster():
+      env.assertEqual(shard_profile['Internal cursor reads'], 1)
 
 # TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
 @skip(cluster=True)

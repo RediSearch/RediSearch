@@ -91,7 +91,7 @@ TEST_F(RdbMockTest, testCreateIndexSpec) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "1.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = QueryError_Default();
 
-    StrongRef spec_ref = IndexSpec_ParseC("test_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef spec_ref = IndexSpec_ParseC(NULL, "test_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
@@ -133,7 +133,7 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = QueryError_Default();
 
-    StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
@@ -153,14 +153,14 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     ASSERT_TRUE(io != nullptr);
 
     // Save all indexes to RDB using existing function (while spec is still in globals)
-    IndexSpec_RdbSave(io, spec);
+    IndexSpec_RdbSave(io, spec, 0);
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Reset read position to load it back
     io->read_pos = 0;
 
     QueryError status = QueryError_Default();
-    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, &status);
+    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
     EXPECT_TRUE(loadedSpec != nullptr);
     std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](IndexSpec *spec) {
         StrongRef_Release(spec->own_ref);
@@ -222,7 +222,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = QueryError_Default();
 
-    StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef original_spec_ref = IndexSpec_ParseC(NULL, "test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
@@ -264,7 +264,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     const char *args[] = {"ON", "HASH", "SCHEMA", "title", "TEXT"};
     QueryError err = QueryError_Default();
 
-    StrongRef spec_ref = IndexSpec_ParseC("test_duplicate_idx", args, sizeof(args) / sizeof(const char *), &err);
+    StrongRef spec_ref = IndexSpec_ParseC(NULL, "test_duplicate_idx", args, sizeof(args) / sizeof(const char *), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(spec_ref);
@@ -283,7 +283,7 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
     // Then write the index 30 times
     for (int i = 0; i < 30; i++) {
-        IndexSpec_RdbSave(io, spec);
+        IndexSpec_RdbSave(io, spec, 0);
     }
     EXPECT_EQ(0, RMCK_IsIOError(io));
 

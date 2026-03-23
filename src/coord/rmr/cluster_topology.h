@@ -27,7 +27,10 @@ typedef struct {
 /* Create a new cluster shard to be added to a topology */
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges);
 
-/* A topology is the mapping of slots to shards and nodes */
+/* A topology is the mapping of slots to shards and nodes
+ * Currently, the shards order is arbitrary, and may also change when the topology refreshed,
+ * even if the actual mapping didn't change.
+ */
 typedef struct MRClusterTopology {
   uint32_t numShards;
   uint32_t capShards;
@@ -36,6 +39,20 @@ typedef struct MRClusterTopology {
 
 MRClusterTopology *MR_NewTopology(uint32_t numShards);
 void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh);
+
+/**
+ * Frees resources held by an MRClusterNode.
+ *
+ * This function releases any memory and resources associated with the given MRClusterNode,
+ * including its endpoint and node ID string. It does not free the MRClusterNode struct itself
+ * (if it was stack-allocated), only its internal allocations.
+ *
+ * Usage:
+ *   - Call this function when you are done using an MRClusterNode and want to release its resources.
+ *   - The pointer 'n' must be valid and must not have already been freed.
+ *   - Do not use the MRClusterNode after calling this function unless it is re-initialized.
+ */
+void MRClusterNode_Free(MRClusterNode *n);
 
 void MRClusterTopology_Free(MRClusterTopology *t);
 

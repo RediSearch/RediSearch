@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdatomic.h>
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -13,7 +14,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "module.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/config.h"
@@ -24,14 +25,17 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
-#include "coord/hybrid/dist_utils.h"
+#include "coord/dist_utils.h"
+#include "info/global_stats.h"
+#include "search_disk.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
-  for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
-    if (!strcmp(kk->name, s)) {
+  RLOOKUP_FOREACH(kk, nc->lookup, {
+    if (!strcmp(RLookupKey_GetName(kk), s)) {
       return kk;
     }
-  }
+  });
+
   return NULL;
 }
 
@@ -49,8 +53,32 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
+
+  // Initialize shard response barrier if WITHCOUNT is enabled
+  if (HasWithCount(nc->areq) && IsAggregate(nc->areq)) {
+    ShardResponseBarrier *barrier = shardResponseBarrier_New();
+    if (!barrier) {
+      return RS_RESULT_ERROR;
+    }
+    nc->shardResponseBarrier = barrier;
+  }
+
+  // Pass barrier as private data to callback (only if WITHCOUNT enabled)
+  // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
+  // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
+  MRIterator *it = nc->shardResponseBarrier
+                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
+                                               shardResponseBarrier_Free, shardResponseBarrier_Init,
+                                               iterStartCb, NULL)
+                   : MR_Iterate(&nc->cmd, netCursorCallback);
+
   if (!it) {
+    // Clean up on error - iterator never started so no callbacks running
+    // Must free manually since iterator didn't take ownership
+    if (nc->shardResponseBarrier) {
+      shardResponseBarrier_Free(nc->shardResponseBarrier);
+      nc->shardResponseBarrier = NULL;
+    }
     return RS_RESULT_ERROR;
   }
 
@@ -59,7 +87,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
+static void buildMRCommand(RedisModuleString **argv, int argc, ProfileOptions profileOptions,
                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
@@ -67,15 +95,18 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
-  if (profileArgs == 0) {
+  int profileArgs = 0;
+  if (profileOptions == EXEC_NO_FLAGS) {
     array_append(tmparr, RS_AGGREGATE_CMD);                         // Command
     array_append(tmparr, index_name);  // Index name
   } else {
+    profileArgs += 2; // SEARCH/AGGREGATE + QUERY
     array_append(tmparr, RS_PROFILE_CMD);
     array_append(tmparr, index_name);  // Index name
     array_append(tmparr, "AGGREGATE");
-    if (profileArgs == 3) {
+    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
       array_append(tmparr, "LIMITED");
+      profileArgs++;
     }
     array_append(tmparr, "QUERY");
   }
@@ -84,6 +115,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   array_append(tmparr, "WITHCURSOR");
   // Numeric responses are encoded as simple strings.
   array_append(tmparr, "_NUM_SSTRING");
+
+  int argOffset = 0;
+  // Preserve WITHCOUNT flag from the original command
+  argOffset  = RMUtil_ArgIndex("WITHCOUNT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (argOffset != -1) {
+    array_append(tmparr, "WITHCOUNT");
+  }
 
   // Add the index prefixes to the command, for validation in the shard
   array_append(tmparr, "_INDEX_PREFIXES");
@@ -98,7 +136,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   // Slots info will be added here
   uint32_t slotsInfoPos = array_len(tmparr);
 
-  int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
   if (argOffset != -1 && argOffset + 3 + 1 + profileArgs < argc) {
     array_append(tmparr, "DIALECT");
     array_append(tmparr, RedisModule_StringPtrLen(argv[argOffset + 3 + 1 + profileArgs], NULL));  // the dialect
@@ -132,6 +170,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, slotsInfoPos);
+
+  // Prepare placeholder for dispatch time (will be filled in when sending to shards)
+  MRCommand_PrepareForDispatchTime(xcmd, xcmd->num);
 
   // PARAMS was already validated at AREQ_Compile
   int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
@@ -226,14 +267,37 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
-  ProfilePrinterCtx *cCtx = ctx;
-  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
+  AREQ *req = ctx;
+  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
+  // Calling getNextReply alone is insufficient here, as we might have already encountered EOF from the shards,
+  // which caused the call to getNextReply from RPNet to set cond->wait to true.
+  // We can't also set cond->wait to false because we might still be waiting for shards' replies containing profile information.
+
+  // Therefore, we loop to drain all remaining replies from the channel.
+  // Pending might be zero, but there might still be replies in the channel to read.
+  // We may have pulled all the replies from the channel and arrived here due to a timeout,
+  // and now we're waiting for the profile results.
+  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    do {
+      MRReply_Free(rpnet->current.root);
+    } while (getNextReply(rpnet) != RS_RESULT_EOF);
+  }
+
+  size_t num_shards = MRIterator_GetNumShards(rpnet->it);
+  size_t profile_count = array_len(rpnet->shardsProfile);
+
   PrintShardProfile_ctx sCtx = {
-    .count = array_len(rpnet->shardsProfile),
+    .count = profile_count,
     .replies = rpnet->shardsProfile,
     .isSearch = false,
   };
-  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
+
+  if (profile_count != num_shards) {
+    RedisModule_Log(RSDummyContext, "warning", "Profile data received from %zu out of %zu shards",
+                    profile_count, num_shards);
+  }
+
+  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, req);
 }
 
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
@@ -247,7 +311,7 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
       AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
-      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_ERROR_CODE_PARSE_ARGS, "No QUERY keyword provided");
+      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_ERROR_CODE_PARSE_ARGS, "The QUERY keyword is expected");
       return -1;
     }
   }
@@ -258,12 +322,26 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
-  rs_wall_clock_init(&r->initClock);
+  rs_wall_clock_init(&r->profileClocks.initClock);
 
-  int profileArgs = parseProfileArgs(argv, argc, r);
-  if (profileArgs == -1) return REDISMODULE_ERR;
-  int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
+  ProfileOptions profileOptions = EXEC_NO_FLAGS;
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, argv, argc);
+
+  int rc = ParseProfile(&ac, status, &profileOptions);
+  if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
+  ApplyProfileOptions(AREQ_QueryProcessingCtx(r), &r->reqflags, profileOptions);
+
+  // For non-profile commands, skip past command name (FT.AGGREGATE) and index name
+  if (profileOptions == EXEC_NO_FLAGS) {
+    if (AC_AdvanceBy(&ac, 2) != AC_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+
+  rc = AREQ_Compile(r, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
   r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
@@ -296,16 +374,17 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
+  buildMRCommand(argv , argc, profileOptions, &us, &xcmd, sp, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
+  xcmd.coordStartTime = r->profileClocks.coordStartTime;
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);
 
-  if (IsProfile(r)) r->profileParseTime = rs_wall_clock_elapsed_ns(&r->initClock);
+  if (IsProfile(r)) r->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&r->profileClocks.initClock);
 
   // Create the Search context
   // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
@@ -330,7 +409,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
     }
   } else {
     sendChunk(r, reply, UINT64_MAX);
-    AREQ_Free(r);
+    AREQ_DecrRef(r);
   }
   return REDISMODULE_OK;
 }
@@ -338,13 +417,14 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
                           StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   RS_ASSERT(QueryError_HasError(status));
+  QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
   QueryError_ReplyAndClear(ctx, status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
     IndexSpecRef_Release(*strong_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
-  if (r) AREQ_Free(r);
+  if (r) AREQ_DecrRef(r);
   RedisModule_EndReply(reply);
   return;
 }
@@ -357,6 +437,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = QueryError_Default();
   specialCaseCtx *knnCtx = NULL;
+
+  // Store coordinator start time for dispatch time tracking
+  r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
 
   // Check if the index still exists, and promote the ref accordingly
   StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
@@ -394,6 +477,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   AREQ *r = NULL;
   IndexSpec *sp = NULL;
   specialCaseCtx *knnCtx = NULL;
+  AREQ_Debug_params debug_params = {0};
+  StrongRef strong_ref = {0};
+  int debug_argv_count = 0;
+  MRCommand *cmd = NULL;
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
@@ -404,22 +491,25 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   // CMD, index, expr, args...
   r = &debug_req->r;
-  AREQ_Debug_params debug_params = debug_req->debug_params;
+
+  // Store coordinator start time for dispatch time tracking
+  r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
+  debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   sp = StrongRef_Get(strong_ref);
   if (!sp) {
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     goto err;
   }
 
-  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
 
   // rpnet now owns the command
-  MRCommand *cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->cmd);
+  cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->cmd);
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
   // insert also debug params at the end

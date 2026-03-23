@@ -13,11 +13,14 @@
 #include "spec.h"
 #include "common.h"
 #include "module.h"
+#include "rlookup.h"
+
+#include <vector>
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
-
-#include <vector>
+#define VECTOR_REQUEST_INDEX 1
+#define SEARCH_REQUEST_INDEX 0
 
 class HybridRequestParseTest : public ::testing::Test {
 protected:
@@ -102,7 +105,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
   RMCK::ArgvList createArgs(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
-                            "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC", "COSINE");
+                            "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "COSINE");
   return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
 }
 
@@ -114,7 +117,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
  * 3. Build pipeline
  * 4. Return the built HybridRequest
  *
- * Note: The caller is responsible for calling HybridRequest_Free() and IndexSpec cleanup.
+ * Note: The caller is responsible for calling HybridRequest_DecrRef() and IndexSpec cleanup.
  */
 HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* indexName,
                                           RMCK::ArgvList& args, QueryError *status, IndexSpec **outSpec = nullptr) {
@@ -147,8 +150,8 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
-    .search = hybridReq->requests[0],
-    .vector = hybridReq->requests[1],
+    .search = hybridReq->requests[SEARCH_REQUEST_INDEX],
+    .vector = hybridReq->requests[VECTOR_REQUEST_INDEX],
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
@@ -158,20 +161,21 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
   // Parse the hybrid command - this fills out hybridParams
-  int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false);
+  int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_Free(hybridReq);
+    HybridRequest_DecrRef(hybridReq);
     return nullptr;
   }
 
   // Build the pipeline using the parsed hybrid parameters
   rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_Free(hybridReq);
+    HybridRequest_DecrRef(hybridReq);
     return nullptr;
   }
   return hybridReq;
 }
+
 
 /**
  * Macro to create and parse/build a hybrid request with automatic cleanup.
@@ -190,7 +194,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     HybridRequest* req; \
     IndexSpec* sp; \
     ~HybridTestCleanup() { \
-      if (req) HybridRequest_Free(req); \
+      if (req) HybridRequest_DecrRef(req); \
       if (sp) IndexSpec_RemoveFromGlobals(sp->own_ref, false); \
     } \
   } cleanup{hybridReq, spec};
@@ -220,9 +224,10 @@ TEST_F(HybridRequestParseTest, testHybridRequestPipelineBuildingBasic) {
   // Create a hybrid query with SEARCH and VSIM subqueries, plus LOAD clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx2",
                       "SEARCH", "machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "VSIM", "@vector_field", "$BLOB",
                       "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-                      "LOAD", "2", "@title", "@score");
+                      "LOAD", "2", "@title", "@score",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_idx2", args);
 
@@ -242,9 +247,10 @@ TEST_F(HybridRequestParseTest, testHybridRequestRRFScoringWithCustomConstant) {
   // Create a hybrid query with SEARCH and VSIM subqueries, RRF scoring with custom K parameter
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_rrf_custom_constant",
                       "SEARCH", "artificial",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "VSIM", "@vector_field", "$BLOB",
                       "COMBINE", "RRF", "2", "CONSTANT", "10.0",
-                      "LOAD", "3", "@title", "@score", "@category");
+                      "LOAD", "3", "@title", "@score", "@category",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_rrf_custom_constant", args);
 
@@ -258,7 +264,8 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineMinimal) {
   // Create a minimal hybrid query with just SEARCH and VSIM (no LOAD, no COMBINE - should use defaults)
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx4",
                       "SEARCH", "test",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA);
+                      "VSIM", "@vector_field", "$BLOB",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_idx4", args);
 
@@ -272,12 +279,13 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTail) {
   // Create a complex hybrid query with SEARCH and VSIM subqueries, plus LOAD, SORTBY, and APPLY steps
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
                       "SEARCH", "artificial",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "VSIM", "@vector_field", "$BLOB",
                       "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
                       "LOAD", "3", "@title", "@score", "@category",
                       "SORTBY", "1", "@score",
                       "APPLY", "@score * 2", "AS", "boosted_score",
-                      "LIMIT", "0", "5");
+                      "LIMIT", "0", "5",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_idx_complex", args);
 
@@ -296,7 +304,8 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
   // Create a hybrid query with SEARCH and VSIM subqueries, but NO LOAD clause (implicit loading)
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_implicit_basic",
                       "SEARCH", "machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA);
+                      "VSIM", "@vector_field", "$BLOB",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_implicit_basic", args);
 
@@ -305,8 +314,8 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
 
   // Define expected pipelines for each request
   std::vector<std::vector<ResultProcessorType>> expectedPipelines = {
-    {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
-    {RP_DEPLETER, RP_LOADER, RP_VECTOR_NORMALIZER, RP_METRICS, RP_INDEX}                         // Other requests pipeline
+    {RP_SAFE_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
+    {RP_SAFE_DEPLETER, RP_LOADER, RP_VECTOR_NORMALIZER, RP_METRICS, RP_INDEX}  // Other requests pipeline
   };
 
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
@@ -322,9 +331,11 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
     ASSERT_NE(nullptr, lookup);
 
     bool foundKeyField = false;
-    for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
-      if (key->name && strcmp(key->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
-        EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, key->path);
+    RLookupIterator iter = RLookup_Iter(lookup);
+    const RLookupKey* key;
+    while (RLookupIterator_Next(&iter, &key)) {
+      if (RLookupKey_GetName(key) && strcmp(RLookupKey_GetName(key), HYBRID_IMPLICIT_KEY_FIELD) == 0) {
+        EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, RLookupKey_GetPath(key));
         foundKeyField = true;
         break;
       }
@@ -335,7 +346,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
   ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->tailPipeline->qctx.endProc);
   const RLookupKey *scoreKey = RPHybridMerger_GetScoreKey(hybridMerger);
   ASSERT_NE(nullptr, scoreKey) << "scoreKey should be set for implicit load case";
-  EXPECT_STREQ(UNDERSCORE_SCORE, scoreKey->name) << "scoreKey should point to UNDERSCORE_SCORE field";
+  EXPECT_STREQ(UNDERSCORE_SCORE, RLookupKey_GetName(scoreKey)) << "scoreKey should point to UNDERSCORE_SCORE field";
 }
 
 
@@ -343,9 +354,10 @@ TEST_F(HybridRequestParseTest, testHybridRequestMultipleLoads) {
   // Create a hybrid query with SEARCH and VSIM subqueries, plus multiple LOAD clauses
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_multiple_loads",
                       "SEARCH", "machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "VSIM", "@vector_field", "$BLOB",
                       "LOAD", "2", "@__score", "@title",
-                      "LOAD", "1", "@__key");
+                      "LOAD", "1", "@__key",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_multiple_loads", args);
 
@@ -375,8 +387,10 @@ TEST_F(HybridRequestParseTest, testHybridRequestMultipleLoads) {
     std::vector<std::string> expectedFields = {"__score", "title", "__key"};
     for (const std::string& expectedField : expectedFields) {
       bool foundField = false;
-      for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
-        if (key->name && strcmp(key->name, expectedField.c_str()) == 0) {
+      RLookupIterator iter = RLookup_Iter(lookup);
+      const RLookupKey* key;
+      while (RLookupIterator_Next(&iter, &key)) {
+        if (RLookupKey_GetName(key) && strcmp(RLookupKey_GetName(key), expectedField.c_str()) == 0) {
           foundField = true;
           break;
         }
@@ -392,8 +406,9 @@ TEST_F(HybridRequestParseTest, testHybridRequestExplicitLoadPreserved) {
   // Create a hybrid query with SEARCH and VSIM subqueries, plus explicit LOAD clause
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_explicit_preserved",
                       "SEARCH", "artificial",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "LOAD", "2", "@title", "@category");
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "2", "@title", "@category",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_explicit_preserved", args);
 
@@ -414,9 +429,11 @@ TEST_F(HybridRequestParseTest, testHybridRequestNoImplicitSortWithExplicitSort) 
   // Create a hybrid query with SEARCH and VSIM subqueries, plus LOAD and SORTBY clauses
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_no_implicit_sort",
                       "SEARCH", "machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "VSIM", "@vector_field", "$BLOB",
                       "LOAD", "2", "@title", "@score",
-                      "SORTBY", "1", "@title");  // Sort by title, not score
+                      "SORTBY", "1", "@title",  // Sort by title, not score
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
 
   HYBRID_TEST_SETUP("test_no_implicit_sort", args);
 
@@ -435,10 +452,11 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitSortByScore) {
   // Create a hybrid query with SEARCH and VSIM subqueries, plus LOAD but NO SORTBY (should trigger implicit sort)
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_implicit_sort",
                       "SEARCH", "artificial",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "VSIM", "@vector_field", "$BLOB",
                       "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
                       "LOAD", "2", "@title", "@category",
-                      "LIMIT", "0", "20");
+                      "LIMIT", "0", "20",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_implicit_sort", args);
 
@@ -453,9 +471,10 @@ TEST_F(HybridRequestParseTest, testHybridRequestLinearScoringWithLimit) {
   // Create a hybrid query with SEARCH and VSIM subqueries, LINEAR scoring, and custom LIMIT
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_linear_scoring",
                       "SEARCH", "machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "VSIM", "@vector_field", "$BLOB",
                       "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4",
-                      "LIMIT", "0", "15");
+                      "LIMIT", "0", "15",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_linear_scoring", args);
 
@@ -469,8 +488,9 @@ TEST_F(HybridRequestParseTest, testHybridRequestRRFWindowArrangeStep) {
   // Create a hybrid query with RRF scoring and WINDOW=5
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_rrf_window_arrange",
                       "SEARCH", "machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "4", "CONSTANT", "60.0", "WINDOW", "5");
+                      "VSIM", "@vector_field", "$BLOB",
+                      "COMBINE", "RRF", "4", "CONSTANT", "60.0", "WINDOW", "5",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_rrf_window_arrange", args);
   VERIFY_TWO_SUBQUERIES(hybridReq);
@@ -494,8 +514,9 @@ TEST_F(HybridRequestParseTest, testHybridRequestLinearWindowArrangeStep) {
   // Create a hybrid query with LINEAR scoring and WINDOW=5
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_linear_window_arrange",
                       "SEARCH", "artificial",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "5");
+                      "VSIM", "@vector_field", "$BLOB",
+                      "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "WINDOW", "5",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_linear_window_arrange", args);
 
@@ -521,8 +542,9 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   // Create a hybrid query with SEARCH and VSIM subqueries, plus LOAD and APPLY steps
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_keys",
                       "SEARCH", "@title:machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "LOAD", "3", "@title", "@vector", "@category");
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "3", "@title", "@vector", "@category",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_idx_keys", args);
 
@@ -531,11 +553,13 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
+  ASSERT_GE(RLookup_GetRowLen(tailLookup), 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   int tailKeyCount = 0;
-  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
-    if (key->name) {
+  RLookupIterator iter = RLookup_Iter(tailLookup);
+  const RLookupKey* key;
+  while (RLookupIterator_Next(&iter, &key)) {
+    if (RLookupKey_GetName(key)) {
       tailKeyCount++;
     }
   }
@@ -548,38 +572,42 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
+    ASSERT_GE(RLookup_GetRowLen(upstreamLookup), 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
-      if (!upstreamKey->name) {
+    RLookupIterator iter = RLookup_Iter(upstreamLookup);
+    const RLookupKey* upstreamKey;
+    while (RLookupIterator_Next(&iter, &upstreamKey)) {
+      if (!RLookupKey_GetName(upstreamKey)) {
         continue; // Skip overridden keys
       }
 
       // Find corresponding key in tail lookup by name
-      RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+      const RLookupKey *tailKey = NULL;
+      RLookupIterator iter = RLookup_Iter(tailLookup);
+      const RLookupKey* tk;
+      while (RLookupIterator_Next(&iter, &tk)) {
+        if (RLookupKey_GetName(tk) && strcmp(RLookupKey_GetName(tk), RLookupKey_GetName(upstreamKey)) == 0) {
           tailKey = tk;
           break;
         }
       }
 
       ASSERT_TRUE(tailKey != NULL)
-        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' from upstream request " << reqIdx << " not found in tail pipeline";
 
       // Verify path matches
-      if (upstreamKey->path && tailKey->path) {
-        EXPECT_STREQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      if (RLookupKey_GetPath(upstreamKey) && RLookupKey_GetPath(tailKey)) {
+        EXPECT_STREQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different path in upstream request " << reqIdx << " vs tail";
       } else {
-        EXPECT_EQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+        EXPECT_EQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' path nullness differs between upstream request " << reqIdx << " and tail";
       }
 
       // Verify name length matches
-      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
-        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+      EXPECT_EQ(RLookupKey_GetNameLen(upstreamKey), RLookupKey_GetNameLen(tailKey))
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different name_len in upstream request " << reqIdx << " vs tail";
     }
   }
 }
@@ -589,7 +617,8 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   // Create a hybrid query with SEARCH and VSIM subqueries, but NO LOAD clause (implicit loading)
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_keys_implicit",
                       "SEARCH", "@title:machine",
-                      "VSIM", "@vector_field", TEST_BLOB_DATA);
+                      "VSIM", "@vector_field", "$BLOB",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   HYBRID_TEST_SETUP("test_idx_keys_implicit", args);
 
@@ -598,27 +627,31 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GE(tailLookup->rowlen, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
+  ASSERT_GE(RLookup_GetRowLen(tailLookup), 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
   int tailKeyCount = 0;
-  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
-    if (key->name) {
+  RLookupIterator iter = RLookup_Iter(tailLookup);
+  const RLookupKey* key;
+  while (RLookupIterator_Next(&iter, &key)) {
+    if (RLookupKey_GetName(key)) {
       tailKeyCount++;
     }
   }
   ASSERT_GE(tailKeyCount, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
   // Verify that implicit loading creates the "__key" field in the tail pipeline
-  RLookupKey *tailKeyField = NULL;
-  for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+  const RLookupKey *tailKeyField = NULL;
+  RLookupIterator iter2 = RLookup_Iter(tailLookup);
+  const RLookupKey* tk;
+  while (RLookupIterator_Next(&iter2, &tk)) {
     const char *keyName = HYBRID_IMPLICIT_KEY_FIELD;
-    if (tk->name && strcmp(tk->name, keyName) == 0) {
+    if (RLookupKey_GetName(tk) && strcmp(RLookupKey_GetName(tk), keyName) == 0) {
       tailKeyField = tk;
       break;
     }
   }
   ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit '__key' field";
-  EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, tailKeyField->path) << "Implicit key field should have path '__key'";
+  EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, RLookupKey_GetPath(tailKeyField)) << "Implicit key field should have path '__key'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -627,48 +660,54 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GE(upstreamLookup->rowlen, 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
+    ASSERT_GE(RLookup_GetRowLen(upstreamLookup), 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
 
     // Verify that the upstream subquery also has the implicit "__key" field
-    RLookupKey *upstreamKeyField = NULL;
-    for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
-      if (uk->name && strcmp(uk->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
+    const RLookupKey *upstreamKeyField = NULL;
+    RLookupIterator iter = RLookup_Iter(upstreamLookup);
+    const RLookupKey* uk;
+    while (RLookupIterator_Next(&iter, &uk)) {
+      if (RLookupKey_GetName(uk) && strcmp(RLookupKey_GetName(uk), HYBRID_IMPLICIT_KEY_FIELD) == 0) {
         upstreamKeyField = uk;
         break;
       }
     }
     ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit '__key' field";
-    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path '__key' in request " << reqIdx;
+    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, RLookupKey_GetPath(upstreamKeyField)) << "Implicit key field should have path '__key' in request " << reqIdx;
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
-      if (!upstreamKey->name) {
+    RLookupIterator iter2 = RLookup_Iter(upstreamLookup);
+    const RLookupKey* upstreamKey;
+    while (RLookupIterator_Next(&iter2, &upstreamKey)) {
+      if (!RLookupKey_GetName(upstreamKey)) {
         continue; // Skip overridden keys
       }
 
       // Find corresponding key in tail lookup by name
-      RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+      const RLookupKey *tailKey = NULL;
+      RLookupIterator iter = RLookup_Iter(tailLookup);
+      const RLookupKey* tk;
+      while (RLookupIterator_Next(&iter, &tk)) {
+        if (RLookupKey_GetName(tk) && strcmp(RLookupKey_GetName(tk), RLookupKey_GetName(upstreamKey)) == 0) {
           tailKey = tk;
           break;
         }
       }
 
       ASSERT_TRUE(tailKey != NULL)
-        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' from upstream request " << reqIdx << " not found in tail pipeline";
       // Verify path matches
-      if (upstreamKey->path && tailKey->path) {
-        EXPECT_STREQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      if (RLookupKey_GetPath(upstreamKey) && RLookupKey_GetPath(tailKey)) {
+        EXPECT_STREQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different path in upstream request " << reqIdx << " vs tail";
       } else {
-        EXPECT_EQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+        EXPECT_EQ(RLookupKey_GetPath(upstreamKey), RLookupKey_GetPath(tailKey))
+          << "Key '" << RLookupKey_GetName(upstreamKey) << "' path nullness differs between upstream request " << reqIdx << " and tail";
       }
 
       // Verify name length matches
-      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
-        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+      EXPECT_EQ(RLookupKey_GetNameLen(upstreamKey), RLookupKey_GetNameLen(tailKey))
+        << "Key '" << RLookupKey_GetName(upstreamKey) << "' has different name_len in upstream request " << reqIdx << " vs tail";
     }
   }
 }

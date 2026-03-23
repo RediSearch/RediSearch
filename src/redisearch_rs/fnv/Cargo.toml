@@ -7,3 +7,7 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+hash32.workspace = true
+workspace_hack.workspace = true

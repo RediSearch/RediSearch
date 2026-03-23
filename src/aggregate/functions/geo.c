@@ -16,13 +16,12 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
   int rv = REDISMODULE_OK;
   RSValue *val = RSValue_Dereference(argv);
 
-  if (RSValue_IsAnyString(val)) {
+  if (RSValue_IsString(val)) {
     size_t len;
     const char *p = RSValue_StringPtrLen(val, &len);
     rv = parseGeo(p, len, &geo[0], &geo[1], status);
   } else if (RSValue_IsNumber(val)) {
-    double dbl;
-    RSValue_ToNumber(val, &dbl);
+    double dbl = RSValue_Number_Get(val);
     if (decodeGeo(dbl, geo) == 0) {
       rv = REDISMODULE_ERR;
     }
@@ -42,43 +41,45 @@ static int parseLonLat(RSValue *arg1, RSValue *arg2, double *geo) {
 }
 
 /* distance() */
-static int geofunc_distance(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-  int rv;
-  double geo[2][2], dummy;
+static int geofunc_distance(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
+  int rv = 0;
+  double dummy = 0.0;
+  double geo[2][2];
+  double distance = 0.0;
 
   switch (argc) {
   case 2:
     for (int i = 0; i < 2; i++) {
-      rv = parseField(&argv[i], geo[i], ctx->err);
+      rv = parseField(argv[i], geo[i], ctx->err);
       if (rv != REDISMODULE_OK) goto error;
     }
     break;
 
   case 4:
     for (int i = 0, j = 0; i < 2; i++, j += 2) {
-      rv = parseLonLat(&argv[j], &argv[j + 1], geo[i]);
+      rv = parseLonLat(argv[j], argv[j + 1], geo[i]);
       if (rv != REDISMODULE_OK) goto error;
     }
     break;
 
   case 3:
-    if (RSValue_ToNumber(&argv[0], &dummy)) {
+    if (RSValue_ToNumber(argv[0], &dummy)) {
       // lon,lat,"lon,lat"
-      rv = parseLonLat(&argv[0], &argv[1], geo[0]);
+      rv = parseLonLat(argv[0], argv[1], geo[0]);
       if (rv != REDISMODULE_OK) goto error;
-      rv = parseField(&argv[2], geo[1], ctx->err);
+      rv = parseField(argv[2], geo[1], ctx->err);
       if (rv != REDISMODULE_OK) goto error;
     } else {
       // "lon,lat",lon,lat
-      rv = parseField(&argv[0], geo[0], ctx->err);
+      rv = parseField(argv[0], geo[0], ctx->err);
       if (rv != REDISMODULE_OK) goto error;
-      rv = parseLonLat(&argv[1], &argv[2], geo[1]);
+      rv = parseLonLat(argv[1], argv[2], geo[1]);
       if (rv != REDISMODULE_OK) goto error;
     }
     break;
   }
 
-  double distance = geohashGetDistance(geo[0][0], geo[0][1], geo[1][0], geo[1][1]);
+  distance = geohashGetDistance(geo[0][0], geo[0][1], geo[1][0], geo[1][1]);
   distance = round(distance * 100) / 100;
   RSValue_SetNumber(result, distance);
   return EXPR_EVAL_OK;

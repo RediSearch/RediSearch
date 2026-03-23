@@ -61,7 +61,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   if (!data) {
     suffixData newdata = createSuffixNode(copyStr, 1);
     RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_REPLACE, trie->freecb);
+    TrieNode_Add(&trie->root, runes, rlen, &payload, 1, ADD_REPLACE, trie->freecb, 0);
   } else {
     RS_LOG_ASSERT(!data->term, "can't reach here");
     data->term = copyStr;
@@ -77,7 +77,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     if (!trienode || !trienode->payload) {
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
-      Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload);
+      Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
     } else {
       data->array = array_ensure_append_1(data->array, copyStr);
     }
@@ -303,7 +303,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   return retidx;
 }
 
-int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload) {
+int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, size_t numDocsInTerm) {
   SuffixCtx *sufCtx = p;
   TriePayload *pl = payload;
   if (!pl) {
@@ -339,7 +339,8 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   }
   token[toklen] = (rune)'\0';
 
-  TrieNode_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout);
+  TrieNode_IterateWildcard(sufCtx->root, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
+                           sufCtx->skipTimeoutChecks);
   return 1;
 }
 
@@ -416,7 +417,7 @@ void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 }
 
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t len,
-                                          bool prefix, struct timespec timeout) {
+                                          bool prefix, struct timespec timeout, bool skipTimeoutChecks) {
   arrayof(char**) arr = NULL;
   suffixData *data = NULL;
   if (!prefix) {
@@ -429,7 +430,9 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
     }
   } else {
     TrieMapIterator *it = TrieMap_IterateWithFilter(trie, str, len, TM_PREFIX_MODE);
-    TrieMapIterator_SetTimeout(it, timeout);
+    if (!skipTimeoutChecks) {
+      TrieMapIterator_SetTimeout(it, timeout);
+    }
     if (!it) {
       return NULL;
     }
@@ -475,7 +478,7 @@ end:
 }
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
-                                              struct timespec timeout, long long maxPrefixExpansions) {
+                                              struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
   size_t idx[len];
   size_t lens[len];
   // find best token
@@ -491,7 +494,9 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
 
   TrieMapIterator *it = TrieMap_IterateWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE);
   if (!it) return NULL;
-  TrieMapIterator_SetTimeout(it, timeout);
+  if (!skipTimeoutChecks) {
+    TrieMapIterator_SetTimeout(it, timeout);
+  }
 
   arrayof(char*) arr = _getWildcardArray(it, pattern, len, maxPrefixExpansions);
 

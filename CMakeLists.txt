@@ -1,7 +1,14 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
+
+include(CheckCCompilerFlag)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+# The `binroot` path includes a platform+profile segment
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+# Rust takes care of the different platform+profiles on its own,
+# therefore we don't need to use separate target directories for different
+# platform+profiles combinations.
+get_filename_component(rust_binroot ${binroot}/.. ABSOLUTE)
 
 # Platform detection
 if(APPLE)
@@ -84,6 +91,7 @@ if(NOT DEFINED COORD_TYPE)
     set(COORD_TYPE "oss")
 endif()
 
+set(RUST_BINROOT "${rust_binroot}")
 if(COORD_TYPE STREQUAL "oss")
     set(BINDIR "${binroot}/search-community")
 elseif(COORD_TYPE STREQUAL "rlec")
@@ -124,7 +132,7 @@ endif()
 # Get Git version info - to be printed in log upon loading the module
 execute_process(
   COMMAND git describe --abbrev=7 --always
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  WORKING_DIRECTORY ${root}
   OUTPUT_VARIABLE GIT_VERSPEC
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_QUIET
@@ -132,7 +140,7 @@ execute_process(
 
 execute_process(
   COMMAND git rev-parse HEAD
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  WORKING_DIRECTORY ${root}
   OUTPUT_VARIABLE GIT_SHA
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_QUIET
@@ -141,10 +149,34 @@ execute_process(
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
-# Treat all format‑string warnings as errors
+# Treat all format-string warnings as errors
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
+# gcc
+check_c_compiler_flag("-Werror=discarded-qualifiers" HAS_DISCARDED_QUALIFIERS)
+if(HAS_DISCARDED_QUALIFIERS)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=discarded-qualifiers>)
+endif()
+
+# clang
+check_c_compiler_flag("-Werror=incompatible-pointer-types-discards-qualifiers" HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=incompatible-pointer-types-discards-qualifiers>)
+endif()
+
+# Warn when goto jumps over variable initialization
+# gcc: -Werror=jump-misses-init
+check_c_compiler_flag("-Werror=jump-misses-init" HAS_JUMP_MISSES_INIT)
+if(HAS_JUMP_MISSES_INIT)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=jump-misses-init>)
+endif()
+
+# clang: -Werror=sometimes-uninitialized (equivalent protection)
+check_c_compiler_flag("-Werror=sometimes-uninitialized" HAS_SOMETIMES_UNINITIALIZED)
+if(HAS_SOMETIMES_UNINITIALIZED)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=sometimes-uninitialized>)
+endif()
 
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
@@ -194,7 +226,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
 endif()
 
 #----------------------------------------------------------------------------------------------
-# Include external dependencies
+# Include external dependencies (hiredis and boost - needed before src/)
 include(${root}/build/hiredis/hiredis.cmake)
 
 if (NOT DEFINED BOOST_DIR)
@@ -210,96 +242,31 @@ message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
+#----------------------------------------------------------------------------------------------
+# Include directories (needed by both src/ and tests/)
 include_directories(
     ${root}/src
     ${root}/src/buffer
+    ${root}/src/dict
     ${root}/src/coord
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
     ${root}/deps
-    ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
+    ${root}/deps/rmalloc
+    ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})
 
-add_subdirectory(deps/rmutil)
-add_subdirectory(deps/friso)
-add_subdirectory(deps/snowball)
-add_subdirectory(deps/phonetics)
-add_subdirectory(deps/fast_float)
+#----------------------------------------------------------------------------------------------
+# Build the C code and its dependencies
+add_subdirectory(src)
 
-# Configure libuv options
-set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
-set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
-add_subdirectory(deps/libuv)
-
-option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
-
-add_subdirectory(deps/VectorSimilarity)
-add_subdirectory(src/geometry)
-add_subdirectory(src/buffer)
-add_subdirectory(src/iterators)
-add_subdirectory(src/wildcard)
-add_subdirectory(src/util/arr)
-add_subdirectory(src/util/hash)
-add_subdirectory(src/coord)
+# Build the Rust code
 add_subdirectory(src/redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
-# Source files for the core library
-file(GLOB SOURCES
-    "src/*.c"
-    "src/pipeline/*.c"
-    "src/aggregate/*.c"
-    "src/aggregate/expr/*.c"
-    "src/aggregate/functions/*.c"
-    "src/aggregate/reducers/*.c"
-    "src/hybrid/*.c"
-    "src/hybrid/parse/*.c"
-    "src/ext/*.c"
-    "src/hll/*.c"
-    "src/query_parser/v1/*.c"
-    "src/query_parser/v2/*.c"
-    "src/util/*.c"
-    "src/trie/*.c"
-    "src/info/*.c"
-    "src/info/info_redis/*.c"
-    "src/info/info_redis/threads/*.c"
-    "src/info/info_redis/types/*.c"
-    "src/module-init/*.c"
-    "src/obfuscation/*.c"
-
-    "deps/cndict/cndict_data.c"
-    "deps/libnu/*.c"
-    "deps/miniz/*.c"
-    "deps/fast_float/*.c"
-    "deps/thpool/*.c"
-    "deps/geohash/*.c")
-
-#----------------------------------------------------------------------------------------------
-
-add_library(rscore OBJECT ${SOURCES})
-
-set(FINAL_OBJECTS
-    $<TARGET_OBJECTS:arr>
-    $<TARGET_OBJECTS:buffer>
-    $<TARGET_OBJECTS:iterators>
-    $<TARGET_OBJECTS:wildcard>
-    $<TARGET_OBJECTS:rscore>
-    $<TARGET_OBJECTS:rmutil>
-    $<TARGET_OBJECTS:friso>
-    $<TARGET_OBJECTS:snowball>
-    $<TARGET_OBJECTS:metaphone>
-    $<TARGET_OBJECTS:fast_float_strtod>
-    $<TARGET_OBJECTS:redisearch-coord>
-)
-
-#----------------------------------------------------------------------------------------------
-# Build the shared library
-# Build as static library for integration with disk storage
-# Allow overriding library type via option
-
+# Build the final shared library by merging C and Rust static libraries
 
 # Default behavior: SHARED when main project, STATIC when subdirectory
 if(NOT DEFINED REDISEARCH_BUILD_SHARED)
@@ -314,10 +281,10 @@ option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
 
 # Create library with determined type
 if(REDISEARCH_BUILD_SHARED)
-    add_library(redisearch SHARED ${FINAL_OBJECTS})
+    add_library(redisearch SHARED ${REDISEARCH_C_FINAL_OBJECTS})
     message(STATUS "Building RediSearch as SHARED library")
 else()
-    add_library(redisearch STATIC ${FINAL_OBJECTS})
+    add_library(redisearch STATIC ${REDISEARCH_C_FINAL_OBJECTS})
     message(STATUS "Building RediSearch as STATIC library")
 endif()
 
@@ -332,24 +299,15 @@ set_target_properties(redisearch
     C_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
+
+# Link the final library - redisearch_c brings in all C dependencies transitively
 target_link_libraries(redisearch
-        redisearch-geometry
-        redisearch-hash
-        VectorSimilarity
-        redisearch-coord
-        arr
-        buffer
-        iterators
-        wildcard
-        uv_a
-        redisearch_rs
-        ${HIREDIS_LIBS}
-        ${SSL_LIBS}
-        ${CMAKE_LD_LIBS})
+    redisearch_c
+    redisearch_rs
+    ${SSL_LIBS}
+    ${CMAKE_LD_LIBS})
 
 extract_debug_symbols(redisearch)
-add_dependencies(redisearch VectorSimilarity)
-add_dependencies(redisearch uv_a)
 add_dependencies(redisearch redisearch_rs)
 
 #----------------------------------------------------------------------------------------------

@@ -31,10 +31,9 @@ pub type tm_len_t = u16;
 /// This special pointer is returned when [`TrieMap_Find`] cannot find anything.
 #[unsafe(no_mangle)]
 #[used]
-pub static mut TRIEMAP_NOTFOUND: *mut ::std::os::raw::c_void = c"NOT FOUND".as_ptr() as *mut _;
+pub static mut TRIEMAP_NOTFOUND: *mut ::std::ffi::c_void = c"NOT FOUND".as_ptr() as *mut _;
 
-/// Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
-pub struct TrieMap(trie_rs::TrieMap<*mut c_void>);
+pub use trie_rs::opaque::TrieMap;
 
 /// Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
 ///
@@ -172,7 +171,7 @@ pub unsafe extern "C" fn TrieMap_Find(
 
     // Static muts are footguns, but there's no real way around them given
     // the intention to mimic the API of the original C implementation.
-    #[allow(static_mut_refs)]
+    #[expect(static_mut_refs)]
     // SAFETY: TRIEMAP_NOTFOUND is a pointer to a static mut `c_void`.
     // It is only referred to by this function and is not available outside this module,
     // except through the `extern void * TRIEMAP_NOTFOUND`.

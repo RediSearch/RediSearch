@@ -21,9 +21,7 @@ typedef struct GeometryQuery {
 
 void GeometryQuery_Free(GeometryQuery *geomq);
 
-GeometryIndex *OpenGeometryIndex(IndexSpec *spec, const FieldSpec *fs, bool create_if_missing);
-
-RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const HiddenString *field);
+GeometryIndex *OpenGeometryIndex(FieldSpec *fs, bool create_if_missing);
 
 // Remove indexed data for the given document ID
 void GeometryIndex_RemoveId(IndexSpec *spec, t_docId id);

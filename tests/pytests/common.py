@@ -43,6 +43,7 @@ class TimeLimit(object):
         self.message = message
 
     def __enter__(self):
+        self.time_start = time.time()
         signal.signal(signal.SIGALRM, self.handler)
         signal.setitimer(signal.ITIMER_REAL, self.timeout, 0)
 
@@ -51,7 +52,34 @@ class TimeLimit(object):
         signal.signal(signal.SIGALRM, signal.SIG_DFL)
 
     def handler(self, signum, frame):
-        raise Exception(f'Timeout: {self.message}')
+        raise Exception(f'Timeout: {self.message} + after {time.time() - self.time_start}s')
+
+def wait_for_condition(check_fn, message, timeout=120):
+    """
+    Wait for a condition with timeout and status reporting.
+
+    Parameters:
+        - env: Test environment
+        - check_fn: Function that takes returns (status: bool, state: dict)
+                   where state is a dict of the current state information
+        - message: Message prefix for timeout exception
+    """
+    iter = 0
+    timeout_msg = {}
+
+    try:
+        with TimeLimit(timeout):
+            while True:
+                done, state = check_fn()
+                if done:
+                    break
+                time.sleep(0.01)
+                iter += 1
+                timeout_msg['iter'] = iter
+                timeout_msg['state'] = state
+    except Exception as e:
+        log = f"{message}: {timeout_msg}"
+        raise Exception(f'Error: {e}, log: {log}')
 
 class DialectEnv(Env):
     def __init__(self, *args, **kwargs):
@@ -138,6 +166,17 @@ def toSortedFlatList(res):
 
         return py2sorted(finalList)
     return [res]
+
+def countFlatElements(arr):
+    """Count elements without sorting (lighter than toSortedFlatList)"""
+    if isinstance(arr, str):
+        return 1
+    if isinstance(arr, Iterable):
+        count = 0
+        for e in arr:
+            count += countFlatElements(e)
+        return count
+    return 1
 
 def assertInfoField(env, idx, field, expected, delta=None):
     d = index_info(env, idx)
@@ -253,10 +292,22 @@ def getWorkersThpoolStats(env):
 def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
+def set_workers(env, workers):
+    """Set the worker thread count and verify that the change took effect."""
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
+    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
 
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
+def getCoordThpoolStats(env):
+    return to_dict(env.cmd(debug_cmd(), "COORD_THREADS", "stats"))
+
+def getWorkersThpoolStatsFromAllShards(env):
+    return [getWorkersThpoolStatsFromShard(shard_conn) for shard_conn in env.getOSSMasterNodesConnectionList()]
+
+def getWorkersThpoolNumThreadsFromAllShards(env):
+    return [shard_conn.execute_command(debug_cmd(), "WORKERS", "n_threads") for shard_conn in env.getOSSMasterNodesConnectionList()]
 
 def skipOnExistingEnv(env):
     if 'existing' in env.env:
@@ -325,6 +376,33 @@ def run_command_on_all_shards(env, *args):
 def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
+
+def allShards_set_info_on_zero_indexes(env, enabled: bool):
+    """
+    Enable/disable INFO MODULES full output when there are zero indexes.
+
+    In cluster mode, applies to all OSS shards. In standalone mode, applies to the single node.
+    Asserts success (all replies are OK).
+    """
+    val = 'yes' if enabled else 'no'
+    if env.isCluster():
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+        return
+    res = env.cmd('CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+    env.assertEqual(res, 'OK')
+    return
+
+def shard_set_info_on_zero_indexes(env, enabled: bool):
+    """
+    Enable/disable INFO MODULES full output when there are zero indexes on the current node.
+
+    Uses `getConnectionByEnv(env)` so callers don't need to pass a shard id.
+    """
+    val = 'yes' if enabled else 'no'
+    conn = getConnectionByEnv(env)
+    res = conn.execute_command('CONFIG', 'SET', 'search-_info-on-zero-indexes', val)
+    env.assertEqual(res, 'OK')
+    return res
 
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
@@ -403,6 +481,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
 def to_dict(res):
     if type(res) == dict:
         return res
+    if len(res) % 2 != 0:
+        raise ValueError(f"to_dict expects even-length array (key-value pairs), got {len(res)} elements")
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 
@@ -416,6 +496,12 @@ MAX_DIALECT = 0
 def set_max_dialect(env):
     global MAX_DIALECT
     if MAX_DIALECT == 0:
+        # Ensure INFO MODULES is not in minimal suppression mode when there are zero indexes.
+        # This keeps dialect discovery simple and consistent across tests.
+        # We only query INFO MODULES on the current connection, so it's enough to set this locally
+        # (no need to broadcast to all shards).
+        shard_set_info_on_zero_indexes(env, True)
+
         info = env.cmd('INFO', 'MODULES')
         prefix = 'search_dialect_'
         MAX_DIALECT = max([int(key.replace(prefix, '')) for key in info.keys() if prefix in key])
@@ -548,11 +634,14 @@ class ConditionalExpected:
 def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
+    p = conn.pipeline(transaction=False)
+    query_vec = None
     for i in range(n_vec):
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
             query_vec = vector
-        conn.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+    p.execute()
     return query_vec
 
 def sortResultByKeyName(res, start_index=1):
@@ -708,7 +797,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            inverted_index_size = 40
+            inverted_index_size = 24
             inverted_index_meta_data = 8
             total_size += inverted_index_size + inverted_index_meta_data
             continue
@@ -735,7 +824,7 @@ def compare_numeric_dicts(env, d1, d2, d1_name="d1", d2_name="d2", msg="", _asse
         try:
             res = float(d2[key]) == float(value)
             if _assert:
-                env.assertTrue(res, message=msg + " value is different in key: " + key, depth=depth+1)
+                env.assertTrue(res, message=msg + " value is different in key: " + key + " expected " + str(value) + " got " + str(d2[key]), depth=depth+1)
             else:
                 if res == False:
                     return False
@@ -795,10 +884,8 @@ def downloadFile(env, file_name, depth=0, max_retries=3):
             ], check=True, capture_output=True, text=True)
 
         except subprocess.CalledProcessError as e:
-            env.assertTrue(False,
-                message=f"Failed to download {BASE_RDBS_URL + file_name} after {max_retries + 1} attempts. "
-                       f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}",
-                depth=depth + 1)
+            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
+                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
 
             # Clean up partial download
             try:
@@ -852,10 +939,12 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
         debug_params.append("INTERNAL_ONLY")
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
-def runDebugQueryCommandAndCrash(env, query_cmd):
-    debug_params = ['CRASH']
-    return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
 
+def runDebugQueryCommandAndCrash(env, query_cmd, crash_in_rust=False):
+    debug_params = ["CRASH_IN_RUST" if crash_in_rust else "CRASH"]
+    return env.expect(
+        debug_cmd(), *query_cmd, *debug_params, "DEBUG_PARAMS_COUNT", len(debug_params)
+    ).error()
 
 
 def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
@@ -887,6 +976,109 @@ def allShards_setPauseRPResume(env, start_shard=1):
         result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
         results.append(result)
     return results
+
+# Coordinator Reduce Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeReduce(env, N):
+    """
+    Set the coordinator to pause before reducing the Nth result.
+    N=0: no pause
+    N=-1: pause after the last result is reduced
+    N>0: pause before the Nth result (1-based index)
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_REDUCE', N).ok()
+
+def getIsCoordReducePaused(env):
+    """Check if the coordinator is currently paused during reduce."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_COORD_REDUCE_PAUSED')
+
+def setCoordReduceResume(env):
+    """Resume the coordinator from a reduce pause."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_COORD_REDUCE_RESUME').ok()
+
+def getCoordReduceCount(env):
+    """Get the current count of results reduced so far."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_COORD_REDUCE_COUNT')
+
+def resetCoordReduceDebug(env):
+    """Reset the coordinator reduce debug context (set N=0 and resume).
+
+    Note: setCoordReduceResume will error if the coordinator is not currently paused,
+    which is expected in cleanup scenarios where the coordinator already resumed.
+    """
+    setPauseBeforeReduce(env, 0)
+    try:
+        # Use env.cmd here since we need to catch the exception
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_COORD_REDUCE_RESUME')
+    except Exception:
+        pass  # Ignore error if coordinator is not paused
+
+# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeStoreResults(env, enabled):
+    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'true' if enabled else 'false').ok()
+
+def setPauseAfterStoreResults(env, enabled):
+    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults."""
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'true' if enabled else 'false').ok()
+
+def getIsStoreResultsPaused(env):
+    """Check if the query is currently paused during store results."""
+    return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED')
+
+def resetStoreResultsDebug(env):
+    """Reset the store results debug context (disable pauses and resume)."""
+    setPauseBeforeStoreResults(env, False)
+    setPauseAfterStoreResults(env, False)
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
+    except Exception:
+        pass  # Ignore error if not paused
+
+def isEnableAssertEnabled(env):
+    """
+    Check if ENABLE_ASSERT is enabled in the build.
+    Returns True if ENABLE_ASSERT commands are available, False otherwise.
+    """
+    try:
+        env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_COORD_REDUCE_PAUSED')
+        return True
+    except Exception:
+        return False
+
+def skipIfNoEnableAssert(env):
+    """
+    Skip the current test if ENABLE_ASSERT is not enabled in the build.
+    Call this at the beginning of tests that require ENABLE_ASSERT functionality.
+    """
+    if not isEnableAssertEnabled(env):
+        env.debugPrint("Skipping test: ENABLE_ASSERT is not enabled", force=True)
+        env.skip()
+
+def require_enable_assert(f):
+    """
+    Decorator to skip tests if ENABLE_ASSERT is not enabled in the build.
+    Usage: @require_enable_assert
+    """
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        if not isEnableAssertEnabled(env):
+            env.debugPrint(f"Skipping {f.__name__}: ENABLE_ASSERT is not enabled", force=True)
+            env.skip()
+            return
+        return f(env, *args, **kwargs)
+    return wrapper
+
+class vecsimMockTimeoutContext:
+    """Context manager for enabling/disabling VECSIM mock timeout on all shards"""
+    def __init__(self, env):
+        self.env = env
+
+    def __enter__(self):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'enable')
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        run_command_on_all_shards(self.env, debug_cmd(), 'VECSIM_MOCK_TIMEOUT', 'disable')
 
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
@@ -1000,7 +1192,16 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
         Dict mapping key -> dict of all fields from the results list
         Example: {'doc:1': {'__score': '0.5', 'vector_distance': '0.3'}}
     """
-    # return dict mapping key -> all fields from the results list
+    # Handle RESP3 format (dict)
+    if isinstance(response, dict):
+        results = {}
+        for result in response.get('results', []):
+            if '__key' in result:
+                key = result['__key']
+                results[key] = result
+        total_results = response.get('total_results', 0)
+        return results, total_results
+
     res_results_index = recursive_index(response, 'results')
     res_count_index = recursive_index(response, 'total_results')
     res_results_index[-1] += 1
@@ -1057,6 +1258,43 @@ def call_and_store(fn, args, out_list):
     """
     out_list.append(fn(*args))
 
+def launch_cmds_in_bg_with_exception_check(env, command, num_triggers, exception_timeout=1):
+    """
+    Launch the same Redis command multiple times in background threads with exception monitoring.
+
+    Args:
+        env: Redis test environment for executing commands.
+        command: A list containing the Redis command to execute (e.g., ['FT.SEARCH', 'idx', 'query']).
+        num_triggers: Number of background threads to spawn, each executing the same command.
+        exception_timeout: Seconds to wait for exception detection (default: 1).
+
+    Returns:
+        list[Thread]: Started thread objects if no exceptions occur, None if any thread fails.
+    """
+    threads = []
+    exceptions = []
+    exception_event = threading.Event()
+
+    def run_cmd():
+        try:
+            env.cmd(*command)
+        except Exception as e:
+            exceptions.append(e)
+            exception_event.set()
+
+    for i in range(num_triggers):
+        t = threading.Thread(target=run_cmd)
+        threads.append(t)
+        t.start()
+
+    # Check for exceptions before proceeding
+    if exception_event.wait(timeout=exception_timeout):
+        error_msg = f"Background command {command} failed with {len(exceptions)} error(s): {exceptions}"
+        env.assertTrue(False, message=error_msg)
+        return None
+
+    return threads
+
 def generate_slots(slots = range(2**14)) -> bytes:
     """Generate slot ranges in binary format matching RedisModuleSlotRangeArray serialization.
 
@@ -1105,3 +1343,18 @@ def allShards_change_maxmemory_low(env):
     for shardId in range(1, env.shardsCount + 1):
         res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 1)
         env.assertEqual(res, 'OK')
+
+def shard_change_timeout_policy(env, shardId, policy):
+    res = env.getConnection(shardId).execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+    env.assertEqual(res, 'OK')
+
+def allShards_change_timeout_policy(env, policy):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_change_timeout_policy(env, shardId, policy)
+
+def get_shards_profile(env, res):
+  """Extract shard profiles from FT.PROFILE AGGREGATE response."""
+  if env.protocol == 3:
+    return res['Profile']['Shards']
+  else:
+    return [to_dict(p) for p in res[-1][1]]

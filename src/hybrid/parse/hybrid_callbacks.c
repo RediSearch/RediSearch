@@ -15,6 +15,10 @@
 #include <limits.h>
 #include "util/misc.h"
 #include "slot_ranges.h"
+#include "slots_tracker.h"
+#include "hybrid/vector_query_utils.h"
+#include "vector_index.h"
+#include "rmalloc.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -404,6 +408,42 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     AGPLN_AddStep(ctx->plan, &stp->base);
 }
 
+// POLICY callback for FILTER clause - handles value mapping and attribute creation
+void handleFilterPolicy(ArgParser *parser, const void *value, void *user_data) {
+    ParsedVectorData *pvd = (ParsedVectorData*)user_data;
+    const char *policy = *(const char**)value;
+
+    const char *attrValue = policy;
+    // Map ADHOC to adhoc_bf (BATCHES is used as-is)
+    // Note: ADHOC_BF is already rejected by ARG_OPT_ALLOWED_VALUES
+    if (strcasecmp(policy, "ADHOC") == 0) {
+        attrValue = VECSIM_POLICY_ADHOC_BF;
+    }
+    // else: BATCHES is used as-is (no mapping needed)
+
+    QueryAttribute attr = {
+        .name = VECSIM_HYBRID_POLICY,
+        .namelen = strlen(VECSIM_HYBRID_POLICY),
+        .value = rm_strdup(attrValue),
+        .vallen = strlen(attrValue)
+    };
+    pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+}
+
+// BATCH_SIZE callback for FILTER clause - handles attribute creation
+void handleFilterBatchSize(ArgParser *parser, const void *value, void *user_data) {
+    ParsedVectorData *pvd = (ParsedVectorData*)user_data;
+    const char *batchSize = *(const char**)value;
+
+    QueryAttribute attr = {
+        .name = VECSIM_BATCH_SIZE,
+        .namelen = strlen(VECSIM_BATCH_SIZE),
+        .value = rm_strdup(batchSize),
+        .vallen = strlen(batchSize)
+    };
+    pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+}
+
 // TIMEOUT callback - implements EXACT original logic from handleTimeout
 void handleTimeout(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
@@ -447,19 +487,25 @@ void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) 
 
 // SLOTS_STR callback - implements EXACT original logic from handleCommonArgs
 void handleSlotsInfo(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
-    QueryError *status = ctx->status;
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  ArgsCursor *ac = (ArgsCursor*)value;
+  QueryError *status = ctx->status;
 
-    // Parse binary slots information
-    size_t serialization_len;
-    const char *serialization = AC_GetStringNC(ac, &serialization_len);
-    RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
-    if (!slot_array) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
-        return;
-    }
-    // TODO ASM: check if the requested slots are available
-    *ctx->querySlots = slot_array;
-    *ctx->slotsVersion = 0;
+  // Parse binary slots information
+  size_t serialization_len;
+  const char *serialization = AC_GetStringNC(ac, &serialization_len);
+  RedisModuleSlotRangeArray *slot_array = SlotRangesArray_Deserialize(serialization, serialization_len);
+  if (!slot_array) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
+    return;
+  }
+  OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+  if (!version.is_some) {
+    rm_free((void *)slot_array);
+    QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+    return;
+  }
+
+  *ctx->querySlots = slot_array;
+  *ctx->keySpaceVersion = version.version;
 }

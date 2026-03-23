@@ -55,7 +55,7 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   return topo;
 }
 
-static void MRClusterNode_Free(MRClusterNode *n) {
+void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
   rm_free((char *)n->id);
 }

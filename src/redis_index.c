@@ -11,6 +11,7 @@
 #include "redismodule.h"
 #include "inverted_index.h"
 #include "iterators/inverted_index_iterator.h"
+#include "iterators_rs.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
@@ -18,8 +19,6 @@
 #include "tag_index.h"
 #include "rmalloc.h"
 #include <stdio.h>
-
-RedisModuleType *InvertedIndexType;
 
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
   if (RS_IsMock) return;
@@ -49,7 +48,7 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
 /**
  * Format redis key for a term.
  */
-RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *Legacy_fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   char buf_s[1024] = {"ft:"};
   size_t offset = 3;
   size_t nameLen = 0;
@@ -72,12 +71,15 @@ RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, 
   return ret;
 }
 
-RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
+#define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
+#define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
+
+RedisModuleString *Legacy_fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SKIPINDEX_KEY_FORMAT, HiddenString_GetUnsafe(ctx->spec->specName, NULL),
                                         (int)len, term);
 }
 
-RedisModuleString *fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
+RedisModuleString *Legacy_fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len) {
   return RedisModule_CreateStringPrintf(ctx->redisCtx, SCOREINDEX_KEY_FORMAT, HiddenString_GetUnsafe(ctx->spec->specName, NULL),
                                         (int)len, term);
 }
@@ -88,6 +90,11 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
   RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
+  // Also pause rehashing on the TTL table if it exists, to avoid concurrent
+  // rehash steps from multiple query threads corrupting the dict during reads.
+  if (ctx->spec->docs.ttl) {
+    RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->docs.ttl));
+  }
   ctx->flags = RS_CTX_READONLY;
 }
 
@@ -124,6 +131,10 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
     // We paused rehashing when we locked the spec for read. Now we can resume it.
     // Assert that it was actually previously paused
     RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
+    // Also resume rehashing on the TTL table if it exists
+    if (sctx->spec->docs.ttl) {
+      RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->docs.ttl));
+    }
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->flags = RS_CTX_UNSET;
@@ -146,79 +157,55 @@ void SearchCtx_Free(RedisSearchCtx *sctx) {
   rm_free(sctx);
 }
 
-static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleString *termKey,
-                                        int write, bool *outIsNew) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, termKey);
-  if (kdv) {
-    if (outIsNew) {
-      *outIsNew = false;
-    }
-    return kdv->p;
-  }
-  if (!write) {
-    return NULL;
-  }
-
+static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, CharBuf *termKey,
+                                        bool write, bool *outIsNew) {
+  InvertedIndex *idx = dictFetchValue(ctx->spec->keysDict, termKey);
   if (outIsNew) {
-    *outIsNew = true;
+    *outIsNew = idx == NULL;
   }
-  kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = (void (*)(void *))InvertedIndex_Free;
-  size_t index_size;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, &index_size);
-  ctx->spec->stats.invertedSize += index_size;
-  dictAdd(ctx->spec->keysDict, termKey, kdv);
-  return kdv->p;
-}
-
-InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, int write, bool *outIsNew) {
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term, len);
-  InvertedIndex *idx = openIndexKeysDict(ctx, termKey, write, outIsNew);
-  RedisModule_FreeString(ctx->redisCtx, termKey);
+  if (write && !idx) {
+    size_t index_size;
+    idx = NewInvertedIndex(ctx->spec->flags, &index_size);
+    ctx->spec->stats.invertedSize += index_size;
+    dictAdd(ctx->spec->keysDict, termKey, idx);
+  }
   return idx;
 }
 
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len, bool write, bool *outIsNew) {
+  CharBuf termKeyBuf = {
+      .buf = (char *)term,
+      .len = len,
+  };
+  InvertedIndex *idx = openIndexKeysDict(ctx, &termKeyBuf, write, outIsNew);
+  return idx;
+}
+
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
                                 t_fieldMask fieldMask, double weight) {
 
-  RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
-  InvertedIndex *idx = NULL;
-  RedisModuleKey *k = NULL;
+  CharBuf termKey = {.buf = tok->str, .len = tok->len};
 
-  idx = openIndexKeysDict(ctx, termKey, 0, NULL);
+  InvertedIndex *idx = openIndexKeysDict(ctx, &termKey, false, NULL);
   if (!idx) {
-    goto err;
+    return NULL;
   }
 
   if (!InvertedIndex_NumDocs(idx) ||
      (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
-    // pass
-    goto err;
+    return NULL;
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  QueryIterator *it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
-  RedisModule_FreeString(ctx->redisCtx, termKey);
-  return it;
-
-err:
-  if (k) {
-    RedisModule_CloseKey(k);
-  }
-  if (termKey) {
-    RedisModule_FreeString(ctx->redisCtx, termKey);
-  }
-  if (term) {
-    Term_Free(term);
-  }
-  return NULL;
+  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
+  return NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
 }
 
-int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
+int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
-  RedisModuleString *pf = fmtRedisTermKey(sctx, "", 0);
+  RedisModuleString *pf = Legacy_fmtRedisTermKey(sctx, "", 0);
   size_t pflen, len;
   RedisModule_StringPtrLen(pf, &pflen);
   RedisModule_FreeString(sctx->redisCtx, pf);
@@ -227,8 +214,8 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   k += pflen;
   // char *term = rm_strndup(k, len - pflen);
 
-  RedisModuleString *sck = fmtRedisScoreIndexKey(sctx, k, len - pflen);
-  RedisModuleString *sik = fmtRedisSkipIndexKey(sctx, k, len - pflen);
+  RedisModuleString *sck = Legacy_fmtRedisScoreIndexKey(sctx, k, len - pflen);
+  RedisModuleString *sik = Legacy_fmtRedisSkipIndexKey(sctx, k, len - pflen);
 
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "sss", kn, sck, sik);
   if (rep) {
@@ -242,11 +229,12 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
   return REDISMODULE_OK;
 }
 
-int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
+int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s", s);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
+  RedisModule_FreeString(ctx, s);
   return res;
 }
 

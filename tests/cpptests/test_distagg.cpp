@@ -11,6 +11,7 @@
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
+#include "common.h"
 
 #include <vector>
 
@@ -42,7 +43,7 @@ static void testAverage() {
                     "sortby", "2", "@avg_price", "DESC"                 // nl
   );
   QueryError status{QueryErrorCode(0)};
-  int rc = AREQ_Compile(r, vv, vv.size(), &status);
+  int rc = AREQ_Compile(r, vv, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
@@ -74,14 +75,14 @@ static void testAverage() {
 
   AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
 
-  dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   rc = AREQ_BuildPipeline(r, &status);
-  dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 
 /**
@@ -101,7 +102,7 @@ static void testCountDistinct() {
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
   QueryError status{QueryErrorCode(0)};
-  int rc = AREQ_Compile(r, vv, vv.size(), &status);
+  int rc = AREQ_Compile(r, vv, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
@@ -127,7 +128,7 @@ static void testCountDistinct() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
@@ -139,7 +140,7 @@ static void testSplit() {
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
   QueryError status{QueryErrorCode(0)};
-  int rc = AREQ_Compile(r, vv, vv.size(), &status);
+  int rc = AREQ_Compile(r, vv, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
@@ -165,10 +166,11 @@ static void testSplit() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_Free(r);
+  AREQ_DecrRef(r);
 }
 
 int main(int, char **) {
+  RS::InstallSegvStackTraceHandler();
   RMCK::init();
   testAverage();
   testCountDistinct();

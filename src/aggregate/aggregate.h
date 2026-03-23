@@ -9,7 +9,6 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
-#include <stdbool.h>
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
@@ -22,20 +21,69 @@
 #include "vector_index.h"
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
+#include "profile/profile.h"
+#include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
 extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
+#include <stdatomic.h>
 #endif
 
 #define DEFAULT_LIMIT 10
+
+// Forward declaration for cursor
+struct Cursor;
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
   RLookup *lastLookup;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
+
+/**
+ * State needed for reply serialization in reply_callback path.
+ * When using FAIL policy with workers, the background thread stores results here,
+ * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ *
+ * ## Cursor ↔ AREQ Ownership
+ *
+ * **Cursor owns AREQ** (not vice versa):
+ * - cursor->execState points to the AREQ
+ * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState)
+ *
+ * **AREQ does NOT own Cursor**:
+ * - The `cursor` field below is a NON-OWNING handle.
+ * - It exists solely so QueryReplyCallback knows which cursor to pause/free after
+ *   finishSendChunk completes.
+ * - In normal flow, QueryReplyCallback calls Cursor_Free/Cursor_Pause and clears this field.
+ */
+typedef struct {
+  SearchResult **results;  // Aggregated results array (NULL if not aggregated yet)
+  int rc;                  // Pipeline return code (RS_RESULT_OK, RS_RESULT_EOF, etc.)
+  bool hasStoredResults;   // Flag to indicate results were stored for reply_callback
+  QueryError err;          // Query error state (copied from qctx->err after pipeline execution)
+  cachedVars cv;           // Cached lookup variables for result serialization
+  /**
+   * NON-OWNING cursor handle for reply_callback path.
+   * See ownership model above. This is set in runCursor() when useReplyCallback is true,
+   * and cleared by QueryReplyCallback after it handles cursor pause/free.
+   * If timeout fires first, ChunkReplyState_Destroy cleans this up.
+   */
+  struct Cursor *cursor;
+  size_t limit;            // Original limit passed to sendChunk (for RESP2 resultsLen calculation)
+} ChunkReplyState;
+
+/**
+ * Clean up all resources held by a ChunkReplyState.
+ * Handles the cursor ownership edge case (see struct documentation above).
+ */
+void ChunkReplyState_Destroy(ChunkReplyState *state);
 
 typedef struct Grouper Grouper;
 struct QOptimizer;
@@ -119,6 +167,18 @@ typedef enum {
   // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
   QEXEC_F_NO_SORT = 0x4000000,
 
+  // The query has an explicit SORTBY x - sort by a field
+  QEXEC_F_HAS_SORTBY = 0x8000000,
+
+  // The query should use a depleter in the pipeline (for FT.AGGREGATE)
+  QEXEC_F_HAS_DEPLETER = 0x10000000,
+
+  // The query has an explicit WITHCOUNT (for FT.AGGREGATE)
+  QEXEC_F_HAS_WITHCOUNT = 0x20000000,
+
+  // The query has an explicit GROUPBY (for FT.AGGREGATE)
+  QEXEC_F_HAS_GROUPBY = 0x40000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -142,23 +202,30 @@ typedef struct {
   size_t *maxSearchResults;         // Maximum search results
   size_t *maxAggregateResults;      // Maximum aggregate results
   const RedisModuleSlotRangeArray **querySlots; // Slots requested (referenced from AREQ)
-  uint32_t *slotsVersion;                       // Version given by the slots tracker
+  uint32_t *keySpaceVersion;        // Version given by the slots tracker
+  rs_wall_clock_ns_t *coordDispatchTime; // Coordinator dispatch time in ns (for internal commands)
 } ParseAggPlanContext;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
+#define IsAggregate(r) ((r)->reqflags & QEXEC_F_IS_AGGREGATE)
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
 #define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
+#define HasDepleter(r) ((r)->reqflags & QEXEC_F_HAS_DEPLETER)
+#define HasWithCount(r) ((r)->reqflags & QEXEC_F_HAS_WITHCOUNT)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
+#define IsCursor(r) ((r)->reqflags & QEXEC_F_IS_CURSOR)
 #define HasScorer(r) ((r)->optimizer && (r)->optimizer->scorerType != SCORER_TYPE_NONE)
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
+#define HasSortBy(r) ((r)->reqflags & QEXEC_F_HAS_SORTBY)
+#define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
@@ -173,10 +240,30 @@ typedef enum {
   QEXEC_S_HAS_LOAD = 0x01,
   /* Received EOF from iterator */
   QEXEC_S_ITERDONE = 0x02,
+  /* ASM trimming delay timeout */
+  QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT = 0x04,
 } QEStateFlags;
 
 
-typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
+
+/**
+ * Common synchronization context for request types (AREQ, HybridRequest).
+ * This context is used for timeout handling and synchronization between the main thread and the background thread.
+ */
+typedef struct RequestSyncCtx {
+  // Timeout signaling flag set by timeout callback on main thread
+  RS_Atomic(bool) timedOut;
+  // Reference count for shared ownership between timeout callback (main thread) and background thread
+  uint8_t refcount;
+} RequestSyncCtx;
+
+// Initialize a RequestSyncCtx with default values
+static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
+  ctx->timedOut = false;
+  ctx->refcount = 1;
+}
+
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -204,9 +291,8 @@ typedef struct AREQ {
   RedisSearchCtx *sctx;
 
   /** Local slots info for this request */
-  const SharedSlotRangeArray *slotRanges;
   const RedisModuleSlotRangeArray *querySlots;
-  uint32_t slotsVersion;
+  uint32_t keySpaceVersion;
 
   /** Context for iterating over the queries themselves */
   QueryProcessingCtx qiter;
@@ -239,10 +325,7 @@ typedef struct AREQ {
   CursorConfig cursorConfig;
 
   /** Profile variables */
-  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
-  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
-  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
-  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
+  ProfileClocks profileClocks;
 
   const char** requiredFields;
 
@@ -261,6 +344,21 @@ typedef struct AREQ {
 
   // The offset of the prefixes in the command
   size_t prefixesOffset;
+
+  ProfilePrinterCtx profileCtx;
+
+  // Synchronization context for timeout/reply callbacks
+  RequestSyncCtx syncCtx;
+
+  // Flag to indicate whether to skip timeout checks using clock checks
+  bool skipTimeoutChecks;
+
+  bool useReplyCallback;
+
+  // State for reply_callback path (FAIL policy with workers)
+  // Background thread stores results here, then calls UnblockClient.
+  // The reply_callback reads from here to build the reply on the main thread.
+  ChunkReplyState storedReplyState;
 } AREQ;
 
 /**
@@ -297,14 +395,14 @@ AREQ *AREQ_New(void);
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..
  */
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status);
+int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status);
 
 /**
  * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
  * This function extracts the aggregate-specific parsing logic that was previously
  * part of AREQ_Compile, allowing it to be reused for merge plans in hybrid queries.
  */
-int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, QueryError *status);
+int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.
@@ -315,6 +413,8 @@ void initializeAREQ(AREQ *req);
  * This stage will apply the context to the request. During this phase, the
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
+ *
+ * Can be called from the main thread or from a background thread. (Note: access RSGlobalConfig which is not thread safe)
  *
  * This consumes a refcount of the context used.
  *
@@ -347,8 +447,14 @@ static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
  */
 #define REQFLAGS_AddFlags(reqflags, flags) (*(reqflags) |= (flags))
 
+#define REQFLAGS_RemoveFlags(reqflags, flags) (*(reqflags) &= ~(flags))
+
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
   return &req->pipeline.qctx;
+}
+
+static inline ProfilePrinterCtx *AREQ_ProfilePrinterCtx(AREQ *req) {
+  return &req->profileCtx;
 }
 
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
@@ -383,8 +489,8 @@ static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
  * like so:
  *
  * @code {.c}
- * RLookup lksrc;
- * RLookup lkdst;
+ * RLookup lksrc = RLookup_New();
+ * RLookup lkdst = RLookup_New();
  * const char *kname[] = {"foo", "bar", "baz"};
  * RLookupKey *srckeys[3];
  * RLookupKey *dstkeys[3];
@@ -414,10 +520,22 @@ ResultProcessor *Grouper_GetRP(Grouper *gr);
 void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
-int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void sendChunk_ReplyOnly_EmptyResults(RedisModule_Reply *reply, AREQ *req);
-void AREQ_Free(AREQ *req);
+void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
+
+/**
+ * Increment the reference count of the AREQ.
+ * @param req the request to increment
+ * @return the request (for chaining)
+ */
+AREQ *AREQ_IncrRef(AREQ *req);
+
+/**
+ * Decrement the reference count of the AREQ.
+ * If the reference count reaches 0, the request is freed.
+ * @param req the request to decrement
+ */
+void AREQ_DecrRef(AREQ *req);
 
 /**
  * Start the cursor on the current request
@@ -435,7 +553,10 @@ void AREQ_Free(AREQ *req);
  */
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
-int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 /**
  * @brief Parse a dialect version from var args
@@ -449,19 +570,34 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
 
 
 int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
-int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
+int parseTimeout(size_t *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
-int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
 
 // From dist_aggregate.c
 // Allows calling parseProfileArgs from reply_empty.c
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
-void parseProfileExecOptions(AREQ *r, int execOptions);
+
+bool AREQ_TimedOut(AREQ *req);
+void AREQ_SetTimedOut(AREQ *req);
+
+static inline bool AREQ_ShouldCheckTimeout(AREQ *req) {
+  return !req->skipTimeoutChecks;
+}
+
+static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) {
+  req->skipTimeoutChecks = skipTimeoutChecks;
+  // Also propagate to the SearchCtx's SearchTime for timeout functions that access it directly
+  if (req->sctx) {
+    req->sctx->time.skipTimeoutChecks = skipTimeoutChecks;
+  }
+}
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
+#undef RS_Atomic
+
 }
 #endif
 #endif

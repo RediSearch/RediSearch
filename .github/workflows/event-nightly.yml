@@ -3,50 +3,25 @@ name: Nightly Flow
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "20 20 * * *"
 
 # TODO: Use RedisJSON's `master` branch when testing on nightly
 
 jobs:
-  test-linux:
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-all-platforms:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
+      platform: all
+      architecture: all
       redis-ref: unstable
-      test-config: QUICK=1
-      fail-fast: false
-
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
-    secrets: inherit
-    with:
-      redis-ref: unstable
-      test-config: QUICK=1
-
-  coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      coverage: true
-      test-config: QUICK=1
-      get-redis: unstable
-
-  run-on-intel:
-    secrets: inherit
-    uses: ./.github/workflows/flow-intel.yml
-    with:
-      get-redis: unstable
-
-  sanitize:
-    secrets: inherit
-    uses: ./.github/workflows/task-test.yml
-    with:
-      get-redis: unstable
-      test-config: QUICK=1
-      san: address
-      env: ubuntu-latest
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
 
   micro-benchmarks:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
@@ -54,7 +29,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-linux, test-macos, coverage, run-on-intel, sanitize, micro-benchmarks]
+    needs: [test-all-platforms, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
@@ -63,7 +38,8 @@ jobs:
         with:
           payload: |
             {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "repository": "${{ github.repository }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}

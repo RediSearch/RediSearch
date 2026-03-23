@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, vec};
+use std::{hint::black_box, io::Cursor, vec};
 
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use inverted_index::{
     Decoder, Encoder, RSIndexResult, offsets_only::OffsetsOnly, test_utils::TestTermRecord,
 };
@@ -22,7 +22,7 @@ pub struct Bencher {
 #[derive(Debug)]
 struct TestValue {
     delta: u32,
-    term_offsets: Vec<i8>,
+    term_offsets: Vec<u8>,
 
     encoded: Vec<u8>,
 }
@@ -48,19 +48,18 @@ impl Bencher {
             .into_iter()
             .cartesian_product(term_offsets_values)
             .map(|(delta, term_offsets)| {
-                let record = TestTermRecord::new(100, 0, 1, term_offsets.clone());
+                let term_offsets2 = term_offsets.clone();
+                let record = TestTermRecord::new(100, 0, 1, &term_offsets);
                 let mut buffer = Cursor::new(Vec::new());
 
-                let _grew_size = OffsetsOnly
-                    .encode(&mut buffer, delta, &record.record)
-                    .unwrap();
+                let _grew_size = OffsetsOnly::encode(&mut buffer, delta, &record.record).unwrap();
 
                 let encoded = buffer.into_inner();
 
                 TestValue {
                     delta,
                     encoded,
-                    term_offsets,
+                    term_offsets: term_offsets2,
                 }
             })
             .collect();
@@ -77,11 +76,10 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = TestTermRecord::new(100, 0, 1, test.term_offsets.clone());
+                        let record = TestTermRecord::new(100, 0, 1, &test.term_offsets);
 
-                        let grew_size = OffsetsOnly
-                            .encode(&mut buffer, test.delta, &record.record)
-                            .unwrap();
+                        let grew_size =
+                            OffsetsOnly::encode(&mut buffer, test.delta, &record.record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -95,7 +93,12 @@ impl Bencher {
         c.bench_function("Decode OffsetsOnly", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         let res = OffsetsOnly::decode(cursor, 100, result);
 

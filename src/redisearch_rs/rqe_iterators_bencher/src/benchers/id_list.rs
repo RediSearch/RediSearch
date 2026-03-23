@@ -9,14 +9,13 @@
 
 //! Benchmark ID-list iterator.
 
-use std::time::Duration;
+use std::{hint::black_box, time::Duration};
 
-use crate::ffi;
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{RQEIterator, id_list::SortedIdList};
+use rqe_iterators::{RQEIterator, id_list::IdListSorted};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -38,157 +37,54 @@ impl Bencher {
 
     pub fn bench(&self, c: &mut Criterion) {
         self.read_dense(c);
-        self.read_sparse(c);
         self.skip_to_dense(c);
         self.skip_to_sparse(c);
     }
 
     fn read_dense(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - IdList - Read Dense");
-        self.c_read_dense(&mut group);
         self.rust_read_dense(&mut group);
-        group.finish();
-    }
-
-    fn read_sparse(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - IdList - Read Sparse");
-        self.c_read_sparse(&mut group);
-        self.rust_read_sparse(&mut group);
         group.finish();
     }
 
     fn skip_to_dense(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - IdList - SkipTo Dense");
-        self.c_skip_to_dense(&mut group);
         self.rust_skip_to_dense(&mut group);
         group.finish();
     }
 
     fn skip_to_sparse(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - IdList - SkipTo Sparse");
-        self.c_skip_to_sparse(&mut group);
         self.rust_skip_to_sparse(&mut group);
         group.finish();
     }
-
-    fn c_read_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).collect();
-                    ffi::QueryIterator::new_id_list(data)
-                },
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-    fn c_read_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    ffi::QueryIterator::new_id_list(data)
-                },
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
     fn rust_read_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect();
-                    SortedIdList::new(data)
+                    let data: Vec<_> = (1..1_000_000).collect();
+                    IdListSorted::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
             );
         });
     }
-    fn rust_read_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("Rust", |b| {
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    SortedIdList::new(data)
-                },
-                |it| {
-                    while let Ok(Some(current)) = it.read() {
-                        criterion::black_box(current);
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn c_skip_to_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            let step = 100;
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).collect();
-                    ffi::QueryIterator::new_id_list(data)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-    fn c_skip_to_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            let step = 100;
-            b.iter_batched_ref(
-                || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    ffi::QueryIterator::new_id_list(data)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
     fn rust_skip_to_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).collect();
-                    SortedIdList::new(data)
+                    let data: Vec<_> = (1..1_000_000).collect();
+                    IdListSorted::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,
@@ -200,12 +96,12 @@ impl Bencher {
             let step = 100;
             b.iter_batched_ref(
                 || {
-                    let data = (1..1_000_000).map(|x| x * 1000).collect();
-                    SortedIdList::new(data)
+                    let data: Vec<_> = (1..1_000_000).map(|x| x * 1000).collect();
+                    IdListSorted::new(data)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                        criterion::black_box(current);
+                        black_box(current);
                     }
                 },
                 criterion::BatchSize::SmallInput,

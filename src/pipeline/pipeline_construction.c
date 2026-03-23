@@ -4,7 +4,7 @@
 #include "vector_normalization.h"
 #include "vector_index.h"
 #include "iterators/hybrid_reader.h"
-#include "iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 #include "util/misc.h"
 
 #ifdef __cplusplus
@@ -28,7 +28,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       }
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
-      if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
+      if (!loadKeys || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
         return NULL;
       }
@@ -93,7 +93,7 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && firstLk->spcache) ? &loadKeys : NULL, status);
+  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, status);
 
   if (!groupRP) {
     array_free(loadKeys);
@@ -140,6 +140,18 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
   return RPMetricsLoader_New();
 }
 
+// Returns true if the pipeline requires an arrange step.
+// True for Hybrid where we did not run the optimization or when the optimizer
+// decided we need an arrange step.
+// This is always true for FT.AGGREGATE + WITHCOUNT, because the optimizer does
+// not run and the type is Q_OPT_UNDECIDED)
+static bool PipelineRequiresArrange(const AggregationPipelineParams *params) {
+  bool result = false;
+  result = IsHybrid(&params->common) ||
+          (params->common.optimizer->type != Q_OPT_NO_SORTER);
+  return result;
+}
+
 static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
@@ -168,8 +180,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  if (IsHybrid(&params->common) || (params->common.optimizer->type != Q_OPT_NO_SORTER)) { // Don't optimize hybrid queries
-    if (astp->sortKeys) {
+  bool RPDepleterAdded = false;
+  bool RPPagerAdded = false;
+
+  if (PipelineRequiresArrange(params)) {
+    if (array_len(astp->sortKeys)) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
@@ -187,7 +202,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
           sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
-          if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+          if (!(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
@@ -202,9 +217,10 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
+
     } else if (IsHybrid(&params->common) ||
-               IsSearch(&params->common) && !IsOptimized(&params->common) ||
-               HasScorer(&params->common)) {
+              (IsSearch(&params->common) && !IsOptimized(&params->common)) ||
+              HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
@@ -213,11 +229,39 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
   }
 
   if (astp->offset || (astp->limit && !rp)) {
+    if (HasDepleter(&params->common)) {
+      rp = RPDepleter_New();
+      up = pushRP(&pipeline->qctx, rp, up);
+      RPDepleterAdded = true;
+    }
+
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
+    RPPagerAdded = true;
   } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
+    RPPagerAdded = true;
+  }
+
+  if (HasDepleter(&params->common)) { // We need to add a RPDepleter
+    if (!RPDepleterAdded) {
+      rp = RPDepleter_New();
+      up = pushRP(&pipeline->qctx, rp, up);
+      RPDepleterAdded = true;
+    }
+
+    // Add Limiter at the coordinator when a depleter is required:
+    // 1. If there is no SORTBY, otherwise, the LIMIT is managed by the sorter.
+    // 2. If there is a SORTBY, but with offset, the sorter can't handle the offset.
+    if (((astp->isLimited && !IsInternal(&params->common)) &&
+      ((!HasSortBy(&params->common) || HasSortBy(&params->common) && astp->offset )))) {
+      if (!RPPagerAdded) {
+        rp = RPPager_New(astp->offset, astp->limit);
+        up = pushRP(&pipeline->qctx, rp, up);
+        RPPagerAdded = true;
+      }
+    }
   }
 
 end:
@@ -252,7 +296,7 @@ static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLook
 bool hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
   const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
-  return arng && arng->sortKeys;
+  return arng && array_len(arng->sortKeys);
 }
 
 static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
@@ -325,7 +369,7 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
     // Handle JSON spec case
     if (isSpecJson(sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
     }
 
     return rp;
@@ -348,11 +392,10 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
-  RLookup_Init(first, cache);
+  RLookup_SetCache(first, cache);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->slotRanges, params->querySlots, params->slotsVersion, params->common.sctx);
+  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
-  params->slotRanges = NULL; // Ownership of the slot ranges is now with the pipeline.
   params->querySlots = NULL; // Ownership of the slot ranges is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
@@ -445,7 +488,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
     rp = RPLoader_New(params->common.sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys), forceLoad, outStateFlags);
     if (isSpecJson(params->common.sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
     }
     array_free(loadkeys);
     PUSH_RP();
@@ -464,7 +507,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       if (!kk) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", ff->name);
         goto error;
-      } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
+      } else if (!(RLookupKey_GetFlags(kk) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Property", " `%s` is not in schema", ff->name);
         goto error;
       }
@@ -489,7 +532,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
   bool forceLoad = sctx && isSpecJson(sctx->spec) && (sctx->apiVersion < APIVERSION_RETURN_MULTI_CMP_FIRST);
-  uint32_t loadFlags = forceLoad ? RLOOKUP_F_FORCE_LOAD : RLOOKUP_F_NOFLAGS;
+  uint32_t loadFlags = forceLoad ? RLOOKUP_F_FORCELOAD : RLOOKUP_F_NOFLAGS;
 
   // Whether we've applied a SORTBY yet..
   int hasArrange = 0;
@@ -528,7 +571,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
         // Ensure the lookups can actually find what they need
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
-        if (!ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status)) {
+        if (ExprAST_GetLookupKeys(mstp->parsedExpr, curLookup, status) == EXPR_EVAL_ERR) {
           goto error;
         }
 
@@ -614,7 +657,9 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common))) {
+  if (!hasArrange &&
+        (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common) ||
+        (IsAggregate(&params->common) && HasDepleter(&params->common)))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {
       goto error;

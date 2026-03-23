@@ -23,6 +23,7 @@
 #include "varint.h"
 #include "src/iterators/hybrid_reader.h"
 #include "src/iterators/inverted_index_iterator.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "src/iterators/union_iterator.h"
 
 #include "rmutil/alloc.h"
@@ -66,10 +67,12 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       InvertedIndex *inv_indices[percent];
       QueryIterator **its = (QueryIterator **)rm_calloc(percent, sizeof(QueryIterator *));
       FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
+      MockQueryEvalCtx mockQctx(n, n);
       for (size_t i = 0; i < percent; i++) {
         InvertedIndex *w = createPopulateTermsInvIndex(n, step, i);
         inv_indices[i] = w;
-        its[i] = NewInvIndIterator_TermQuery(w, NULL, f, NULL, 1);
+        RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+        its[i] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, NewQueryTerm(&tok, 1), 1);
       }
       IteratorsConfig config{};
       iteratorsConfig_init(&config);
@@ -80,7 +83,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
       VecSimQueryParams queryParams = {.hnswRuntimeParams = HNSWRuntimeParams{.efRuntime = 0}};
       FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-      FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+      FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
       HybridIteratorParams hParams = {.sctx = NULL,
                                       .index = index,
                                       .dim = d,

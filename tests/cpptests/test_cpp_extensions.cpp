@@ -155,11 +155,6 @@ TEST_F(ExtTest, testQueryExpander_v1) {
   ASSERT_STREQ("world", n->children[1]->children[0]->tn.str);
   ASSERT_STREQ("foo", n->children[1]->children[1]->tn.str);
 
-  RSQueryTerm *qtr = NewQueryTerm(&n->children[1]->children[1]->tn, 1);
-  ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
-  ASSERT_EQ(0x00FF, qtr->flags);
-
-  Term_Free(qtr);
   QAST_Destroy(&qast);
   ASSERT_EQ(1, numFreed);
 }
@@ -197,11 +192,6 @@ TEST_F(ExtTest, testQueryExpander_v2) {
   ASSERT_STREQ("world", n->children[1]->children[0]->tn.str);
   ASSERT_STREQ("foo", n->children[1]->children[1]->tn.str);
 
-  RSQueryTerm *qtr = NewQueryTerm(&n->children[1]->children[1]->tn, 1);
-  ASSERT_STREQ(qtr->str, n->children[1]->children[1]->tn.str);
-  ASSERT_EQ(0x00FF, qtr->flags);
-
-  Term_Free(qtr);
   QAST_Destroy(&qast);
   ASSERT_EQ(1, numFreed);
 }

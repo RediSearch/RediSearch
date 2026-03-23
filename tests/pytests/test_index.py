@@ -56,10 +56,8 @@ def test_lazy_index_creation(env):
     expected_reply = validate_spec_invidx_info(env, expected_reply, "query vector")
 
     # Currently, geoshape is created during query.
-    # TODO: inverted_indexes_dict_size should be 0 once this is fixed.
     query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
     env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'DIALECT', 3).equal([0])
-    expected_reply["inverted_indexes_dict_size"] += 1
     expected_reply = validate_spec_invidx_info(env, expected_reply, "query geometry (created in query)")
 
 def test_lazy_index_creation_debug_commands(env):
@@ -111,16 +109,13 @@ def test_lazy_index_creation_debug_commands(env):
 
     ## GEOMETRY - created in debug command
     env.cmd(debug_cmd(), "DUMP_GEOMIDX", "idx", 'geom')
-    expected_reply["inverted_indexes_dict_size"] += 1
     expected_reply = validate_spec_invidx_info(env, expected_reply, "DUMP_GEOMIDX")
 
     ## VECTOR - created in debug command
     env.cmd(debug_cmd(), "VECSIM_INFO", "idx", 'vec')
-    expected_reply["inverted_indexes_dict_size"] += 1
     expected_reply = validate_spec_invidx_info(env, expected_reply, "VECSIM_INFO")
 
     env.cmd(debug_cmd(), "DUMP_HNSW", "idx", 'vec2')
-    expected_reply["inverted_indexes_dict_size"] += 1
     expected_reply = validate_spec_invidx_info(env, expected_reply, "DUMP_HNSW")
 
 def test_lazy_index_creation_info_modules(env):

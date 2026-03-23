@@ -13,13 +13,16 @@ class TestDebugCommands(object):
                         'age', 'NUMERIC', 'SORTABLE',
                         't', 'TAG', 'SORTABLE',
                         'v', 'VECTOR', 'HNSW', 6, 'DIM', 2, 'DISTANCE_METRIC', 'L2', 'TYPE', 'float32').ok()
-        waitForIndex(self.env, 'idx')
         self.env.expect('HSET', 'doc1', 'name', 'meir', 'age', '34', 't', 'test').equal(3)
         self.env.cmd('SET', 'foo', 'bar')
 
     def testDebugWrongArity(self):
         self.env.expect(debug_cmd(), 'dump_invidx').error().contains('wrong number of arguments')
         self.env.expect(debug_cmd()).error().contains('wrong number of arguments')
+
+    def testDebugNoIndex(self):
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
+        self.env.expect(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'invalid_idx').error().contains('SEARCH_INDEX_NOT_FOUND')
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
@@ -42,6 +45,7 @@ class TestDebugCommands(object):
             "SPEC_INVIDXES_INFO",
             "GC_FORCEINVOKE",
             "GC_FORCEBGINVOKE",
+            "DISK_FLUSH",
             "GC_CLEAN_NUMERIC",
             "GC_STOP_SCHEDULE",
             "GC_CONTINUE_SCHEDULE",
@@ -55,28 +59,40 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
+            'COORD_THREADS',
             'BG_SCAN_CONTROLLER',
             "INDEXES",
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
-            'YIELDS_ON_LOAD_COUNTER',
+            'YIELDS_COUNTER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',
+            'VECSIM_MOCK_TIMEOUT',
+            'GET_MAX_DOC_ID',
+            'DUMP_DELETED_IDS',
+            'DISK_IO_CONTROL',
+            'REGISTER_TEST_SCORERS',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
             '_FT.SEARCH',
             'FT.HYBRID',
             '_FT.HYBRID',
+            'FT.PROFILE',
+            '_FT.PROFILE',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
+        # SYNC_POINT is only available in ENABLE_ASSERT builds
+        if isEnableAssertEnabled(self.env):
+            help_list.append('SYNC_POINT')
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'SHARD_CONNECTION_STATES',
-                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS', 'YIELDS_ON_LOAD_COUNTER']
+                        'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
+                        'REGISTER_TEST_SCORERS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -237,17 +253,17 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx1', 'no_suffix').error()
 
     def testGCStopAndContinueSchedule(self):
-        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
 
     def testTTLcommands(self):
         num_indexes = len(self.env.cmd('FT._LIST'))
-        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Unknown index name')
-        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Unknown index name')
+        self.env.expect(debug_cmd(), 'TTL', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_PAUSE', 'non-existing').error().contains('Index not found')
+        self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'non-existing').error().contains('Index not found')
         self.env.expect(debug_cmd(), 'TTL', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_PAUSE', 'idx').error().contains('Index is not temporary')
         self.env.expect(debug_cmd(), 'TTL_EXPIRE', 'idx').error().contains('Index is not temporary')
@@ -289,7 +305,8 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': orig_stats['totalPendingJobs']+1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']+1,
-                                     'numThreadsAlive': self.workers_count})
+                                     'numThreadsAlive': self.workers_count,
+                                     'numJobsInProgress': 0})
 
         # After resuming, expect that the job is done.
         orig_stats = stats
@@ -300,7 +317,8 @@ class TestDebugCommands(object):
                                      'totalPendingJobs': orig_stats['totalPendingJobs']-1,
                                      'highPriorityPendingJobs': orig_stats['highPriorityPendingJobs'],
                                      'lowPriorityPendingJobs': orig_stats['lowPriorityPendingJobs']-1,
-                                     'numThreadsAlive': self.workers_count})
+                                     'numThreadsAlive': self.workers_count,
+                                     'numJobsInProgress': 0})
 
     def testWorkersNumThreads(self):
         # test stats and drain
@@ -360,6 +378,53 @@ def testCoordDebug(env: Env):
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER').error().contains('Topology updater is already running')
 
+@skip(cluster=False)
+def testCoordThreadsStats(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    # Get initial stats
+    orig_stats = getCoordThpoolStats(env)
+
+    env.assertEqual(orig_stats['totalJobsDone'], 0)
+    env.assertEqual(orig_stats['totalPendingJobs'], 0)
+
+    # Pause coordinator thread pool
+    env.expect(debug_cmd(), 'COORD_THREADS', 'pause').ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+        'Timeout waiting for coordinator threads to pause')
+
+    # Run a search query in background (will be queued)
+    def run_search():
+        try:
+            env.cmd('FT.SEARCH', 'idx', '*')
+        except:
+            pass
+    t = threading.Thread(target=run_search)
+    t.start()
+
+
+    # Wait for pending jobs to increase by 1
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == orig_stats['totalPendingJobs'] + 1, {}),
+        'Timeout waiting for pending jobs to increase')
+
+    # Resume and wait for job to complete
+    env.expect(debug_cmd(), 'COORD_THREADS', 'resume').ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 0, {}),
+        'Timeout waiting for coordinator threads to resume')
+    t.join(timeout=10)
+
+    # Wait for totalJobsDone to increase and totalPendingJobs to decrease
+    # Total jobs done should increase by 2 (fanout to shards + reduce)
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalJobsDone'] == orig_stats['totalJobsDone'] + 2, {}),
+        'Timeout waiting for totalJobsDone to increase')
+    wait_for_condition(
+        lambda: (getCoordThpoolStats(env)['totalPendingJobs'] == 0, {}),
+        'Timeout waiting for totalPendingJobs to decrease')
+
 @skip(cluster=True)
 def testSpecIndexesInfo(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -374,10 +439,10 @@ def testSpecIndexesInfo(env: Env):
 
     # Add a document
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
-    expected_reply["inverted_indexes_dict_size"] = 1
 
     # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 49
+    # and 8 bytes of header for the block thin vector
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 48 + 1 + 8
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
 
@@ -564,7 +629,7 @@ def testDebugScannerStatus(env: Env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerStatusError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND Index not found')
 
     # Test error handling
     # Giving invalid argument to debug scanner control command
@@ -602,7 +667,6 @@ class TestQueryDebugCommands(object):
         conn = getConnectionByEnv(self.env)
 
         self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-        waitForIndex(self.env, 'idx')
         self.num_docs = 1500 * self.env.shardsCount
         for i in range(self.num_docs):
             conn.execute_command('HSET', f'doc{i}' ,'n', i)
@@ -688,11 +752,6 @@ class TestQueryDebugCommands(object):
         expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
         expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
 
-        # TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR is disabled.
-        if (self.env.isCluster() and self.cmd == "AGGREGATE"):
-            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
-            expectError(debug_params, 'INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR')
-
     def QueryDebug(self):
         env = self.env
         basic_debug_query = self.basic_debug_query
@@ -727,14 +786,46 @@ class TestQueryDebugCommands(object):
         self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
 
     ######################## Main tests ########################
-    def StrictPolicy(self):
+    def TimeoutPolicyConstraints(self):
+        """
+        Test TIMEOUT_AFTER_N policy constraints for shard-level queries:
+        - ON_TIMEOUT RETURN: always supported
+        - ON_TIMEOUT FAIL: only supported without workers (WORKERS=0)
+        - ON_TIMEOUT RETURN-STRICT: never supported
+        """
         env = self.env
+        conn = getConnectionByEnv(env)
+
+        # Skip for cluster - these constraints only apply to shard-level queries
+        if env.isCluster():
+            return
+
+        # Get current workers count to determine expected behavior
+        workers = conn.execute_command(config_cmd(), 'GET', 'WORKERS')
+        if type(workers) == list:
+            workers = int(workers[1])
+        else:
+            workers = int(workers['WORKERS'])
+
+        # Test ON_TIMEOUT FAIL
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
 
-        with env.assertResponseError(contained="Timeout limit was reached"):
+        if workers > 0:
+            # With workers, ON_TIMEOUT FAIL is not supported with TIMEOUT_AFTER_N
+            with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0"):
+                runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+        else:
+            # Without workers, ON_TIMEOUT FAIL should work with TIMEOUT_AFTER_N
+            # The query should succeed and return a timeout error (not a parse error)
+            with env.assertResponseError(contained="Timeout limit was reached"):
+                runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Test ON_TIMEOUT RETURN-STRICT (never supported)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):
             runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
-        # restore the default policy
+        # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
     def SearchDebug(self):
@@ -756,7 +847,7 @@ class TestQueryDebugCommands(object):
         # with no sorter (dialect 4)
         self.QueryWithLimit(basic_debug_query + ["DIALECT", 4], timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
-        self.StrictPolicy()
+        self.TimeoutPolicyConstraints()
 
     def testSearchDebug(self):
         self.SearchDebug()
@@ -822,7 +913,13 @@ class TestQueryDebugCommands(object):
         should_timeout = False
         self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
 
-        self.StrictPolicy()
+        # Test TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster mode - should work and return empty results
+        if env.isCluster():
+            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
+            res = env.cmd(*basic_debug_query, *debug_params)
+            self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
+
+        self.TimeoutPolicyConstraints()
 
     def testAggregateDebug(self):
         self.AggregateDebug()
@@ -943,6 +1040,8 @@ def testIndexObfuscatedInfo(env: Env):
 def testPauseOnOOM(env: Env):
     # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
     env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+    # This test reads INFO MODULES metrics before creating any index. Ensure INFO MODULES is in full mode.
+    shard_set_info_on_zero_indexes(env, True)
 
     num_docs = 1000
     for i in range(num_docs):
@@ -1036,15 +1135,15 @@ def test_update_debug_scanner_config(env):
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerUpdateError(env, 'non_existing', 'SEARCH_INDEX_NOT_FOUND Index not found')
 
 @skip(cluster=True)
 def test_yield_counter(env):
     # Giving wrong arity
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER','ExtraARG1','ExtraARG2').error()\
+    env.expect(debug_cmd(), 'YIELDS_COUNTER','ExtraARG1','ExtraARG2').error()\
     .contains('wrong number of arguments')
     # Giving wrong subcommand
-    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
+    env.expect(debug_cmd(), 'YIELDS_COUNTER', 'NOT_A_COMMAND').error()\
     .contains('Unknown subcommand')
 
 @skip(cluster=True)
@@ -1294,3 +1393,506 @@ def test_cluster_query_controller_pause_and_resume_coord(env):
     t_query.join()
 
     env.assertEqual(len(query_result[0]) - 1, n_docs)
+
+class ProfileDebugSA:
+    @staticmethod
+    def createIndex(env):
+        skipTest(cluster=True)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+        env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+        conn = getConnectionByEnv(env)
+        for i in range(10):
+            conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
+    @staticmethod
+    def get_profile_data(res, cmd_type):
+        if isinstance(res, dict):  # RESP3
+            return {
+                'results_count': len(res['Results']['results']),
+                'profile': res['Profile']['Shards'][0]
+            }
+        else:  # RESP2
+            # RESP2 format: [results_array, profile_array]
+            return {
+                'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
+                'profile': res[1][1][0]
+            }
+
+    # Helper to get value from profile sections
+    @staticmethod
+    def get_section(profile_sections, key):
+        if isinstance(profile_sections, dict):  # RESP3
+            return profile_sections.get(key)
+        else:  # RESP2
+            return profile_sections[profile_sections.index(key) + 1]
+
+    @staticmethod
+    def get_field(item, field_name):
+        if isinstance(item, dict):  # RESP3
+            return item.get(field_name)
+        else:  # RESP2
+            return item[item.index(field_name) + 1]
+
+    @staticmethod
+    def ProfileDebugTimeout(env, command_type, protocol):
+        conn = getConnectionByEnv(env)
+        message_prefix = f"command_type: {command_type}, protocol: {protocol}"
+
+        # Run baseline normal query to get expected structure
+        baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
+        baseline_res = conn.execute_command(*baseline_query)
+        baseline_data = ProfileDebugSA.get_profile_data(baseline_res, command_type)
+        baseline_profile = baseline_data['profile']
+
+        # Run debug query with TIMEOUT_AFTER_N
+        results_count = 5
+        debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
+        debug_data = ProfileDebugSA.get_profile_data(debug_res, command_type)
+        debug_profile = debug_data['profile']
+
+        # Verify both return same number of results
+        env.assertEqual(debug_data['results_count'], results_count,
+                        message=f"{message_prefix}: Debug should return expected number of results")
+
+        # Both should have same number of entries in baseline_iterators
+        baseline_iterators = ProfileDebugSA.get_section(baseline_profile, 'Iterators profile')
+        debug_iterators = ProfileDebugSA.get_section(debug_profile, 'Iterators profile')
+        env.assertEqual(countFlatElements(baseline_iterators), countFlatElements(debug_iterators),
+                        message=f"{message_prefix}: Baseline and debug should have same number of entries in iterators profile. baseline: {countFlatElements(baseline_iterators)}, debug: {countFlatElements(debug_iterators)}")
+
+        # Verify Result processors profile structure matches
+        baseline_rp = ProfileDebugSA.get_section(baseline_profile, 'Result processors profile')
+        debug_rp = ProfileDebugSA.get_section(debug_profile, 'Result processors profile')
+
+        # Both should have same number of RPs
+        env.assertEqual(len(baseline_rp), len(debug_rp),
+                        message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
+
+        # Verify each RP has same Type
+        for i, (baseline_rp_item, debug_rp_item) in enumerate(zip(baseline_rp, debug_rp)):
+            baseline_type = ProfileDebugSA.get_field(baseline_rp_item, 'Type')
+            debug_type = ProfileDebugSA.get_field(debug_rp_item, 'Type')
+            env.assertEqual(baseline_type, debug_type,
+                            message=f"{message_prefix}: RP {i}: Type should match baseline")
+
+            # Verify no "Debug" type appears (debug RPs should be skipped)
+            env.assertNotEqual(debug_type, 'Debug',
+                                message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
+
+        # Verify debug has timeout warning
+        debug_warning = ProfileDebugSA.get_section(debug_profile, 'Warning')
+        env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
+        env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
+
+class TestProfileDebugSAResp2(object):
+    def __init__(self):
+        env = Env(protocol=2)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 2)
+    def testProfileTimeoutAggregateResp2(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 2)
+
+class TestProfileDebugSAResp3(object):
+    def __init__(self):
+        env = Env(protocol=3)
+        ProfileDebugSA.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "SEARCH", 3)
+    def testProfileTimeoutAggregateResp3(self):
+        ProfileDebugSA.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
+
+class ProfileDebugCluster:
+    @staticmethod
+    def createIndex(env):
+        skipTest(cluster=False)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
+        run_command_on_all_shards(env, config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+        conn = getConnectionByEnv(env)
+        for i in range(20):
+            conn.execute_command('HSET', f'doc{i}', 't', f"hello{i}")
+
+    @staticmethod
+    def get_profile_data(res, cmd_type):
+        if isinstance(res, dict):  # RESP3
+            return {
+                'results_count': len(res['Results']['results']),
+                'shards_profile': res['Profile']['Shards'],
+                'coordinator_profile': res['Profile']['Coordinator']
+            }
+        else:  # RESP2
+            # RESP2 format: [results_array, profile_array]
+            return {
+                'results_count': len(res[0]) - 1 if cmd_type == 'AGGREGATE' else len(res[0][1:]) // 2,  # Subtract 1 for total count
+                'shards_profile': res[1][1],
+                'coordinator_profile': res[1][res[1].index('Coordinator') + 1]
+            }
+
+    # Helper to get value from profile sections
+    @staticmethod
+    def get_section(profile_sections, key):
+        if isinstance(profile_sections, dict):  # RESP3
+            return profile_sections.get(key)
+        else:  # RESP2
+            return profile_sections[profile_sections.index(key) + 1]
+
+    @staticmethod
+    def get_field(item, field_name):
+        if isinstance(item, dict):  # RESP3
+            return item.get(field_name)
+        else:  # RESP2
+            return item[item.index(field_name) + 1]
+
+    @staticmethod
+    def ProfileDebugTimeout(env, command_type, protocol):
+        message_prefix = f"command_type: {command_type}, protocol: {protocol}"
+
+        # Run baseline normal query to get expected structure
+        baseline_query = ['FT.PROFILE', 'idx', command_type, 'QUERY', '@t:hello*']
+        baseline_res = env.cmd(*baseline_query)
+        baseline_data = ProfileDebugCluster.get_profile_data(baseline_res, command_type)
+
+        # Run debug query with TIMEOUT_AFTER_N
+        results_count = 3
+        debug_res = runDebugQueryCommandTimeoutAfterN(env, baseline_query, results_count)
+        debug_data = ProfileDebugCluster.get_profile_data(debug_res, command_type)
+
+        # Verify number of results
+        expected_results = results_count if command_type == 'AGGREGATE' else results_count * env.shardsCount
+        env.assertEqual(debug_data['results_count'], expected_results,
+                        message=f"{message_prefix}: Debug should return expected number of results")
+
+        # Verify we have received profiles from all 3 shards
+        env.assertEqual(len(debug_data['shards_profile']), 3,
+                        message=f"{message_prefix}: Debug should return profiles from all 3 shards")
+        # Verify coordinator profile exists
+        env.assertTrue(debug_data['coordinator_profile'] is not None,
+                        message=f"{message_prefix}: Debug should return coordinator profile")
+
+        if command_type == 'AGGREGATE':
+            # Both baseline should have same result processors pipeline in the coordinator
+            baseline_rp = ProfileDebugCluster.get_section(baseline_data['coordinator_profile'], 'Result processors profile')
+            debug_rp = ProfileDebugCluster.get_section(debug_data['coordinator_profile'], 'Result processors profile')
+            # Both should have same number of RPs
+            env.assertEqual(len(baseline_rp), len(debug_rp),
+                        message=f"{message_prefix}: Baseline and debug should have same number of result processors. baseline: {baseline_rp}, debug: {debug_rp}")
+
+            # Verify each RP has same Type
+            for i, (baseline_rp_item, debug_rp_item) in enumerate(zip(baseline_rp, debug_rp)):
+                baseline_type = ProfileDebugCluster.get_field(baseline_rp_item, 'Type')
+                debug_type = ProfileDebugCluster.get_field(debug_rp_item, 'Type')
+                env.assertEqual(baseline_type, debug_type,
+                                message=f"{message_prefix}: RP {i}: Type should match baseline")
+
+                # Verify no "Debug" type appears (debug RPs should be skipped)
+                env.assertNotEqual(debug_type, 'Debug',
+                                    message=f"{message_prefix}: RP {i}: Debug RP should not appear in Result processors profile")
+        if protocol == 3:
+            # Verify debug has timeout warning
+            debug_warning = ProfileDebugCluster.get_section(debug_res['Results'], 'warning')
+            env.assertIsNotNone(debug_warning, message="Debug should have timeout warning")
+            env.assertContains('Timeout', str(debug_warning), message="Debug warning should contain 'Timeout'")
+
+class TestProfileDebugClusterResp2(object):
+    def __init__(self):
+        env = Env(protocol=2)
+        ProfileDebugCluster.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp2(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 2)
+    def testProfileTimeoutAggregateResp2(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 2)
+
+class TestProfileDebugClusterResp3(object):
+    def __init__(self):
+        env = Env(protocol=3)
+        ProfileDebugCluster.createIndex(env)
+        self.env = env
+
+    def testProfileTimeoutSearchResp3(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "SEARCH", 3)
+    def testProfileTimeoutAggregateResp3(self):
+        ProfileDebugCluster.ProfileDebugTimeout(self.env, "AGGREGATE", 3)
+
+@skip(cluster=True)
+def test_max_doc_id(env):
+    """Tests that the correct max doc id is returned by FT.DEBUG GET_MAX_DOC_ID"""
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # The first max doc id is 0 (next to be assigned)
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(0)
+
+    # Add 10 documents
+    for i in range(10):
+        env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
+
+    # The max doc id is now 10
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(10)
+
+    # Delete some documents
+    env.cmd('DEL', 'doc5', 'doc7')
+
+    # Max doc id should still be 10 (doesn't decrease on deletion)
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(10)
+
+    # Add more documents
+    for i in range(10, 15):
+        env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
+
+    # Max doc id should now be 15
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'idx').equal(15)
+
+    # Test error handling - wrong arity
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID').error().contains('wrong number of arguments')
+
+    # Test error handling - non-existent index
+    env.expect(debug_cmd(), 'GET_MAX_DOC_ID', 'nonexistent').error().contains('Can not create a search ctx')
+
+@skip(cluster=True)
+def test_dump_deleted_ids(env):
+    """Tests that FT.DEBUG DUMP_DELETED_IDS returns the correct deleted ids.
+    On RAM we have no such notion, so it should always be empty"""
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Initially, no deleted IDs
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+
+    # Add some documents
+    for i in range(10):
+        env.cmd('HSET', f'doc{i}', 't', f"hello{i}")
+
+    # Still no deleted IDs
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+
+    # Delete some documents
+    env.cmd('DEL', 'doc2', 'doc5', 'doc7')
+
+    # For in-memory indexes, we don't track deleted IDs, so should still be empty
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+
+    # Test error handling - wrong arity
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS').error().contains('wrong number of arguments')
+
+    # Test error handling - non-existent index
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'nonexistent').error().contains('Can not create a search ctx')
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_basic_commands(env):
+    """Verify the basic SYNC_POINT command lifecycle and error handling."""
+    sync_point = 'BeforeFirstRead'
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)
+
+    env.expect(debug_cmd(), 'SYNC_POINT').error().contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM').error().contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'UNKNOWN', sync_point).error() \
+        .contains('Unknown SYNC_POINT subcommand')
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_max_armed_limit(env):
+    """Verify that the sync point registry enforces its fixed capacity."""
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+    for i in range(16):
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', f'point-{i}').ok()
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-overflow').error() \
+        .contains('max sync points reached')
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-after-clear').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', 'point-after-clear').equal(True)
+
+
+def _run_sync_point_query(conn, result_holder, error_holder, *query):
+    try:
+        result_holder.append(conn.execute_command(*query))
+    except Exception as e:
+        error_holder.append(e)
+
+
+def _assert_sync_point_query_blocks_and_resumes(env, sync_point, release_cmd, *query):
+    """Run a query in the background, wait for the sync point, then release it."""
+    conn = env.getConnection()
+    result_holder = []
+    error_holder = []
+    query_thread = threading.Thread(
+        target=_run_sync_point_query,
+        args=(conn, result_holder, error_holder, *query),
+        daemon=True
+    )
+    query_thread.start()
+
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point} sync point')
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(True)
+    env.expect(*release_cmd).ok()
+
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 0, {}),
+        f'Timeout waiting for {sync_point} sync point to resume')
+
+    query_thread.join(timeout=10)
+    env.assertFalse(query_thread.is_alive(), message='Query thread is still blocked after release')
+    env.assertEqual(len(error_holder), 0, message=str(error_holder[0]) if error_holder else None)
+    env.assertEqual(result_holder[0], [1, 'doc1', ['t', 'hello']])
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_before_first_read_blocks_and_resumes(env):
+    """Verify that BeforeFirstRead blocks query execution until explicitly signaled."""
+    set_workers(env, 1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'BeforeFirstRead').ok()
+    _assert_sync_point_query_blocks_and_resumes(
+        env,
+        'BeforeFirstRead',
+        (debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'BeforeFirstRead'),
+        'FT.SEARCH', 'idx', '*'
+    )
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_after_iterator_create_blocks_and_resumes(env):
+    """Verify that AfterIteratorCreate blocks query execution until explicitly signaled."""
+    set_workers(env, 1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'AfterIteratorCreate').ok()
+    _assert_sync_point_query_blocks_and_resumes(
+        env,
+        'AfterIteratorCreate',
+        (debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'AfterIteratorCreate'),
+        'FT.SEARCH', 'idx', '*'
+    )
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_duplicate_arm_does_not_consume_extra_slot(env):
+    """Verify that re-arming the same named sync point is idempotent for capacity."""
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+
+    for _ in range(32):
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-0').ok()
+
+    for i in range(1, 16):
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', f'point-{i}').ok()
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'point-overflow').error() \
+        .contains('max sync points reached')
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_clear_releases_waiting_query(env):
+    """Verify that CLEAR disarms sync points and releases any blocked query."""
+    set_workers(env, 1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'BeforeFirstRead').ok()
+    _assert_sync_point_query_blocks_and_resumes(
+        env,
+        'BeforeFirstRead',
+        (debug_cmd(), 'SYNC_POINT', 'CLEAR'),
+        'FT.SEARCH', 'idx', '*'
+    )
+
+
+@skip(cluster=True)
+@require_enable_assert
+def test_sync_point_multiple_queries_waiting(env):
+    """Verify that multiple queries can wait at the same sync point simultaneously."""
+    set_workers(env, 2)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('HSET', 'doc1', 't', 'hello').equal(1)
+    env.expect('HSET', 'doc2', 't', 'world').equal(1)
+
+    sync_point = 'BeforeFirstRead'
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+    # Start two queries in parallel
+    conn1 = env.getConnection()
+    conn2 = env.getConnection()
+    results1, errors1 = [], []
+    results2, errors2 = [], []
+
+    thread1 = threading.Thread(
+        target=_run_sync_point_query,
+        args=(conn1, results1, errors1, 'FT.SEARCH', 'idx', '*'),
+        daemon=True
+    )
+    thread2 = threading.Thread(
+        target=_run_sync_point_query,
+        args=(conn2, results2, errors2, 'FT.SEARCH', 'idx', '*'),
+        daemon=True
+    )
+
+    thread1.start()
+    thread2.start()
+
+    # Wait for both queries to reach the sync point
+    # The waiting counter should report 2 (true for IS_WAITING)
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        'Timeout waiting for first query to reach sync point')
+
+    # Give the second query time to also reach the sync point
+    time.sleep(0.1)
+
+    # Signal to release both queries
+    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+    # Wait for both queries to complete
+    thread1.join(timeout=10)
+    thread2.join(timeout=10)
+
+    env.assertFalse(thread1.is_alive(), message='Query thread 1 is still blocked after release')
+    env.assertFalse(thread2.is_alive(), message='Query thread 2 is still blocked after release')
+    env.assertEqual(len(errors1), 0, message=str(errors1[0]) if errors1 else None)
+    env.assertEqual(len(errors2), 0, message=str(errors2[0]) if errors2 else None)
+
+    # Both queries should have returned results (2 docs each)
+    env.assertEqual(results1[0][0], 2)
+    env.assertEqual(results2[0][0], 2)
+
+    # Sync point should no longer be armed and no queries should be waiting
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_ARMED', sync_point).equal(False)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point).equal(False)

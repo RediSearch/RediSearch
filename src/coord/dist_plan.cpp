@@ -397,9 +397,8 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           if (tmpExpr == NULL) {
             goto error;
           }
-          RLookup filter_keys;
-          RLookup_Init(&filter_keys, NULL);
-          filter_keys.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+          RLookup filter_keys = RLookup_New();
+          RLookup_EnableOptions(&filter_keys, RLOOKUP_OPT_ALLOWUNRESOLVED);
           ExprAST_GetLookupKeys(tmpExpr, &filter_keys, status);
           if (QueryError_HasError(status)) {
             RLookup_Cleanup(&filter_keys);
@@ -408,7 +407,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
           }
           // Step 2: generate a LOAD step for the keys. If the keys are already loaded (or sortable),
           //         this step will be optimized out.
-          if (filter_keys.rowlen) {
+          if (RLookup_GetRowLen(&filter_keys)) {
             PLN_LoadStep *load = (PLN_LoadStep *)rm_calloc(1, sizeof(*load));
             load->base.type = PLN_T_LOAD;
             load->base.dtor = [](PLN_BaseStep *stp) {
@@ -419,11 +418,12 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
               rm_free(load->args.objs);
               rm_free(stp);
             };
-            const char **argv = (const char**)rm_malloc(sizeof(*argv) * filter_keys.rowlen);
+            const char **argv = (const char**)rm_malloc(sizeof(*argv) * RLookup_GetRowLen(&filter_keys));
             size_t argc = 0;
-            for (RLookupKey *kk = filter_keys.head; kk != NULL; kk = kk->next) {
-              argv[argc++] = rm_strndup(kk->name, kk->name_len);
-            }
+
+            RLOOKUP_FOREACH(kk, &filter_keys, {
+              argv[argc++] = rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk));
+            });
             ArgsCursor_InitCString(&load->args, argv, argc);
             AGPLN_AddStep(remote, &load->base);
           }
@@ -490,7 +490,7 @@ error:
 // We have split the logic plan into a remote and local plans. Now we need to make final
 // preparations and setups for the plans and the distributed step.
 static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_DistributeStep *dstp) {
-  RLookup_Init(&dstp->lk, nullptr);
+  RLookup_SetCache(&dstp->lk, nullptr);
 
   // Find the bottom-most step with the current lookup and progress onwards
   PLN_BaseStep *lastLkStep = DLLIST_ITEM(remote->steps.prev, PLN_BaseStep, llnodePln);
@@ -573,19 +573,20 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
-  dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   int rc = AREQ_BuildPipeline(r, status);
-  dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
+  RLookup_DisableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
+
   if (rc != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   std::vector<const RLookupKey *> loadFields;
-  for (RLookupKey *kk = dstp->lk.head; kk != NULL; kk = kk->next) {
-    if (kk->flags & RLOOKUP_F_UNRESOLVED) {
+  RLOOKUP_FOREACH(kk, &dstp->lk, {
+    if (RLookupKey_GetFlags(kk) & RLOOKUP_F_UNRESOLVED) {
       loadFields.push_back(kk);
     }
-  }
+  });
 
   if (!loadFields.empty()) {
     array_append(dstp->serialized, rm_strndup("LOAD", 4));
@@ -593,7 +594,7 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
     array_append(dstp->serialized, ldsze);
     for (auto kk : loadFields) {
-      array_append(dstp->serialized, rm_strndup(kk->name, kk->name_len));
+      array_append(dstp->serialized, rm_strndup(RLookupKey_GetName(kk), RLookupKey_GetNameLen(kk)));
     }
   }
 

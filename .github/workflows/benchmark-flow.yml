@@ -56,8 +56,12 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh
 
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Install Python dependencies
         run: |
           pip3 install --upgrade pip
@@ -87,6 +91,7 @@ jobs:
           BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
+          SEARCH_MEMORY_ENABLED: 1
         run: redisbench-admin run-remote
               --module_path ../../${{ inputs.module_path }}
               --required-module search
@@ -105,6 +110,7 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --collect_search_memory True
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
@@ -119,3 +125,4 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --last_n_baseline 20

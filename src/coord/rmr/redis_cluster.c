@@ -131,22 +131,6 @@ static bool hasSlots(RedisModuleCallReply *shard) {
   return RedisModule_CallReplyLength(slots) > 0;
 }
 
-// Sort shards by the port of their node
-// We want to sort by some node value and not by slots, as the nodes in the cluster may be
-// stable while slots can migrate between them
-static void sortShards(MRClusterTopology *topo) {
-  // Simple insertion sort, we don't expect many shards
-  for (size_t i = 1; i < topo->numShards; i++) {
-    MRClusterShard key = topo->shards[i];
-    size_t j = i;
-    while (j > 0 && topo->shards[j - 1].node.endpoint.port > key.node.endpoint.port) {
-      topo->shards[j] = topo->shards[j - 1];
-      j--;
-    }
-    topo->shards[j] = key;
-  }
-}
-
 // Assumes auto memory was enabled on ctx
 static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
 
@@ -240,8 +224,6 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     return NULL;
   }
 
-  // Sort shards by the port of their node (master), to have a stable order while the topology is stable
-  sortShards(topo);
   return topo;
 }
 
@@ -249,9 +231,12 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   RS_AutoMemory(ctx);
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
+
+    // Store the local shard id
+    MR_SetLocalNodeId(RedisModule_GetMyClusterID());
+
     // Pass the local slots info directly from the RedisModule API, as we enabled auto memory
     MR_UpdateTopology(topo, RedisModule_ClusterGetLocalSlotRanges(ctx));
-    Slots_DropCachedLocalSlots(); // Local slots may have changed, drop the cache
   }
 }
 
@@ -262,6 +247,11 @@ static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
   topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
+}
+
+void RedisTopologyUpdater_StopAndRescheduleImmediately(RedisModuleCtx *ctx) {
+  RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, 0, UpdateTopology_Periodic, NULL);
 }
 
 int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {

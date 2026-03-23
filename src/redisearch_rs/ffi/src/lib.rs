@@ -14,7 +14,9 @@
     non_snake_case,
     improper_ctypes,
     dead_code,
+    unnecessary_transmutes,
     unsafe_op_in_unsafe_fn,
+    clippy::allow_attributes,
     clippy::ptr_offset_with_cast,
     clippy::upper_case_acronyms,
     clippy::useless_transmute,
@@ -24,6 +26,7 @@
     clippy::len_without_is_empty,
     clippy::approx_constant,
     clippy::missing_const_for_fn,
+    clippy::disallowed_types,
     rustdoc::invalid_html_tags,
     rustdoc::broken_intra_doc_links
 )]
@@ -34,6 +37,10 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Access to the RediSearch Module context
 pub mod context;
+
+/// Use the Rust definitions directly
+pub use document::DocumentType;
+pub use query_term::{RSQueryTerm, RSTokenFlags};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -88,3 +95,5 @@ pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
 
 #[cfg(target_pointer_width = "32")]
 pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
+
+pub const RS_INVALID_FIELD_INDEX: t_fieldIndex = 0xFFFF;

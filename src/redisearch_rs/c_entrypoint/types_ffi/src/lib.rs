@@ -9,11 +9,11 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-use std::{ffi::c_char, ptr};
+use std::{ffi::c_char, mem, ptr};
 
 use inverted_index::{
-    NumericFilter, RSAggregateResult, RSIndexResult, RSOffsetVector, RSQueryTerm, RSTermRecord,
-    t_fieldMask,
+    NumericFilter, RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm,
+    RSTermRecord, t_fieldMask,
 };
 
 pub use inverted_index::{
@@ -62,7 +62,7 @@ pub extern "C" fn NewIntersectResult<'result>(
     cap: usize,
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::intersect(cap).weight(weight);
+    let result = RSIndexResult::build_intersect(cap).weight(weight).build();
     Box::into_raw(Box::new(result))
 }
 
@@ -70,33 +70,35 @@ pub extern "C" fn NewIntersectResult<'result>(
 /// [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewUnionResult<'result>(cap: usize, weight: f64) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::union(cap).weight(weight);
+    let result = RSIndexResult::build_union(cap).weight(weight).build();
     Box::into_raw(Box::new(result))
 }
 
 /// Allocate a new virtual result with a given weight and field mask. This result should be freed
 /// using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
-#[allow(improper_ctypes_definitions)]
 pub extern "C" fn NewVirtualResult<'result>(
     weight: f64,
     field_mask: t_fieldMask,
 ) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::virt().field_mask(field_mask).weight(weight);
+    let result = RSIndexResult::build_virt()
+        .field_mask(field_mask)
+        .weight(weight)
+        .build();
     Box::into_raw(Box::new(result))
 }
 
 /// Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewNumericResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::numeric(0.0);
+    let result = RSIndexResult::build_numeric(0.0).build();
     Box::into_raw(Box::new(result))
 }
 
 /// Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::metric();
+    let result = RSIndexResult::build_metric().build();
     Box::into_raw(Box::new(result))
 }
 
@@ -106,19 +108,32 @@ pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
 /// Therefore, this also returns an owned `RSIndexResult`.
 #[unsafe(no_mangle)]
 pub extern "C" fn NewHybridResult() -> *mut RSIndexResult<'static> {
-    let result = RSIndexResult::hybrid_metric();
-    Box::into_raw(Box::new(result.to_owned()))
+    Box::into_raw(Box::new(RSIndexResult::build_hybrid_metric().build()))
 }
 
 /// Allocate a new token record with a given term and weight. This result should be freed using
 /// [`IndexResult_Free`].
+///
+/// # Safety
+///
+/// `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
+/// caller transfers ownership — it must not be freed separately.
 #[unsafe(no_mangle)]
-pub extern "C" fn NewTokenRecord<'result>(
+pub unsafe extern "C" fn NewTokenRecord<'result>(
     term: *mut RSQueryTerm,
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
-    let result =
-        RSIndexResult::term_with_term_ptr(term, RSOffsetVector::empty(), 0, 0, 0).weight(weight);
+    let term = if term.is_null() {
+        None
+    } else {
+        // SAFETY: caller guarantees `term` was created via `NewQueryTerm`.
+        Some(unsafe { Box::from_raw(term) })
+    };
+    let result = RSIndexResult::build_term()
+        .borrowed_record(term, RSOffsetSlice::empty())
+        .frequency(0)
+        .weight(weight)
+        .build();
     Box::into_raw(Box::new(result))
 }
 
@@ -238,7 +253,8 @@ pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
 
     result
         .as_term()
-        .map_or(ptr::null_mut(), |term| term.query_term())
+        .and_then(|term| term.query_term())
+        .map_or(ptr::null_mut(), |t| ptr::from_ref(t).cast_mut())
 }
 
 /// Get the term offsets from a result if it is a term result. If the result is not a term, then
@@ -251,39 +267,21 @@ pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index>(
     result: *const RSIndexResult<'index>,
-) -> Option<&'result RSOffsetVector<'index>> {
+) -> Option<&'result RSOffsetSlice<'index>> {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
     // an `RSIndexResult`.
     let result: &'result _ = unsafe { &*result };
 
-    result.as_term().map(|term| match term {
+    result.as_term().map(move |term| match term {
         RSTermRecord::Borrowed { offsets, .. } => offsets,
-        RSTermRecord::Owned { offsets, .. } => offsets,
-    })
-}
-
-/// Get a mutable term offsets from a result if it is a term result. If the result is not a term,
-/// then this function will return a `NULL` pointer.
-///
-/// # Safety
-///
-/// The following invariant must be upheld when calling this function:
-/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_TermOffsetsRefMut<'result>(
-    result: *mut RSIndexResult<'static>,
-) -> Option<&'result mut RSOffsetVector<'static>> {
-    debug_assert!(!result.is_null(), "result must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
-    // an `RSIndexResult`.
-    let result: &'result mut _ = unsafe { &mut *result };
-
-    result.as_term_mut().map(move |term| match term {
-        RSTermRecord::Borrowed { offsets, .. } => offsets,
-        RSTermRecord::Owned { offsets, .. } => offsets,
+        RSTermRecord::Owned { offsets, .. } => {
+            // SAFETY: `RSOffsetVector` and `RSOffsetSlice` have identical `#[repr(C)]` layout.
+            // The inner lifetime parameter is a zero-sized `PhantomData` marker. The owned data
+            // lives as long as the `RSIndexResult`.
+            unsafe { &*(ptr::from_ref(offsets) as *const RSOffsetSlice<'index>) }
+        }
     })
 }
 
@@ -332,6 +330,33 @@ pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
     // - The caller guarantees we can skip the discriminant check
     //   thanks to safety precondition 2.
     unsafe { result.as_aggregate_unchecked() }
+}
+
+/// Get a mutable aggregate result reference without performing a runtime check
+/// on the enum discriminant.
+///
+/// Use this method if and only if you've already checked the enum
+/// discriminant in C code and you don't want to incur the (small)
+/// performance penalty of an additional redundant check.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// 2. `result`'s data payload must be of the aggregate kind
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateRefMutUnchecked<'result, 'index>(
+    result: *mut RSIndexResult<'index>,
+) -> Option<&'result mut RSAggregateResult<'index>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: The cast is valid thanks to safety precondition 1.
+    let result = unsafe { &mut *result };
+
+    // SAFETY:
+    // - The caller guarantees we can skip the discriminant check
+    //   thanks to safety precondition 2.
+    unsafe { result.as_aggregate_mut_unchecked() }
 }
 
 /// Reset the result if it is an aggregate result. This will clear the children vector
@@ -398,6 +423,31 @@ pub unsafe extern "C" fn AggregateResult_GetUnchecked<'result, 'index>(
     unsafe { agg.get_unchecked(index) }
 }
 
+/// Get a mutable result at the specified index in the aggregate result, without checking bounds.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// 2. `index` must be lower than the length of the aggregate result children vector.
+/// 3. `agg` must be of the `Owned` variant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_GetMutUnchecked<'result, 'index>(
+    agg: *mut RSAggregateResult<'index>,
+    index: usize,
+) -> &'result mut RSIndexResult<'index> {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &mut *agg };
+
+    // SAFETY:
+    // 1. Guaranteed by the caller thanks to safety preconditions 1 and 2.
+    // 2. Guaranteed by the caller thanks to safety precondition 3.
+    unsafe { agg.get_mut_unchecked(index) }
+}
+
 /// Get the element count of the aggregate result.
 ///
 /// # Safety
@@ -454,7 +504,7 @@ pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult)
 /// should return to Rust to free up any heap memory using [`AggregateResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static> {
-    RSAggregateResult::with_capacity(cap)
+    RSAggregateResult::borrowed_with_capacity(cap)
 }
 
 /// Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
@@ -547,46 +597,48 @@ pub struct AggregateRecordsSlice {
     pub len: usize,
 }
 
-/// Retrieve the offsets array from [`RSOffsetVector`].
+/// Retrieve the offsets array from an offset vector.
 ///
 /// Set the array length into the `len` pointer.
-/// The returned array is borrowed from the [`RSOffsetVector`] and should not be modified.
+/// The returned array is borrowed and should not be modified.
 ///
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+///   and cannot be NULL.
 /// - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_GetData(
-    offsets: *const RSOffsetVector,
+    offsets: *const RSOffsetSlice<'_>,
     len: *mut u32,
 ) -> *const c_char {
     debug_assert!(!offsets.is_null(), "offsets must not be null");
     debug_assert!(!len.is_null(), "len must not be null");
 
-    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
+    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.
     let offsets = unsafe { &*offsets };
 
     // SAFETY: Caller is to ensure `len` is non-null and point to a valid u32 memory.
     unsafe { len.write(offsets.len) };
-    offsets.data
+    offsets.data.cast::<c_char>()
 }
 
-/// Set the offsets array on a [`RSOffsetVector`].
+/// Set the offsets array on an offset vector.
 ///
-/// The [`RSOffsetVector`] will borrow the passed array so it's up to the caller to
-/// ensure it stays alive during the [`RSOffsetVector`] lifetime.
+/// The vector will borrow the passed array so it's up to the caller to
+/// ensure it stays alive during its lifetime.
 ///
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+///   and cannot be NULL.
 /// - `data` must point to an array of `len` offsets.
 /// - if `data` is NULL then `len` should be 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_SetData(
-    offsets: *mut RSOffsetVector,
+    offsets: *mut RSOffsetSlice<'_>,
     data: *const c_char,
     len: u32,
 ) {
@@ -596,14 +648,14 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
         "data must not be null if len is higher than 0"
     );
 
-    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
+    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.data = data as _;
+    offsets.data = data.cast::<u8>();
     offsets.len = len;
 }
 
-/// Free the data inside an [`RSOffsetVector`]'s offset
+/// Free the data inside an offset vector.
 ///
 /// # Safety
 ///
@@ -618,7 +670,9 @@ pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
     let offsets = unsafe { &mut *offsets };
 
-    offsets.free_data();
+    // Replace with empty; the old value is dropped, freeing the data.
+    let old = mem::replace(offsets, RSOffsetVector::empty());
+    drop(old);
 }
 
 /// Copy the data from one offset vector to another.
@@ -630,35 +684,38 @@ pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
-/// - `src` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `src` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+///   and cannot be NULL.
 /// - `src` data should point to a valid array of `src.len` offsets.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSOffsetVector_CopyData(
     dest: *mut RSOffsetVector,
-    src: *const RSOffsetVector,
+    src: *const RSOffsetSlice<'_>,
 ) {
     debug_assert!(!dest.is_null(), "offsets must not be null");
     debug_assert!(!src.is_null(), "offsets must not be null");
 
-    // SAFETY: Caller is to ensure `src` is non-null and point to a valid RSOffsetVector.
+    // SAFETY: Caller is to ensure `src` is non-null and point to a valid offset vector.
     let src = unsafe { &*src };
     // SAFETY: Caller is to ensure `dest` is non-null and point to a valid RSOffsetVector.
     let dest = unsafe { &mut *dest };
 
+    // Assign the new owned copy; the old value is auto-dropped, freeing old data.
     *dest = src.to_owned();
 }
 
-/// Retrieve the number of offsets in [`RSOffsetVector`].
+/// Retrieve the number of offsets in an offset vector.
 ///
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
+///   and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSOffsetVector_Len(offsets: *const RSOffsetVector) -> u32 {
+pub unsafe extern "C" fn RSOffsetVector_Len(offsets: *const RSOffsetSlice<'_>) -> u32 {
     debug_assert!(!offsets.is_null(), "offsets must not be null");
 
-    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
+    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid offset vector.
     let offsets = unsafe { &*offsets };
 
     offsets.len

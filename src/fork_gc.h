@@ -16,7 +16,12 @@
 #include <poll.h>
 
 #ifdef __cplusplus
+#include <atomic>
+#define RS_Atomic(T) std::atomic<T>
 extern "C" {
+#else
+#define RS_Atomic(T) _Atomic(T)
+#include <stdatomic.h>
 #endif
 
 typedef struct {
@@ -53,16 +58,14 @@ typedef struct ForkGC {
   volatile uint32_t execState;
 
   struct timespec retryInterval;
-  volatile size_t deletedDocsFromLastRun;
+  RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
 
-  // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
+  // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
   int cleanNumericEmptyNodes;
-  // a variable to store a percentage of the progress of the child process, used to send heartbeats
-  float progress;
 } ForkGC;
 
-ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks);
+ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
 typedef enum {
   // Normal "open" state. No pausing will happen
@@ -119,15 +122,6 @@ void FGC_ForkAndWaitBeforeApply(ForkGC *gc);
  * Apply the changes the parent received from the child.
  */
 void FGC_Apply(ForkGC *gc);
-
-typedef struct InfoGCStats {
-  // Total bytes collected by the GCs
-  // This is signed because block splitting (when deltas are too big) can cause more bytes to be
-  // allocated by a GC than the number of bytes collected.
-  ssize_t totalCollectedBytes;
-  size_t totalCycles;         // Total number of cycles ran
-  size_t totalTime;           // In ms
-} InfoGCStats;
 
 #ifdef __cplusplus
 }

@@ -15,10 +15,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Return the root folder of the project containing the `.git` directory.
-pub fn git_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+/// Return the root folder of the repository.
+pub fn repository_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     let mut path = std::env::current_dir()?;
-    while !path.join(".git").exists() {
+    // Jujutsu (`jj`) doesn't colocate with `git` when using `jj workspace add`,
+    // so looking for `.git` won't be enough.
+    while !(path.join(".git").exists() || path.join(".jj").exists()) {
         path = path
             .parent()
             .ok_or("Could not find git root")?
@@ -63,7 +65,7 @@ fn rerun_if_rust_changes(dir: &Path) -> std::io::Result<()> {
 /// Generate a C header file via `cbindgen` for the calling crate.
 /// It'll read `cbindgen` configuration from the `cbindgen.toml` file at the crate root
 /// and output the header file to `header_path`.
-pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_cbindgen(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
     let config =
         cbindgen::Config::from_file("cbindgen.toml").expect("Failed to find cbindgen config");
     println!("cargo::rerun-if-changed=cbindgen.toml");
@@ -71,7 +73,7 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
     // emit `rerun-if-changed` for all the headers files referenced by the config as well
     if let Some(include) = &config.parse.include {
         for included_crate in include.iter() {
-            let path = git_root()?
+            let path = repository_root()?
                 .join("src")
                 .join("redisearch_rs")
                 .join(included_crate);
@@ -96,34 +98,36 @@ pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// Links static libraries
+/// Link all the relevant C dependencies to allow Rust (testing and benchmarking) code to invoke
+/// RediSearch C symbols.
 ///
-/// This function configures the linker to include static libraries built by the main
-/// RediSearch build system.
-/// It's meant to be called from the `build.rs` script using `bindgen` to generate Rust bindings.
-///
-/// # Arguments
-/// * `libs` - A slice of tuples where each tuple contains:
-///   - Library subdirectory path relative to the build output directory
-///   - Library name (without lib prefix and .a suffix)
-///
-/// # Panics
-/// Panics if any required static library is not found in the expected location.
-pub fn link_static_libraries(libs: &[(&str, &str)]) {
+/// This links a single combined static library (`libredisearch_all.a`) that bundles
+/// all C code and dependencies together. The combined library is created by CMake
+/// during the build process.
+pub fn bind_foreign_c_symbols() {
+    force_link_time_symbol_resolution();
+    link_redisearch_all();
+    link_mkl();
+    link_c_plusplus();
+}
+
+/// Require all symbols to be resolved at link time.
+fn force_link_time_symbol_resolution() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
-
-    // There may be several symbols exposed by the static library that we are trying to link
-    // that we don't actually invoke (either directly or indirectly) in our benchmarks.
-    // We will provide a definition for the ones we need (e.g. Redis' allocation functions),
-    // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
-    // We prefer to fail at runtime if we try to use a symbol that's undefined.
     if target_os == "macos" {
-        println!("cargo::rustc-link-arg=-Wl,-undefined,dynamic_lookup");
+        println!("cargo::rustc-link-arg=-Wl,-undefined,error");
     } else {
-        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=report-all");
     }
+}
 
-    let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
+/// Return the CMake build output directory.
+///
+/// When the top-level build coordinator sets `BINDIR`, that value is used
+/// directly. Otherwise we fall back to the conventional release layout
+/// derived from the git root.
+fn bin_root() -> PathBuf {
+    if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
         // We rely on the top-level build coordinator to give us the correct path, rather
@@ -133,22 +137,78 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
         // If one is not provided (e.g. `cargo` has been invoked directly), we look
         // for a release build of the static library in the conventional location
         // for the bin directory.
-        let root = git_root().expect("Could not find git root for static library linking");
+        let root =
+            repository_root().expect("Could not find repository root for static library linking");
         let target_arch = match env::var("CARGO_CFG_TARGET_ARCH").ok().as_deref() {
             Some("x86_64") | None => "x64".to_owned(),
             Some(a) => a.to_owned(),
         };
+        let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
         root.join(format!(
             "bin/{target_os}-{target_arch}-release/search-community/"
         ))
-    };
-
-    for &(lib_subdir, lib_name) in libs {
-        link_static_lib(&bin_root, lib_subdir, lib_name).unwrap();
     }
 }
 
-fn link_static_lib(
+/// Link `libredisearch_all.a` using the `-bundle` modifier.
+///
+/// The `-bundle` modifier prevents the (very large) C archive from being
+/// embedded into every Rust rlib in the dependency tree. Instead, the linker
+/// flag `-lredisearch_all` propagates to final binaries (tests, benchmarks)
+/// where the linker selectively pulls only the objects that are actually
+/// needed. This avoids two problems:
+///
+/// 1. Cross-crate rlib contamination during `cargo test --workspace`, where
+///    C objects bundled into one crate's rlib can trigger undefined-symbol
+///    errors in unrelated workspace members.
+/// 2. Archive member counts exceeding `u16::MAX` in rustc's
+///    `ar_archive_writer` when MKL or other large archives are involved.
+fn link_redisearch_all() {
+    let bin_root = bin_root();
+    let lib_dir = bin_root.join("src");
+    let lib = lib_dir.join("libredisearch_all.a");
+    if std::fs::exists(&lib).unwrap_or(false) {
+        println!("cargo::rustc-link-lib=static:-bundle=redisearch_all");
+        println!("cargo::rerun-if-changed={}", lib.display());
+        println!("cargo::rustc-link-search=native={}", lib_dir.display());
+    } else {
+        panic!("Static library not found: {}", lib.display());
+    }
+}
+
+/// Link Intel MKL separately if present.
+///
+/// MKL is excluded from `libredisearch_all.a` because its ~42K object files
+/// overflow the `u16` archive member index in rustc's `ar_archive_writer`.
+/// Like `redisearch_all`, we link with `-bundle` to avoid rlib bloat.
+fn link_mkl() {
+    let svs_lib_dir = bin_root().join("_deps/svs-src/lib");
+    let mkl = svs_lib_dir.join("libmkl_static_library.a");
+    if std::fs::exists(&mkl).unwrap_or(false) {
+        println!("cargo::rerun-if-changed={}", mkl.display());
+        println!("cargo::rustc-link-search=native={}", svs_lib_dir.display());
+        println!("cargo::rustc-link-lib=static:-bundle=mkl_static_library");
+    }
+}
+
+/// Link the C++ standard library using the platform's default.
+///
+/// This is needed for VectorSimilarity and other C++ code that RediSearch depends on.
+/// We compile a dummy C++ file which causes cc to emit the appropriate link flags,
+/// using the same approach as the `link-c-plusplus` crate.
+fn link_c_plusplus() {
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+    let dummy_path = std::path::Path::new(&out_dir).join("dummy.cc");
+    // Define a symbol to avoid "empty archive" warnings from ranlib
+    std::fs::write(&dummy_path, "void __link_cplusplus_dummy() {}\n")
+        .expect("Failed to write dummy C++ file");
+    cc::Build::new()
+        .cpp(true)
+        .file(&dummy_path)
+        .compile("link-cplusplus");
+}
+
+pub fn link_static_lib(
     bin_root: &Path,
     lib_subdir: &str,
     lib_name: &str,
@@ -177,7 +237,8 @@ pub fn generate_c_bindings(
     headers: Vec<PathBuf>,
     allowlist_file: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let root = git_root().expect("Could not find git root for static library linking");
+    let root =
+        repository_root().expect("Could not find repository root for static library linking");
 
     let includes = vec![
         root.join("deps").join("RedisModulesSDK"),
@@ -186,6 +247,7 @@ pub fn generate_c_bindings(
         root.join("src").join("redisearch_rs").join("headers"),
         root.join("deps").join("VectorSimilarity").join("src"),
         root.join("src").join("buffer"),
+        root.join("src").join("ttl_table"),
     ];
 
     let headers = headers

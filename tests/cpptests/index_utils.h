@@ -35,20 +35,6 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
 
 void freeSpec(RefManager *ism);
 
-/**
- * Iterates the inverted indices in a the numeric tree and calculates the memory used by them.
- * This memory includes memory allocated for data and blocks metadata.
- * NOTE: the returned memory doesn't not include the memory used by the tree itself.
- *
- * If @param rt is NULL, the function will return 0.
- *
- * this function also verifies that the memory counter of each range is equal to its actual memory.
- * if not, if will set @param failed_range to point to the range that failed the check.
- * Then, you can get the range memory by calling InvertedIndex_MemUsage(failed_range);
- * NOTE: Upon early bail out, the returned value will **not** include the memory used by the failed range.
- */
-size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
-
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
 
 class MockQueryEvalCtx {
@@ -71,11 +57,12 @@ public:
     spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
     spec.docs.maxDocId = maxDocId;
     spec.docs.size = numDocs ?: maxDocId;
-    spec.stats.numDocuments = spec.docs.size;
+    spec.stats.scoring.numDocuments = spec.docs.size;
 
     // Initialize RedisSearchCtx
     sctx = {0};
     sctx.spec = &spec;
+    sctx.time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true};
 
     // Initialize QueryEvalCtx
     qctx = {0};
@@ -88,7 +75,7 @@ public:
     docs.erase(std::unique(docs.begin(), docs.end()), docs.end());
     spec.docs.maxDocId = docs.empty() ? 0 : docs.back();
     spec.docs.size = docs.size();
-    spec.stats.numDocuments = docs.size();
+    spec.stats.scoring.numDocuments = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
     spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, &spec.stats.invertedSize);
     for (t_docId docId : docs) {

@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "redismodule.h"
+#include "config.h"
 #include "doc_table.h"
 #include "trie/trie_type.h"
 #include "sortable.h"
@@ -28,6 +29,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "search_disk_api.h"
 #include "rs_wall_clock.h"
 
 #ifdef __cplusplus
@@ -149,6 +151,11 @@ extern dict *legacySpecRules;
 typedef struct {
   size_t numDocuments;
   size_t numTerms;
+  size_t totalDocsLen;
+} ScoringIndexStats;
+
+typedef struct {
+  ScoringIndexStats scoring;  // Statistics used for scoring functions
   size_t numRecords;
   size_t invertedSize;
   size_t offsetVecsSize;
@@ -156,7 +163,6 @@ typedef struct {
   size_t termsSize;
   rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
-  size_t totalDocsLen;
   uint32_t activeQueries;
   uint32_t activeWrites;
 } IndexStats;
@@ -202,8 +208,8 @@ typedef struct Version {
 
 extern Version redisVersion;
 extern Version rlecVersion;
+extern bool isEnterprise;
 extern bool isCrdt;
-extern bool should_filter_slots;
 extern bool isTrimming; // TODO: remove this when redis deprecates sharding trimming events
 extern bool isFlex;
 
@@ -221,7 +227,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 25
+#define INDEX_CURRENT_VERSION 26
+#define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
 #define INDEX_INDEXALL_VERSION 24
 #define INDEX_GEOMETRY_VERSION 23
@@ -278,15 +285,16 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 #define FIELD_BIT(fs) (((t_fieldMask)1) << (fs)->ftId)
 
-typedef struct {
-  RedisModuleString *types[INDEXFLD_NUM_TYPES];
-} IndexSpecFmtStrings;
-
 //---------------------------------------------------------------------------------------------
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
 typedef const void* RedisSearchDiskIndexSpec;
+
+typedef struct CharBuf {
+  char *buf;
+  size_t len;
+} CharBuf;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -301,7 +309,7 @@ typedef struct IndexSpec {
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
   Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
-  dict *keysDict;                 // Global dictionary. Contains inverted indexes of all TEXT TAG NUMERIC VECTOR and GEOSHAPE terms
+  dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
 
   DocTable docs;                  // Contains metadata of all documents
 
@@ -322,8 +330,7 @@ typedef struct IndexSpec {
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
-  // cached strings, corresponding to number of fields
-  IndexSpecFmtStrings *indexStrs;
+  // cached fields, corresponding to number of fields
   struct IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
@@ -357,7 +364,7 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
-  // Disk index handle
+  // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
 } IndexSpec;
 
@@ -373,11 +380,6 @@ typedef struct SpecOpIndexingCtx {
   dict *specs;
   SpecOpCtx *specsOps;
 } SpecOpIndexingCtx;
-
-typedef struct {
-  void (*dtor)(void *p);
-  void *p;
-} KeysDictValue;
 
 extern RedisModuleType *IndexSpecType;
 extern RedisModuleType *IndexAliasType;
@@ -528,13 +530,13 @@ RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
 
 /* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp);
+void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status);
 // Calls IndexSpec_Parse after wrapping name with a hidden string
-StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status);
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
@@ -542,7 +544,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 // This function does not lock the spec. use it if you know the spec is locked for writing
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, t_docId id);
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
@@ -550,18 +552,18 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
-#define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
-
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
-#ifdef FTINFO_FOR_INFO_MODULES
 /**
  * Exposing all the fields of the index to INFO command.
+ * @param ctx - the redis module info context
+ * @param sp - the index spec
+ * @param obfuscate - if true, obfuscate the index name and field names
+ * @param skip_unsafe_ops - if true, skips operations unsafe in signal handler context (allocations, locks)
  */
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
-#endif
+void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -639,14 +641,10 @@ void IndexSpec_Free(IndexSpec *spec);
 
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 
-/** Returns a string suitable for indexes. This saves on string creation/destruction */
-RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
-RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
-
 IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp);
+IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
@@ -723,12 +721,17 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_Free(dict *d);
+/*
+ * Free all indexes.
+ * @param deleteDiskData - delete the disk data
+*/
+void Indexes_Free(dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
+                                           DocumentType type,
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
@@ -762,6 +765,42 @@ void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is to be called when loading finishes (failed or not)
 void Indexes_EndLoading();
+
+// =============================================================================
+// Compaction FFI Functions (called by Rust during GC)
+// =============================================================================
+
+/**
+ * @brief Acquire the IndexSpec write lock
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_AcquireWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Release the IndexSpec write lock
+ * @param sp Pointer to the IndexSpec
+ */
+void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
+
+/**
+ * @brief Update a term's document count in the Serving Trie
+ *
+ * @param sp Pointer to the IndexSpec
+ * @param term Pointer to term string (NOT null-terminated)
+ * @param term_len Length of term in bytes
+ * @param doc_count_decrement Number of documents to decrement from the term's count
+ * @return true if the term was completely emptied and deleted from the trie
+ */
+bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
+                                      size_t doc_count_decrement);
+
+/**
+ * @brief Update IndexScoringStats based on the number of terms removed
+ *
+ * @param sp Pointer to the IndexSpec
+ * @param num_terms_removed Number of terms that became empty during compaction
+ */
+void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed);
 
 #ifdef __cplusplus
 }

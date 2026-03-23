@@ -15,6 +15,7 @@
 #include "src/info/indexes_info.h"
 #include "src/config.h"
 #include "src/numeric_index.h"
+#include "numeric_range_tree.h"
 
 #include <set>
 #include <string>
@@ -30,8 +31,8 @@
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 #define INITIAL_DOC_TABLE_SIZE 1000
-// 3 `uintptr_t` fields
 #define EMPTY_TRIE_SIZE 24
+#define TRIE_ENTRY_NUM_DOCS_OVERHEAD 8
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
@@ -354,9 +355,9 @@ TEST_F(LLApiTest, testMassivePrefix) {
   char buff[1024];
   int NUM_OF_DOCS = 1000;
   for (int i = 0; i < NUM_OF_DOCS; ++i) {
-    sprintf(buff, "doc%d", i);
+    snprintf(buff, sizeof(buff), "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
-    sprintf(buff, "tag-%d", i);
+    snprintf(buff, sizeof(buff), "tag-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, buff, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
   }
@@ -383,7 +384,7 @@ const char *words[] = {"he", "her", "hell", "help", "helper", "hello",
 void loadDocsText(RSIndex *index) {
   char buff[16];
   for (int i = 0; i < 10; ++i) {
-    sprintf(buff, "%d", i);
+    snprintf(buff, sizeof(buff), "%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, words[i], RSFLDTYPE_DEFAULT);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_2, words[i], RSFLDTYPE_DEFAULT);
@@ -452,7 +453,7 @@ TEST_F(LLApiTest, testSuffixText) {
 void loadDocsTag(RSIndex *index) {
   char buff[16];
   for (int i = 0; i < 10; ++i) {
-    sprintf(buff, "%d", i);
+    snprintf(buff, sizeof(buff), "%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, words[i], RSFLDTYPE_DEFAULT);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME2, words[i], RSFLDTYPE_DEFAULT);
@@ -524,7 +525,7 @@ static void PopulateIndex(RSIndex* index) {
   for (char c = 'a'; c <= 'z'; c++) {
     buf[nbuf - 1] = c;
     char did[64];
-    sprintf(did, "doc%c", c);
+    snprintf(did, sizeof(did), "doc%c", c);
     RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
@@ -537,7 +538,7 @@ static void PopulateIndexMultibyte(RSIndex* index) {
   for (char c = 'a'; c <= 'z'; c++) {
     buf[nbuf - 1] = c;
     char did[64];
-    sprintf(did, "doc%c", c);
+    snprintf(did, sizeof(did), "doc%c", c);
     RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
     RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
@@ -559,7 +560,7 @@ static void ValidateResults(RSIndex* index, RSQNode* qn, char start, char end, i
   ASSERT_EQ(numResults, results.size());
   for (char c = start; c <= end; c++) {
     char namebuf[64];
-    sprintf(namebuf, "doc%c", c);
+    snprintf(namebuf, sizeof(namebuf), "doc%c", c);
     ASSERT_NE(results.end(), results.find(namebuf));
   }
   RediSearch_ResultsIteratorFree(iter);
@@ -685,15 +686,15 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 static char buffer[1024];
 
 static int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal,
-                    double* doubleVal) {
-  *strVal = buffer;
+                    double* doubleVal) {  
   int numId;
   sscanf((char*)id, "doc%d", &numId);
   if (strcmp(fieldName, TAG_FIELD_NAME1) == 0) {
-    sprintf(*strVal, "tag1-%d", numId);
+    snprintf(buffer, sizeof(buffer), "tag1-%d", numId);
   } else {
-    sprintf(*strVal, "tag2-%d", numId);
+    snprintf(buffer, sizeof(buffer), "tag2-%d", numId);
   }
+  *strVal = buffer;
   return RSVALTYPE_STRING;
 }
 
@@ -709,9 +710,9 @@ TEST_F(LLApiTest, testMassivePrefixWithUnsortedSupport) {
   char buff[1024];
   int NUM_OF_DOCS = 10000;
   for (int i = 0; i < NUM_OF_DOCS; ++i) {
-    sprintf(buff, "doc%d", i);
+    snprintf(buff, sizeof(buff), "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
-    sprintf(buff, "tag-%d", i);
+    snprintf(buff, sizeof(buff), "tag-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, buff, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
   }
@@ -745,11 +746,11 @@ TEST_F(LLApiTest, testPrefixIntersection) {
   char buff[1024];
   int NUM_OF_DOCS = 1000;
   for (int i = 0; i < NUM_OF_DOCS; ++i) {
-    sprintf(buff, "doc%d", i);
+    snprintf(buff, sizeof(buff), "doc%d", i);
     RSDoc* d = RediSearch_CreateDocument(buff, strlen(buff), 1.0, NULL);
-    sprintf(buff, "tag1-%d", i);
+    snprintf(buff, sizeof(buff), "tag1-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME1, buff, RSFLDTYPE_DEFAULT);
-    sprintf(buff, "tag2-%d", i);
+    snprintf(buff, sizeof(buff), "tag2-%d", i);
     RediSearch_DocumentAddFieldCString(d, TAG_FIELD_NAME2, buff, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
   }
@@ -856,14 +857,14 @@ TEST_F(LLApiTest, testQueryString) {
   // Insert the documents...
   for (size_t ii = 0; ii < 100; ++ii) {
     char docbuf[1024] = {0};
-    sprintf(docbuf, "doc%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "doc%lu\n", ii);
     Document* d = RediSearch_CreateDocumentSimple(docbuf);
     // Fill with fields..
-    sprintf(docbuf, "hello%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "hello%lu\n", ii);
     RediSearch_DocumentAddFieldCString(d, "ft1", docbuf, RSFLDTYPE_DEFAULT);
-    sprintf(docbuf, "world%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "world%lu\n", ii);
     RediSearch_DocumentAddFieldCString(d, "ft2", docbuf, RSFLDTYPE_DEFAULT);
-    sprintf(docbuf, "tag%lu\n", ii);
+    snprintf(docbuf, sizeof(docbuf), "tag%lu\n", ii);
     RediSearch_DocumentAddFieldCString(d, "tg1", docbuf, RSFLDTYPE_TAG);
     RediSearch_DocumentAddFieldNumber(d, "n1", ii, RSFLDTYPE_DEFAULT);
     RediSearch_SpecAddDocument(index, d);
@@ -1284,12 +1285,12 @@ TEST_F(LLApiTest, testInfo) {
   // common stats
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
-  ASSERT_EQ(info.docTableSize, 140 + doc_table_size);
+  ASSERT_EQ(info.docTableSize, 124 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 48);
   ASSERT_EQ(info.docTrieSize, 120);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
-  ASSERT_EQ(info.invertedSize, 733);
+  ASSERT_EQ(info.invertedSize, 677);
   ASSERT_EQ(info.invertedCap, 0);
   ASSERT_EQ(info.skipIndexesSize, 0);
   ASSERT_EQ(info.scoreIndexesSize, 0);
@@ -1357,6 +1358,10 @@ TEST_F(LLApiTest, testScore) {
   RediSearch_FreeIndexOptions(opt);
 }
 
+size_t get_trie_entry_extra_overhead(size_t num_entries) {
+  return num_entries * TRIE_ENTRY_NUM_DOCS_OVERHEAD;
+}
+
 TEST_F(LLApiTest, testInfoSize) {
   // creating the index
   RSIndex* index = RediSearch_CreateIndex("index", NULL);
@@ -1378,35 +1383,36 @@ TEST_F(LLApiTest, testInfoSize) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
+  size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 343 + additional_overhead);
+  // Memory values use the original magic numbers, adjusted for TrieNode size changes.
+  // The numDocs field added 8 bytes per trie entry.
+  EXPECT_EQ(RediSearch_MemUsage(index), 319 + additional_overhead + get_trie_entry_extra_overhead(1));
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 637 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 597 + additional_overhead + get_trie_entry_extra_overhead(2));
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 495 + additional_overhead);
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  EXPECT_EQ(RediSearch_MemUsage(index), 463 + additional_overhead + get_trie_entry_extra_overhead(2));
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 344 + additional_overhead);
-
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
+  EXPECT_EQ(RediSearch_MemUsage(index), 320 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 250 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 234 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
-  // The base inverted index is 40 bytes + 8 bytes for the entries count of numeric records
-  additional_overhead += 48;
+  // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records
+  additional_overhead += 32;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
@@ -1439,35 +1445,36 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
+  size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 432 + additional_overhead);
+  // Memory values use the original magic numbers, adjusted for TrieNode size changes.
+  // The numDocs field added 8 bytes per trie entry.
+  EXPECT_EQ(RediSearch_MemUsage(index), 400 + additional_overhead + get_trie_entry_extra_overhead(1));
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 727 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 679 + additional_overhead + get_trie_entry_extra_overhead(2));
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 585 + additional_overhead);
-  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  EXPECT_EQ(RediSearch_MemUsage(index), 545 + additional_overhead + get_trie_entry_extra_overhead(2));
+  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 433 + additional_overhead);
-
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
+  EXPECT_EQ(RediSearch_MemUsage(index), 401 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 339 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 315 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
-  // The base inverted index is 40 bytes + 8 bytes for the entries count of numeric records
-  additional_overhead += 48;
+  // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records
+  additional_overhead += 24 + 8;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.

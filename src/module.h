@@ -18,6 +18,7 @@
 #include "coord/special_case_ctx.h"
 #include "rs_wall_clock.h"
 #include "thpool/thpool.h"
+#include "profile/options.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -40,7 +41,6 @@ extern "C" {
 // docs and code.
 #define CMD_INTERNAL "internal"
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 extern redisearch_thpool_t *depleterPool;
@@ -72,7 +72,6 @@ do {                                            \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
 #define SEARCH_ACL_CATEGORY "search"
-#define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
 
 #define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
@@ -84,13 +83,16 @@ do {                                            \
     return REDISMODULE_ERR;                                           \
   }
 
+#define IS_SST_RDB_IN_PROCESS(ctx) (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SST_RDB)
+// Forward declaration of searchReducerCtx
+struct searchReducerCtx;
+
 typedef struct {
   char *queryString;
   long long offset;
   long long limit;
   long long requestedResultsCount;
   rs_wall_clock initClock;
-  long long timeout;
   int withScores;
   int withExplainScores;
   int withPayload;
@@ -106,8 +108,12 @@ typedef struct {
   int profileArgs;
   int profileLimited;
   rs_wall_clock profileClock;
+  rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
   void *reducer;
   bool queryOOM;
+  bool timedOut;
+
+  struct searchReducerCtx *rctx;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
@@ -119,8 +125,10 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
 void processResultFormat(uint32_t *flags, MRReply *map);
 
-int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
+int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
+int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
+int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 
 void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
@@ -133,6 +141,9 @@ int QueryMemoryGuardFailure_WithReply(RedisModuleCtx *ctx);
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req);
 
 int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv);
+
+typedef int (*execCommandCommonHandler)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, ProfileOptions profileOptions);
 
 #ifdef __cplusplus
 }

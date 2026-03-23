@@ -1,0 +1,26 @@
+[package]
+name = "search_result_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+# This crate has no tests nor benches.
+# Compiling a no-op bench/test binary can cause linking issues with C.
+test = false
+bench = false
+
+[dependencies]
+search_result.workspace = true
+inverted_index.workspace = true
+ffi.workspace = true
+
+unsafe-tools.workspace = true
+workspace_hack.workspace = true
+
+[build-dependencies]
+build_utils = { path = "../../build_utils" }
+
+[lints]
+workspace = true

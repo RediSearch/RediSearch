@@ -53,7 +53,7 @@ typedef struct SchemaRule {
   arrayof(HiddenUnicodeString*) prefixes;
   HiddenString *filter_exp_str;
   struct RSExpr *filter_exp;
-  char **filter_fields;
+  arrayof(char*) filter_fields;
   int *filter_fields_index;
   char *lang_field;
   char *score_field;
@@ -89,6 +89,15 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, QueryError *status);
 
 bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
+
+struct EvalCtx;
+/**
+ * Evaluate the filter expression for a schema rule.
+ * @param r The evaluation context (must be initialized with RLookup_LoadRuleFields)
+ * @param filter_exp The filter expression to evaluate
+ * @return true if the document passes the filter (should be indexed), false otherwise
+ */
+bool SchemaRule_FilterPasses(struct EvalCtx *r, struct RSExpr *filter_exp);
 
 //---------------------------------------------------------------------------------------------
 

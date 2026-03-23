@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, vec};
+use std::{hint::black_box, io::Cursor, vec};
 
-use criterion::{BatchSize, Criterion, black_box};
+use criterion::{BatchSize, Criterion};
 use ffi::t_fieldMask;
 use inverted_index::{
     Decoder, Encoder, RSIndexResult,
@@ -54,13 +54,16 @@ impl Bencher {
             .into_iter()
             .cartesian_product(field_masks_values)
             .map(|(delta, field_mask)| {
-                let record = RSIndexResult::term().doc_id(100).field_mask(field_mask);
+                let record = RSIndexResult::build_term()
+                    .doc_id(100)
+                    .field_mask(field_mask)
+                    .build();
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = if wide {
-                    FieldsOnlyWide.encode(&mut buffer, delta, &record).unwrap()
+                    FieldsOnlyWide::encode(&mut buffer, delta, &record).unwrap()
                 } else {
-                    FieldsOnly.encode(&mut buffer, delta, &record).unwrap()
+                    FieldsOnly::encode(&mut buffer, delta, &record).unwrap()
                 };
                 let encoded = buffer.into_inner();
 
@@ -85,16 +88,15 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = RSIndexResult::term()
+                        let record = RSIndexResult::build_term()
                             .doc_id(100)
-                            .field_mask(test.field_mask);
+                            .field_mask(test.field_mask)
+                            .build();
 
                         let grew_size = if self.wide {
-                            FieldsOnlyWide
-                                .encode(&mut buffer, test.delta, &record)
-                                .unwrap()
+                            FieldsOnlyWide::encode(&mut buffer, test.delta, &record).unwrap()
                         } else {
-                            FieldsOnly.encode(&mut buffer, test.delta, &record).unwrap()
+                            FieldsOnly::encode(&mut buffer, test.delta, &record).unwrap()
                         };
 
                         black_box(grew_size);
@@ -111,7 +113,12 @@ impl Bencher {
         c.bench_function(&id, |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || (Cursor::new(test.encoded.as_ref()), RSIndexResult::term()),
+                    || {
+                        (
+                            Cursor::new(test.encoded.as_ref()),
+                            RSIndexResult::build_term().build(),
+                        )
+                    },
                     |(cursor, result)| {
                         if self.wide {
                             let res = FieldsOnlyWide::decode(cursor, 100, result);

@@ -37,7 +37,7 @@ static void *tolistNewInstance(Reducer *rbase) {
 
 static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   dict *values = ctx;
-  RSValue *v = RLookup_GetItem(rbase->srckey, srcrow);
+  RSValue *v = RLookupRow_Get(rbase->srckey, srcrow);
   if (!v) {
     return 1;
   }
@@ -58,13 +58,13 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   dict *values = ctx;
   size_t len = dictSize(values);
   dictIterator *it = dictGetIterator(values);
-  RSValue **arr = RSValue_AllocateArray(len);
+  RSValue **arr = RSValue_NewArrayBuilder(len);
   for (size_t i = 0; i < len; i++) {
     dictEntry *de = dictNext(it);
     arr[i] = RSValue_IncrRef(dictGetKey(de));
   }
   dictReleaseIterator(it);
-  RSValue *ret = RSValue_NewArray(arr, len);
+  RSValue *ret = RSValue_NewArrayFromBuilder(arr, len);
   return ret;
 }
 

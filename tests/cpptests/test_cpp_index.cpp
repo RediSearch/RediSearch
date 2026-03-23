@@ -20,12 +20,10 @@ extern "C" {
 #include "varint.h"
 #include "src/iterators/inverted_index_iterator.h"
 #include "src/iterators/hybrid_reader.h"
-#include "src/iterators/idlist_iterator.h"
+#include "iterators_rs.h"
 #include "src/iterators/union_iterator.h"
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/not_iterator.h"
-#include "src/iterators/empty_iterator.h"
-#include "src/iterators/wildcard_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
 #include "types_rs.h"
@@ -49,6 +47,13 @@ extern "C" {
 #include <iostream>
 
 class IndexTest : public ::testing::Test {};
+
+// Helper: create a query term for use with NewInvIndIterator_TermQuery.
+// Ownership is transferred to the iterator.
+static RSQueryTerm *makeTestQueryTerm() {
+  RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+  return NewQueryTerm(&tok, 1);
+}
 
 static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
   RSOffsetVector ret = {0};
@@ -103,11 +108,11 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr1) = offsetsFromVVW(vw);
+  tr1->data.term.borrowed.offsets = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr2) = offsetsFromVVW(vw2);
+  tr2->data.term.borrowed.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
@@ -129,7 +134,7 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  *IndexResult_TermOffsetsRefMut(tr3) = offsetsFromVVW(vw3);
+  tr3->data.term.borrowed.offsets = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
@@ -169,15 +174,15 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
   // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // Vec<IndexBlock> blocks    24
-  // u32 n_uniqe_blocks         4
-  // flags IndexFlags           4
-  // u32 gc_marker              4
-  // ----------------------------
-  // Total                     36
-  // After padding             40
+  // LowMemoryThinVec<IndexBlock, u32> blocks    8
+  // u32 n_uniqe_blocks                          4
+  // flags IndexFlags                            4
+  // u32 gc_marker                               4
+  // ---------------------------------------------
+  // Total                                      20
+  // After padding                              24
 
-  size_t exp_idx_no_block_memsize = 40;
+  size_t exp_idx_no_block_memsize = 24;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
@@ -267,8 +272,9 @@ TEST_F(IndexTest, testUnion) {
     // printf("Reading!\n");
     QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
     FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-    irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
-    irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
+    MockQueryEvalCtx mockQctx(10, 10);
+    irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
+    irs[1] = NewInvIndIterator_TermQuery(w2, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
     IteratorsConfig config{};
     iteratorsConfig_init(&config);
     QueryIterator *ui = NewUnionIterator(irs, 2, 0, 1, QN_UNION, NULL, &config);
@@ -320,9 +326,10 @@ TEST_F(IndexTest, testWeight) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, fieldMaskOrIndex, nullptr, 0.5);
+  MockQueryEvalCtx mockQctx(10, 10);
+  irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, fieldMaskOrIndex, makeTestQueryTerm(), 0.5);
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
+  irs[1] = NewInvIndIterator_TermQuery(w2, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
   QueryIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
@@ -359,8 +366,10 @@ TEST_F(IndexTest, testNot) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
+  MockQueryEvalCtx mockQctx(16, 16);
+  irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
+  MockQueryEvalCtx mockQctx2(10, 10);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermQuery(w2, &mockQctx2.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -381,7 +390,8 @@ TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
   auto ctx = std::make_unique<MockQueryEvalCtx>();
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
+  MockQueryEvalCtx mockQctx(10, 10);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -452,9 +462,10 @@ TEST_F(IndexTest, testNumericInverted) {
     expected_sz = target_cap - buff_cap;
     buff_cap = target_cap;
 
-    // The first write will make an index block of 48 bytes
+    // The first write add an index block of 48 bytes
+    // and the vector header
     if (i < 1) {
-      expected_sz += 48;
+      expected_sz += 48 + 8;
     }
 
     // Check if the write matches the simulation
@@ -465,19 +476,20 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
+
   t_docId i = 1;
-  while (ITERATOR_EOF != it->Read(it)) {
-    RSIndexResult *res = it->current;
+  while (IndexReader_Next(reader, res)) {
     // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQ(i++, res->docId);
     ASSERT_EQ(IndexResult_NumValue(res), (float)res->docId);
   }
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
-  it->Free(it);
 }
 
 TEST_F(IndexTest, testNumericVaried) {
@@ -498,20 +510,20 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
 
   for (size_t i = 0; i < numCount; i++) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
-    IteratorStatus rv = it->Read(it);
-    ASSERT_NE(ITERATOR_EOF, rv);
-    ASSERT_LT(fabs(nums[i] - IndexResult_NumValue(it->current)), 0.01);
+    ASSERT_TRUE(IndexReader_Next(reader, res));
+    ASSERT_LT(fabs(nums[i] - IndexResult_NumValue(res)), 0.01);
   }
 
-  ASSERT_EQ(ITERATOR_EOF, it->Read(it));
+  ASSERT_FALSE(IndexReader_Next(reader, res));
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
-  it->Free(it);
 }
 
 typedef struct {
@@ -562,25 +574,35 @@ void testNumericEncodingHelper(bool isMulti) {
     }
   }
 
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
+  IndexReader *reader = NewIndexReader(idx, decoderCtx);
+  RSIndexResult *res = NewNumericResult();
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\nReading [%lu]\n", ii);
 
-    IteratorStatus rc = it->Read(it);
-    ASSERT_NE(rc, ITERATOR_EOF);
+    ASSERT_TRUE(IndexReader_Next(reader, res));
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
-    if (fabs(infos[ii].value) == INFINITY) {
-      ASSERT_EQ(infos[ii].value, IndexResult_NumValue(it->current));
+    if (isinf(infos[ii].value)) {
+      ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
     } else {
-      ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(it->current)), 0.01);
+      ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
+    }
+
+    if (isMulti) {
+      // In multi mode, each value is written twice, so read it again
+      ASSERT_TRUE(IndexReader_Next(reader, res));
+      if (isinf(infos[ii].value)) {
+        ASSERT_EQ(infos[ii].value, IndexResult_NumValue(res));
+      } else {
+        ASSERT_NEAR(infos[ii].value, IndexResult_NumValue(res), 0.01);
+      }
     }
   }
 
+  IndexReader_Free(reader);
+  IndexResult_Free(res);
   InvertedIndex_Free(idx);
-  it->Free(it);
 }
 
 TEST_F(IndexTest, testNumericEncoding) {
@@ -598,8 +620,9 @@ TEST_F(IndexTest, testIntersection) {
 
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  irs[0] = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
-  irs[1] = NewInvIndIterator_TermQuery(w2, nullptr, f, nullptr, 1);
+  MockQueryEvalCtx mockQctx(100000, 100000);
+  irs[0] = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
+  irs[1] = NewInvIndIterator_TermQuery(w2, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
 
   int count = 0;
   QueryIterator *ii = NewIntersectionIterator(irs, 2, -1, 0, 1);
@@ -687,9 +710,11 @@ TEST_F(IndexTest, testHybridVector) {
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = max_id;
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  // Create a mock context for timeout configuration
+  MockQueryEvalCtx mockQctx(max_id, max_id);
   // Run simple top k query.
-  HybridIteratorParams hParams = {.sctx=NULL,
+  HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
                                   .index = index,
                                   .dim = d,
                                   .elementType = t,
@@ -726,7 +751,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Test in hybrid mode.
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  QueryIterator *ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   hParams.childIt = ir;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -773,7 +798,7 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  ir = NewInvIndIterator_TermQuery(w, nullptr, f, nullptr, 1);
+  ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
@@ -878,7 +903,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true);
+  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
@@ -957,7 +982,7 @@ TEST_F(IndexTest, testMetric_SkipTo) {
   double metrics[7] = {1.0};
   memcpy(metrics_arr, metrics, sizeof(double) * results_num);
 
-  QueryIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, results_num, VECTOR_DISTANCE);
+  QueryIterator *metric_it = NewMetricIteratorSortedById(ids_arr, metrics_arr, results_num, VECTOR_DISTANCE);
 
   // Copy the behaviour of INV_IDX_ITERATOR in terms of SkipTo. That is, the iterator will return the
   // next docId whose id is equal or greater than the given id, as if we call Read and returned
@@ -1038,7 +1063,7 @@ TEST_F(IndexTest, testIndexSpec) {
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = QueryError_Default();
   const char* spec_name = "idx";
-  StrongRef ref = IndexSpec_ParseC(spec_name, args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC(NULL, spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
@@ -1111,7 +1136,7 @@ TEST_F(IndexTest, testIndexSpec) {
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
-  ref = IndexSpec_ParseC("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  ref = IndexSpec_ParseC(NULL, "idx", args2, sizeof(args2) / sizeof(const char *), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
@@ -1124,7 +1149,7 @@ TEST_F(IndexTest, testIndexSpec) {
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   QueryError_ClearError(&err);
-  ref = IndexSpec_ParseC("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  ref = IndexSpec_ParseC(NULL, "idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
@@ -1172,7 +1197,7 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError err = QueryError_Default();
-  StrongRef ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
+  StrongRef ref = IndexSpec_ParseC(NULL, "idx", (const char **)&args[0], args.size(), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
@@ -1185,14 +1210,14 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError_ClearError(&err);
-  ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
+  ref = IndexSpec_ParseC(NULL, "idx", (const char **)&args[0], args.size(), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
+  ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
-  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
+  ASSERT_STREQ("SEARCH_LIMIT_OVER Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
 #endif
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
@@ -1214,53 +1239,53 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 56 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 40 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 40
+  // sizeof InvertedIndex                 24
   // storing fieldmask on idx             16
-  ASSERT_EQ(56, index_memsize);
+  ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(65, sz);
+  ASSERT_EQ(73, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(56, index_memsize);
+  ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(sz2, 52);
+  ASSERT_EQ(sz2, 60);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(56, index_memsize);
+  ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(69, InvertedIndex_WriteForwardIndexEntry(w, &h));
+  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h));
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 40 bytes
+  // Index_StoreFieldFlags == 0 is 24 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 40
-  ASSERT_EQ(40, index_memsize);
+  // sizeof InvertedIndex                 24
+  ASSERT_EQ(24, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(51, sz);
+  ASSERT_EQ(59, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(56, index_memsize);
+  ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(59, sz);
+  ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1287,7 +1312,7 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(10180 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(9380 + doc_table_size, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
     snprintf(buf, sizeof(buf), "doc_%d", i);
@@ -1324,7 +1349,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(71 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(63 + doc_table_size, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1333,7 +1358,7 @@ TEST_F(IndexTest, testDocTable) {
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
+  ASSERT_EQ(132 + doc_table_size, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
@@ -1420,7 +1445,8 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Test that we can read them back
   FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(idx, nullptr, f, nullptr, 1);
+  MockQueryEvalCtx mockQctx(100, 50);
+  QueryIterator *ir = NewInvIndIterator_TermQuery(idx, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
   for (t_docId id = 1; id < 100; id += 2) {
     ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
     ASSERT_EQ(id, ir->lastDocId);
@@ -1495,13 +1521,15 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
 
   VecSimQueryParams queryParams = {0};
   KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
-  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);
+  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
 
+  // Create a mock context for timeout configuration
+  MockQueryEvalCtx mockQctx(max_id, max_id);
   HybridIteratorParams hParams = {
-    .sctx = NULL,
+    .sctx = &mockQctx.sctx,
     .index = NULL,
     .dim = d,
     .elementType = VecSimType_FLOAT32,

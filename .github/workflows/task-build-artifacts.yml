@@ -1,21 +1,16 @@
 name: Build and Upload Artifacts
 
-# Added these to use JWT token to connect with AWS
-permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: read    # This is required for actions/checkout
-
 on:
   workflow_call:
     inputs:
-      env:
-        default: "${{ vars.RUNS_ON }}"
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, rockylinux:8)'
         type: string
-      container:
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
         type: string
-      pre-steps-script:
-        type: string
-        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+        required: true
       ref:
         type: string
         description: 'RediSearch reference to checkout (defaults to the ref of the triggering event)'
@@ -27,272 +22,212 @@ on:
       beta-version:
         type: string
         description: 'Pre-generated beta version identifier for consistent versioning across builds'
+      version-suffix:
+        type: string
+        description: 'Suffix to append to version for consistent versioning across builds'
+        required: true
 
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
-  AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+  # NOTE: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are NOT set at workflow level
+  # to avoid interfering with OIDC-based authentication.
+  # They are exported dynamically when assuming role.
 
 jobs:
+  # Get configuration for this specific platform and architecture
+  get-config:
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  build-image:
+    needs: get-config
+    if: ${{ needs.get-config.outputs.container }}
+    name: Build cached container for platform
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ${{ needs.get-config.outputs.container }}
+      runner-env: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+      checkout-ref: ${{ inputs.sha || inputs.ref || github.sha }}
+
   build:
-    name: Build ${{ inputs.container || inputs.env }}
-    runs-on: ${{ inputs.env }}
-    container: ${{ inputs.container || null }}
+    name: Build ${{ needs.get-config.outputs.name }}
+    needs: [get-config, build-image]
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success'
+    runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      id-token: write # Required for OIDC role assumption during upload
+      contents: read  # Required for actions/checkout
+      packages: read  # Required for GHCR read
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
+    container: ${{
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root {1}"}}',
+            needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+
     env:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
+      SETUP_RETRY_LOOP: |
+        SUCCESS=0
+        for i in 1 2 3 4 5; do
+          echo "Attempt $i of 5"
+          if {0}; then
+            echo "Setup succeeded"
+            SUCCESS=1
+            break
+          fi
+          if [ $i -lt 5 ]; then
+            echo "Setup failed, retrying in 30 seconds..."
+            sleep 30
+          fi
+        done
+        [ $SUCCESS -eq 1 ] || exit 1
     steps:
       # Setup
-      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Pre-steps Dependencies (Alpine)
-        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+      - name: Install bash
+        if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
+        shell: bash
         run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Pre-steps Dependencies failed after 5 attempts"
-          exit 1
-      - name: Pre-steps Dependencies (Non-Alpine)
-        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ${{ inputs.pre-steps-script }}; then
-              echo "Pre-steps Dependencies succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Pre-steps Dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Pre-steps Dependencies failed after 5 attempts"
-          exit 1
-      - name: Enable dynamic linking to C runtime in Alpine
-        if: inputs.container == 'alpine:3'
-        run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+      - name: Setup Dependencies
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+      - name: Post-setup
+        if: needs.get-config.outputs.post_setup_script
+        run: ${{ needs.get-config.outputs.post_setup_script }}
 
-      - name: Get Installation Mode
-        id: mode
-        run: |
-          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
-      - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
-        run: |
-          for platform in amazonlinux:2 alpine:3; do
-            if [[ "${{ inputs.container }}" == "$platform" ]]; then
-              echo "supported=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-          echo "supported=true" >> $GITHUB_OUTPUT
       - name: checkout (node20)
-        if: steps.node20.outputs.supported == 'true'
+        if: needs.get-config.outputs.node20_supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
-      - name: checkout (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
+      - name: checkout (legacy)
+        # Manual checkout path for platforms where Node 20-based actions are unavailable.
+        if: needs.get-config.outputs.node20_supported != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
-          # Execute the logic based on the detected platform
-          echo "Detected platform: ${{ inputs.container }}"
-          case "${{ inputs.container }}" in
-            amazonlinux:2 | alpine:3)
+          CONTAINER="${{ needs.get-config.outputs.container }}"
+          echo "Detected platform: $CONTAINER"
+          case "$CONTAINER" in
+            amazonlinux:2)
+              # Configure the safe directory.
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-              # Configure the safe directory
-              git config --global --add safe.directory "/__w/$GITHUB_REPOSITORY"
+              # Checkout.
+              REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
 
-              # Checkout
-              REPO_URL="https://github.com/$GITHUB_REPOSITORY.git"
-
-              # Initialize a Git repository
+              # Initialize a Git repository.
               git init
               git remote add origin "$REPO_URL"
 
-              # Fetch and checkout ref
+              # Fetch the requested ref, then check it out and initialize submodules.
               git fetch origin "$REF" || {
                 echo "Failed to fetch ref: '$REF'";
                 exit 1;
               }
-              git checkout FETCH_HEAD  # Check out the fetched ref
-
-              # Update submodules
+              # Check out the fetched ref.
+              git checkout FETCH_HEAD
+              # Update submodules.
               git submodule update --init --recursive
               ;;
             *)
-              echo "Unsupported platform: '${{ inputs.container }}'"
+              echo "Unsupported platform: '$CONTAINER'"
               exit 1
               ;;
           esac
+      - name: Setup sccache
+        # sccache-action is a JavaScript action requiring Node.js 20+
+        if: needs.get-config.outputs.node20_supported == 'true'
+        uses: ./.github/actions/setup-sccache
       - name: Setup
-        working-directory: .install
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_script.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Setup failed after 5 attempts"
-          exit 1
+        if: needs.build-image.outputs.succeeded != 'true'
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
       - name: Install aws cli
-        working-directory: .install
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if ./install_aws.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Install aws cli succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Install aws cli failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Install aws cli failed after 5 attempts"
-          exit 1
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
+          working_directory: .install
       - name: Setup test dependencies
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}; then
-              echo "Setup test dependencies succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Setup test dependencies failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Setup test dependencies failed after 5 attempts"
-          exit 1
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
       - name: install build artifacts req
-        run: |
-          for i in {1..5}; do
-            echo "Attempt $i of 5"
-            if uv pip install -q -r .install/build_package_requirments.txt; then
-              echo "Install build artifacts req succeeded"
-              exit 0
-            fi
-            if [ $i -lt 5 ]; then
-              echo "Install build artifacts req failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-          echo "Install build artifacts req failed after 5 attempts"
-          exit 1
+        uses: ./.github/actions/retry-command
+        with:
+          command: uv pip install -q -r .install/build_package_requirments.txt
 
       # Get Redis
-      - name: Get Redis (node20)
-        if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
+      - name: Get Redis
+        uses: ./.github/actions/get-redis
         with:
-          repository: redis/redis
           ref: ${{ inputs.redis-ref }}
-          path: redis
-      - name: Get Redis (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
-        run: |
-            REPO_URL="https://github.com/redis/redis.git"
-            DEST_DIR="redis"  # Directory to clone into
+          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
 
-            # Clone the repository (shallow clone without tags)
-            git clone $REPO_URL $DEST_DIR
-            cd $DEST_DIR
-
-            # Checkout the REF
-            git fetch origin ${{ inputs.redis-ref }}
-            git checkout ${{ inputs.redis-ref }}
       - name: Build Redis
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install
+        run: ${{ needs.get-config.outputs.install_mode }} make install
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS
         env:
             COORD: oss
         run: ${{ env.BUILD_CMD }} && make pack
-      - name: Build and Pack RediSearch Enterprise
-        env:
-          COORD: rlec
-          MAX_WORKER_THREADS: ${{ vars.MAX_WORKER_THREADS }}
-          BUILD_INTEL_SVS_OPT: 1
-        run: ${{ env.BUILD_CMD }} && make pack
+
+      - name: Show sccache stats
+        if: needs.get-config.outputs.node20_supported == 'true'
+        run: ${SCCACHE_PATH:-sccache} --show-stats
 
       # Upload
-      - name: Configure AWS Credentials Using Role (node20)
-        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws-credentials
         with:
-          role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials Using Role (node20 not supported)
-        if: vars.USE_AWS_ROLE == 'true' && steps.node20.outputs.supported == 'false'
-        run: |
-          # Variables from the workflow
-          ROLE_ARN="${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}"
-          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
-          SESSION_NAME="github-actions-session"
-
-          # Assume the AWS role and configure temporary credentials
-          ASSUME_ROLE_OUTPUT=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name "$SESSION_NAME" --region "$AWS_REGION")
-          if [ $? -ne 0 ]; then
-            echo "Failed to assume AWS role" && exit 1
-          fi
-
-          echo "AWS credentials configured successfully."
-      - name: Configure AWS Credentials Using Keys (node20)
-        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-      - name: Configure AWS Credentials Using Keys (node20 not supported)
-        if: vars.USE_AWS_ROLE == 'false' && steps.node20.outputs.supported == 'false'
-        run: |
-          # Variables from the workflow
-          AWS_ACCESS_KEY_ID="${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY="${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}"
-          AWS_REGION="${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}"
-
-          # Check if the required environment variables are set
-          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_REGION" ]; then
-            echo "Missing AWS credentials or region configuration."
-            exit 1
-          fi
-
-          # Configure AWS CLI with provided credentials and region
-          echo "Configuring AWS CLI with access keys..."
-          aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
-          aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
-          aws configure set region "$AWS_REGION"
+          use_role: ${{ vars.USE_AWS_ROLE }}
+          role_to_assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+          aws_access_key_id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws_region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
       - name: Set Version identifier
-        id: beta-version
+        id: set-versions
         run: |
+          VERSION_SUFFIX="${{ inputs.version-suffix }}"
+          echo "VERSION_SUFFIX=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
           # Use the pre-generated beta version if provided (master branch builds)
           # Otherwise generate regular version from version.h (non-master branch builds)
           if [[ -n "${{ inputs.beta-version }}" ]]; then
@@ -309,5 +244,6 @@ jobs:
           fi
       - name: Upload Artifacts
         env:
-          BETA_VERSION: ${{ steps.beta-version.outputs.BETA_VERSION }}
+          BETA_VERSION: ${{ steps.set-versions.outputs.BETA_VERSION }}
+          VERSION_SUFFIX: ${{ steps.set-versions.outputs.VERSION_SUFFIX }}
         run: make upload-artifacts

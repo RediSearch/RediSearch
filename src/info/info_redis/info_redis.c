@@ -13,9 +13,12 @@
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
+#include "module_init.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "search_disk.h"
+#include "spec.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -23,15 +26,19 @@ static inline void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsI
 
 // General sections info
 static inline void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Cursors(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -39,7 +46,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   RedisModule_InfoAddSection(ctx, "version");
   char ver[64];
   // RediSearch version
-  sprintf(ver, "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR,
+  snprintf(ver, sizeof(ver), "%d.%d.%d", REDISEARCH_VERSION_MAJOR, REDISEARCH_VERSION_MINOR,
           REDISEARCH_VERSION_PATCH);
   RedisModule_InfoAddFieldCString(ctx, "version", ver);
   // Redis version
@@ -49,6 +56,16 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   if (IsEnterprise()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
+  }
+
+  // On normal INFO runs, optionally suppress RediSearch metrics when there are no indexes.
+  // (We never suppress crash-report info.)
+  if (!for_crash_report && !RSGlobalConfig.infoEmitOnZeroIndexes && Indexes_Count() == 0) {
+    // Still emit the number of indexes and runtime configuration so operators can understand
+    // why metrics are suppressed.
+    AddToInfo_IndexesEmpty(ctx);
+    AddToInfo_RSConfig(ctx);
+    return;
   }
 
   TotalIndexesInfo total_info = IndexesInfo_TotalInfo();
@@ -62,6 +79,9 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Memory
   AddToInfo_Memory(ctx, &total_info);
 
+  // Vector index
+  AddToInfo_VectorIndex(ctx, &total_info);
+
   // Cursors
   AddToInfo_Cursors(ctx);
 
@@ -74,16 +94,26 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Errors statistics
   AddToInfo_ErrorsAndWarnings(ctx, &total_info);
 
+  // Multi threading statistics
+  AddToInfo_MultiThreading(ctx, &total_info);
+
   // Dialect statistics
   AddToInfo_Dialects(ctx);
 
   // Run time configuration
   AddToInfo_RSConfig(ctx);
 
+  // Disk metrics, on Flex only.
+  if (SearchDisk_IsEnabled()) {
+    RS_ASSERT(SearchDisk_IsInitialized());
+    AddToInfo_Disk(ctx);
+  }
+
   // Active operations
   if (for_crash_report) {
     AddToInfo_CurrentThread(ctx);
     AddToInfo_BlockedQueries(ctx);
+    AddToInfo_RustBacktrace(ctx);
   }
 }
 
@@ -185,16 +215,41 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                      FieldsGlobalStats_GetIndexErrorCount(INDEXFLD_T_GEOMETRY));
     RedisModule_InfoEndDictField(ctx);
   }
+  // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_text_fields",
+                                  RSGlobalStats.fieldsStats.textTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_tag_fields",
+                                  RSGlobalStats.fieldsStats.tagTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_numeric_fields",
+                                  RSGlobalStats.fieldsStats.numericTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geo_fields",
+                                  RSGlobalStats.fieldsStats.geoTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_geoshape_fields",
+                                  RSGlobalStats.fieldsStats.geometryTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_vector_fields",
+                                  RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddSection(ctx, "indexes");
-  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", Indexes_Count());
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", (float)total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", total_info->total_num_docs_in_indexes);
+}
+
+static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
+  RedisModule_InfoAddSection(ctx, "indexes");
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", 0);
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", 0);
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -209,9 +264,14 @@ void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   // Max
   RedisModule_InfoAddFieldULongLong(ctx, "largest_memory_index", total_info->max_mem);
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
+}
 
-  // Vector memory
+void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
+  RedisModule_InfoAddSection(ctx, "vector_index");
+
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
+  RedisModule_InfoAddFieldULongLong(ctx, "hnsw_direct_main_thread_insertions", total_info->fields_stats.total_direct_hnsw_insertions);
+  RedisModule_InfoAddFieldULongLong(ctx, "tiered_index_frontend_buffer_size", total_info->fields_stats.total_flat_buffer_size);
 }
 
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
@@ -240,6 +300,8 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", stats.total_query_commands);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_execution_time_ms", stats.total_query_execution_time);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_queries", total_info->total_active_queries);
+  double total_coord_dispatch_time_ms_d = rs_wall_clock_convert_ns_to_ms_d(stats.total_coord_dispatch_time);
+  RedisModule_InfoAddFieldDouble(ctx, "total_coord_dispatch_time_ms", total_coord_dispatch_time_ms_d);
 }
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -248,6 +310,43 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
   RedisModule_InfoAddFieldULongLong(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
+  // Queries errors and warnings
+  QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
+  // Shard errors and warnings
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_syntax", stats.shard_errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_arguments", stats.shard_errors.arguments);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_timeout", stats.shard_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_timeout", stats.shard_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_oom", stats.shard_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_errors_unavailable_slots", stats.shard_errors.unavailableSlots);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_oom", stats.shard_warnings.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_max_prefix_expansions", stats.shard_warnings.maxPrefixExpansion);
+  RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_asm_inaccurate_results", stats.shard_warnings.asm_inaccuracy);
+
+  // Coordinator errors and warnings
+  RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors");
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_syntax", stats.coord_errors.syntax);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_arguments", stats.coord_errors.arguments);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_timeout", stats.coord_warnings.timeout);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_oom", stats.coord_errors.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_unavailable_slots", stats.coord_errors.unavailableSlots);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_oom", stats.coord_warnings.oom);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_max_prefix_expansions", stats.coord_warnings.maxPrefixExpansion);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_asm_inaccurate_results", stats.coord_warnings.asm_inaccuracy);
+}
+
+void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
+  RedisModule_InfoAddSection(ctx, "multi_threading");
+  MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_queries", stats.uv_threads_running_queries);
+  RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_topology_update", stats.uv_threads_running_topology_update);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_worker_threads", stats.active_worker_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "active_coord_threads", stats.active_coord_threads);
+  RedisModule_InfoAddFieldULongLong(ctx, "workers_low_priority_pending_jobs", stats.workers_low_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "workers_high_priority_pending_jobs", stats.workers_high_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "workers_admin_priority_pending_jobs", stats.workers_admin_priority_pending_jobs);
+  RedisModule_InfoAddFieldULongLong(ctx, "coord_high_priority_pending_jobs", stats.coord_high_priority_pending_jobs);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
@@ -298,9 +397,12 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.minPhoneticTermLen);
   RedisModule_InfoAddFieldLongLong(ctx, "bm25std_tanh_factor",
                                    RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
+
+  RedisModule_InfoAddFieldCString(ctx, "info_on_zero_indexes",
+                                  RSGlobalConfig.infoEmitOnZeroIndexes ? "ON" : "OFF");
 }
 
-// IF the crashing thread worked on a spec, output the spec name
+// IF the crashing thread worked on a spec, output the spec name and info
 void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
   RedisModule_InfoAddSection(ctx, "current_thread");
@@ -310,13 +412,21 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   if (specInfo) {
     StrongRef strong = WeakRef_Promote(specInfo->specRef);
     IndexSpec *spec = StrongRef_Get(strong);
+
+    // Gives us a sense of how long this thread was active on this index before we crashed.
+    // Note: This duration includes the entire lifetime from when the thread started working
+    // on the index until the crash report is generated, including signal handling time.
+    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&specInfo->runningTime);
+    RedisModule_InfoAddFieldULongLong(ctx, "run_time_ns", duration);
+
     // spec can be null if the spec was deleted,
     // e.g in gc thread: it manages to take a strong ref but the invalidation flag was later turned on and no more strong refs can be taken
     if (!spec) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-      // output FT.INFO
+      // Output FT.INFO in a crash-safe manner (no allocations, no locks)
+      // This includes the index name, so no need to output it separately
+      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true);
     }
   }
 }
@@ -349,7 +459,7 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
     IndexSpec *spec = StrongRef_Get(at->spec);
     char buffer[21]; // 20 is the max length of a uint64_t
-    sprintf(buffer, "%zu", at->cursorId);
+    snprintf(buffer, sizeof(buffer), "%zu", at->cursorId);
     RedisModule_InfoBeginDictField(ctx, buffer);
     RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
     RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
@@ -368,4 +478,9 @@ void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "blocked_cursors");
   // Assumes no other thread is currently accessing the active-threads container
   AddCursorsToInfo(ctx, blockedQueries);
+}
+
+void AddToInfo_Disk(RedisModuleInfoCtx *ctx) {
+  // Delegate to the disk API which outputs aggregated metrics directly
+  SearchDisk_OutputInfoMetrics(ctx);
 }

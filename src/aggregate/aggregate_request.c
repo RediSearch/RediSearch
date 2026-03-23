@@ -9,6 +9,7 @@
 #include "aggregate.h"
 #include "reducer.h"
 
+#include <cursor.h>
 #include <query.h>
 #include <extension.h>
 #include <result_processor.h>
@@ -16,7 +17,7 @@
 #include <rmutil/util.h>
 #include "ext/default.h"
 #include "extension.h"
-#include "profile.h"
+#include "profile/profile.h"
 #include "config.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
@@ -24,6 +25,11 @@
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "slots_tracker.h"
+#include "asm_state_machine.h"
+#include "coord/rmr/command.h"
+#include "search_disk.h"
+#include "search_disk_utils.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -201,13 +207,13 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
 }
 
 // Parse the timeout value
-int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status) {
+int parseTimeout(size_t *timeout, ArgsCursor *ac, QueryError *status) {
   if (AC_NumRemaining(ac) < 1) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Need an argument for TIMEOUT");
     return REDISMODULE_ERR;
   }
 
-  if (AC_GetLongLong(ac, timeout, AC_F_GE0) != AC_OK) {
+  if (AC_GetSize(ac, timeout, AC_F_GE0) != AC_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
       "TIMEOUT requires a non negative integer.");
     return REDISMODULE_ERR;
@@ -295,12 +301,40 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
     if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
+      // Special case for SORTBY 0 in hybrid tail.
       AC_Advance(ac);  // Advance without adding SortBy step to the plan
       *papCtx->reqflags |= QEXEC_F_NO_SORT;
     } else {
-      PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
+      // Handle SORTBY (also covers SORTBY 0 MAX n)
+      // Note: SORTBY validation for disk indexes is deferred to after query parsing
+      // to allow SORTBY *only* on vector distance fields (done in AREQ_Compile)
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
+      PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(papCtx->plan);
+      bool existingSort = (arng != NULL);
+      if (!arng) {
+        arng = NewArrangeStep();
+      }
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {
+        if (!existingSort) {
+          arng->base.dtor(&arng->base);
+        }
         return ARG_ERROR;
+      }
+      if (array_len(arng->sortKeys) == 0) {
+        // No need to sort
+        REQFLAGS_RemoveFlags(papCtx->reqflags, QEXEC_F_HAS_SORTBY);
+        if (!existingSort) {
+          if (arng->limit > 0) {
+            // To support SORTBY 0 MAX n, we have a SORTER without any keys,
+            // but with a limit.
+            AGPLN_AddStep(papCtx->plan, &arng->base);
+          } else {
+            arng->base.dtor(&arng->base);
+          }
+        }
+      } else if (!existingSort) {
+        // Need to sort (add a sorter step if not yet added)
+        AGPLN_AddStep(papCtx->plan, &arng->base);
       }
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
@@ -313,6 +347,10 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
+    if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+      return ARG_ERROR;
+    }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -372,9 +410,29 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to deserialize "SLOTS_STR" data");
       return ARG_ERROR;
     }
-    // TODO ASM: check if the requested slots are available
+    OptionSlotTrackerVersion version = slots_tracker_check_availability(slot_array);
+    if (!version.is_some) {
+      rm_free((void *)slot_array);
+      QueryError_SetError(status, QUERY_ERROR_CODE_UNAVAILABLE_SLOTS, "Query requires unavailable slots");
+      return ARG_ERROR;
+    }
+    *papCtx->keySpaceVersion = version.version;
+    if (*papCtx->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(*papCtx->keySpaceVersion);
+    }
     *papCtx->querySlots = slot_array;
-    *papCtx->slotsVersion = 0;
+  } else if ((*papCtx->reqflags & QEXEC_F_INTERNAL) && AC_AdvanceIfMatch(ac, COORD_DISPATCH_TIME_STR)) {
+    // Parse coordinator dispatch time for internal commands
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " missing argument");
+      return ARG_ERROR;
+    }
+    unsigned long long dispatchTime;
+    if (AC_GetUnsignedLongLong(ac, &dispatchTime, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, COORD_DISPATCH_TIME_STR " requires a numeric value");
+      return ARG_ERROR;
+    }
+    *papCtx->coordDispatchTime = dispatchTime;
   } else {
     return ARG_UNKNOWN;
   }
@@ -514,7 +572,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
 }
 
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
-                          QueryAST *ast, AggregatePlan *plan, QueryError *status) {
+                          QueryAST *ast, AggregatePlan *plan, bool isDiskIndex, QueryError *status) {
   // Parse query-specific arguments..
   const char *languageStr = NULL;
   ArgsCursor returnFields = {0};
@@ -568,6 +626,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SUMMARIZE", status)) {
+        return REDISMODULE_ERR;
+      }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
@@ -577,6 +638,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        return REDISMODULE_ERR;
+      }
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("HIGHLIGHT", status)) {
         return REDISMODULE_ERR;
       }
 
@@ -593,9 +657,19 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+      if (IsAggregate(req)) {
+        AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+        if (IsCursor(req) && !IsInternal(req)) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
+          return REDISMODULE_ERR;
+        }
+      }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+      if (IsAggregate(req)) {
+        AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
+      }
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -609,7 +683,8 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         .maxSearchResults = &req->maxSearchResults,
         .maxAggregateResults = &req->maxAggregateResults,
         .querySlots = &req->querySlots,
-        .slotsVersion = &req->slotsVersion,
+        .keySpaceVersion = &req->keySpaceVersion,
+        .coordDispatchTime = &req->profileClocks.coordDispatchTime,
       };
       int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
@@ -619,6 +694,19 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       } else {
         break;
       }
+    }
+  }
+
+  // Block SLOP and INORDER for disk indexes
+  // slop defaults to -1, so any other value means it was explicitly set
+  if (isDiskIndex && searchOpts->slop != -1) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("SLOP", status)) {
+      return REDISMODULE_ERR;
+    }
+  }
+  if (isDiskIndex && (searchOpts->flags & Search_InOrder)) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("INORDER", status)) {
+      return REDISMODULE_ERR;
     }
   }
 
@@ -685,6 +773,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
     FieldList_RestrictReturn(&req->outFields);
   }
+
+  // Currently we don't support loading fields from disk indexes
+  // We require the NOCONTENT flag to be set or a RETURN 0 clause to be specified
+  if (isDiskIndex && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
+    return REDISMODULE_ERR;
+  }
+
   return REDISMODULE_OK;
 }
 
@@ -759,6 +855,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
                             QueryError *status) {
   // Just a list of functions..
   PLN_Reducer *gr = array_ensure_tail(&gstp->reducers, PLN_Reducer);
+  const char *alias = NULL;
 
   gr->name = name;
   int rv = AC_GetVarArgs(ac, &gr->args);
@@ -767,7 +864,6 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     goto error;
   }
 
-  const char *alias = NULL;
   // See if there is an alias
   if (AC_AdvanceIfMatch(ac, "AS")) {
     rv = AC_GetString(ac, &alias, NULL, 0);
@@ -915,8 +1011,12 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   ArgsCursor loadfields = {0};
+  if (isDiskIndex) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
+    return REDISMODULE_ERR;
+  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -970,10 +1070,24 @@ AREQ *AREQ_New(void) {
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
   req->prefixesOffset = 0;
+  req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
+  req->querySlots = NULL;
+  RequestSyncCtx_Init(&req->syncCtx);
+  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
-int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
+bool AREQ_TimedOut(AREQ *req) {
+  return atomic_load_explicit(&req->syncCtx.timedOut, memory_order_acquire);
+}
+
+void AREQ_SetTimedOut(AREQ *req) {
+  atomic_store_explicit(&req->syncCtx.timedOut, true, memory_order_release);
+}
+
+
+
+int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
     int rv = handleCommonArgs(papCtx, ac, status);
     if (rv == ARG_HANDLED) {
@@ -989,12 +1103,13 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
       if (parseGroupby(papCtx->plan, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_HAS_GROUPBY);
     } else if (AC_AdvanceIfMatch(ac, "APPLY")) {
       if (handleApplyOrFilter(papCtx->plan, ac, status, 1) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -1020,7 +1135,22 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
   return REDISMODULE_OK;
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
+static bool IsNeededDepleter(AREQ *req) {
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
+}
+
+// This function should only be called from the main thread (calling RunInThread() is not thread safe)
+// AREQ execution flags are not set when this function is called currently
+static bool shouldCheckInPipelineTimeout(AREQ *req) {
+  // We should check for timeout in pipeline only if timeout is > 0
+  // and when the policy is RETURN or the policy is FAIL, without workers.
+  return req->reqConfig.queryTimeoutMS > 0 &&
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
+          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+
+}
+
+int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
   // Copy the arguments into an owned array of sds strings
@@ -1042,13 +1172,14 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   req->query = AC_GetStringNC(&ac, NULL);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
-  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
+  ParseAggPlanContext papCtx;
+  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  ParseAggPlanContext papCtx = {
+  papCtx = (ParseAggPlanContext){
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->reqConfig,
@@ -1059,9 +1190,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     .maxSearchResults = &req->maxSearchResults,
     .maxAggregateResults = &req->maxAggregateResults,
     .querySlots = &req->querySlots,
-    .slotsVersion = &req->slotsVersion,
+    .keySpaceVersion = &req->keySpaceVersion,
+    .coordDispatchTime = &req->profileClocks.coordDispatchTime,
   };
-  if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
+  if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1070,6 +1202,16 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
     goto error;
   }
+
+  // Define if we need a depleter in the pipeline to get accurate total results
+  if (IsAggregate(req) && HasWithCount(req)) {
+    if (IsNeededDepleter(req)) {
+      AREQ_AddRequestFlags(req, QEXEC_F_HAS_DEPLETER);
+    }
+  }
+
+  // Check if we should check for timeout in pipeline
+  AREQ_SetSkipTimeoutChecks(req, !shouldCheckInPipelineTimeout(req));
 
   return REDISMODULE_OK;
 
@@ -1216,11 +1358,17 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
-  // Set vector node as ast->root and use setFilterNode for proper filter integration
-  // setFilterNode handles both KNN (child relationship) and RANGE (intersection) properly
+  // Set vector node as ast->root and use SetFilterNode for proper filter integration.
+  // SetFilterNode handles both KNN (child relationship) and RANGE (intersection) properly.
+  // For RANGE queries without explicit FILTER, we skip filter integration to keep
+  // the vector node as root directly, preserving BY_SCORE ordering from the iterator.
+  RS_LOG_ASSERT(!(pvd->skipFilterIntegration && ast->root != NULL),
+                "ast->root should be NULL when skipFilterIntegration is true");
   QueryNode *oldRoot = ast->root;
   ast->root = vecNode;
-  SetFilterNode(ast, oldRoot);
+  if (!pvd->skipFilterIntegration) {
+    SetFilterNode(ast, oldRoot);
+  }
 
   return REDISMODULE_OK;
 }
@@ -1278,6 +1426,25 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     opts->scorerName = RSGlobalConfig.defaultScorer;
   }
 
+  // Block scorers that use slop for disk indexes
+  if (SearchDisk_IsEnabledForValidation()) {
+    if (strcasecmp(opts->scorerName, TFIDF_SCORER_NAME) == 0) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF scorer", status)) {
+        return REDISMODULE_ERR;
+      }
+    }
+    if (strcasecmp(opts->scorerName, TFIDF_DOCNORM_SCORER_NAME) == 0) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("TFIDF.DOCNORM scorer", status)) {
+        return REDISMODULE_ERR;
+      }
+    }
+    if (strcasecmp(opts->scorerName, BM25_SCORER_NAME) == 0) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("BM25 scorer", status)) {
+        return REDISMODULE_ERR;
+      }
+    }
+  }
+
   bool resp3 = req->protocol == 3;
   if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -1288,16 +1455,22 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     StopWordList_Ref(sctx->spec->stopwords);
   }
 
-  req->slotRanges = Slots_GetLocalSlots();
-
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
   unsigned long dialectVersion = req->reqConfig.dialectVersion;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
-  if (rv != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+  // For RANGE queries without explicit FILTER (skipFilterIntegration=true), we
+  // can skip parsing the wildcard query "*" since we'll immediately replace
+  // ast->root with the vector node anyway. This avoids allocating and freeing a
+  // wildcard node unnecessarily.
+  bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
+
+  if (!skipParse) {
+    int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
+    if (rv != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if (req->parsedVectorData) {
@@ -1341,12 +1514,38 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-void AREQ_Free(AREQ *req) {
+void ChunkReplyState_Destroy(ChunkReplyState *state) {
+  // Free any stored results that weren't consumed
+  // (e.g., if timeout occurred before reply_callback ran)
+  if (state->results) {
+    for (size_t i = 0; i < array_len(state->results); i++) {
+      SearchResult_Destroy(state->results[i]);
+      rm_free(state->results[i]);
+    }
+    array_free(state->results);
+    state->results = NULL;
+  }
+
+  // Timeout edge case: cursor wasn't handled by reply_callback.
+  // See ChunkReplyState ownership model in aggregate.h for full explanation.
+  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  if (state->cursor) {
+    state->cursor->execState = NULL;
+    Cursor_Free(state->cursor);
+    state->cursor = NULL;
+  }
+
+  // Clear stored error state
+  QueryError_ClearError(&state->err);
+}
+
+static void AREQ_Free(AREQ *req) {
+  ChunkReplyState_Destroy(&req->storedReplyState);
+
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
   // was created to take ownership of it.
   bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
-
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
@@ -1368,7 +1567,9 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
-  Slots_FreeLocalSlots(req->slotRanges);
+  if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+    ASM_KeySpaceVersionTracker_DecreaseQueryCount(req->keySpaceVersion);
+  }
   rm_free((void *)req->querySlots);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
@@ -1421,7 +1622,16 @@ void AREQ_Free(AREQ *req) {
   rm_free(req);
 }
 
+AREQ *AREQ_IncrRef(AREQ *req) {
+  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
+  return req;
+}
 
+void AREQ_DecrRef(AREQ *req) {
+  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
+    AREQ_Free(req);
+  }
+}
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
@@ -1435,12 +1645,13 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
-      .slotRanges = req->slotRanges,
+      .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
+      .keySpaceVersion = req->keySpaceVersion,
     };
     req->rootiter = NULL; // Ownership of the root iterator is now with the params.
-    req->slotRanges = NULL; // Ownership of the slot ranges is now with the params.
+    req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

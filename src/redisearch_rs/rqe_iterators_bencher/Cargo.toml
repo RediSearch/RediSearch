@@ -19,17 +19,21 @@ harness = false
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }
-cc = "1.0"
 
 [dependencies]
 criterion.workspace = true
 ffi.workspace = true
+field.workspace = true
+query_term.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }
+iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
 itertools.workspace = true
 redis_mock.workspace = true
-rqe_iterators.workspace = true
-types_ffi = { path = "../c_entrypoint/types_ffi" }
-triemap_ffi = { path = "../c_entrypoint/triemap_ffi" }
-varint_ffi = { path = "../c_entrypoint/varint_ffi" }
-value_ffi = { path = "../c_entrypoint/value_ffi" }
+rqe_iterators = { workspace = true }
+rqe_iterators_test_utils = { workspace = true }
+rand.workspace = true
+workspace_hack.workspace = true
+
+# Crate required to invoke C symbols
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }

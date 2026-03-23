@@ -6,9 +6,22 @@ on:
   workflow_call:
 
 jobs:
+  build-image:
+    name: Build container for lint
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ubuntu:noble
+      runner-env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+
   lint:
     name: Linting
+    needs: build-image
+    if: ${{ !cancelled() }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      needs.build-image.outputs.succeeded == 'true'
+        && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
+      || null }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -17,21 +30,61 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          if [[ "${{ needs.build-image.outputs.succeeded }}" == 'true' ]]; then
+            echo "mode=" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=sudo" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
       - name: Setup
+        if: needs.build-image.outputs.succeeded != 'true'
         working-directory: .install
-        run: ./install_script.sh sudo
-
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      # Cache Rust packages and binaries
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          # The cargo workspaces and target directory configuration.
+          # These entries are separated by newlines and have the form
+          # `$workspace -> $target`. The `$target` part is treated as a directory
+          # relative to the `$workspace` and defaults to "target" if not explicitly given.
+          # default: ". -> target"
+          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+      - name: Hakari
+        run: cargo install cargo-hakari --locked
       - name: Lint
         id: lint
         continue-on-error: true
         run: make lint
 
-      - name: Diff
+      - name: Generated files
         id: git-diff
         continue-on-error: true
-        # error if there is uncommitted changes as it's likely generated code which has not been committed
-        run: git diff --exit-code
-
+        run: |
+          if ! git diff --exit-code; then
+            echo "Uncommitted changes found. This is likely because of automatically generated code which has not been committed."
+            exit 1
+          fi
       - name: License header
         id: license-header
         continue-on-error: true
@@ -54,6 +107,19 @@ jobs:
           command: check licenses
           arguments: --all-features
           manifest-path: src/redisearch_rs/Cargo.toml
+      - name: Workspace hack check
+        id: workspace_hack
+        working-directory: src/redisearch_rs
+        continue-on-error: true
+        run: |
+          if ! cargo hakari generate --diff || ! cargo hakari manage-deps --dry-run; then
+            echo "Suggested fix:"
+            echo "  Run the following command in 'src/redisearch_rs' to update workspace_hack's Cargo.toml and ensure all workspace crates depend on workspace_hack:"
+            echo "    cargo hakari generate && cargo hakari manage-deps"
+            exit 1
+          fi
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||
@@ -61,12 +127,14 @@ jobs:
           steps.license-header.outcome == 'failure' ||
           steps.fmt.outcome == 'failure' ||
           steps.advisories.outcome == 'failure' ||
-          steps.dep-licenses.outcome == 'failure'
+          steps.dep-licenses.outcome == 'failure' ||
+          steps.workspace_hack.outcome == 'failure'
         run: |
           echo "Linting: ${{ steps.lint.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
-          echo "Diff: ${{ steps.git-diff.outcome }}"
+          echo "Generated files: ${{ steps.git-diff.outcome }}"
           echo "Formatting: ${{ steps.fmt.outcome }}"
           echo "Security advisories: ${{ steps.advisories.outcome }}"
           echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
+          echo "Workspace hack: ${{ steps.workspace_hack.outcome }}"
           exit 1
