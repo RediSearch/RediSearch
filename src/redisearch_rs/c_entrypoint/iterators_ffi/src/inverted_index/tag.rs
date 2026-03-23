@@ -210,5 +210,5 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_TAG_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxTag, iterator)
 }

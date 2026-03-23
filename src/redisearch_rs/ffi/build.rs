@@ -125,6 +125,11 @@ fn main() {
         .blocklist_file(".*/numeric_range_tree.h")
         // Provided by the query_term_ffi crate, not parsed from C
         .blocklist_file(".*/query_term.h")
+        // IteratorType is defined in Rust (rqe_iterator_type crate);
+        // cbindgen generates iterator_type.h which is included by
+        // iterator_api.h. We blocklist the generated header so bindgen
+        // doesn't re-parse it, and re-export the Rust type from lib.rs.
+        .blocklist_file(".*/iterator_type.h")
         .allowlist_file(".*/types_rs.h")
         .generate()
         .expect("Unable to generate bindings")

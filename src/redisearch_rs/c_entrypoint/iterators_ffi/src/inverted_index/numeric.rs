@@ -302,7 +302,7 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
         }
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_NUMERIC_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxNumeric, iterator)
 }
 
 /// Gets the numeric filter from a numeric inverted index iterator.
