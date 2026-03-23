@@ -179,7 +179,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
     // Store docId in key metadata for fast lookup
     size_t specNameLen;
     const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
-    DocIdMeta_Set(RSDummyContext, doc->docKey, specName, specNameLen, dmd->id);
+    DocIdMeta_Set(ctx, doc->docKey, specName, specNameLen, dmd->id);
   }
 
   return dmd;

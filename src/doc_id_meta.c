@@ -162,14 +162,14 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
     .version = 1,
     .reset_value = 0,
-    .flags = 0,
+    .flags = REDISMODULE_META_ALLOW_IGNORE,
     .copy = (RedisModuleKeyMetaCopyFunc)docIdMetaCopy,
     .rename = NULL, // If NULL, meta is kept during rename
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = NULL, // If NULL, meta is ignored during unlink
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
-    .rdb_load = (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad,
-    .rdb_save = (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave,
+    .rdb_load = NULL, // (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad,
+    .rdb_save = NULL, // (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave,
     .aof_rewrite = NULL,
     .defrag = NULL,
     .mem_usage = NULL,
