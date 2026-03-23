@@ -26,6 +26,13 @@ Key files:
 - `.github/workflows/task-get-config.yml` — per-platform CI config (contains `enable_lto` flag)
 - `docs/lto-ci-investigation.md` — detailed investigation notes
 
+## Scope
+
+**x86_64 is currently out of scope** due to unresolved problems with SVS LVQ.
+Only enable LTO for aarch64 platforms for now.
+
+Never set any SVS LVQ-related build flags (e.g. `BUILD_INTEL_SVS_OPT`) when building.
+
 ## Instructions
 
 ### 1. Identify the Container Image
@@ -86,7 +93,7 @@ Gather toolchain info:
 # System GCC version (clang will link against its libstdc++)
 docker exec lto-<PLATFORM_SLUG> gcc --version
 
-# glibc version (affects SVS symbol compatibility on x86_64)
+# glibc version
 docker exec lto-<PLATFORM_SLUG> ldd --version
 
 # Rust's LLVM version (must match clang)
@@ -100,7 +107,7 @@ docker exec lto-<PLATFORM_SLUG> bash -c "g++ -E -x c++ -v /dev/null 2>&1 | sed -
 ```
 
 Record:
-- **glibc version** — affects symbol compatibility of prebuilt SVS on x86_64
+- **glibc version**
 - **GCC version** — clang will use this GCC's libstdc++ headers
 - **Whether clang is present** — if not, the install script doesn't source `install_llvm.sh` yet
 
@@ -140,18 +147,11 @@ docker exec lto-<PLATFORM_SLUG> bash -c 'clang-21 --version 2>/dev/null || clang
 docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1'
 ```
 
-On x86_64, if the build fails with GLIBCXX or glibc symbol errors from SVS, retry with:
-
-```bash
-docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1 BUILD_INTEL_SVS_OPT=0'
-```
-
 Watch for:
 - **GLIBCXX symbol mismatch** — clang picking up wrong GCC headers. `build.sh` has a diagnostic
   that catches this. Fix by ensuring `--gcc-install-dir` and `-nostdinc++`/`-isystem` point to
   system GCC.
-- **Linker errors from lld** — undefined symbols, missing libraries. Often caused by incompatible
-  prebuilt dependencies.
+- **Linker errors from lld** — undefined symbols, missing libraries.
 - **`install_llvm.sh` failures** — the distro's package manager may not have the required LLVM
   version.
 
@@ -166,7 +166,7 @@ docker exec lto-<PLATFORM_SLUG> bash -c 'nm -D bin/linux-*/search/redisearch.so 
 # GLIBCXX symbols available on the platform
 docker exec lto-<PLATFORM_SLUG> bash -c 'strings /usr/lib/*/libstdc++.so.6 | grep GLIBCXX | sort -V'
 
-# glibc symbols in the binary (x86_64 SVS concern)
+# glibc symbols in the binary
 docker exec lto-<PLATFORM_SLUG> bash -c 'nm -D bin/linux-*/search/redisearch.so | grep GLIBC_ | sort -t@ -k2 -V'
 
 # glibc symbols available on the platform
@@ -186,8 +186,6 @@ docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1 RUN_UNIT_TESTS'
 docker exec lto-<PLATFORM_SLUG> bash -c './build.sh LTO=1 RUN_PYTEST'
 ```
 
-If x86_64 needed `BUILD_INTEL_SVS_OPT=0` for the build, add it to the test commands too.
-
 ### 9. Clean Up the Container
 
 **Important:** Always stop and remove running Docker containers when finished. Do not leave them running.
@@ -198,8 +196,8 @@ docker rm -f lto-<PLATFORM_SLUG>
 
 ### 10. Test Both Architectures
 
-Repeat steps 2-9 for both x86_64 and aarch64 if the platform supports both.
-On aarch64 there is no prebuilt SVS library, so SVS-related issues don't apply.
+Currently only aarch64 is in scope (x86_64 is blocked by SVS LVQ issues).
+Repeat steps 2-9 for aarch64.
 
 ### 11. Update CI Config
 
@@ -214,15 +212,11 @@ Find the `$ARGUMENTS` entry in `platform_configs` and add or update:
 'enable_lto': '1'
 ```
 
-If the platform requires `BUILD_INTEL_SVS_OPT=0` on x86_64, note this as a comment or handle it
-in `build.sh` (check the existing pattern for how other platforms handle this).
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `GLIBCXX_3.4.3x not found` | Clang using newer GCC headers than system GCC | Fix GCC header pinning in `build.sh` — check `-nostdinc++` and `-isystem` flags |
-| `undefined symbol: __memcmpeq@GLIBC_2.35` | Prebuilt SVS linked against newer glibc | Use `BUILD_INTEL_SVS_OPT=0` to build SVS from source |
 | `clang-21: command not found` | `install_llvm.sh` failed or didn't add to PATH | Check `install_llvm.sh` output, verify PATH includes `/usr/local/llvm/bin` |
 | `LLVM version mismatch` | Clang and rustc using different LLVM versions | Ensure `.install/LLVM_VERSION.sh` matches `rustc --version --verbose` |
 | `lld: error: undefined symbol` | Missing runtime library at link time | Check that lld can find libstdc++, libgcc, and glibc |
