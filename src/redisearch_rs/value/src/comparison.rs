@@ -45,11 +45,9 @@ pub fn compare(
     num_to_str_cmp_fallback: bool,
 ) -> Result<Ordering, CompareError> {
     match (v1, v2) {
-        (RsValue::Ref(r1), RsValue::Ref(r2)) => {
-            compare(r1.value(), r2.value(), num_to_str_cmp_fallback)
-        }
-        (RsValue::Ref(r1), _) => compare(r1.value(), v2, num_to_str_cmp_fallback),
-        (_, RsValue::Ref(r2)) => compare(v1, r2.value(), num_to_str_cmp_fallback),
+        (RsValue::Ref(r1), RsValue::Ref(r2)) => compare(r1, r2, num_to_str_cmp_fallback),
+        (RsValue::Ref(r1), _) => compare(r1, v2, num_to_str_cmp_fallback),
+        (_, RsValue::Ref(r2)) => compare(v1, r2, num_to_str_cmp_fallback),
         (RsValue::Null, RsValue::Null) => Ok(Ordering::Equal),
         (RsValue::Null, _) => Ok(Ordering::Less),
         (_, RsValue::Null) => Ok(Ordering::Greater),
@@ -60,14 +58,12 @@ pub fn compare(
         (RsValue::RedisString(rs1), RsValue::RedisString(rs2)) => {
             Ok(rs1.as_bytes().cmp(rs2.as_bytes()))
         }
-        (RsValue::Trio(t1), RsValue::Trio(t2)) => compare(
-            t1.left().value(),
-            t2.left().value(),
-            num_to_str_cmp_fallback,
-        ),
+        (RsValue::Trio(t1), RsValue::Trio(t2)) => {
+            compare(t1.left(), t2.left(), num_to_str_cmp_fallback)
+        }
         (RsValue::Array(a1), RsValue::Array(a2)) => {
             for (i1, i2) in a1.iter().zip(a2.deref()) {
-                let cmp = compare(i1.value(), i2.value(), num_to_str_cmp_fallback)?;
+                let cmp = compare(i1, i2, num_to_str_cmp_fallback)?;
                 if cmp != Ordering::Equal {
                     return Ok(cmp);
                 }

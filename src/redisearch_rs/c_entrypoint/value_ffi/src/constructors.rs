@@ -230,3 +230,18 @@ pub extern "C" fn RSValue_NewNumberFromInt64(number: i64) -> *mut RsValue {
         .into_raw()
         .cast_mut()
 }
+
+/// Returns a pointer to the static [`RsValue::Null`] sentinel.
+///
+/// Unlike [`RSValue_NewNull`], this does **not** heap-allocate; it returns a
+/// pointer to a shared static value managed by [`SharedRsValue::null_static`].
+/// The returned pointer must still be passed to
+/// [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef) for symmetry.
+///
+/// # Safety
+///
+/// The returned pointer must not be mutated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSValue_NullStatic() -> *mut RsValue {
+    SharedRsValue::null_static().into_raw().cast_mut()
+}
