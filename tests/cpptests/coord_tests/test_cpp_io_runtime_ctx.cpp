@@ -28,16 +28,24 @@ static void testCallback(void *privdata) {
   (*counter)++;
 }
 
-// Test callback for topology updates
+// Test callback for topology updates - signals completion to test thread
+// by storing the capShards value in an atomic, avoiding race conditions
+// where the test thread might read a freed topology pointer.
+static std::atomic<uint32_t> lastAppliedCapShards{0};
+
 static void testTopoCallback(void *privdata) {
-  struct UpdateTopologyCtx *ctx = (struct UpdateTopologyCtx *)privdata;
-  IORuntimeCtx *ioRuntime = ctx->ioRuntime;
+  struct UpdateTopologyCtx *updateCtx = (struct UpdateTopologyCtx *)privdata;
+  IORuntimeCtx *ioRuntime = updateCtx->ioRuntime;
   //Simulate what the TopologyValidationTimer should do
   ioRuntime->uv_runtime.loop_th_ready = true;
   MRClusterTopology *old_topo = ioRuntime->topo;
-  MRClusterTopology *new_topo = ctx->new_topo;
+  MRClusterTopology *new_topo = updateCtx->new_topo;
+  // Store the capShards value BEFORE updating the pointer, so test can safely check it
+  uint32_t newCapShards = new_topo->capShards;
   ioRuntime->topo = new_topo;
-  rm_free(ctx);
+  // Signal to the test thread that this topology was applied
+  lastAppliedCapShards.store(newCapShards, std::memory_order_release);
+  rm_free(updateCtx);
   if (old_topo) {
     MRClusterTopology_Free(old_topo);
   }
@@ -160,6 +168,9 @@ TEST_F(IORuntimeCtxCommonTest, Schedule) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
+  // Reset the signal before starting
+  lastAppliedCapShards.store(0, std::memory_order_relaxed);
+
   // Create a new topology
   MRClusterTopology *newTopo = getDummyTopology(4097);
 
@@ -172,15 +183,20 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
   int counter = 0;
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
 
-  while (counter < 1) {
-    usleep(1); // 1us delay
-  }
-  ASSERT_EQ(ctx->topo->capShards, 4097);
+  // Wait for topology to be applied by checking the atomic signal set by the callback.
+  // This avoids the race condition of reading a potentially-freed topology pointer.
+  bool success = RS::WaitForCondition([&]() {
+    return lastAppliedCapShards.load(std::memory_order_acquire) == 4097;
+  });
+  ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, lastAppliedCapShards=" << lastAppliedCapShards.load();
 
   // We don't need to free newTopo here as it's handled by testTopoCallback
 }
 
 TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
+  // Reset the signal before starting
+  lastAppliedCapShards.store(0, std::memory_order_relaxed);
+
   // Schedule one dummy request to start the thread and still have the flag io_runtime_started_or_starting set to true
   int counter = 0;
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
@@ -189,15 +205,13 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
     MRClusterTopology *newTopo = getDummyTopology(4096 + i);
     IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, newTopo, true);
   }
-
-  // Give some time for the last topology to be applied
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
-  while (counter < 2) {
-    usleep(1); // 1us delay
-  }
-
-  // Only the last topology should be applied
-  ASSERT_EQ(ctx->topo->capShards, 4101);
+  // Wait for the last topology (4101) to be applied by checking the atomic signal.
+  // This avoids the race condition of reading a potentially-freed topology pointer.
+  bool success = RS::WaitForCondition([&]() {
+    return lastAppliedCapShards.load(std::memory_order_acquire) == 4101;
+  });
+  ASSERT_TRUE(success) << "Timeout waiting for topology to be applied, lastAppliedCapShards=" << lastAppliedCapShards.load();
 }
 
 TEST_F(IORuntimeCtxCommonTest, ClearPendingTopo) {

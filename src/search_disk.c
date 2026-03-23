@@ -33,6 +33,14 @@ RedisSearchDiskAPI *SearchDisk_GetAPI() {
   return NULL;
 }
 
+__attribute__((weak))
+void SearchDisk_SetAPI() {
+  // Default to no implementation. SearchEnterprise should implement this to correctly set globals
+  // of API implementations. Eg setting the `SEARCH_ENTERPRISE_ITERATORS` Rust global to allow
+  // the iterators to access the enterprise iterator implementations.
+  return;
+}
+
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
@@ -44,6 +52,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "RediSearch disk API disabled");
     return false;
   }
+  SearchDisk_SetAPI();
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
   // Set throttle callbacks for vector disk tiered indexes

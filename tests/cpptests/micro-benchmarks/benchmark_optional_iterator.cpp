@@ -73,7 +73,7 @@ public:
 
   QueryIterator* createOptionalIterator() {
     QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
-    return NewOptionalIterator(child, &mockCtx->qctx, weight);
+    return NewOptionalIterator(child, &mockCtx->qctx, mockCtx->qctx.docTable->maxDocId, weight);
   }
 };
 

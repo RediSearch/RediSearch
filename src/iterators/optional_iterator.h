@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight);
+QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId maxDocId, double weight);
 
 QueryIterator const *GetOptionalIteratorChild(const QueryIterator *const it);
 void SetOptionalIteratorChild(QueryIterator *it, QueryIterator* child);

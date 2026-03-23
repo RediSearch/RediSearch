@@ -1784,6 +1784,7 @@ dependencies = [
  "quote 1.0.44",
  "redis-module",
  "result_processor_ffi",
+ "rlookup_ffi",
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
@@ -1962,7 +1963,6 @@ dependencies = [
  "trie_rs",
  "types_ffi",
  "value",
- "value_ffi",
  "varint_ffi",
  "workspace_hack",
 ]
@@ -2103,9 +2103,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.9"
+version = "0.103.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
+checksum = "df33b2b81ac578cabaf06b89b0631153a3f416b0a886e8a7a1707fb51abbd1ef"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2152,6 +2152,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "inverted_index",
+ "rlookup",
  "workspace_hack",
 ]
 
@@ -2760,8 +2761,10 @@ dependencies = [
  "ffi",
  "fnv",
  "libc",
+ "query_error",
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
  "thiserror",
  "workspace_hack",
 ]
@@ -2776,6 +2779,7 @@ dependencies = [
  "ffi",
  "fnv",
  "libc",
+ "query_error",
  "redis_mock",
  "value",
  "workspace_hack",

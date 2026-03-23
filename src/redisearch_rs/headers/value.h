@@ -103,6 +103,51 @@ uint32_t RSValue_ArrayLen(const struct RsValue *value);
 struct RsValue *RSValue_ArrayItem(const struct RsValue *value, uint32_t index);
 
 /**
+ * Compare two [`RsValue`]s, returning `-1` if `v1 < v2`, `0` if `v1 == v2`,
+ * or `1` if `v1 > v2`.
+ *
+ * When `status` is null, mixed number/string comparisons fall back to
+ * string-based comparison. When `status` is non-null and string-to-number
+ * conversion fails, a [`QueryError`] is written to `status`.
+ *
+ * # Safety
+ *
+ * 1. `v1` and `v2` must be [valid] pointers to [`RsValue`]s.
+ * 2. `status`, when non-null, must be a [valid], writable pointer to a [`QueryError`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int RSValue_Cmp(const struct RsValue *v1, const struct RsValue *v2, QueryError *status);
+
+/**
+ * Check whether two [`RsValue`]s are equal, returning `true` if they are and
+ * `false` otherwise.
+ *
+ * # Safety
+ *
+ * 1. `v1` and `v2` must be [valid] pointers to [`RsValue`]s.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RSValue_Equal(const struct RsValue *v1, const struct RsValue *v2, QueryError *_status);
+
+/**
+ * Test whether an [`RsValue`] is "truthy".
+ *
+ * Returns `true` for non-zero numbers, non-empty strings, and non-empty arrays.
+ * All other variants (including [`RsValue::Null`] and [`RsValue::Map`])
+ * evaluate to `false`. References are followed via
+ * [`RsValue::fully_dereferenced_ref`].
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid] pointer to an [`RsValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RSValue_BoolTest(const struct RsValue *value);
+
+/**
  * Creates and returns a new **owned** [`RsValue::Undefined`].
  *
  * The returned [`RsValue`] is heap-allocated. The caller must ensure it is
@@ -293,6 +338,22 @@ bool RSValue_ToNumber(const struct RsValue *value, double *d);
  * Panics if `value` is not an [`RsValue::Number`].
  */
 size_t RSValue_NumToString(const struct RsValue *value, char *buf, size_t buflen);
+
+/**
+ * Writes the debug representation of an [`RsValue`] into an SDS string.
+ *
+ * If `value` is null, writes `"nil"`. Otherwise, formats the value using
+ * [`DebugFormatter`](value::debug::DebugFormatter), optionally obfuscating
+ * sensitive data when `obfuscate` is `true`.
+ *
+ * # Safety
+ *
+ * 1. If non-null, `value` must be a [valid] pointer to an [`RsValue`].
+ * 2. `sds` must be a [valid], non-null SDS string allocated by the C SDS library.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+sds RSValue_DumpSds(const struct RsValue *value, sds sds, bool obfuscate);
 
 /**
  * Gets the numeric value from an [`RsValue`].

@@ -41,7 +41,7 @@ add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
 
-# Workaround: fmt 11.2.0 is missing <cstdlib> include, which is needed for LLVM 21+ on MacOS
+# Workaround: fmt 11.2.0 is missing <cstdlib> include, which is needed for clang 21+ on macOS
 # This was fixed in fmt 12.0.0, but that requires patching several levels upstream.
 if(TARGET fmt)
     target_compile_options(fmt PRIVATE "-include" "cstdlib")

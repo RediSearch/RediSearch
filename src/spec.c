@@ -68,6 +68,7 @@ uint16_t pendingIndexDropCount_g = 0;
 
 Version redisVersion;
 Version rlecVersion;
+bool isEnterprise = false;
 bool isCrdt;
 bool isTrimming = false;
 bool isFlex = false;
@@ -1149,6 +1150,9 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->options |= FieldSpec_Phonetics;
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_WITHSUFFIXTRIE_STR, status)) {
+        return 0;
+      }
       fs->options |= FieldSpec_WithSuffixTrie;
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
       fs->options |= FieldSpec_IndexEmpty;
@@ -1184,6 +1188,9 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_CASE_SENSITIVE_STR)) {
         fs->tagOpts.tagFlags |= TagField_CaseSensitive;
       } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
+        if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(SPEC_WITHSUFFIXTRIE_STR, status)) {
+          return 0;
+        }
         fs->options |= FieldSpec_WithSuffixTrie;
       } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXEMPTY_STR)) {
         fs->options |= FieldSpec_IndexEmpty;
@@ -3045,8 +3052,12 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
       RedisModule_InfoAddFieldCString(ctx, "identifier", path);
       RedisModule_InfoAddFieldCString(ctx, "attribute", name);
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "identifier", FieldSpec_FormatPath(fs, obfuscate));
-      RedisModule_InfoAddFieldCString(ctx, "attribute", FieldSpec_FormatName(fs, obfuscate));
+      const char *path = FieldSpec_FormatPath(fs, obfuscate);
+      const char *name = FieldSpec_FormatName(fs, obfuscate);
+      RedisModule_InfoAddFieldCString(ctx, "identifier", path);
+      RedisModule_InfoAddFieldCString(ctx, "attribute", name);
+      rm_free((void*)path);
+      rm_free((void*)name);
     }
 
     if (fs->options & FieldSpec_Dynamic)
