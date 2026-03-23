@@ -160,11 +160,11 @@ install_llvm
 echo ""
 echo ">>> Verifying..."
 if command -v "clang-${LLVM_VER}" &>/dev/null; then
-    "clang-${LLVM_VER}" --version
+    "clang-${LLVM_VER}" --version || echo "WARNING: clang-${LLVM_VER} found but failed to run (may need GLIBCXX compat fix)"
 elif command -v clang &>/dev/null; then
-    clang --version
+    clang --version || echo "WARNING: clang found but failed to run"
 elif [[ -x "${INSTALL_DIR}/bin/clang" ]]; then
-    "${INSTALL_DIR}/bin/clang" --version
+    "${INSTALL_DIR}/bin/clang" --version || echo "WARNING: clang found but failed to run (may need GLIBCXX compat fix)"
 else
     echo "WARNING: clang not found on PATH. You may need to add ${INSTALL_DIR}/bin to PATH."
 fi
