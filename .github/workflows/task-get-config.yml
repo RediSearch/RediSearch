@@ -159,7 +159,8 @@ jobs:
                   "aarch64": {
                       'container': 'ubuntu:jammy',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Jammy ARM64'
+                      'name': 'Ubuntu Jammy ARM64',
+                      'enable_lto': '1'
                   }
               },
               "ubuntu:focal": {
