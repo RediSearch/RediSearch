@@ -18,7 +18,8 @@ use ffi::{
 use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
 use crate::{
-    Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust::CRQEIterator,
+    Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
+    SkipToOutcome,
 };
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
@@ -256,9 +257,9 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 ///
 /// There are three possible code paths:
 ///
-/// 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to the C
-///    function `SearchDisk_NewWildcardIterator` and wraps the result in a
-///    [`DiskWildcardIterator`].
+/// 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to
+///    [`SEARCH_ENTERPRISE_ITERATORS`]'s [`new_wildcard_on_disk`](crate::SearchEnterpriseIterators::new_wildcard_on_disk)
+///    and wraps the result in a [`DiskWildcardIterator`].
 /// 2. **[`index_all`](ffi::SchemaRule::index_all) optimized** — when
 ///    [`SchemaRule`](ffi::SchemaRule)`.index_all` is set, delegates to
 ///    [`new_wildcard_iterator_optimized`] which reads from the
@@ -280,8 +281,9 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
 /// 6. `query.docTable` must be a non-null pointer to a valid [`DocTable`](ffi::DocTable) that
 ///    remains valid for `'index`.
 /// 7. `query.sctx.spec.diskSpec`, when non-null, must point to a valid
-///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec). `SearchDisk_NewWildcardIterator` must return
-///    a valid, owning `QueryIterator` pointer with all required callbacks set.
+///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for `'index`.
+/// 8. When `query.sctx.spec.diskSpec` is non-null, [`SEARCH_ENTERPRISE_ITERATORS`] must be
+///    initialized.
 pub unsafe fn new_wildcard_iterator<'index>(
     query: NonNull<ffi::QueryEvalCtx>,
     weight: f64,
@@ -295,18 +297,29 @@ pub unsafe fn new_wildcard_iterator<'index>(
     let spec = unsafe { &*sctx_ref.spec };
 
     if !spec.diskSpec.is_null() {
-        // SAFETY: Caller guarantees `spec` is valid (3), so `spec.diskSpec`
-        // is a valid, non-null pointer to a `RedisSearchDiskIndexSpec`.
-        // `SearchDisk_NewWildcardIterator` returns an owning pointer to a
-        // fully initialized `QueryIterator` (7).
-        let it = unsafe { ffi::SearchDisk_NewWildcardIterator(spec.diskSpec, weight) };
-        let it = NonNull::new(it).expect("SearchDisk_NewWildcardIterator returned null");
-        // SAFETY: `SearchDisk_NewWildcardIterator` returns a valid, owning
-        // `QueryIterator` pointer with all required callbacks set (7).
-        let c_it = unsafe { CRQEIterator::new(it) };
-        // Read the type from the C iterator before wrapping it.
-        let iter_type = c_it.type_;
-        return (Box::new(DiskWildcardIterator(c_it)), iter_type);
+        // SAFETY: Caller guarantees `SEARCH_ENTERPRISE_ITERATORS` is
+        // initialized when `spec.diskSpec` is non-null (8).
+        let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
+            .get()
+            .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
+        // SAFETY: Caller guarantees `spec.diskSpec` is a valid, non-null
+        // pointer to a `RedisSearchDiskIndexSpec` that remains valid for
+        // `'index` (7).
+        let disk_spec = unsafe { &*spec.diskSpec };
+        match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
+            Ok(it) => {
+                return (
+                    Box::new(DiskWildcardIterator(it)),
+                    IteratorType_WILDCARD_ITERATOR,
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
+                );
+                return (Box::new(EmptyWildcard(Empty)), IteratorType_EMPTY_ITERATOR);
+            }
+        }
     }
 
     let index_all = NonNull::new(spec.rule)
@@ -334,15 +347,16 @@ pub unsafe fn new_wildcard_iterator<'index>(
     }
 }
 
-/// A wildcard iterator backed by a C-side disk index iterator.
+/// A wildcard iterator backed by an enterprise disk index iterator.
 ///
-/// This is a thin wrapper around [`CRQEIterator`] that implements
-/// [`WildcardIterator`], allowing disk-based wildcard queries to be used
-/// interchangeably with in-memory ones.
+/// This is a thin wrapper around a [`Box<dyn RQEIterator>`] provided by
+/// [`SEARCH_ENTERPRISE_ITERATORS`] that implements [`WildcardIterator`],
+/// allowing disk-based wildcard queries to be used interchangeably with
+/// in-memory ones.
 #[repr(transparent)]
-struct DiskWildcardIterator(CRQEIterator);
+struct DiskWildcardIterator<'index>(Box<dyn RQEIterator<'index> + 'index>);
 
-impl<'index> RQEIterator<'index> for DiskWildcardIterator {
+impl<'index> RQEIterator<'index> for DiskWildcardIterator<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.0.current()
     }
@@ -386,4 +400,4 @@ impl<'index> RQEIterator<'index> for DiskWildcardIterator {
 }
 
 /// [`DiskWildcardIterator`] matches all documents on the disk index.
-impl<'index> WildcardIterator<'index> for DiskWildcardIterator {}
+impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
