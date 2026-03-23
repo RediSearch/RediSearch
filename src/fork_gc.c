@@ -11,7 +11,6 @@
 #include "util/arr.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
-#include "iterators/inverted_index_iterator.h"
 #include "redis_index.h"
 #include "numeric_index.h"
 #include "tag_index.h"

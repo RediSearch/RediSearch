@@ -1960,6 +1960,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "tracing",
  "trie_rs",
  "types_ffi",
  "value",
