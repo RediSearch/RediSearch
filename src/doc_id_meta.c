@@ -14,6 +14,7 @@
 #include <stdbool.h>
 
 #define DOCID_META_INVALID 0
+#define DOCID_META_CLASS_NAME "D-ID"
 
 static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 
@@ -174,7 +175,8 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .mem_usage = NULL,
     .free_effort = NULL,
   };
-  docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, "docId", 1, &docIdKeyMetaClassIdConfig);
+  docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, DOCID_META_CLASS_NAME, 1, &docIdKeyMetaClassIdConfig);
+  RS_LOG_ASSERT(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
 }
 
 // Helper to find or create an entry in the DocIdMeta hashmap
