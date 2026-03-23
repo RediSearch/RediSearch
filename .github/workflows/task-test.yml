@@ -121,68 +121,12 @@ jobs:
   build-image:
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
-    continue-on-error: true
     name: Build container for platform
-    runs-on: ${{ needs.get-config.outputs.env }}
-    permissions:
-      contents: read
-      packages: write # required for GHCR push
-    outputs:
-      image: ${{ steps.meta.outputs.image }}
-      succeeded: ${{ steps.mark-success.outputs.succeeded }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set image name
-        id: meta
-        run: |
-          # Base image name
-          IMAGE_NAME="ghcr.io/redisearch/redisearch-ci"
-
-          # Append container and sanitizer to make it unique
-          CONTAINER=${{ needs.get-config.outputs.container || 'default' }}
-          SAN=${{ inputs.san || 'none' }}
-          RUN_ID=${{ github.run_id }}
-
-          # Normalize container string (replace : / with -)
-          CONTAINER_SAFE=$(echo "$CONTAINER" | sed 's/[:\/]/-/g')
-
-          # Unique image tag per workflow run and architecture
-          IMAGE_TAG="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-${RUN_ID}"
-
-          # Shared cache ref (without run_id)
-          CACHE_REF="${IMAGE_NAME}:${CONTAINER_SAFE}-${SAN}-${{ needs.get-config.outputs.env }}-cache"
-
-          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
-          echo "cache=$CACHE_REF" >> $GITHUB_OUTPUT
-          echo "Using image tag: $IMAGE_TAG"
-          echo "Using cache ref: $CACHE_REF"
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Build and push (cached)
-        uses: docker/build-push-action@v6
-        with:
-          push: true
-          context: .
-          build-args: |
-            BASE_IMAGE=${{ needs.get-config.outputs.container || 'ubuntu:24.04' }}
-          file: Dockerfile
-          tags: ${{ steps.meta.outputs.image }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache }},mode=max,compression=zstd
-          cache-from: type=registry,ref=${{ steps.meta.outputs.cache }}
-      # This step ONLY runs if all previous steps succeeded
-      - name: Mark success
-        id: mark-success
-        run: |
-          echo "succeeded=true" >> $GITHUB_OUTPUT
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ${{ needs.get-config.outputs.container }}
+      runner-env: ${{ needs.get-config.outputs.env }}
+      san: ${{ inputs.san || 'none' }}
 
   common-flow:
     needs: [get-config, build-image, start-runner]
@@ -211,10 +155,6 @@ jobs:
         if: needs.get-config.outputs.container == 'alpine:3.22'
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
-      - name: Setup Dependencies
-        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
-        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
-
       - name: Free up disk space (container)
         # For container jobs - delete mounted host directories
         if: ${{ needs.get-config.outputs.container }}
@@ -247,17 +187,32 @@ jobs:
         shell: bash
         run: |
           # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
-          h=$(getent passwd $(id -un) | cut -d: -f6)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
           if [ "$h" = "$HOME" ]; then
             echo "HOME fine: $HOME"
             exit 0
           fi
           echo "HOME=$HOME was broken. Setting it to $h"
-          ls -ld $HOME
-          ls -ld $h
+          ls -ld "$HOME"
+          ls -ld "$h"
           echo "USER: $USER"
           echo "id: $(id)"
-          echo "HOME=$h" >> $GITHUB_ENV
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Disable automatic apt updates (self-hosted Linux)
+        if: ${{ needs.get-config.outputs.ec2_image_id && !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Disabling apt auto-update services on self-hosted runner..."
+          sudo systemctl stop apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo pkill -f "apt.systemd.daily" || true
+          sudo pkill -f "unattended-upgrade" || true
+
+      - name: Setup Dependencies
+        if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+
       - name: Post-setup
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
