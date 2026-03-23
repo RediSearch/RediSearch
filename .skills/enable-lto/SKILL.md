@@ -190,6 +190,8 @@ If x86_64 needed `BUILD_INTEL_SVS_OPT=0` for the build, add it to the test comma
 
 ### 9. Clean Up the Container
 
+**Important:** Always stop and remove running Docker containers when finished. Do not leave them running.
+
 ```bash
 docker rm -f lto-<PLATFORM_SLUG>
 ```
