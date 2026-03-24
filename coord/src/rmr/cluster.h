@@ -66,6 +66,9 @@ typedef struct {
 
 int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly);
 
+/* Log all nodes that are not connected (for debugging topology validation failures) */
+void MRCluster_LogDisconnectedNodes(MRCluster *cl, bool mastersOnly);
+
 /* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
  * return value is the number of nodes we managed to successfully send the command to */
 int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,

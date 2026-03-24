@@ -2012,10 +2012,29 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   MRClusterTopology *topo = RedisEnterprise_ParseTopology(ctx, argv, argc);
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
+    RedisModule_Log(ctx, "warning", "Received invalid cluster topology");
+    for (int i = 1; i < argc; i++) {
+      size_t len;
+      const char *arg = RedisModule_StringPtrLen(argv[i], &len);
+      RedisModule_Log(ctx, "warning", " Arg %d: %.*s", i, (int)len, arg);
+    }
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+  // Build a comma-separated list of slot ranges per shard
+  char ranges_info[256];
+  ranges_info[0] = '\0';
+  size_t offset = 0;
+  for (size_t i = 0; i < topo->numShards && offset < sizeof(ranges_info) - 2; i++) {
+    if (i > 0) {
+      offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, ", ");
+    }
+    offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, "%d-%d",
+                      topo->shards[i].startSlot, topo->shards[i].endSlot);
+  }
+
+  RedisModule_Log(ctx, "notice", "Received new cluster topology with %zu shards (%s)", topo->numShards, ranges_info);
+
   NumShards = topo->numShards;
 
   // send the topology to the cluster
