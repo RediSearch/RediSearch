@@ -373,7 +373,7 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   }
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
-  RedisSearchCtx sctx = {.redisCtx = NULL, .spec = sp};
+  RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
   int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
