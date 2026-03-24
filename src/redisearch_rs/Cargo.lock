@@ -642,6 +642,7 @@ dependencies = [
  "document",
  "enumflags2",
  "query_term",
+ "rqe_iterator_type",
  "workspace_hack",
 ]
 
@@ -1035,6 +1036,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "iterator_type_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "rqe_iterator_type",
+ "workspace_hack",
+]
+
+[[package]]
 name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
@@ -1046,6 +1057,7 @@ dependencies = [
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
+ "rqe_iterator_type",
  "rqe_iterators",
  "workspace_hack",
 ]
@@ -1937,6 +1949,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rqe_iterator_type"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
@@ -1955,6 +1974,7 @@ dependencies = [
  "query_term_ffi",
  "redis_mock",
  "redisearch_rs",
+ "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "rstest",

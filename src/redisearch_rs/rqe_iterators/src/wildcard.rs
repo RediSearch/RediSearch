@@ -11,10 +11,9 @@
 
 use std::ptr::NonNull;
 
-use ffi::{
-    IteratorType, IteratorType_EMPTY_ITERATOR, IteratorType_INV_IDX_WILDCARD_ITERATOR,
-    IteratorType_WILDCARD_ITERATOR, RS_FIELDMASK_ALL, t_docId,
-};
+use ffi::{RS_FIELDMASK_ALL, t_docId};
+
+use crate::IteratorType;
 use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
 use crate::{
@@ -249,9 +248,9 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
                 }
                 _ => panic!("spec.existingDocs has the wrong inverted index type: {ii_ref:?}"),
             };
-            (it, IteratorType_INV_IDX_WILDCARD_ITERATOR)
+            (it, IteratorType::InvIdxWildcard)
         }
-        None => (Box::new(EmptyWildcard(Empty)), IteratorType_EMPTY_ITERATOR),
+        None => (Box::new(EmptyWildcard(Empty)), IteratorType::Empty),
     }
 }
 
@@ -310,16 +309,13 @@ pub unsafe fn new_wildcard_iterator<'index>(
         let disk_spec = unsafe { &*spec.diskSpec };
         match enterprise_iters_api.new_wildcard_on_disk(disk_spec, weight) {
             Ok(it) => {
-                return (
-                    Box::new(DiskWildcardIterator(it)),
-                    IteratorType_WILDCARD_ITERATOR,
-                );
+                return (Box::new(DiskWildcardIterator(it)), IteratorType::Wildcard);
             }
             Err(err) => {
                 tracing::warn!(
                     "Failed to create a disk wildcard iterator ({err}); falling back to empty iterator."
                 );
-                return (Box::new(EmptyWildcard(Empty)), IteratorType_EMPTY_ITERATOR);
+                return (Box::new(EmptyWildcard(Empty)), IteratorType::Empty);
             }
         }
     }
@@ -344,7 +340,7 @@ pub unsafe fn new_wildcard_iterator<'index>(
         let doc_table = unsafe { &*query.docTable };
         (
             Box::new(Wildcard::new(doc_table.maxDocId, weight)),
-            IteratorType_WILDCARD_ITERATOR,
+            IteratorType::Wildcard,
         )
     }
 }

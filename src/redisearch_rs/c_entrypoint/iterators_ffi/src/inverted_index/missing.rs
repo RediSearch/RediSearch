@@ -176,5 +176,5 @@ pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_MISSING_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxMissing, iterator)
 }
