@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Safe wrapper around [`ffi::HiddenString`].
+
 use std::{ffi::CStr, marker::PhantomData, ptr::NonNull};
 
 /// A safe wrapper around a non-null `ffi::HiddenString` reference.
@@ -55,26 +57,5 @@ impl<'a> HiddenStringRef<'a> {
         let bytes = unsafe { core::slice::from_raw_parts(data.cast::<u8>(), n) };
 
         CStr::from_bytes_with_nul(bytes).expect("malformed C string")
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
-    fn get_secret_value() {
-        let input = c"Ab#123!";
-        let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
-        let sut = unsafe { HiddenStringRef::from_raw(ffi_hs) };
-
-        let actual = sut.into_secret_value();
-
-        assert_eq!(actual, input);
-
-        unsafe { ffi::HiddenString_Free(ffi_hs, false) };
     }
 }

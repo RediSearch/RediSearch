@@ -14,6 +14,14 @@ use sorting_vector::RSSortingVector;
 use std::{borrow::Cow, ffi::CStr};
 use value::RSValueFFI;
 
+/// Tests if the given [`RLookupKey`] is a special key (lang, score, or payload field)
+/// with respect to this schema rule.
+fn is_special_key(rule: &SchemaRule, key: &RLookupKey) -> bool {
+    [rule.lang_field(), rule.score_field(), rule.payload_field()]
+        .into_iter()
+        .any(|f| f == Some(key.name().as_ref()))
+}
+
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
 /// or from dynamic values stored in the row during processing.
 #[derive(Debug)]
@@ -128,7 +136,7 @@ impl<'a> RLookupRow<'a> {
                 key.flags.contains(required_flags) && !key.flags.intersects(excluded_flags);
             let key_has_associated_value = self.get(key).is_some();
             // Is this key a "special key" according to the schema? If so, we skip it
-            let key_allowed_by_rule = !rule.is_some_and(|rule| rule.is_special_key(key));
+            let key_allowed_by_rule = !rule.is_some_and(|rule| is_special_key(rule, key));
 
             let will_count = will_increment_idx
                 && key_matches_flag_requirements
