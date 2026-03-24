@@ -42,4 +42,5 @@ mod not;
 mod optional;
 mod profile;
 mod union_flat;
+mod union_heap;
 mod wildcard;
