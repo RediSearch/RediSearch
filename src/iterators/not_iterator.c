@@ -11,6 +11,14 @@
 #include "iterator_api.h"
 #include "iterators_rs.h"
 
+typedef struct {
+  QueryIterator base;         // base index iterator
+  QueryIterator *wcii;        // wildcard index iterator
+  QueryIterator *child;       // child index iterator
+  t_docId maxDocId;
+  TimeoutCtx timeoutCtx;
+} NotIteratorOptimized;
+
 static void NI_Rewind(QueryIterator *base) {
   NotIteratorOptimized *ni = (NotIteratorOptimized *)base;
   base->current->docId = 0;

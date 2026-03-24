@@ -16,15 +16,6 @@
 extern "C" {
 #endif
 
-typedef struct {
-  QueryIterator base;     // base index iterator
-  QueryIterator *child;   // child index iterator
-  QueryIterator *wcii;    // wildcard child iterator, used for optimization
-  RSIndexResult *virt;
-  t_docId maxDocId;
-  double weight;
-} OptionalOptimizedIterator;
-
 QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, t_docId maxDocId, double weight);
 
 QueryIterator const *GetOptionalIteratorChild(const QueryIterator *const it);
