@@ -1187,15 +1187,14 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   // Take a read lock on the spec (to avoid conflicts with the GC).
+  // released in `AREQ_Free`.
   RedisSearchCtx_LockSpecRead(sctx);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
-    RedisSearchCtx_UnlockSpec(sctx);
     AREQ_Free(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
-  RedisSearchCtx_UnlockSpec(sctx);
   AREQ_Free(r);
   CurrentThread_ClearIndexSpec();
   return ret;
