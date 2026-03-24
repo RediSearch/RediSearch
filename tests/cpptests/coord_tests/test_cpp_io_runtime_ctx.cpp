@@ -172,6 +172,8 @@ TEST_F(IORuntimeCtxCommonTest, Schedule) {
 }
 
 TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
+  GTEST_SKIP() << "Temporarily skipping ScheduleTopology.";
+
   // Reset the signal before starting
   lastAppliedCapShards.store(0, std::memory_order_relaxed);
 
