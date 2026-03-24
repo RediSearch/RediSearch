@@ -287,7 +287,8 @@ jobs:
                   "aarch64": {
                       'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 ARM64'
+                      'name': 'Azure Linux 3 ARM64',
+                      'enable_lto': '1'
                   }
               }
           }
