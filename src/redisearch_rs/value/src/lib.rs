@@ -16,13 +16,6 @@ pub use crate::{
 };
 use std::fmt::Debug;
 
-/// Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
-/// Rust port of the RSValue type.
-#[cfg(feature = "c_ffi_impl")]
-mod rs_value_ffi;
-#[cfg(feature = "c_ffi_impl")]
-pub use rs_value_ffi::*;
-
 pub mod collection;
 pub mod comparison;
 pub mod debug;
@@ -59,6 +52,10 @@ pub enum RsValue {
 }
 
 impl RsValue {
+    pub fn new_string(str: Vec<u8>) -> Self {
+        Self::String(RsString::from_vec(str))
+    }
+
     pub fn fully_dereferenced_ref(&self) -> &Self {
         match self {
             RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
@@ -88,12 +85,24 @@ impl RsValue {
         }
     }
 
+    pub const fn is_null(&self) -> bool {
+        matches!(self, RsValue::Null)
+    }
+
     /// Returns the string bytes of the value, if it is a string type.
     pub fn as_str_bytes(&self) -> Option<&[u8]> {
         match self {
             RsValue::String(str) => Some(str.as_bytes()),
             RsValue::RedisString(str) => Some(str.as_bytes()),
             _ => None,
+        }
+    }
+
+    pub const fn as_num(&self) -> Option<f64> {
+        if let RsValue::Number(num) = self {
+            Some(*num)
+        } else {
+            None
         }
     }
 
