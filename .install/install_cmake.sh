@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -eo pipefail
 version=3.25.1
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
