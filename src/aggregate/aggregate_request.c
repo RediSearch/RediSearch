@@ -1197,8 +1197,10 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, bool isDiskIndex
     goto error;
   }
 
-  if (IsInternal(req)) {
-    RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime);
+  if (IsInternal(req) &&
+      RequestConfig_ApplyCoordinatorElapsedTime(&req->reqConfig, req->profileClocks.coordDispatchTime)) {
+    QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
+    goto error;
   }
 
   // Verify we got slots requested if needed

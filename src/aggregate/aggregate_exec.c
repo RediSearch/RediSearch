@@ -1349,10 +1349,16 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 done:
   if (rc != REDISMODULE_OK && *r) {
-    AREQ_DecrRef(*r);
-    *r = NULL;
-    if (thctx) {
-      RedisModule_FreeThreadSafeContext(thctx);
+    if (QueryError_GetCode(status) == QUERY_ERROR_CODE_TIMED_OUT && IsInternal(*r)) {
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+    } else {
+      AREQ_DecrRef(*r);
+      *r = NULL;
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
     }
   }
   return rc;
@@ -1603,13 +1609,12 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   AREQ *r = AREQ_New();
 
   if (prepareRequest(&r, ctx, argv, argc, type, profileOptions, &status) != REDISMODULE_OK) {
+    if (r && IsInternal(r) && QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
+      int rc = replyForPreExecutionTimeout(r, ctx, argv, argc, profileOptions, &status);
+      AREQ_DecrRef(r);
+      return rc;
+    }
     goto error;
-  }
-
-  if (r->reqConfig.timeoutExhaustedBeforeExecution) {
-    int rc = replyForPreExecutionTimeout(r, ctx, argv, argc, profileOptions, &status);
-    AREQ_DecrRef(r);
-    return rc;
   }
 
   if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
@@ -1970,13 +1975,12 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // Parse the query, not including debug params
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
+    if (r && IsInternal(r) && QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
+      int rc = replyForPreExecutionTimeout(r, ctx, argv, argc - debug_argv_count, profileOptions, &status);
+      AREQ_DecrRef(r);
+      return rc;
+    }
     goto error;
-  }
-
-  if (r->reqConfig.timeoutExhaustedBeforeExecution) {
-    int rc = replyForPreExecutionTimeout(r, ctx, argv, argc - debug_argv_count, profileOptions, &status);
-    AREQ_DecrRef(r);
-    return rc;
   }
 
   if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {

@@ -1084,9 +1084,10 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status, internal);
   }
 
+  bool timeoutExhaustedBeforeExecution = false;
   if (internal) {
-    RequestConfig_ApplyCoordinatorElapsedTime(&hybridRequest->reqConfig,
-                                              hybridRequest->profileClocks.coordDispatchTime);
+    timeoutExhaustedBeforeExecution = RequestConfig_ApplyCoordinatorElapsedTime(
+        &hybridRequest->reqConfig, hybridRequest->profileClocks.coordDispatchTime);
     for (size_t i = 0; i < hybridRequest->nrequests; i++) {
       hybridRequest->requests[i]->reqConfig = hybridRequest->reqConfig;
     }
@@ -1107,7 +1108,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     hybridRequest->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hybridRequest->profileClocks.initClock, &parseClock);
   }
 
-  if (hybridRequest->reqConfig.timeoutExhaustedBeforeExecution) {
+  if (timeoutExhaustedBeforeExecution) {
     return replyForHybridPreExecutionTimeout(ctx, hybridRequest, internal);
   }
 

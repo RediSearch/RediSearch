@@ -595,12 +595,10 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
   }
 }
 
-static inline void RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
+static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
                                                              rs_wall_clock_ns_t coordinatorElapsedTime) {
-  reqConfig->timeoutExhaustedBeforeExecution = false;
-
   if (reqConfig->queryTimeoutMS == 0) {
-    return;
+    return false;
   }
 
   const unsigned long long elapsedMSRoundedUp =
@@ -608,11 +606,11 @@ static inline void RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqC
 
   if (elapsedMSRoundedUp >= (unsigned long long)reqConfig->queryTimeoutMS) {
     reqConfig->queryTimeoutMS = 0;
-    reqConfig->timeoutExhaustedBeforeExecution = true;
-    return;
+    return true;
   }
 
   reqConfig->queryTimeoutMS -= (long long)elapsedMSRoundedUp;
+  return false;
 }
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc

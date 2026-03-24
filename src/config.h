@@ -96,8 +96,6 @@ typedef struct {
   // The maximal amount of time a single query can take before timing out, in milliseconds.
   // 0 means unlimited
   long long queryTimeoutMS;
-  // Whether coordinator elapsed time already exhausted the shard timeout budget.
-  bool timeoutExhaustedBeforeExecution;
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
