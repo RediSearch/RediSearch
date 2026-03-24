@@ -248,27 +248,29 @@ where
             }
         } else {
             // Skip lagging children using heap operations.
-            // While heap root is behind target, pop it, skip that child, push back.
-            while let Some((child_doc_id, _)) = self.heap.peek() {
+            // While heap root is behind target, skip that child and update its heap position.
+            while let Some((child_doc_id, idx)) = self.heap.peek() {
                 if child_doc_id >= doc_id {
                     break;
                 }
-                let (_, idx) = self.heap.pop().unwrap();
 
                 let child = &mut self.children[idx];
                 match child.skip_to(doc_id)? {
                     Some(SkipToOutcome::Found(r)) => {
-                        self.heap.push(r.doc_id, idx);
+                        // Use replace_root: single sift-down instead of pop+push
+                        self.heap.replace_root(r.doc_id, idx);
                         // In QUICK_EXIT mode, return early with exact match
                         if QUICK_EXIT {
                             return Ok(Some(idx));
                         }
                     }
                     Some(SkipToOutcome::NotFound(r)) => {
-                        self.heap.push(r.doc_id, idx);
+                        // Use replace_root: single sift-down instead of pop+push
+                        self.heap.replace_root(r.doc_id, idx);
                     }
                     None => {
-                        // Child is EOF, don't push back
+                        // Child is EOF, remove from heap
+                        self.heap.pop();
                     }
                 }
             }
@@ -288,12 +290,112 @@ where
             agg.reset();
         }
 
+        self.add_child_to_result(child_idx);
+    }
+
+    /// Adds a single child's current result to the aggregate.
+    /// Assumes the aggregate has already been reset if needed.
+    fn add_child_to_result(&mut self, child_idx: usize) {
+        let child = &mut self.children[child_idx];
         if let Some(child_result) = child.current() {
             let child_ptr: *const RSIndexResult<'index> = child_result;
-            // SAFETY: child_ptr points to child's result containing data with 'index
-            // lifetime. Children are owned by self, so their results remain valid.
+            // SAFETY: We need a raw pointer to decouple the borrow of the child's
+            // result from `&mut self.result`. This is sound because:
+            // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+            // 2. `push_borrowed` takes a shared reference, so no mutation through child_ref.
+            // 3. The child is owned by `self`, so the 'index data remains valid.
             let child_ref = unsafe { &*child_ptr };
             self.result.push_borrowed(child_ref);
+        }
+    }
+
+    /// Full mode skip_to — advances lagging children and aggregates all matches.
+    ///
+    /// Optimization: During initialization (first skip_to when the heap is empty),
+    /// children that land exactly on `doc_id` are collected into the aggregate
+    /// immediately. If the heap minimum equals `doc_id`, the aggregate is already
+    /// built and the DFS traversal is skipped entirely.
+    fn skip_to_full(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        let mut found_prebuilt = false;
+
+        if self.heap.is_empty() && self.last_doc_id == 0 {
+            // Initialization: skip all children to target, pre-collect exact matches.
+            // Reset aggregate before collecting Found children.
+            if let Some(agg) = self.result.as_aggregate_mut() {
+                agg.reset();
+            }
+
+            let mut any_found = false;
+            for (idx, child) in self.children.iter_mut().enumerate() {
+                if child.at_eof() {
+                    continue;
+                }
+                match child.skip_to(doc_id)? {
+                    Some(SkipToOutcome::Found(r)) => {
+                        self.heap.push(r.doc_id, idx);
+                        any_found = true;
+                    }
+                    Some(SkipToOutcome::NotFound(r)) => {
+                        self.heap.push(r.doc_id, idx);
+                    }
+                    None => {}
+                }
+            }
+
+            // If any children landed exactly on doc_id, add them to the aggregate
+            // now. This avoids a redundant DFS when the minimum is doc_id.
+            if any_found {
+                self.result.doc_id = doc_id;
+                for idx in 0..self.children.len() {
+                    if self.children[idx].last_doc_id() == doc_id {
+                        self.add_child_to_result(idx);
+                    }
+                }
+                found_prebuilt = true;
+            }
+        } else {
+            // Steady-state: advance lagging children via heap replace_root.
+            while let Some((child_doc_id, idx)) = self.heap.peek() {
+                if child_doc_id >= doc_id {
+                    break;
+                }
+
+                let child = &mut self.children[idx];
+                match child.skip_to(doc_id)? {
+                    Some(SkipToOutcome::Found(r)) => {
+                        self.heap.replace_root(r.doc_id, idx);
+                    }
+                    Some(SkipToOutcome::NotFound(r)) => {
+                        self.heap.replace_root(r.doc_id, idx);
+                    }
+                    None => {
+                        self.heap.pop();
+                    }
+                }
+            }
+        }
+
+        // Check if any children left
+        let Some((min_id, _)) = self.heap.peek() else {
+            self.is_eof = true;
+            return Ok(None);
+        };
+
+        if found_prebuilt && min_id == doc_id {
+            // Aggregate was already built during initialization — skip DFS.
+            self.last_doc_id = doc_id;
+        } else {
+            // Build aggregate via DFS over the heap.
+            self.build_aggregate_result(min_id);
+        }
+
+        if min_id == doc_id {
+            Ok(Some(SkipToOutcome::Found(&mut self.result)))
+        } else {
+            Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
         }
     }
 }
@@ -352,31 +454,24 @@ where
 
         debug_assert!(self.last_doc_id < doc_id);
 
-        // Advance all lagging children to target doc_id.
-        // In QUICK_EXIT mode, this may return early with the index of a child
-        // that found an exact match.
+        if !QUICK_EXIT {
+            return self.skip_to_full(doc_id);
+        }
+
+        // QUICK_EXIT mode: advance children and return first exact match.
         if let Some(exact_match_idx) = self.advance_children_to_target(doc_id)? {
-            // QUICK_EXIT mode: exact match found during advancement
             self.quick_set_from_child(exact_match_idx);
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
 
         // Check if we have any children left
-        let Some((min_id, _)) = self.heap.peek() else {
+        let Some((min_id, min_idx)) = self.heap.peek() else {
             self.is_eof = true;
             return Ok(None);
         };
 
-        // Build result: quick mode uses single child, full mode aggregates
-        if QUICK_EXIT {
-            // Get the child index from heap peek
-            let (_, min_idx) = self.heap.peek().unwrap();
-            self.quick_set_from_child(min_idx);
-        } else {
-            self.build_aggregate_result(min_id);
-        }
+        self.quick_set_from_child(min_idx);
 
-        // Deduce Found vs NotFound from heap state
         if min_id == doc_id {
             Ok(Some(SkipToOutcome::Found(&mut self.result)))
         } else {
@@ -412,54 +507,55 @@ where
     }
 
     fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let original_last_doc_id = self.last_doc_id;
-        let mut any_child_moved = false;
-        let mut any_child_aborted = false;
-        let mut min_doc_id = t_docId::MAX;
-        let mut active_children = 0usize;
+        // Already at EOF - nothing to do
+        if self.is_eof {
+            return Ok(RQEValidateStatus::Ok);
+        }
 
-        for child in &mut self.children {
-            match child.revalidate()? {
+        let original_last_doc_id = self.last_doc_id;
+        let mut any_change = false;
+
+        // Revalidate ALL children and remove aborted ones via swap_remove.
+        // We use index-based iteration because we need to remove elements while iterating.
+        let mut i = 0;
+        while i < self.children.len() {
+            match self.children[i].revalidate()? {
                 RQEValidateStatus::Aborted => {
-                    any_child_aborted = true;
+                    // Remove aborted child using swap_remove for O(1) removal.
+                    self.children.swap_remove(i);
+                    any_change = true;
+                    // Don't increment i - the swapped element needs to be checked
                 }
-                RQEValidateStatus::Moved { current } => {
-                    any_child_moved = true;
-                    if let Some(result) = current {
-                        if result.doc_id < min_doc_id {
-                            min_doc_id = result.doc_id;
-                        }
-                        active_children += 1;
-                    }
+                RQEValidateStatus::Moved { .. } => {
+                    any_change = true;
+                    i += 1;
                 }
                 RQEValidateStatus::Ok => {
-                    if !child.at_eof() {
-                        if child.last_doc_id() < min_doc_id {
-                            min_doc_id = child.last_doc_id();
-                        }
-                        active_children += 1;
-                    }
+                    i += 1;
                 }
             }
         }
 
-        // For union, we only abort if ALL children aborted
-        if any_child_aborted {
-            // Note: In a more complete implementation, we'd track which children aborted
-        }
-
-        if !any_child_moved || self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        if active_children == 0 {
+        // If all children aborted, we abort too (union of nothing is nothing)
+        if self.children.is_empty() {
             self.is_eof = true;
-            return Ok(RQEValidateStatus::Moved { current: None });
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
+        // Early return if nothing changed
+        if !any_change {
+            return Ok(RQEValidateStatus::Ok);
         }
 
         // Rebuild the heap since children may have moved arbitrarily
         self.rebuild_heap();
 
+        if self.heap.is_empty() {
+            self.is_eof = true;
+            return Ok(RQEValidateStatus::Moved { current: None });
+        }
+
+        let min_doc_id = self.heap.peek().unwrap().0;
         self.build_aggregate_result(min_doc_id);
 
         if self.last_doc_id != original_last_doc_id {
