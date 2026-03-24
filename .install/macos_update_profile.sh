@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -eo pipefail
 
 # Function to update shell profile with necessary paths
 update_profile() {
