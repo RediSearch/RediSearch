@@ -237,7 +237,8 @@ jobs:
                   "aarch64": {
                       'container': 'gcc:11-bullseye',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bullseye ARM64'
+                      'name': 'Debian Bullseye ARM64',
+                      'enable_lto': '1'
                   }
               },
               "debian:bookworm": {
@@ -249,7 +250,8 @@ jobs:
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bookworm ARM64'
+                      'name': 'Debian Bookworm ARM64',
+                      'enable_lto': '1'
                   }
               },
               "amazonlinux:2023": {

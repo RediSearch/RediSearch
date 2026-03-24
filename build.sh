@@ -491,7 +491,7 @@ prepare_cmake_arguments() {
         echo "$_search_paths"
         # Fail if clang's actual search paths include C++ headers from a GCC other than system
         _sys_gcc_major=$(gcc -dumpversion | cut -d. -f1)
-        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(/|$)" || true)
+        _bad_paths=$(echo "$_search_paths" | grep -E "/c\+\+/[0-9]+" | grep -vE "/c\+\+/${_sys_gcc_major}(\.[0-9]+){0,2}(/|$)" || true)
         if [[ -n "$_bad_paths" ]]; then
             echo "ERROR: Clang sees C++ headers from a GCC version other than system GCC ${_sys_gcc_major}:"
             echo "$_bad_paths"
@@ -519,6 +519,9 @@ prepare_cmake_arguments() {
         -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
     # Include LLVM bitcode information for cross-language LTO
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
+    if [[ -n "$GCC_INSTALL_DIR" ]]; then
+      RUSTFLAGS="$RUSTFLAGS -C link-arg=--gcc-install-dir=${GCC_INSTALL_DIR}"
+    fi
   fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
