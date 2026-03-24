@@ -172,7 +172,8 @@ jobs:
                   "aarch64": {
                       'container': 'ubuntu:focal',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal ARM64'
+                      'name': 'Ubuntu Focal ARM64',
+                      'enable_lto': '1'
                   }
               },
               "rockylinux:8": {
