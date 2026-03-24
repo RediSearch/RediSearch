@@ -66,6 +66,9 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
+#ifdef ENABLE_ASSERT
+  bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
+#endif
 } RPQueryIterator;
 
 
@@ -214,6 +217,7 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
  */
 static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
+
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
   if (sctx->spec->diskSpec) {
@@ -252,6 +256,14 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+
+#ifdef ENABLE_ASSERT
+  // Make sure MT is enabled and `workers > 0` - deadlock otherwise.
+  if (self->firstRead) {
+    self->firstRead = false;
+    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+  }
+#endif
 
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
@@ -300,6 +312,13 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
+
+#ifdef ENABLE_ASSERT
+  if (self->firstRead) {
+    self->firstRead = false;
+    SyncPoint_Wait(SYNC_POINT_BEFORE_FIRST_READ);
+  }
+#endif
 
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
@@ -374,6 +393,9 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   ret->base.type = RP_INDEX;
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   ret->timeoutLimiter = sctx->time.skipTimeoutChecks ? REDISEARCH_UNINITIALIZED : 0;
+#ifdef ENABLE_ASSERT
+  ret->firstRead = true;
+#endif
 
   // Initialize async read state
   IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
@@ -850,6 +872,7 @@ typedef struct {
   ResultProcessor base;
   RLookup *lk;
   RLookupLoadOptions loadopts;
+  bool load_all;
   QueryError status;
 } RPLoader;
 
@@ -884,9 +907,17 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 
   self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
+
+  int ret;
+  if (self->load_all) {
+      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+  } else {
+      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+  }
+
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
-  if (RLookup_LoadDocument(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts) != REDISMODULE_OK) {
+  if (ret != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
     ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
     // The result contains an expired document.
@@ -923,13 +954,13 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->loadopts.status = &self->status;
   self->loadopts.sctx = sctx;
   self->loadopts.dmd = NULL;
-  self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-  memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-  self->loadopts.nkeys = nkeys;
   if (nkeys) {
-    self->loadopts.mode = RLOOKUP_LOAD_KEYLIST;
+    self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
+    memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
+    self->loadopts.nkeys = nkeys;
+    self->load_all = false;
   } else {
-    self->loadopts.mode = RLOOKUP_LOAD_ALLKEYS;
+    self->load_all = true;
     RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
   }
 
@@ -1232,6 +1263,8 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 /*********************************************************************************/
 
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags) {
+  RS_LOG_ASSERT(!(SearchDisk_IsEnabledForValidation() && sctx && sctx->spec && sctx->spec->diskSpec),
+                "RPLoader should not be created for disk indexes");
   if (RSGlobalConfig.enableUnstableFeatures) {
     if (nkeys == 1 && !strcmp(RLookupKey_GetPath(keys[0]), UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space

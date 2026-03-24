@@ -9,47 +9,85 @@
 
 //! Integration tests for the UnionFlat iterator variants.
 //!
-//! Tests use `UnionFullFlat` by default, which is the "full mode" variant
-//! that aggregates results from all matching children.
+//! These tests use [`Mock`] iterators which provide observability features
+//! like `read_count()` and `revalidate_count()` that allow us to verify not just
+//! correctness but also efficiency optimizations like the ReuseResults optimization.
 
+use crate::utils::{Mock, MockData, MockRevalidateResult, MockVec};
 use ffi::t_docId;
-use rqe_iterators::{
-    RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionQuickFlat,
-    id_list::IdListSorted,
-};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, UnionFullFlat, UnionQuickFlat};
+use rstest_reuse::{apply, template};
 
-use crate::utils::{Mock, MockRevalidateResult};
+/// Test cases for union tests: (num_children, base_result_set).
+#[template]
+#[rstest::rstest]
+#[case::c2_small(2, &[1u64, 2, 3, 40, 50])]
+#[case::c2_medium(2, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
+#[case::c2_large(2, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
+#[case::c5_small(5, &[1u64, 2, 3, 40, 50])]
+#[case::c5_medium(5, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
+#[case::c5_large(5, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
+#[case::c10_small(10, &[1u64, 2, 3, 40, 50])]
+#[case::c10_medium(10, &[5u64, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345])]
+#[case::c10_large(10, &[9u64, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130])]
+fn union_cases(#[case] num_children: usize, #[case] base_result_set: &[u64]) {}
 
 /// Type alias for the union variant used in these tests.
 /// Using `UnionFullFlat` which aggregates all matching children (not quick exit)
 /// and uses flat array iteration (not heap).
 type Union<I> = UnionFullFlat<'static, I>;
 
-/// Helper function to create child iterators for union tests.
-///
-/// Creates `num_children` child iterators with partial overlap.
-/// Returns both the children and the expected union result (sorted, deduplicated).
+fn create_mock_1<const N: usize>(ids: [t_docId; N]) -> (Box<dyn RQEIterator<'static>>, MockData) {
+    let c = Mock::<N>::new(ids);
+    let d = c.data();
+    (Box::new(c), d)
+}
+
+fn create_mock_2<const N1: usize, const N2: usize>(
+    ids1: [t_docId; N1],
+    ids2: [t_docId; N2],
+) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<MockData>) {
+    let c1 = Mock::<N1>::new(ids1);
+    let c2 = Mock::<N2>::new(ids2);
+    let d1 = c1.data();
+    let d2 = c2.data();
+    (vec![Box::new(c1), Box::new(c2)], vec![d1, d2])
+}
+
+fn create_mock_3<const N1: usize, const N2: usize, const N3: usize>(
+    ids1: [t_docId; N1],
+    ids2: [t_docId; N2],
+    ids3: [t_docId; N3],
+) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<MockData>) {
+    let c1 = Mock::<N1>::new(ids1);
+    let c2 = Mock::<N2>::new(ids2);
+    let c3 = Mock::<N3>::new(ids3);
+    let d1 = c1.data();
+    let d2 = c2.data();
+    let d3 = c3.data();
+    (
+        vec![Box::new(c1), Box::new(c2), Box::new(c3)],
+        vec![d1, d2, d3],
+    )
+}
+
 fn create_union_children(
     num_children: usize,
     base_result_set: &[t_docId],
-) -> (Vec<IdListSorted<'static>>, Vec<t_docId>) {
-    let mut children = Vec::with_capacity(num_children);
+) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<t_docId>) {
+    let mut children: Vec<Box<dyn RQEIterator<'static>>> = Vec::with_capacity(num_children);
     let mut all_ids = Vec::new();
     let mut next_unique_id: t_docId = 10000;
 
     for i in 0..num_children {
-        // Each child gets a subset of the base result set plus some unique IDs
         let mut child_ids = Vec::new();
 
-        // Add subset of base result set (child i gets every nth element starting at i)
         for (j, &id) in base_result_set.iter().enumerate() {
             if j % num_children == i || j % 2 == 0 {
-                // Ensure some overlap
                 child_ids.push(id);
             }
         }
 
-        // Add unique IDs to each child
         for _ in 0..50 {
             child_ids.push(next_unique_id);
             next_unique_id += 1;
@@ -58,7 +96,7 @@ fn create_union_children(
         child_ids.sort();
         child_ids.dedup();
         all_ids.extend(child_ids.iter().copied());
-        children.push(IdListSorted::new(child_ids));
+        children.push(MockVec::new_boxed(child_ids));
     }
 
     all_ids.sort();
@@ -67,37 +105,15 @@ fn create_union_children(
 }
 
 // =============================================================================
-// Test parameters
-// =============================================================================
-
-const NUM_CHILDREN_CASES: &[usize] = &[2, 5, 10];
-
-const RESULT_SET_CASES: &[&[t_docId]] = &[
-    &[1, 2, 3, 40, 50],
-    &[5, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345],
-    &[9, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130],
-];
-
-// =============================================================================
 // Read tests
 // =============================================================================
 
-#[test]
-#[cfg_attr(miri, ignore)]
-fn read_all_combinations() {
-    for &num_children in NUM_CHILDREN_CASES {
-        for &result_set in RESULT_SET_CASES {
-            read_test_case(num_children, result_set);
-        }
-    }
-}
-
-fn read_test_case(num_children: usize, base_result_set: &[t_docId]) {
+#[apply(union_cases)]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn read(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
     let (children, expected) = create_union_children(num_children, base_result_set);
 
     let mut union_iter = Union::new(children);
-
-    // Test reading until EOF
     let mut count = 0;
     while let Ok(Some(result)) = union_iter.read() {
         assert_eq!(
@@ -138,22 +154,12 @@ fn read_test_case(num_children: usize, base_result_set: &[t_docId]) {
 // SkipTo tests
 // =============================================================================
 
-#[test]
-#[cfg(not(miri))]
-fn skip_to_all_combinations() {
-    for &num_children in NUM_CHILDREN_CASES {
-        for &result_set in RESULT_SET_CASES {
-            skip_to_test_case(num_children, result_set);
-        }
-    }
-}
-
-#[cfg(not(miri))]
-fn skip_to_test_case(num_children: usize, base_result_set: &[t_docId]) {
+#[apply(union_cases)]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn skip_to(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
     let (children, expected) = create_union_children(num_children, base_result_set);
     let mut union_iter = Union::new(children);
 
-    // Test skipping to each element
     for &id in &expected {
         union_iter.rewind();
         let outcome = union_iter.skip_to(id).expect("skip_to failed");
@@ -164,14 +170,11 @@ fn skip_to_test_case(num_children: usize, base_result_set: &[t_docId]) {
                     "num_children={num_children}, skip_to({id}) should find {id}"
                 );
             }
-            Some(SkipToOutcome::NotFound(_)) => {
-                // This is acceptable if id isn't in the union
-            }
+            Some(SkipToOutcome::NotFound(_)) => {}
             None => panic!("num_children={num_children}, skip_to({id}) should not return None"),
         }
     }
 
-    // Skip beyond last docId should return EOF
     union_iter.rewind();
     let last_id = *expected.last().unwrap();
     assert!(
@@ -184,21 +187,80 @@ fn skip_to_test_case(num_children: usize, base_result_set: &[t_docId]) {
     );
 }
 
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn skip_to_edge_cases() {
+    // Quick mode - child already at target doc_id
+    {
+        let (children, data) = create_mock_2([50, 200], [100, 250]);
+        let mut quick_iter = UnionQuickFlat::new(children);
+        quick_iter.read().expect("read failed").unwrap();
+        assert_eq!(quick_iter.last_doc_id(), 50);
+        let outcome = quick_iter.skip_to(100).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+        assert_eq!(quick_iter.last_doc_id(), 100);
+        assert_eq!(data[0].read_count(), 2);
+        assert_eq!(data[1].read_count(), 1, "reused cached position");
+    }
+
+    // Quick mode - child exhausts during skip_to
+    {
+        let (children, _data) = create_mock_2([10, 30], [20, 200]);
+        let mut quick_iter = UnionQuickFlat::new(children);
+        quick_iter.read().expect("read failed").unwrap();
+        let outcome = quick_iter.skip_to(100).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::NotFound(_))));
+        assert_eq!(quick_iter.last_doc_id(), 200);
+    }
+
+    // Full mode - child at EOF before skip_to
+    {
+        let (children, data) = create_mock_2([10, 20], [15, 50, 100]);
+        let mut full_iter = UnionFullFlat::new(children);
+
+        full_iter.read().expect("read failed").unwrap();
+        assert_eq!(full_iter.last_doc_id(), 10);
+        full_iter.read().expect("read failed").unwrap();
+        assert_eq!(full_iter.last_doc_id(), 15);
+        full_iter.read().expect("read failed").unwrap();
+        assert_eq!(full_iter.last_doc_id(), 20);
+
+        let outcome = full_iter.skip_to(30).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::NotFound(_))));
+        assert_eq!(full_iter.last_doc_id(), 50);
+
+        let outcome = full_iter.read().expect("read failed").unwrap();
+        assert_eq!(outcome.doc_id, 100);
+        assert!(matches!(full_iter.read(), Ok(None)));
+        assert!(full_iter.at_eof());
+
+        assert_eq!(data[0].read_count(), 3);
+        assert_eq!(data[1].read_count(), 4);
+    }
+
+    // Full mode - child already at target doc_id
+    {
+        let (children, data) = create_mock_2([50, 150, 200], [100, 150, 250]);
+        let mut full_iter = UnionFullFlat::new(children);
+        full_iter.read().expect("read failed").unwrap();
+        assert_eq!(full_iter.last_doc_id(), 50);
+
+        let outcome = full_iter.skip_to(100).expect("skip_to failed");
+        assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+        assert_eq!(full_iter.last_doc_id(), 100);
+
+        assert_eq!(data[0].read_count(), 2);
+        assert_eq!(data[1].read_count(), 1, "already at target");
+    }
+}
+
 // =============================================================================
 // Rewind tests
 // =============================================================================
 
-#[test]
-#[cfg_attr(miri, ignore)]
-fn rewind_all_combinations() {
-    for &num_children in NUM_CHILDREN_CASES {
-        for &result_set in RESULT_SET_CASES {
-            rewind_test_case(num_children, result_set);
-        }
-    }
-}
-
-fn rewind_test_case(num_children: usize, base_result_set: &[t_docId]) {
+#[apply(union_cases)]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn rewind(#[case] num_children: usize, #[case] base_result_set: &[u64]) {
     let (children, expected) = create_union_children(num_children, base_result_set);
     let mut union_iter = Union::new(children);
 
@@ -233,8 +295,8 @@ fn rewind_test_case(num_children: usize, base_result_set: &[t_docId]) {
 // =============================================================================
 
 #[test]
-fn no_children() {
-    let children: Vec<IdListSorted<'static>> = vec![];
+fn edge_case_no_children() {
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![];
     let mut union_iter = Union::new(children);
 
     assert!(matches!(union_iter.read(), Ok(None)));
@@ -245,12 +307,13 @@ fn no_children() {
 }
 
 #[test]
-fn single_child() {
-    let doc_ids = vec![10, 20, 30, 40, 50];
-    let child = IdListSorted::new(doc_ids.clone());
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_single_child() {
+    let (child, child_data) = create_mock_1([10, 20, 30, 40, 50]);
     let mut union_iter = Union::new(vec![child]);
 
-    for &expected_id in &doc_ids {
+    let expected = [10, 20, 30, 40, 50];
+    for &expected_id in &expected {
         let result = union_iter.read().expect("read failed");
         assert!(result.is_some());
         assert_eq!(result.unwrap().doc_id, expected_id);
@@ -258,17 +321,16 @@ fn single_child() {
 
     assert!(matches!(union_iter.read(), Ok(None)));
     assert!(union_iter.at_eof());
+    assert_eq!(child_data.read_count(), 6);
 }
 
 #[test]
-fn disjoint_children() {
-    // Children have no overlap - union should return all docs
-    let child1 = IdListSorted::new(vec![1, 2, 3]);
-    let child2 = IdListSorted::new(vec![10, 20, 30]);
-    let child3 = IdListSorted::new(vec![100, 200, 300]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_disjoint_children() {
+    let (children, data) = create_mock_3([1, 2, 3], [10, 20, 30], [100, 200, 300]);
 
-    let mut union_iter = Union::new(vec![child1, child2, child3]);
-    let expected = vec![1, 2, 3, 10, 20, 30, 100, 200, 300];
+    let mut union_iter = Union::new(children);
+    let expected = [1, 2, 3, 10, 20, 30, 100, 200, 300];
 
     for &expected_id in &expected {
         let result = union_iter.read().expect("read failed");
@@ -278,18 +340,24 @@ fn disjoint_children() {
 
     assert!(matches!(union_iter.read(), Ok(None)));
     assert!(union_iter.at_eof());
+
+    assert_eq!(data[0].read_count(), 4);
+    assert_eq!(data[1].read_count(), 4);
+    assert_eq!(data[2].read_count(), 4);
 }
 
 #[test]
-fn overlapping_children() {
-    // Children have significant overlap
-    let child1 = IdListSorted::new(vec![1, 2, 5, 10, 15, 20]);
-    let child2 = IdListSorted::new(vec![2, 5, 8, 10, 18, 20]);
-    let child3 = IdListSorted::new(vec![3, 5, 10, 12, 20, 25]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_overlapping_children() {
+    let (children, data) = create_mock_3(
+        [1, 2, 5, 10, 15, 20],
+        [2, 5, 8, 10, 18, 20],
+        [3, 5, 10, 12, 20, 25],
+    );
 
-    let mut union_iter = Union::new(vec![child1, child2, child3]);
+    let mut union_iter = Union::new(children);
     // Union: 1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25
-    let expected = vec![1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25];
+    let expected = [1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25];
 
     for &expected_id in &expected {
         let result = union_iter.read().expect("read failed");
@@ -298,15 +366,16 @@ fn overlapping_children() {
     }
 
     assert!(matches!(union_iter.read(), Ok(None)));
+    assert_eq!(data[0].read_count(), 7);
+    assert_eq!(data[1].read_count(), 7);
+    assert_eq!(data[2].read_count(), 7);
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
-fn skip_to_exact_match() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_skip_to_exact_match() {
+    let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut union_iter = Union::new(children);
 
     let outcome = union_iter.skip_to(30).expect("skip_to failed");
     match outcome {
@@ -319,14 +388,11 @@ fn skip_to_exact_match() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
-fn skip_to_not_found() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_skip_to_not_found() {
+    let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut union_iter = Union::new(children);
 
-    let mut union_iter = Union::new(vec![child1, child2]);
-
-    // Skip to 22, should land on 25 (next available in union)
     let outcome = union_iter.skip_to(22).expect("skip_to failed");
     match outcome {
         Some(SkipToOutcome::NotFound(result)) => {
@@ -338,17 +404,14 @@ fn skip_to_not_found() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
-fn skip_to_past_eof() {
-    let child1 = IdListSorted::new(vec![10, 20, 30]);
-    let child2 = IdListSorted::new(vec![15, 25]);
-
-    let mut union_iter = Union::new(vec![child1, child2]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_skip_to_past_eof() {
+    let (children, _) = create_mock_2([10, 20, 30], [15, 25, 35]);
+    let mut union_iter = Union::new(children);
 
     assert!(matches!(union_iter.skip_to(100), Ok(None)));
     assert!(union_iter.at_eof());
 
-    // Rewind should reset
     union_iter.rewind();
     assert!(!union_iter.at_eof());
     let result = union_iter.read().expect("read failed");
@@ -357,42 +420,172 @@ fn skip_to_past_eof() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
-fn interleaved_read_and_skip_to() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50, 60, 70, 80]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55, 65, 75, 85]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_interleaved_read_and_skip_to() {
+    let (children, _) = create_mock_2(
+        [10, 20, 30, 40, 50, 60, 70, 80],
+        [15, 25, 35, 45, 55, 65, 75, 85],
+    );
+    let mut union_iter = Union::new(children);
 
-    let mut union_iter = Union::new(vec![child1, child2]);
-
-    // Read first document
     let result = union_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
 
-    // Skip to 35
     let outcome = union_iter.skip_to(35).expect("skip_to failed");
     assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
     assert_eq!(union_iter.last_doc_id(), 35);
 
-    // Read next
     let result = union_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 40);
 
-    // Skip to 70
     let outcome = union_iter.skip_to(70).expect("skip_to failed");
     assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
     assert_eq!(union_iter.last_doc_id(), 70);
 }
 
 #[test]
-fn num_estimated_is_sum() {
-    let child1 = IdListSorted::new(vec![1, 2, 3, 4, 5]); // 5 elements
-    let child2 = IdListSorted::new(vec![10, 20, 30]); // 3 elements
-    let child3 = IdListSorted::new(vec![100, 200, 300, 400]); // 4 elements
+fn edge_case_num_estimated_is_sum() {
+    let (children, _) = create_mock_3(
+        [1, 2, 3, 4, 5],
+        [10, 20, 30, 40, 50],
+        [100, 200, 300, 400, 500],
+    );
+    let union_iter = Union::new(children);
 
-    let union_iter = Union::new(vec![child1, child2, child3]);
+    assert_eq!(union_iter.num_estimated(), 15);
+}
 
-    // For union, num_estimated is the sum (upper bound)
-    assert_eq!(union_iter.num_estimated(), 12);
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_empty_children_mixed_with_non_empty() {
+    let empty_child: Mock<'static, 0> = Mock::new([]);
+    let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+    let child2: Mock<'static, 3> = Mock::new([15, 25, 35]);
+
+    let children: Vec<Box<dyn RQEIterator<'static>>> =
+        vec![Box::new(empty_child), Box::new(child1), Box::new(child2)];
+    let mut union_iter = Union::new(children);
+
+    let expected = vec![10, 15, 20, 25, 30, 35];
+    for &expected_id in &expected {
+        let result = union_iter.read().expect("read failed");
+        assert!(result.is_some(), "Expected doc {expected_id}");
+        assert_eq!(result.unwrap().doc_id, expected_id);
+    }
+    assert!(matches!(union_iter.read(), Ok(None)));
+    assert!(union_iter.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_all_children_empty() {
+    let empty1: Mock<'static, 0> = Mock::new([]);
+    let empty2: Mock<'static, 0> = Mock::new([]);
+    let empty3: Mock<'static, 0> = Mock::new([]);
+
+    let children: Vec<Box<dyn RQEIterator<'static>>> =
+        vec![Box::new(empty1), Box::new(empty2), Box::new(empty3)];
+    let mut union_iter = Union::new(children);
+    assert!(matches!(union_iter.read(), Ok(None)));
+    assert!(union_iter.at_eof());
+    assert_eq!(union_iter.num_estimated(), 0);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_skip_to_child_already_past_target() {
+    let (children, data) = create_mock_2([10, 50, 100], [20, 60, 110]);
+    let mut union_iter = Union::new(children);
+
+    union_iter.read().expect("read failed");
+    union_iter.read().expect("read failed");
+
+    let outcome = union_iter.skip_to(40).expect("skip_to failed");
+    assert!(matches!(outcome, Some(SkipToOutcome::NotFound(_))));
+    assert_eq!(union_iter.last_doc_id(), 50);
+
+    assert_eq!(data[0].read_count(), 2);
+    assert_eq!(data[1].read_count(), 2);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_skip_to_exhausts_some_children() {
+    let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 100]);
+    let mut union_iter = Union::new(children);
+
+    let outcome = union_iter.skip_to(50).expect("skip_to failed");
+    assert!(matches!(outcome, Some(SkipToOutcome::NotFound(_))));
+    assert_eq!(union_iter.last_doc_id(), 100);
+
+    assert!(matches!(union_iter.read(), Ok(None)));
+    assert!(union_iter.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_skip_to_exhausts_all_children() {
+    let (children, _data) = create_mock_2([10, 20, 30], [15, 25, 35]);
+    let mut union_iter = Union::new(children);
+
+    let outcome = union_iter.skip_to(1000).expect("skip_to failed");
+    assert!(outcome.is_none());
+    assert!(union_iter.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_initialize_with_empty_children() {
+    let empty1: Mock<'static, 0> = Mock::new([]);
+    let child1: Mock<'static, 2> = Mock::new([10, 20]);
+    let empty2: Mock<'static, 0> = Mock::new([]);
+    let child2: Mock<'static, 2> = Mock::new([15, 25]);
+    let empty3: Mock<'static, 0> = Mock::new([]);
+
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+        Box::new(empty1),
+        Box::new(child1),
+        Box::new(empty2),
+        Box::new(child2),
+        Box::new(empty3),
+    ];
+    let mut quick_iter = UnionQuickFlat::new(children);
+
+    let expected = vec![10, 15, 20, 25];
+    for &expected_id in &expected {
+        let result = quick_iter.read().expect("read failed");
+        assert!(result.is_some(), "Expected doc {expected_id}");
+        assert_eq!(result.unwrap().doc_id, expected_id);
+    }
+    assert!(matches!(quick_iter.read(), Ok(None)));
+    assert!(quick_iter.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn edge_case_misbehaving_child_returns_none_during_init() {
+    let mock1: Mock<'static, 3> = Mock::new([10, 30, 50]);
+    let mock2: Mock<'static, 3> = Mock::new([20, 40, 60]);
+
+    let mut data1 = mock1.data();
+    data1.set_force_read_none(true);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(mock1), Box::new(mock2)];
+
+    let mut union_iter = Union::new(children);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 20);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 40);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 60);
+
+    assert!(matches!(union_iter.read(), Ok(None)));
+    assert!(union_iter.at_eof());
 }
 
 // =============================================================================
@@ -400,7 +593,7 @@ fn num_estimated_is_sum() {
 // =============================================================================
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
 fn revalidate_ok() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -417,24 +610,20 @@ fn revalidate_ok() {
 
     let mut union_iter = Union::new(children);
 
-    // Read a few documents
     let result = union_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
-
     let result = union_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 15);
 
-    // Revalidate should return Ok
     let status = union_iter.revalidate().expect("revalidate failed");
     assert!(matches!(status, RQEValidateStatus::Ok));
 
-    // Should be able to continue reading
     let result = union_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 20);
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
 fn revalidate_moved() {
     let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
     let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
@@ -451,11 +640,9 @@ fn revalidate_moved() {
 
     let mut union_iter = Union::new(children);
 
-    // Read first document
     let result = union_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
 
-    // Revalidate should return Moved
     let status = union_iter.revalidate().expect("revalidate failed");
     assert!(
         matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
@@ -465,7 +652,7 @@ fn revalidate_moved() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
 fn revalidate_after_eof() {
     let child0: Mock<'static, 2> = Mock::new([10, 20]);
     let child1: Mock<'static, 2> = Mock::new([15, 25]);
@@ -482,81 +669,358 @@ fn revalidate_after_eof() {
 
     let mut union_iter = Union::new(children);
 
-    // Advance to EOF
     while union_iter.read().expect("read failed").is_some() {}
     assert!(union_iter.at_eof());
 
-    // Revalidate should return Ok when already at EOF
     let status = union_iter.revalidate().expect("revalidate failed");
-    assert!(
-        matches!(status, RQEValidateStatus::Ok),
-        "Revalidate after EOF should return Ok, got {:?}",
-        status
-    );
-
+    assert!(matches!(status, RQEValidateStatus::Ok));
     assert!(union_iter.at_eof());
 }
 
 #[test]
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_single_child_aborts() {
+    let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
+    let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+    let child2: Mock<'static, 5> = Mock::new([12, 22, 32, 42, 52]);
+
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Abort);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+    child2
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1), Box::new(child2)];
+
+    let mut union_iter = Union::new(children);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+
+    let status = union_iter.revalidate().expect("revalidate failed");
+    assert!(
+        !matches!(status, RQEValidateStatus::Aborted),
+        "Union should not abort when only one child aborts"
+    );
+    assert!(!union_iter.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_all_children_abort() {
+    let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
+    let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Abort);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Abort);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1)];
+
+    let mut union_iter = Union::new(children);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+
+    let status = union_iter.revalidate().expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Aborted),
+        "Union should abort when all children abort"
+    );
+    assert!(
+        union_iter.at_eof(),
+        "Union should be at EOF after all children abort"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_child_moves_to_eof() {
+    let child0: Mock<'static, 2> = Mock::new([10, 20]);
+    let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1)];
+
+    let mut union_iter = Union::new(children);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 15);
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 20);
+
+    let status = union_iter.revalidate().expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok));
+
+    assert!(!union_iter.at_eof());
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 25);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_mixed_ok_moved_abort() {
+    let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
+    let child1: Mock<'static, 5> = Mock::new([15, 25, 35, 45, 55]);
+    let child2: Mock<'static, 5> = Mock::new([12, 22, 32, 42, 52]);
+
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+    child2
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Abort);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1), Box::new(child2)];
+
+    let mut union_iter = Union::new(children);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+
+    let status = union_iter.revalidate().expect("revalidate failed");
+    assert!(
+        !matches!(status, RQEValidateStatus::Aborted),
+        "Union should not abort when some children are still Ok"
+    );
+    assert!(!union_iter.at_eof());
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_all_children_move_to_eof() {
+    let child0: Mock<'static, 2> = Mock::new([10, 20]);
+    let child1: Mock<'static, 2> = Mock::new([15, 25]);
+
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1)];
+
+    let mut union_iter = Union::new(children);
+
+    while union_iter.read().expect("read failed").is_some() {}
+    assert!(union_iter.at_eof());
+
+    let status = union_iter.revalidate().expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_updates_to_new_minimum() {
+    let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
+    let child1: Mock<'static, 5> = Mock::new([5, 25, 35, 45, 55]);
+
+    child0
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+    child1
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(child0), Box::new(child1)];
+
+    let mut union_iter = Union::new(children);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 5);
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+
+    assert!(!union_iter.at_eof());
+
+    let result = union_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 20);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_when_already_at_eof() {
+    let mock1: Mock<'static, 2> = Mock::new([10, 20]);
+    let mock2: Mock<'static, 2> = Mock::new([10, 30]);
+
+    mock1.data().set_revalidate_result(MockRevalidateResult::Ok);
+    mock2.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(mock1), Box::new(mock2)];
+
+    let mut quick_iter = UnionQuickFlat::new(children);
+
+    let mut read_docs = Vec::new();
+    while let Some(result) = quick_iter.read().expect("read failed") {
+        read_docs.push(result.doc_id);
+    }
+    assert_eq!(read_docs, vec![10, 20, 30]);
+    assert!(quick_iter.at_eof());
+    let status = quick_iter.revalidate().expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok));
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_with_children_at_eof() {
+    // Test 1: Child moves to EOF during revalidate
+    {
+        let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+        let mock2: Mock<'static, 3> = Mock::new([5, 25, 50]);
+
+        let mut data1 = mock1.data();
+
+        let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+            vec![Box::new(mock1), Box::new(mock2)];
+
+        let mut union_iter = Union::new(children);
+
+        let result = union_iter.read().expect("read failed").unwrap();
+        assert_eq!(result.doc_id, 5);
+
+        let result = union_iter.read().expect("read failed").unwrap();
+        assert_eq!(result.doc_id, 10);
+
+        data1.set_revalidate_result(MockRevalidateResult::Move);
+
+        let status = union_iter.revalidate().expect("revalidate failed");
+        assert!(matches!(
+            status,
+            RQEValidateStatus::Moved { current: Some(_) }
+        ));
+    }
+
+    // Test 2: ALL children move to EOF during revalidate
+    {
+        let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+        let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+
+        let mut data1 = mock1.data();
+        let mut data2 = mock2.data();
+
+        let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+            vec![Box::new(mock1), Box::new(mock2)];
+
+        let mut union_iter = Union::new(children);
+
+        union_iter.read().expect("read failed").unwrap();
+        union_iter.read().expect("read failed").unwrap();
+
+        data1.set_revalidate_result(MockRevalidateResult::Move);
+        data2.set_revalidate_result(MockRevalidateResult::Move);
+
+        let status = union_iter.revalidate().expect("revalidate failed");
+        assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
+        assert!(union_iter.at_eof());
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn revalidate_quick_triggers_quick_exit() {
+    let mock1: Mock<'static, 3> = Mock::new([10, 30, 50]);
+    let mock2: Mock<'static, 3> = Mock::new([20, 40, 60]);
+
+    let mut data1 = mock1.data();
+    let mut data2 = mock2.data();
+
+    data1.set_revalidate_result(MockRevalidateResult::Ok);
+    data2.set_revalidate_result(MockRevalidateResult::Ok);
+
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(mock1), Box::new(mock2)];
+
+    let mut quick_iter = UnionQuickFlat::new(children);
+
+    let result = quick_iter.read().expect("read failed").unwrap();
+    assert_eq!(result.doc_id, 10);
+
+    data1.set_revalidate_result(MockRevalidateResult::Move);
+    data2.set_revalidate_result(MockRevalidateResult::Ok);
+
+    let status = quick_iter.revalidate().expect("revalidate failed");
+    assert!(matches!(
+        status,
+        RQEValidateStatus::Moved { current: Some(_) }
+    ));
+    assert_eq!(quick_iter.last_doc_id(), 20);
+}
+
+// =============================================================================
+// Current tests
+// =============================================================================
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
 fn current_after_operations() {
-    let child1 = IdListSorted::new(vec![10, 20, 30, 40, 50]);
-    let child2 = IdListSorted::new(vec![15, 25, 35, 45, 55]);
+    let (children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut union_iter = Union::new(children);
 
-    let mut union_iter = Union::new(vec![child1, child2]);
-
-    // Before any read, current() returns Some (buffer exists)
     assert!(union_iter.current().is_some());
     assert_eq!(union_iter.last_doc_id(), 0);
 
-    // After read
     let _ = union_iter.read().expect("read failed");
     let current = union_iter.current();
     assert!(current.is_some());
     assert_eq!(current.unwrap().doc_id, 10);
 
-    // After skip_to
     let _ = union_iter.skip_to(30).expect("skip_to failed");
     let current = union_iter.current();
     assert!(current.is_some());
     assert_eq!(current.unwrap().doc_id, 30);
 
-    // After rewind
     union_iter.rewind();
     assert!(union_iter.current().is_some());
     assert_eq!(union_iter.last_doc_id(), 0);
 
-    // After EOF
     while union_iter.read().expect("read failed").is_some() {}
     assert!(union_iter.at_eof());
     assert!(union_iter.current().is_none());
 }
 
-// ============================================================================
-// Tests for UnionQuickFlat variant
-// ============================================================================
+// =============================================================================
+// Quick vs Full mode tests
+// =============================================================================
 
-/// Test that UnionQuickFlat produces the same doc_ids as UnionFullFlat.
-/// (Quick mode just doesn't aggregate results, but yields same documents)
 #[test]
-#[cfg_attr(miri, ignore)]
-fn quick_variant_produces_same_doc_ids() {
-    let ids1 = vec![10, 20, 30, 40, 50];
-    let ids2 = vec![15, 25, 35, 45, 55];
-
-    // Test with full variant
-    let mut full_iter = UnionFullFlat::new(vec![
-        IdListSorted::new(ids1.clone()),
-        IdListSorted::new(ids2.clone()),
-    ]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn mode_quick_variant_produces_same_doc_ids() {
+    let (full_children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut full_iter = UnionFullFlat::new(full_children);
     let mut full_results = Vec::new();
     while let Some(result) = full_iter.read().expect("read failed") {
         full_results.push(result.doc_id);
     }
 
-    // Test with quick variant
-    let mut quick_iter =
-        UnionQuickFlat::new(vec![IdListSorted::new(ids1), IdListSorted::new(ids2)]);
+    let (quick_children, _) = create_mock_2([10, 20, 30, 40, 50], [15, 25, 35, 45, 55]);
+    let mut quick_iter = UnionQuickFlat::new(quick_children);
     let mut quick_results = Vec::new();
     while let Some(result) = quick_iter.read().expect("read failed") {
         quick_results.push(result.doc_id);
@@ -565,143 +1029,99 @@ fn quick_variant_produces_same_doc_ids() {
     assert_eq!(full_results, quick_results);
 }
 
-/// Test that Full mode aggregates results from ALL children with the same doc_id,
-/// while Quick mode only takes the result from the first matching child.
 #[test]
-#[cfg_attr(miri, ignore)]
-fn full_mode_aggregates_all_matching_children() {
-    // Create 3 children that all have doc_id 10 (and some unique docs)
-    let child1 = IdListSorted::new(vec![10, 20, 30]);
-    let child2 = IdListSorted::new(vec![10, 25, 35]);
-    let child3 = IdListSorted::new(vec![10, 28, 38]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn mode_full_aggregates_all_matching_children() {
+    let (children, _) = create_mock_3([10, 20, 30], [10, 25, 35], [10, 28, 38]);
+    let mut full_iter = UnionFullFlat::new(children);
 
-    let mut full_iter = UnionFullFlat::new(vec![child1, child2, child3]);
-
-    // Read doc_id 10 - should aggregate results from all 3 children
     let result = full_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
 
-    // In Full mode, the aggregate should contain results from all 3 children
     let aggregate = result.as_aggregate().expect("Expected aggregate result");
     assert_eq!(
         aggregate.len(),
         3,
-        "Full mode should aggregate all 3 children with doc_id 10"
+        "Full mode should aggregate all 3 children matching doc 10"
     );
 }
 
-/// Test that Quick mode only takes the result from the first matching child.
 #[test]
-#[cfg_attr(miri, ignore)]
-fn quick_mode_takes_first_matching_child_only() {
-    // Create 3 children that all have doc_id 10 (and some unique docs)
-    let child1 = IdListSorted::new(vec![10, 20, 30]);
-    let child2 = IdListSorted::new(vec![10, 25, 35]);
-    let child3 = IdListSorted::new(vec![10, 28, 38]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn mode_quick_takes_first_matching_child_only() {
+    let (children, _) = create_mock_3([10, 20, 30], [10, 25, 35], [10, 28, 38]);
+    let mut quick_iter = UnionQuickFlat::new(children);
 
-    let mut quick_iter = UnionQuickFlat::new(vec![child1, child2, child3]);
-
-    // Read doc_id 10 - should only take result from first child
     let result = quick_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
 
-    // In Quick mode, the aggregate should contain result from only 1 child
     let aggregate = result.as_aggregate().expect("Expected aggregate result");
     assert_eq!(
         aggregate.len(),
         1,
-        "Quick mode should only take result from first matching child"
+        "Quick mode should only take first matching child"
     );
 }
 
-/// Test that Full mode aggregates varying numbers of children for different doc_ids.
 #[test]
-#[cfg_attr(miri, ignore)]
-fn full_mode_aggregates_correct_number_of_children() {
-    // doc_id 10: in child1, child2, child3 (3 children)
-    // doc_id 20: in child1 only (1 child)
-    // doc_id 25: in child2 only (1 child)
-    // doc_id 30: in child1, child3 (2 children)
-    let child1 = IdListSorted::new(vec![10, 20, 30]);
-    let child2 = IdListSorted::new(vec![10, 25]);
-    let child3 = IdListSorted::new(vec![10, 30]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn mode_full_aggregates_correct_number_of_children() {
+    let (children, _) = create_mock_3([10, 20, 30], [10, 25], [10, 30]);
+    let mut full_iter = UnionFullFlat::new(children);
 
-    let mut full_iter = UnionFullFlat::new(vec![child1, child2, child3]);
-
-    // doc_id 10: should have 3 children
     let result = full_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 10);
     assert_eq!(
         result.as_aggregate().unwrap().len(),
         3,
-        "doc_id 10 should aggregate 3 children"
+        "doc 10: all 3 children match"
     );
 
-    // doc_id 20: should have 1 child
     let result = full_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 20);
     assert_eq!(
         result.as_aggregate().unwrap().len(),
         1,
-        "doc_id 20 should aggregate 1 child"
+        "doc 20: only child1 matches"
     );
 
-    // doc_id 25: should have 1 child
     let result = full_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 25);
     assert_eq!(
         result.as_aggregate().unwrap().len(),
         1,
-        "doc_id 25 should aggregate 1 child"
+        "doc 25: only child2 matches"
     );
 
-    // doc_id 30: should have 2 children
     let result = full_iter.read().expect("read failed").unwrap();
     assert_eq!(result.doc_id, 30);
     assert_eq!(
         result.as_aggregate().unwrap().len(),
         2,
-        "doc_id 30 should aggregate 2 children"
+        "doc 30: child1 and child3 match"
     );
 }
 
-/// Test that Quick mode always has exactly 1 child in the aggregate.
 #[test]
-#[cfg_attr(miri, ignore)]
-fn quick_mode_always_has_one_child() {
-    // Same data as full_mode_aggregates_correct_number_of_children
-    let child1 = IdListSorted::new(vec![10, 20, 30]);
-    let child2 = IdListSorted::new(vec![10, 25]);
-    let child3 = IdListSorted::new(vec![10, 30]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn mode_quick_always_has_one_child() {
+    let (children, _) = create_mock_3([10, 20, 30], [10, 25], [10, 30]);
+    let mut quick_iter = UnionQuickFlat::new(children);
 
-    let mut quick_iter = UnionQuickFlat::new(vec![child1, child2, child3]);
-
-    // All doc_ids should have exactly 1 child in Quick mode
     while let Some(result) = quick_iter.read().expect("read failed") {
         assert_eq!(
             result.as_aggregate().unwrap().len(),
             1,
-            "Quick mode should always have exactly 1 child for doc_id {}",
-            result.doc_id
+            "Quick mode should always have exactly 1 child in aggregate"
         );
     }
 }
 
-/// Test Quick vs Full mode with skip_to operation.
 #[test]
-#[cfg_attr(miri, ignore)]
-fn quick_vs_full_with_skip_to() {
-    // doc_id 50: in all 3 children
-    let child1 = IdListSorted::new(vec![10, 30, 50]);
-    let child2 = IdListSorted::new(vec![20, 40, 50]);
-    let child3 = IdListSorted::new(vec![25, 45, 50]);
-
-    // Full mode skip_to
-    let mut full_iter = UnionFullFlat::new(vec![
-        IdListSorted::new(vec![10, 30, 50]),
-        IdListSorted::new(vec![20, 40, 50]),
-        IdListSorted::new(vec![25, 45, 50]),
-    ]);
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn mode_quick_vs_full_with_skip_to() {
+    let (full_children, _) = create_mock_3([10, 30, 50], [20, 40, 50], [25, 45, 50]);
+    let mut full_iter = UnionFullFlat::new(full_children);
 
     let outcome = full_iter.skip_to(50).expect("skip_to failed");
     assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
@@ -713,8 +1133,8 @@ fn quick_vs_full_with_skip_to() {
         "Full mode skip_to should aggregate all 3 children"
     );
 
-    // Quick mode skip_to
-    let mut quick_iter = UnionQuickFlat::new(vec![child1, child2, child3]);
+    let (quick_children, _) = create_mock_3([10, 30, 50], [20, 40, 50], [25, 45, 50]);
+    let mut quick_iter = UnionQuickFlat::new(quick_children);
 
     let outcome = quick_iter.skip_to(50).expect("skip_to failed");
     assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
@@ -723,7 +1143,132 @@ fn quick_vs_full_with_skip_to() {
     assert_eq!(
         result.as_aggregate().unwrap().len(),
         1,
-        "Quick mode skip_to should only take first matching child"
+        "Quick mode skip_to should only take first child"
     );
 }
 
+// =============================================================================
+// Reuse results optimization tests
+// =============================================================================
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn reuse_results_optimization_quick_mode() {
+    let (children, data) = create_mock_2([3], [2]);
+    let mut union = UnionQuickFlat::new(children);
+
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 2);
+    assert_eq!(
+        data[0].read_count(),
+        1,
+        "child0 should be read once for initial heap setup"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        1,
+        "child1 should be read once for initial heap setup"
+    );
+
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 3);
+    assert_eq!(
+        data[0].read_count(),
+        1,
+        "child0 should NOT be re-read (reuse optimization)"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        1,
+        "child1 was at doc 2, should NOT be re-read (quick mode returns first match)"
+    );
+
+    let result = union.read().expect("read failed");
+    assert!(result.is_none());
+    assert_eq!(
+        data[0].read_count(),
+        2,
+        "child0 should now be read to discover EOF"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        2,
+        "child1 should now be read to discover EOF"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Calls RSYieldableMetric_Concat FFI in push_borrowed
+fn reuse_results_optimization_full_mode() {
+    let (children, data) = create_mock_3([1, 3, 5], [2, 3, 6], [3, 4, 7]);
+    let mut union = UnionFullFlat::new(children);
+
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 1);
+    assert_eq!(
+        data[0].read_count(),
+        1,
+        "child0 should be read once for initial heap setup"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        1,
+        "child1 should be read once for initial heap setup"
+    );
+    assert_eq!(
+        data[2].read_count(),
+        1,
+        "child2 should be read once for initial heap setup"
+    );
+
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 2);
+    assert_eq!(
+        data[0].read_count(),
+        2,
+        "child0 was at doc 1, should be read to advance"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        1,
+        "child1 at doc 2 - reused (no read needed)"
+    );
+    assert_eq!(
+        data[2].read_count(),
+        1,
+        "child2 at doc 3 - reused (no read needed)"
+    );
+
+    let result = union
+        .read()
+        .expect("read failed")
+        .expect("should have result");
+    assert_eq!(result.doc_id, 3);
+    assert_eq!(
+        data[0].read_count(),
+        2,
+        "child0 at doc 3 - reused (no read needed)"
+    );
+    assert_eq!(
+        data[1].read_count(),
+        2,
+        "child1 was at doc 2, should be read to advance"
+    );
+    assert_eq!(
+        data[2].read_count(),
+        1,
+        "child2 at doc 3 - reused (no read needed)"
+    );
+}

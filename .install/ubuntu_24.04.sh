@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 
@@ -13,3 +13,6 @@ $MODE apt install -yqq git wget build-essential lcov openssl libssl-dev \
 if [ "$(uname -m)" = "aarch64" ]; then
     $MODE apt install -y python3-dev
 fi
+
+# Need clang for LTO
+source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

@@ -505,14 +505,36 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
   }
 }
 
+static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  REDISMODULE_NOT_USED(data);
+  RedisModule_Log(ctx, "notice", "Got Server ready event.");
+  if (SearchDisk_IsEnabled()) {
+    bool disk_initialized = SearchDisk_Initialize(ctx);
+    RS_LOG_ASSERT(disk_initialized, "Search Disk is enabled but could not be initialized")
+    if (RSGlobalConfig.numWorkerThreads == 0) {
+      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
+      workersThreadPool_SetNumWorkers();
+      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
+    }
+  }
+}
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  RediSearch_CleanupModule(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
+void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
+  SearchDisk_Close(ctx);
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
+}
+
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
+#define BIGREDIS_MAX_RAM "bigredis-max-ram"
 
 bool getHideUserDataFromLogs() {
   char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
@@ -544,6 +566,10 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
     if (!strcmp(conf, HIDE_USER_DATA_FROM_LOGS)) {
       onUpdatedHideUserDataFromLogs(ctx);
     }
+    if (!strcmp(conf, BIGREDIS_MAX_RAM)) {
+      RS_ASSERT(SearchDisk_IsInitialized());
+      SearchDisk_UpdateBufferBudget(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+    }
   }
 }
 
@@ -568,23 +594,32 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   // after resharding, its safe to filter keys which are not in our slot range.
   if (RedisModule_ShardingGetKeySlot) {
     // we have server events support, lets subscribe to relevant events.
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
+    RedisModule_Log(ctx, "notice", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
-
+  bool shutdownEventHandled = false;
   if (getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind
-    RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
+    RedisModule_Log(ctx, "notice", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
+    shutdownEventHandled = true;
   }
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
+  if (!shutdownEventHandled && SearchDisk_IsEnabled()) {
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownDiskClose);
+  }
+
+  RedisModule_Log(ctx, "notice", "Subscribe to config changes");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 
-  RedisModule_Log(ctx, "notice", "%s", "Subscribe to cluster slot migration events");
+  RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);
+  }
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {
@@ -602,10 +637,10 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
     Backup_Globals();
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
-    Restore_Globals();
+    Restore_Globals(ctx);
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
-    Discard_Globals_Backup();
+    Discard_Globals_Backup(ctx);
     break;
   }
 }
@@ -673,7 +708,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
-    Indexes_StartRDBLoadingEvent();
+    Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "Loading event started");
     break;

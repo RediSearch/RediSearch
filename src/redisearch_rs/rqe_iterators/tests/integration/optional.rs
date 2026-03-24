@@ -900,7 +900,7 @@ mod optional_iterator_non_sequential_reads {
             Self {
                 read_steps,
                 read_step: 0,
-                result: inverted_index::RSIndexResult::numeric(42.),
+                result: inverted_index::RSIndexResult::build_numeric(42.).build(),
             }
         }
     }

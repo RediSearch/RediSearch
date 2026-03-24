@@ -33,13 +33,14 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
 }
 
 RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req,
-                                                       int timeoutMS, RedisModuleCmdFunc timeoutCallback) {
-  // Assert that if timeoutMS is provided, then timeoutCallback is also provided.
-  RS_ASSERT(timeoutMS == 0 || timeoutCallback != NULL);
+                                                       int timeoutMS, RedisModuleCmdFunc replyCallback,
+                                                       RedisModuleCmdFunc timeoutCallback) {
+  // Assert that if timeoutMS is provided, then both callbacks must be provided.
+  RS_ASSERT(timeoutMS == 0 || (timeoutCallback != NULL && replyCallback != NULL));
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  // AREQ ownership: shared between blockedClientReqCtx (background thread) and BlockedQueryNode (timeout callback).
+  // AREQ ownership: shared between blockedClientReqCtx (background thread) and BlockedQueryNode (timeout callback, reply callback).
   // Take a reference for the timeout callback access via node->privdata.
   // This reference is released in FreeQueryNode via the freePrivData callback after timeout/reply callback completes.
   AREQ_IncrRef(req);
@@ -50,7 +51,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec
   // found in buildRequest.
-  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, timeoutCallback, FreeQueryNode, timeoutMS);
+  RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, replyCallback, timeoutCallback, FreeQueryNode, timeoutMS);
   RedisModule_BlockClientSetPrivateData(blockedClient, node);
   // report block client start time
   RedisModule_BlockedClientMeasureTimeStart(blockedClient);

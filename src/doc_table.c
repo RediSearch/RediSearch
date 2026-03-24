@@ -243,6 +243,22 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
 }
 
+void DocTable_ClearExpirationData(DocTable *t) {
+  if (t->ttl) {
+    dictIterator *ttlIter = dictGetIterator(t->ttl);
+    dictEntry *ttlEntry;
+    while ((ttlEntry = dictNext(ttlIter))) {
+      t_docId docId = (t_docId)dictGetKey(ttlEntry);
+      RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+      if (dmd) {
+        dmd->flags &= ~Document_HasExpiration;
+      }
+    }
+    dictReleaseIterator(ttlIter);
+    TimeToLiveTable_Destroy(&t->ttl);
+  }
+}
+
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
  *

@@ -65,10 +65,11 @@ where
     ) -> Self {
         use ffi::RS_FIELDMASK_ALL;
 
-        let result = RSIndexResult::virt()
+        let result = RSIndexResult::build_virt()
             .weight(weight)
             .field_mask(RS_FIELDMASK_ALL)
-            .frequency(1);
+            .frequency(1)
+            .build();
 
         Self {
             // Wildcard iterator does not support expiration check

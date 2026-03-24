@@ -70,6 +70,13 @@ impl<'a> RLookup<'a> {
         }
     }
 
+    /// Asserts as many of the lookup's invariants as possible.
+    #[track_caller]
+    #[cfg(any(debug_assertions, test))]
+    pub fn assert_valid(&self, ctx: &str) {
+        self.keys.assert_valid(ctx);
+    }
+
     /// Set the [`IndexSpecCache`] associated with this [`RLookup`].
     ///
     /// # Panics
@@ -351,7 +358,7 @@ impl<'a> RLookup<'a> {
         let key = if let Some(fs) = self
             .index_spec_cache
             .as_ref()
-            .and_then(|spcache| spcache.find_field(&name))
+            .and_then(|spcache| spcache.find_field(field_name))
         {
             let key = cursor.into_current().unwrap();
             key.update_from_field_spec(fs);
@@ -470,7 +477,7 @@ fn load_specific_keys<'a>(
         type_: index_spec.rule().type_(),
         status: ptr::from_mut(status),
         forceLoad: true,
-        mode: ffi::RLookupLoadFlags_RLOOKUP_LOAD_KEYLIST,
+        cachedOnly: false,
         dmd: ptr::null(),
         forceString: false,
     };
@@ -623,7 +630,6 @@ mod tests {
 
         // Let's create a cache with one field spec
         let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_field_name(key_name)
             .with_sort_idx(12)
             .with_options(make_bitflags!(FieldSpecOption::{
                 Sortable
@@ -663,7 +669,6 @@ mod tests {
 
         // Let's create a cache with one field spec
         let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_field_name(key_name)
             .with_sort_idx(12)
             .with_options(make_bitflags!(FieldSpecOption::{
                 Sortable | Unf
@@ -696,7 +701,6 @@ mod tests {
 
         // Let's create a cache with one field spec
         let spcache = IndexSpecCache::from_fields([FieldSpecBuilder::new(cache_field_name)
-            .with_field_name(key_name)
             .with_sort_idx(12)
             .with_options(make_bitflags!(FieldSpecOption::{
                 Sortable | Unf

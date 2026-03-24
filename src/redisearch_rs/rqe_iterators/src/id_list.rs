@@ -40,7 +40,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// If `SORTED` is set to `true`, the list must be sorted.
     #[inline(always)]
     pub fn new(ids: impl Into<OwnedSlice<t_docId>>) -> Self {
-        Self::with_result(ids, RSIndexResult::virt())
+        Self::with_result(ids, RSIndexResult::build_virt().build())
     }
 
     /// Get the current iterator offset—i.e. its position in the list of IDs.
@@ -113,6 +113,10 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         {
             // The iterator has been advanced past the end of the ID list.
             self.offset = len;
+            // Update result.doc_id to the last element in the list
+            if len > 0 {
+                self.result.doc_id = self.ids[len - 1];
+            }
             return None;
         }
 
@@ -225,10 +229,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        match self.offset {
-            0 => 0,
-            _ => self.ids[self.offset - 1],
-        }
+        self.result.doc_id
     }
 
     #[inline(always)]

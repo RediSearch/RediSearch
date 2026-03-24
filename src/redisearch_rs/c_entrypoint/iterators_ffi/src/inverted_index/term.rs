@@ -15,8 +15,8 @@ use inverted_index::{
     doc_ids_only::DocIdsOnly, fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only,
     full, offsets_only, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{FieldExpirationChecker, inverted_index::Term};
-use rqe_iterators_interop::RQEIteratorWrapper;
 
 /// Wrapper around different term reader types to avoid generics in FFI code.
 ///
@@ -241,5 +241,5 @@ pub unsafe extern "C" fn NewInvIndIterator_TermQuery(
     // own safety contract (valid reader, valid sctx, valid term).
     let iterator = unsafe { Term::new(reader, sctx, term, weight, expiration_checker) };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_TERM_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxTerm, iterator)
 }

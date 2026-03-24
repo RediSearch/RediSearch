@@ -118,7 +118,9 @@ struct NumericBaseTest {
 impl NumericBaseTest {
     fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
         // The numeric record has a value of `doc_id * 2.0`.
-        RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)
+        RSIndexResult::build_numeric(doc_id as f64 * 2.0)
+            .doc_id(doc_id)
+            .build()
     }
 
     fn new(n_docs: u64) -> Self {
@@ -198,9 +200,9 @@ fn skip_multi_id() {
     // Add multiple entries with the same docId
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(3.0).doc_id(1).build());
 
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(ii.reader())
@@ -227,9 +229,9 @@ fn skip_multi_id_and_value() {
     // Add multiple entries with the same docId and numeric value
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
 
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(ii.reader())
@@ -256,9 +258,9 @@ fn get_correct_value() {
     // Add entries with the same ID but different values
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(3.0).doc_id(1));
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(3.0).doc_id(1).build());
 
     // Create an iterator that reads only entries with value >= 2.0
     let filter = NumericFilter {
@@ -295,7 +297,7 @@ fn eof_after_filtering() {
 
     // Fill the index with entries, all with value 1.0
     for id in 1..=1234 {
-        let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(id));
+        let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(id).build());
     }
 
     // Create an iterator that reads only entries with value 2.0
@@ -338,9 +340,9 @@ fn skip_to_then_read_with_duplicates() {
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
     // Add multiple entries with the same docId (triggers HasMultiValue flag).
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(10.0).doc_id(5));
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(10.0).doc_id(5).build());
 
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(ii.reader())
@@ -368,8 +370,8 @@ fn skip_to_then_read_with_duplicates() {
 fn numeric_reader_accessor() {
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(3));
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(3).build());
 
     let context = MockContext::new(0, 0);
     let it = NumericBuilder::new(ii.reader())
@@ -385,8 +387,8 @@ fn numeric_reader_accessor() {
 fn numeric_no_range_tree_revalidate() {
     let mut ii =
         InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-    let _ = ii.add_record(&RSIndexResult::numeric(1.0).doc_id(1));
-    let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(3));
+    let _ = ii.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+    let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(3).build());
 
     // Build without a range tree — should_abort will return false.
     let mut it = NumericBuilder::new(ii.reader()).build();
@@ -418,7 +420,9 @@ mod not_miri {
     impl NumericExpirationTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
-            RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)
+            RSIndexResult::build_numeric(doc_id as f64 * 2.0)
+                .doc_id(doc_id)
+                .build()
         }
 
         fn new(n_docs: u64, multi: bool) -> Self {
@@ -512,10 +516,10 @@ mod not_miri {
         // Create docs with IDs 1, 3, 5, 7 (gaps at 2, 4, 6).
         let mut ii =
             InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-        let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
-        let _ = ii.add_record(&RSIndexResult::numeric(6.0).doc_id(3));
-        let _ = ii.add_record(&RSIndexResult::numeric(10.0).doc_id(5));
-        let _ = ii.add_record(&RSIndexResult::numeric(14.0).doc_id(7));
+        let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(1).build());
+        let _ = ii.add_record(&RSIndexResult::build_numeric(6.0).doc_id(3).build());
+        let _ = ii.add_record(&RSIndexResult::build_numeric(10.0).doc_id(5).build());
+        let _ = ii.add_record(&RSIndexResult::build_numeric(14.0).doc_id(7).build());
 
         // Mark doc 1 as expired
         let mut expired_docs = HashSet::new();
@@ -549,9 +553,9 @@ mod not_miri {
         // Create docs with IDs 1, 2, 3.
         let mut ii =
             InvertedIndex::<inverted_index::numeric::Numeric>::new(IndexFlags_Index_StoreNumeric);
-        let _ = ii.add_record(&RSIndexResult::numeric(2.0).doc_id(1));
-        let _ = ii.add_record(&RSIndexResult::numeric(4.0).doc_id(2));
-        let _ = ii.add_record(&RSIndexResult::numeric(6.0).doc_id(3));
+        let _ = ii.add_record(&RSIndexResult::build_numeric(2.0).doc_id(1).build());
+        let _ = ii.add_record(&RSIndexResult::build_numeric(4.0).doc_id(2).build());
+        let _ = ii.add_record(&RSIndexResult::build_numeric(6.0).doc_id(3).build());
 
         // Use an empty MockExpirationChecker (has_expiration returns false)
         // to simulate RS_INVALID_FIELD_INDEX behavior.
@@ -605,7 +609,9 @@ mod not_miri {
     impl NumericRevalidateTest {
         fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
-            RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)
+            RSIndexResult::build_numeric(doc_id as f64 * 2.0)
+                .doc_id(doc_id)
+                .build()
         }
 
         fn new(n_docs: u64) -> Self {

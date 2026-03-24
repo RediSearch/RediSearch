@@ -62,7 +62,7 @@ pub extern "C" fn NewIntersectResult<'result>(
     cap: usize,
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::intersect(cap).weight(weight);
+    let result = RSIndexResult::build_intersect(cap).weight(weight).build();
     Box::into_raw(Box::new(result))
 }
 
@@ -70,7 +70,7 @@ pub extern "C" fn NewIntersectResult<'result>(
 /// [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewUnionResult<'result>(cap: usize, weight: f64) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::union(cap).weight(weight);
+    let result = RSIndexResult::build_union(cap).weight(weight).build();
     Box::into_raw(Box::new(result))
 }
 
@@ -81,21 +81,24 @@ pub extern "C" fn NewVirtualResult<'result>(
     weight: f64,
     field_mask: t_fieldMask,
 ) -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::virt().field_mask(field_mask).weight(weight);
+    let result = RSIndexResult::build_virt()
+        .field_mask(field_mask)
+        .weight(weight)
+        .build();
     Box::into_raw(Box::new(result))
 }
 
 /// Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewNumericResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::numeric(0.0);
+    let result = RSIndexResult::build_numeric(0.0).build();
     Box::into_raw(Box::new(result))
 }
 
 /// Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::metric();
+    let result = RSIndexResult::build_metric().build();
     Box::into_raw(Box::new(result))
 }
 
@@ -105,7 +108,7 @@ pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
 /// Therefore, this also returns an owned `RSIndexResult`.
 #[unsafe(no_mangle)]
 pub extern "C" fn NewHybridResult() -> *mut RSIndexResult<'static> {
-    Box::into_raw(Box::new(RSIndexResult::hybrid_metric()))
+    Box::into_raw(Box::new(RSIndexResult::build_hybrid_metric().build()))
 }
 
 /// Allocate a new token record with a given term and weight. This result should be freed using
@@ -120,13 +123,17 @@ pub unsafe extern "C" fn NewTokenRecord<'result>(
     term: *mut RSQueryTerm,
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
-    let result = if term.is_null() {
-        RSIndexResult::term().frequency(0).weight(weight)
+    let term = if term.is_null() {
+        None
     } else {
         // SAFETY: caller guarantees `term` was created via `NewQueryTerm`.
-        let term = unsafe { Box::from_raw(term) };
-        RSIndexResult::with_term(term, RSOffsetSlice::empty(), 0, 0, 0).weight(weight)
+        Some(unsafe { Box::from_raw(term) })
     };
+    let result = RSIndexResult::build_term()
+        .borrowed_record(term, RSOffsetSlice::empty())
+        .frequency(0)
+        .weight(weight)
+        .build();
     Box::into_raw(Box::new(result))
 }
 
@@ -325,6 +332,33 @@ pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
     unsafe { result.as_aggregate_unchecked() }
 }
 
+/// Get a mutable aggregate result reference without performing a runtime check
+/// on the enum discriminant.
+///
+/// Use this method if and only if you've already checked the enum
+/// discriminant in C code and you don't want to incur the (small)
+/// performance penalty of an additional redundant check.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// 2. `result`'s data payload must be of the aggregate kind
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateRefMutUnchecked<'result, 'index>(
+    result: *mut RSIndexResult<'index>,
+) -> Option<&'result mut RSAggregateResult<'index>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: The cast is valid thanks to safety precondition 1.
+    let result = unsafe { &mut *result };
+
+    // SAFETY:
+    // - The caller guarantees we can skip the discriminant check
+    //   thanks to safety precondition 2.
+    unsafe { result.as_aggregate_mut_unchecked() }
+}
+
 /// Reset the result if it is an aggregate result. This will clear the children vector
 /// and reset the kind mask.
 ///
@@ -387,6 +421,31 @@ pub unsafe extern "C" fn AggregateResult_GetUnchecked<'result, 'index>(
     // SAFETY:
     // 1. Guaranteed by the caller thanks to safety precondition 1.
     unsafe { agg.get_unchecked(index) }
+}
+
+/// Get a mutable result at the specified index in the aggregate result, without checking bounds.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// 2. `index` must be lower than the length of the aggregate result children vector.
+/// 3. `agg` must be of the `Owned` variant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_GetMutUnchecked<'result, 'index>(
+    agg: *mut RSAggregateResult<'index>,
+    index: usize,
+) -> &'result mut RSIndexResult<'index> {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &mut *agg };
+
+    // SAFETY:
+    // 1. Guaranteed by the caller thanks to safety preconditions 1 and 2.
+    // 2. Guaranteed by the caller thanks to safety precondition 3.
+    unsafe { agg.get_mut_unchecked(index) }
 }
 
 /// Get the element count of the aggregate result.

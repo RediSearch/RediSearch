@@ -730,8 +730,8 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2);
 }
 
-/* Return 1 if the two values are equal */
-int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
+/* Return true if the two values are equal, false otherwise */
+bool RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
 
   if (v1->_t == v2->_t) {
@@ -739,16 +739,16 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   }
 
   if (v1 == RSValue_NullStatic() || v2 == RSValue_NullStatic()) {
-    return 0;
+    return false;
   }
 
   // if either of the arguments is a number, convert the other one to a number
   RSValue vn;
   if (v1->_t == RSValueType_Number) {
-    if (!convert_to_number(v2, &vn, NULL)) return 0;
+    if (!convert_to_number(v2, &vn, NULL)) return false;
     return cmp_numbers(v1, &vn) == 0;
   } else if (v2->_t == RSValueType_Number) {
-    if (!convert_to_number(v1, &vn, NULL)) return 0;
+    if (!convert_to_number(v1, &vn, NULL)) return false;
     return cmp_numbers(&vn, v2) == 0;
   }
 
@@ -761,8 +761,8 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   return cmp_strings(s1, s2, l1, l2) == 0;
 }
 
-int RSValue_BoolTest(const RSValue *v) {
-  if (RSValue_IsNull(v)) return 0;
+bool RSValue_BoolTest(const RSValue *v) {
+  if (RSValue_IsNull(v)) return false;
 
   v = RSValue_Dereference(v);
   switch (v->_t) {
@@ -778,7 +778,7 @@ int RSValue_BoolTest(const RSValue *v) {
       return l != 0;
     }
     default:
-      return 0;
+      return false;
   }
 }
 

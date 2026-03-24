@@ -10,7 +10,6 @@
 #include "search_disk.h"
 #include "config.h"
 #include "spec.h"
-#include "trie/trie_type.h"
 #include "redismodule.h"
 
 RedisSearchDiskAPI *disk = NULL;
@@ -34,6 +33,14 @@ RedisSearchDiskAPI *SearchDisk_GetAPI() {
   return NULL;
 }
 
+__attribute__((weak))
+void SearchDisk_SetAPI() {
+  // Default to no implementation. SearchEnterprise should implement this to correctly set globals
+  // of API implementations. Eg setting the `SEARCH_ENTERPRISE_ITERATORS` Rust global to allow
+  // the iterators to access the enterprise iterator implementations.
+  return;
+}
+
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   if (!SearchDisk_HasAPI()) {
     RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
@@ -45,14 +52,31 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "RediSearch disk API disabled");
     return false;
   }
+  SearchDisk_SetAPI();
   RedisModule_Log(ctx, "warning", "RediSearch disk API enabled");
 
   // Set throttle callbacks for vector disk tiered indexes
   RS_ASSERT(disk->basic.setThrottleCallbacks);
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
-  disk_db = disk->basic.open();
+  // Pass the disk buffer percentage from config
+  disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage);
+  bool disk_initialized = disk_db != NULL;
 
+  if (!disk_initialized) {
+    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+    return false;
+  }
+
+  // Register BigModule callbacks for disk usage reporting
+  if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
+    RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
+    return false;
+  }
+  return disk_db != NULL;
+}
+
+bool SearchDisk_IsInitialized() {
   return disk_db != NULL;
 }
 
@@ -93,9 +117,9 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx) {
   return true;
 }
 
-void SearchDisk_Close() {
+void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
-    disk->basic.close(disk_db);
+    disk->basic.close(ctx, disk_db);
     disk_db = NULL;
   }
 }
@@ -111,9 +135,19 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_CloseIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk_db && index && ctx);
+    disk->basic.registerIndex(ctx, index);
+}
+
+void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
+    RS_ASSERT(disk_db && index && ctx);
+    disk->basic.unregisterIndex(ctx, index);
+}
+
+void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk_db && index);
-    disk->basic.closeIndexSpec(ctx, disk_db, index);
+    disk->basic.closeIndexSpec(disk_db, index);
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
@@ -315,4 +349,9 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.flush(index);
+}
+
+void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
+  RS_ASSERT(disk && disk_db);
+  disk->basic.updateBufferBudget(ctx, disk_db, percentage);
 }

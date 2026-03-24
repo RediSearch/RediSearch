@@ -15,6 +15,10 @@ concurrency: # Global concurrency because newer runs should also cancel failure 
 jobs:
   deploy-snapshots:
     secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     uses: ./.github/workflows/flow-build-artifacts.yml
 
   notify-failure:
@@ -27,6 +31,7 @@ jobs:
         with:
           payload: |
             {
+              "repository": "${{ github.repository }}",
               "branch": "${{ github.ref_name }}",
               "workflow_page": "${{ github.server_url }}/${{ github.repository }}/actions/workflows/event-deploy-snapshots.yml/?query=branch%3A${{ github.ref_name }}",
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"

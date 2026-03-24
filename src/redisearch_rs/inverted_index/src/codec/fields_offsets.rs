@@ -14,7 +14,7 @@ use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, RSResultData, TermDecoder,
+    Decoder, Encoder, RSIndexResult, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -39,7 +39,7 @@ impl Encoder for FieldsOffsets {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.data, RSResultData::Term(_)));
+        assert!(record.is_term());
 
         let field_mask = record
                 .field_mask
@@ -79,7 +79,7 @@ impl Decoder for FieldsOffsets {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(
@@ -140,7 +140,7 @@ impl Encoder for FieldsOffsetsWide {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.data, RSResultData::Term(_)));
+        assert!(record.is_term());
 
         let offsets = offsets(record);
         let offsets_sz = offsets.len() as u32;
@@ -177,7 +177,7 @@ impl Decoder for FieldsOffsetsWide {
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
-        RSIndexResult::term()
+        RSIndexResult::build_term().build()
     }
 
     fn seek<'index>(
