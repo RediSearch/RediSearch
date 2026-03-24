@@ -191,13 +191,7 @@ impl<'a> RLookupRow<'a> {
     /// If the item is not found in either location, it returns `None`.
     pub fn get(&self, key: &RLookupKey) -> Option<&RSValueFFI> {
         // Check dynamic values first
-        if self.len() > key.dstidx as usize
-            && let Some(val) = self
-                .dyn_values()
-                .get(key.dstidx as usize)
-                .expect("value is not in dynamic values even though dstidx is in bounds")
-                .as_ref()
-        {
+        if let Some(Some(val)) = self.dyn_values().get(key.dstidx as usize) {
             return Some(val);
         }
 
@@ -209,7 +203,7 @@ impl<'a> RLookupRow<'a> {
             //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
             self.sorting_vector()?
                 .get(key.svidx as usize)
-                .filter(|v| v.get_type() != ffi::RSValueType_RSValueType_Null)
+                .filter(|v| !v.is_null())
         } else {
             None
         }
