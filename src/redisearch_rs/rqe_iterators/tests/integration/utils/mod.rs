@@ -8,4 +8,7 @@
 */
 
 mod mock_iterator;
+mod wildcard_helper;
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
+#[expect(unused)] // not used yet
+pub(crate) use wildcard_helper::WildcardHelper;
