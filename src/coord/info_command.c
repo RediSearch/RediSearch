@@ -36,7 +36,6 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "offset_vectors_sz_mb", .type = InfoField_DoubleSum},
     {.name = "doc_table_size_mb", .type = InfoField_DoubleSum},
     {.name = "sortable_values_size_mb", .type = InfoField_DoubleSum},
-    {.name = "key_table_size_mb", .type = InfoField_DoubleSum},
     {.name = "tag_overhead_sz_mb", .type = InfoField_DoubleSum},
     {.name = "text_overhead_sz_mb", .type = InfoField_DoubleSum},
     {.name = "total_index_memory_sz_mb", .type = InfoField_DoubleSum},
