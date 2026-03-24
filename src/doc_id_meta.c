@@ -8,6 +8,7 @@
 */
 
 #include "doc_id_meta.h"
+#include "spec.h"
 #include "util/arr/arr.h"
 #include "util/dict.h"
 #include "rdb.h"
@@ -90,6 +91,39 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   return 0;
 }
 
+/* Unlink callback - called when a key is being deleted/overwritten, BEFORE
+ * the key and metadata are actually freed. At this point the metadata is still
+ * valid and we can use it to clean up the document from all indexes that
+ * reference it.
+ *
+ * This fires before the keyspace notification, which is why we handle
+ * deletion here rather than in the notification handler. */
+static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+  if (*meta == 0) return;
+
+  struct DocIdMeta *docIdMeta = (struct DocIdMeta *)*meta;
+  if (!docIdMeta->entries || dictSize(docIdMeta->entries) == 0) return;
+
+  dictIterator *iter = dictGetIterator(docIdMeta->entries);
+  dictEntry *de;
+  while ((de = dictNext(iter))) {
+    DocIdEntry *entry = dictGetVal(de);
+    if (entry->docId == DOCID_META_INVALID) continue;
+
+    // Look up the IndexSpec by name in the global dict
+    HiddenString *specName = NewHiddenString(entry->specName, entry->specNameLen, false);
+    StrongRef spec_ref = {dictFetchValue(specDict_g, specName)};
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+    HiddenString_Free(specName, false);
+
+    if (!spec) continue;  // Spec may have been dropped already
+
+    // Delete the document from this index by its docId
+    IndexSpec_DeleteDocById(spec, (t_docId)entry->docId);
+  }
+  dictReleaseIterator(iter);
+}
+
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   REDISMODULE_NOT_USED(encver);
   struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
@@ -166,7 +200,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .copy = (RedisModuleKeyMetaCopyFunc)docIdMetaCopy,
     .rename = NULL, // If NULL, meta is kept during rename
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
-    .unlink = NULL, // If NULL, meta is ignored during unlink
+    .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
     .rdb_load = NULL, // (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad,
     .rdb_save = NULL, // (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave,

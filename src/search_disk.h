@@ -144,6 +144,18 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
 void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
 
 /**
+ * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
+ *
+ * Used by the metadata unlink callback where the docId is already known.
+ *
+ * @param handle Handle to the document table
+ * @param docId Document ID to delete
+ * @param oldLen Optional pointer to receive the old document length (can be NULL)
+ * @return true if the document was found and deleted, false if not found
+ */
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen);
+
+/**
  * @brief Run a GC compaction cycle on the disk index
  *
  * Synchronously runs a full compaction on the inverted index column family,

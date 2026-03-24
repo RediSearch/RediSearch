@@ -141,7 +141,13 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
-    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
+    size_t specNameLen;
+    const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+    uint64_t existingDocId;
+    RSDocumentMetadata *dmd = NULL;
+    if (DocIdMeta_Get(ctx, doc->docKey, specName, specNameLen, &existingDocId) == REDISMODULE_OK) {
+      dmd = DocTable_Pop(table, (t_docId)existingDocId);
+    }
     if (dmd) {
       // Update stats of the index only if the document was there
       RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");

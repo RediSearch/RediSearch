@@ -33,6 +33,7 @@
 #include "search_disk.h"
 #include "info/global_stats.h"
 #include "sorting_vector.h"
+#include "doc_id_meta.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -893,7 +894,14 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   ExprEval evaluator = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
-  dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
+  {
+    size_t specNameLen;
+    const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+    uint64_t docId;
+    if (DocIdMeta_Get(sctx->redisCtx, key, specName, specNameLen, &docId) == REDISMODULE_OK) {
+      dmd = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
+    }
+  }
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");
@@ -946,8 +954,10 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
   RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
-  t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
-  if (docId == 0) {
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+  uint64_t docId;
+  if (DocIdMeta_Get(sctx->redisCtx, doc->docKey, specName, specNameLen, &docId) != REDISMODULE_OK) {
     BAIL("Couldn't load old document");
   }
   // Assumes we are under write lock

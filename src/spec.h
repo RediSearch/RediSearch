@@ -546,6 +546,11 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 // This function does not lock the spec. use it if you know the spec is locked for writing
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
+// Delete a document from the index by its docId directly.
+// This function acquires the write lock internally.
+// Used by the metadata unlink callback where the docId is already known.
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
+
 /**
  * Indicate that the index spec should use an internal dictionary,rather than
  * the Redis keyspace

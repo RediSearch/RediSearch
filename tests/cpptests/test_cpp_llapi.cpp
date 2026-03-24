@@ -686,7 +686,7 @@ TEST_F(LLApiTest, testRangesOnTagsWithOneNode) {
 static char buffer[1024];
 
 static int GetValue(void* ctx, const char* fieldName, const void* id, char** strVal,
-                    double* doubleVal) {  
+                    double* doubleVal) {
   int numId;
   sscanf((char*)id, "doc%d", &numId);
   if (strcmp(fieldName, TAG_FIELD_NAME1) == 0) {
@@ -1287,7 +1287,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.maxDocId, 2);
   ASSERT_EQ(info.docTableSize, 124 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 48);
-  ASSERT_EQ(info.docTrieSize, 120);
+  ASSERT_EQ(info.docTrieSize, 0); // DocIdMap (dim) removed; key-to-id mapping is now in key metadata
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
   ASSERT_EQ(info.invertedSize, 677);
@@ -1371,7 +1371,8 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + EMPTY_TRIE_SIZE;
+  // DocIdMap (dim) removed; no EMPTY_TRIE_SIZE overhead
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain));
   EXPECT_EQ(RediSearch_MemUsage(index), doc_table_size);
 
   // adding document to the index
@@ -1385,28 +1386,27 @@ TEST_F(LLApiTest, testInfoSize) {
   // additional memory so from now on it will be easier to track the expected memory.
   size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
-  // Memory values use the original magic numbers, adjusted for TrieNode size changes.
-  // The numDocs field added 8 bytes per trie entry.
-  EXPECT_EQ(RediSearch_MemUsage(index), 319 + additional_overhead + get_trie_entry_extra_overhead(1));
+  // Memory values adjusted after DocIdMap (dim) removal.
+  EXPECT_EQ(RediSearch_MemUsage(index), 303 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 597 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 517 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 463 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 455 + additional_overhead);
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
-  EXPECT_EQ(RediSearch_MemUsage(index), 320 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 304 + additional_overhead);
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 234 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 242 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.
@@ -1433,7 +1433,8 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + EMPTY_TRIE_SIZE;
+  // DocIdMap (dim) removed; no EMPTY_TRIE_SIZE overhead
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain));
   ASSERT_EQ(RediSearch_MemUsage(index), doc_table_size);
 
   // adding document to the index
@@ -1447,28 +1448,27 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // additional memory so from now on it will be easier to track the expected memory.
   size_t additional_overhead = NumericRangeTree_BaseSize() + doc_table_size;
 
-  // Memory values use the original magic numbers, adjusted for TrieNode size changes.
-  // The numDocs field added 8 bytes per trie entry.
-  EXPECT_EQ(RediSearch_MemUsage(index), 400 + additional_overhead + get_trie_entry_extra_overhead(1));
+  // Memory values adjusted after DocIdMap (dim) removal.
+  EXPECT_EQ(RediSearch_MemUsage(index), 384 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 679 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 599 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 545 + additional_overhead + get_trie_entry_extra_overhead(2));
+  EXPECT_EQ(RediSearch_MemUsage(index), 537 + additional_overhead);
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
-  EXPECT_EQ(RediSearch_MemUsage(index), 401 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 385 + additional_overhead);
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 315 + additional_overhead + get_trie_entry_extra_overhead(1));
+  EXPECT_EQ(RediSearch_MemUsage(index), 323 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx, false);
   // we always keep the numeric index root.

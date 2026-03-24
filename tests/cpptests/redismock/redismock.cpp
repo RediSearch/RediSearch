@@ -174,13 +174,9 @@ RedisModuleString **HashValue::kvarray(RedisModuleCtx *allocctx) const {
 RedisModuleKey *RMCK_OpenKey(RedisModuleCtx *ctx, RedisModuleString *s, int mode) {
   // Look up in db:
   Value *vv = ctx->db->get(s);
-  if (vv) {
-    return new RedisModuleKey(ctx, s, vv, mode);
-  } else if (mode & REDISMODULE_WRITE) {
-    return new RedisModuleKey(ctx, s, NULL, mode);
-  } else {
-    return NULL;
-  }
+  // Always return a valid key handle, matching real Redis behavior.
+  // For non-existent keys, ref (vv) will be NULL, and KeyType returns EMPTY.
+  return new RedisModuleKey(ctx, s, vv, mode);
 }
 
 int RMCK_DeleteKey(RedisModuleKey *k) {

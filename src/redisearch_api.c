@@ -266,24 +266,19 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
   t_docId id = 0;
-  // Try to get docId from key metadata first
   size_t specNameLen;
   const char *specName = HiddenString_GetUnsafe(sp->specName, &specNameLen);
   RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
   uint64_t docId;
   if (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, &docId) == REDISMODULE_OK) {
     id = docId;
-    // Also delete from metadata
     DocIdMeta_Delete(RSDummyContext, keyName, specName, specNameLen);
-  } else {
-    // Fall back to DocTable lookup
-    id = DocTable_GetId(&sp->docs, docKey, len);
   }
   RedisModule_FreeString(RSDummyContext, keyName);
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
+    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, id);
     if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
       RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
@@ -374,7 +369,10 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
-  int exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  size_t specNameLen2;
+  const char *specName2 = HiddenString_GetUnsafe(sp->specName, &specNameLen2);
+  uint64_t existingDocId;
+  int exists = (DocIdMeta_Get(RSDummyContext, d->docKey, specName2, specNameLen2, &existingDocId) == REDISMODULE_OK);
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;
@@ -700,13 +698,7 @@ int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
   const char *specName = HiddenString_GetUnsafe(sp->specName, &specNameLen);
   RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
   uint64_t docId;
-  int exists = 0;
-  if (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, &docId) == REDISMODULE_OK) {
-    exists = 1;
-  } else {
-    // Fall back to DocTable lookup
-    exists = DocTable_GetId(&sp->docs, docKey, len) != 0;
-  }
+  int exists = (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, &docId) == REDISMODULE_OK);
   RedisModule_FreeString(RSDummyContext, keyName);
   return exists;
 }
@@ -955,7 +947,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->maxDocId = sp->docs.maxDocId;
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
-  info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
+  info->docTrieSize = 0; // DocIdMap (dim) removed; key-to-id mapping is now in key metadata
   info->numTerms = sp->stats.scoring.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;

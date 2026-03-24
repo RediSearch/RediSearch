@@ -270,6 +270,11 @@ void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key
     disk->index.deleteDocument(handle, key, keyLen, oldLen, id);
 }
 
+bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId docId, uint32_t *oldLen) {
+    RS_ASSERT(disk && handle);
+    return disk->index.deleteDocumentById(handle, docId, oldLen);
+}
+
 bool SearchDisk_CheckEnableConfiguration(RedisModuleCtx *ctx) {
   bool isFlexConfigured = false;
   char *isFlexEnabledStr = getRedisConfigValue(ctx, "bigredis-enabled");

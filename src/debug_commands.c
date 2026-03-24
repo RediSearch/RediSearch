@@ -766,15 +766,10 @@ DEBUG_COMMAND(DocIdToId) {
   size_t specNameLen;
   const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   uint64_t docId;
-  // Try to get docId from key metadata first
   if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, &docId) == REDISMODULE_OK) {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, docId);
   } else {
-    // Fall back to DocTable lookup
-    size_t n;
-    const char *key = RedisModule_StringPtrLen(argv[3], &n);
-    t_docId id = DocTable_GetId(&sctx->spec->docs, key, n);
-    RedisModule_ReplyWithLongLong(sctx->redisCtx, id);
+    RedisModule_ReplyWithLongLong(sctx->redisCtx, 0);
   }
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -1362,7 +1357,15 @@ DEBUG_COMMAND(DocInfo) {
   }
   GET_SEARCH_CTX(argv[2]);
 
-  const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
+  const RSDocumentMetadata *dmd = NULL;
+  {
+    size_t specNameLen;
+    const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+    uint64_t docId;
+    if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, &docId) == REDISMODULE_OK) {
+      dmd = DocTable_Borrow(&sctx->spec->docs, docId);
+    }
+  }
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
@@ -1540,10 +1543,10 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
 
   if (argc == 5) {  // we want the neighbors of a specific vector only
-	  size_t key_len;
-	  const char *key_name = RedisModule_StringPtrLen(argv[4], &key_len);
-	  t_docId doc_id = DocTable_GetId(&sctx->spec->docs, key_name, key_len);
-	  if (doc_id == 0) {
+	  size_t specNameLen;
+	  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+	  uint64_t doc_id;
+	  if (DocIdMeta_Get(ctx, argv[4], specName, specNameLen, &doc_id) != REDISMODULE_OK) {
 		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
 		  goto cleanup;
 	  }

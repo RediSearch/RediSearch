@@ -32,6 +32,7 @@
 #include "rules.h"
 #include "dictionary.h"
 #include "doc_types.h"
+#include "doc_id_meta.h"
 #include "rdb.h"
 #include "commands.h"
 #include "obfuscation/obfuscation_api.h"
@@ -497,7 +498,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
-  res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
+  res += doctable_tm_size; // DocIdMap (dim) removed; key-to-id mapping is now in key metadata
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += IndexSpec_collect_numeric_overhead(sp);
@@ -3095,7 +3096,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0); // DocIdMap (dim) removed
   if (!skip_unsafe_ops) {
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
@@ -3833,7 +3834,14 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       return;
     }
   } else {
-    RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+    size_t specNameLen;
+    const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+    uint64_t docIdMeta;
+    if (DocIdMeta_Get(ctx, key, specName, specNameLen, &docIdMeta) != REDISMODULE_OK) {
+      // Nothing to delete
+      return;
+    }
+    RSDocumentMetadata *md = DocTable_Pop(&spec->docs, (t_docId)docIdMeta);
     if (!md) {
       // Nothing to delete
       return;
@@ -3842,6 +3850,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     id = md->id;
     docLen = md->docLen;
 
+    DocIdMeta_Delete(ctx, key, specName, specNameLen);
     DMD_Return(md);
   }
 
@@ -3883,6 +3892,64 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisSearchCtx_UnlockSpec(&sctx);
 
   return REDISMODULE_OK;
+}
+
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+  // Acquire the write lock
+  IndexSpec_IncrActiveWrites(spec);
+  pthread_rwlock_wrlock(&spec->rwlock);
+
+  uint32_t docLen = 0;
+
+  if (isSpecOnDisk(spec)) {
+    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
+      // Document not found on disk
+      IndexSpec_DecrActiveWrites(spec);
+      pthread_rwlock_unlock(&spec->rwlock);
+      return;
+    }
+  } else {
+    RSDocumentMetadata *md = DocTable_Pop(&spec->docs, docId);
+    if (!md) {
+      IndexSpec_DecrActiveWrites(spec);
+      pthread_rwlock_unlock(&spec->rwlock);
+      return;
+    }
+
+    RS_LOG_ASSERT(md->id == docId, "DocId mismatch between metadata and input");
+    docLen = md->docLen;
+    DMD_Return(md);
+  }
+
+  // Update the stats
+  RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
+  spec->stats.scoring.totalDocsLen -= docLen;
+  RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  spec->stats.scoring.numDocuments--;
+
+  // Increment the index's garbage collector's scanning frequency after document deletions
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
+
+  // VecSim fields clear deleted data on the fly
+  if (spec->flags & Index_HasVecSim) {
+    for (int i = 0; i < spec->numFields; ++i) {
+      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
+        VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
+        if(!vecsim) continue;
+        VecSimIndex_DeleteVector(vecsim, docId);
+      }
+    }
+  }
+
+  if (spec->flags & Index_HasGeometry) {
+    GeometryIndex_RemoveId(spec, docId);
+  }
+
+  IndexSpec_DecrActiveWrites(spec);
+  pthread_rwlock_unlock(&spec->rwlock);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -4106,13 +4173,28 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
+      size_t specNameLen;
+      const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+      uint64_t docId;
+      // After RENAME, the metadata lives on to_key (rename callback keeps it).
+      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, &docId) == REDISMODULE_OK) {
+        DocTable_Replace(&spec->docs, docId, to_str, to_len);
+        // Metadata is already on to_key (kept by rename), no need to move it.
+      }
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
     } else {
-      IndexSpec_DeleteDoc(spec, ctx, from_key);
+      // After RENAME, from_key no longer exists. The metadata is on to_key.
+      // Look up the docId from to_key's metadata and delete by id.
+      size_t specNameLen;
+      const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+      uint64_t docId;
+      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, &docId) == REDISMODULE_OK) {
+        IndexSpec_DeleteDocById(spec, (t_docId)docId);
+        DocIdMeta_Delete(ctx, to_key, specName, specNameLen);
+      }
     }
   }
 

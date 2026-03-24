@@ -17,7 +17,7 @@
 #include "command_info/command_info.h"
 #include "document.h"
 #include "tag_index.h"
-#include "triemap.h"
+#include "doc_id_meta.h"
 #include "query.h"
 #include "redis_index.h"
 #include "redismodule.h"
@@ -243,11 +243,12 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  const DocTable *dt = &sctx->spec->docs;
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
-
-    if (DocTable_GetIdR(dt, argv[i]) == 0) {
+    uint64_t docId;
+    if (DocIdMeta_Get(ctx, argv[i], specName, specNameLen, &docId) != REDISMODULE_OK) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
       continue;
@@ -287,7 +288,10 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
+  size_t specNameLen;
+  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
+  uint64_t docId;
+  if (DocIdMeta_Get(ctx, argv[2], specName, specNameLen, &docId) != REDISMODULE_OK) {
     RedisModule_ReplyWithNull(ctx);
   } else {
     Document_ReplyAllFields(ctx, sctx->spec, argv[2]);
