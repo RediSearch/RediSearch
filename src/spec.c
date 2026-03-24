@@ -495,6 +495,12 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
   size_t text_overhead, size_t vector_overhead) {
   size_t res = 0;
+
+  // For disk indexes, add storage + in-memory components.
+  if (sp->diskSpec) {
+    res += SearchDisk_CollectIndexMetrics(sp->diskSpec);
+  }
+
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
   res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
