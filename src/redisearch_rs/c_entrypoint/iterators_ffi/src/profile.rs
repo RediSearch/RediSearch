@@ -150,5 +150,5 @@ pub unsafe extern "C" fn Profile_AddIters(root: *mut *mut QueryIterator) {
     let iter = unsafe { CRQEIterator::new(it) };
     let profiled = iter.into_profiled();
     // SAFETY: guaranteed by 1 — root is a valid pointer we can write through.
-    unsafe { *root = RQEIteratorWrapper::boxed_new(IteratorType::Profile, profiled) };
+    unsafe { *root = profiled.into_raw().as_ptr() };
 }

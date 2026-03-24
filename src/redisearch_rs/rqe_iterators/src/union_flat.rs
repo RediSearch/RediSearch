@@ -547,11 +547,16 @@ where
 
 impl<'index, I, const QUICK_EXIT: bool> Profilable<'index> for UnionFlat<'index, I, QUICK_EXIT>
 where
-    I: Profilable<'index>,
+    I: Profilable<'index> + 'index,
 {
-    type Profiled = UnionFlat<'index, Profile<'index, I::Profiled>, QUICK_EXIT>;
+    type ProfileChildren = UnionFlat<'index, I::IntoProfiled, QUICK_EXIT>;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn profile_children(self) -> Self::Profiled {
+    fn is_leaf() -> bool {
+        false
+    }
+
+    fn profile_children(self) -> Self::ProfileChildren {
         UnionFlat {
             num_active: self.num_active,
             num_estimated: self.num_estimated,
@@ -563,5 +568,13 @@ where
                 .map(Profilable::into_profiled)
                 .collect(),
         }
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

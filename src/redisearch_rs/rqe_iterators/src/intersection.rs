@@ -556,11 +556,16 @@ where
 
 impl<'index, I> Profilable<'index> for Intersection<'index, I>
 where
-    I: Profilable<'index>,
+    I: Profilable<'index> + 'index,
 {
-    type Profiled = Intersection<'index, Profile<'index, I::Profiled>>;
+    type ProfileChildren = Intersection<'index, I::IntoProfiled>;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn profile_children(self) -> Self::Profiled {
+    fn is_leaf() -> bool {
+        false
+    }
+
+    fn profile_children(self) -> Self::ProfileChildren {
         Intersection {
             children: self
                 .children
@@ -574,5 +579,13 @@ where
             in_order: self.in_order,
             result: self.result,
         }
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

@@ -14,8 +14,8 @@ use inverted_index::{
     IndexReader, RSIndexResult, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly, t_docId,
 };
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, Profilable, interop::RQEIteratorWrapper,
-    inverted_index::Missing,
+    FieldExpirationChecker, IteratorType, Profilable, RQEIterator, interop::RQEIteratorWrapper,
+    inverted_index::Missing, profile::Profile,
 };
 
 /// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
@@ -187,8 +187,22 @@ pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
 }
 
 impl<'index> Profilable<'index> for MissingIterator<'index> {
-    type Profiled = Self;
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf() -> bool {
+        true
+    }
+
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

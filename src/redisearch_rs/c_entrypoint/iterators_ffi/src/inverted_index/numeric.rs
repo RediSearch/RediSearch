@@ -13,8 +13,8 @@ use field::{FieldFilterContext, FieldMaskOrIndex};
 use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, Profilable, interop::RQEIteratorWrapper,
-    inverted_index::Numeric,
+    FieldExpirationChecker, IteratorType, Profilable, RQEIterator, interop::RQEIteratorWrapper,
+    inverted_index::Numeric, profile::Profile,
 };
 
 /// Enum holding either a numeric or geo iterator variant.
@@ -313,9 +313,23 @@ pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
 }
 
 impl<'index> Profilable<'index> for NumericIterator<'index> {
-    type Profiled = Self;
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf() -> bool {
+        true
+    }
+
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }
 

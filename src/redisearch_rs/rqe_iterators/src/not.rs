@@ -277,11 +277,16 @@ where
 
 impl<'index, I> Profilable<'index> for Not<'index, I>
 where
-    I: Profilable<'index>,
+    I: Profilable<'index> + 'index,
 {
-    type Profiled = Not<'index, Profile<'index, I::Profiled>>;
+    type ProfileChildren = Not<'index, I::IntoProfiled>;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn profile_children(self) -> Self::Profiled {
+    fn is_leaf() -> bool {
+        false
+    }
+
+    fn profile_children(self) -> Self::ProfileChildren {
         Not {
             child: self.child.map(Profilable::into_profiled),
             max_doc_id: self.max_doc_id,
@@ -289,5 +294,13 @@ where
             result: self.result,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

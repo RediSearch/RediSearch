@@ -323,19 +323,32 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
     }
 }
 
-/// Profile-wrap a child [`CRQEIterator`] by calling [`Profilable::into_profiled`]
-/// and boxing the result back into a [`CRQEIterator`].
+/// Convenience wrapper around [`Profilable::into_profiled`] for [`CRQEIterator`].
 pub fn into_profiled(child: CRQEIterator) -> CRQEIterator {
-    let profiled = child.into_profiled();
-    let ptr = RQEIteratorWrapper::boxed_new(IteratorType::Profile, profiled);
-    // SAFETY: `boxed_new` returns a valid, owning, non-null pointer.
-    let ptr = unsafe { NonNull::new_unchecked(ptr) };
-    // SAFETY: `ptr` is valid and owning per above.
-    unsafe { CRQEIterator::new(ptr) }
+    child.into_profiled()
 }
 
-impl Profilable<'_> for CRQEIterator {
-    type Profiled = Self;
+impl<'index> Profilable<'index> for CRQEIterator {
+    type ProfileChildren = Self;
+    type IntoProfiled = Self;
+
+    fn is_leaf() -> bool {
+        true
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        let profiled = self.profile_children();
+        let profile_wrapper = crate::profile::Profile::new(profiled);
+        let ptr = RQEIteratorWrapper::boxed_new(profile_wrapper);
+        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        // SAFETY:
+        // 1. `ptr` is valid — `boxed_new` returns a `Box::into_raw` pointer.
+        // 2. Ownership transferred — no other handle exists.
+        // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
+        // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
+        unsafe { CRQEIterator::new(ptr) }
+    }
 
     /// Profile the subtree rooted at this iterator — wrapping every
     /// child node — **without** wrapping `self`.
@@ -358,5 +371,9 @@ impl Profilable<'_> for CRQEIterator {
             // Leaf iterator — no children to recurse into.
             self
         }
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

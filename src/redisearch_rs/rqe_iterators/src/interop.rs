@@ -15,7 +15,7 @@ use ffi::{
 };
 use inverted_index::RSIndexResult;
 
-use crate::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{Profilable, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 
 #[repr(C)]
 /// A wrapper around a Rust iterator—i.e. an implementer of the [`RQEIterator`] trait.
@@ -38,10 +38,11 @@ impl<'index, I> RQEIteratorWrapper<I>
 where
     I: RQEIterator<'index> + 'index,
 {
-    /// Create a new C-compatible wrapper around a Rust iterator.
-    ///
-    /// The wrapper is placed on the heap.
-    pub fn boxed_new(inner: I) -> *mut QueryIterator {
+    /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
+    fn boxed_new_inner(
+        inner: I,
+        profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
+    ) -> *mut QueryIterator {
         let mut wrapper = Box::new(Self {
             header: QueryIterator {
                 type_: inner.type_(),
@@ -54,7 +55,7 @@ where
                 Revalidate: Some(revalidate::<I>),
                 Free: Some(free_iterator::<I>),
                 Rewind: Some(rewind::<I>),
-                ProfileChildren: Some(rust_profile_children),
+                ProfileChildren: profile_children,
             },
             inner,
         });
@@ -67,7 +68,29 @@ where
         }
         Box::into_raw(wrapper) as *mut QueryIterator
     }
+}
 
+impl<'index, I> RQEIteratorWrapper<I>
+where
+    I: RQEIterator<'index> + Profilable<'index> + 'index,
+{
+    /// Create a new C-compatible wrapper around a Rust iterator.
+    ///
+    /// The wrapper is placed on the heap.
+    pub fn boxed_new(inner: I) -> *mut QueryIterator {
+        let profile_children = if I::is_leaf() {
+            None
+        } else {
+            Some(rust_profile_children::<I> as unsafe extern "C" fn(_) -> _)
+        };
+        Self::boxed_new_inner(inner, profile_children)
+    }
+}
+
+impl<'index, I> RQEIteratorWrapper<I>
+where
+    I: RQEIterator<'index> + 'index,
+{
     /// Convert a type-erased iterator "header" into a wrapper around a specific Rust iterator type.
     ///
     /// # Safety
@@ -216,42 +239,30 @@ extern "C" fn num_estimated<'index, I: RQEIterator<'index> + 'index>(
     wrapper.inner.num_estimated()
 }
 
-/// `ProfileChildren` callback for all Rust iterators wrapped in
+/// `ProfileChildren` callback for composite Rust iterators wrapped in
 /// [`RQEIteratorWrapper`].
 ///
-/// Dispatches on the iterator type tag: composite iterators (Not, Optional)
-/// profile their children in-place; everything else is a leaf and is returned
-/// unchanged.
-///
-extern "C" fn rust_profile_children(base: *mut QueryIterator) -> *mut QueryIterator {
-    // SAFETY: Guaranteed by the caller — `base` is a valid RQEIteratorWrapper.
-    let type_ = unsafe { (*base).type_ };
-
-    // Update the match when porting a new composite iterator to Rust.
-    match type_ {
-        IteratorType::Not => {
-            // SAFETY: Type tag guarantees this wraps Not<CRQEIterator>.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<crate::not::Not<'_, crate::c2rust::CRQEIterator>>::mut_ref_from_header_ptr(base)
-            };
-            if let Some(child) = wrapper.inner.take_child() {
-                wrapper.inner.set_child(crate::c2rust::into_profiled(child));
-            }
-            base
-        }
-        IteratorType::Optional => {
-            // SAFETY: Type tag guarantees this wraps Optional<CRQEIterator>.
-            let wrapper = unsafe {
-                RQEIteratorWrapper::<crate::optional::Optional<'_, crate::c2rust::CRQEIterator>>::mut_ref_from_header_ptr(base)
-            };
-            if let Some(child) = wrapper.inner.take_child() {
-                wrapper.inner.set_child(crate::c2rust::into_profiled(child));
-            }
-            base
-        }
-        // Leaf iterators — no children to profile.
-        _ => base,
-    }
+/// Only set on non-leaf iterators ([`is_leaf`](Profilable::is_leaf) returns `false`).
+/// Consumes the wrapper, calls [`Profilable::profile_children`] on the inner
+/// iterator, and re-wraps the result via `boxed_new_inner` with
+/// `ProfileChildren` set to `None` — this breaks what would otherwise be
+/// infinite monomorphization ([`boxed_new`](RQEIteratorWrapper::boxed_new) requires
+/// `I::ProfileChildren: Profilable`, which would recurse). The `None` is safe
+/// because profiling is a one-shot pass.
+extern "C" fn rust_profile_children<
+    'index,
+    I: RQEIterator<'index> + Profilable<'index> + 'index,
+>(
+    base: *mut QueryIterator,
+) -> *mut QueryIterator {
+    debug_assert!(!base.is_null());
+    debug_assert!(base.is_aligned());
+    // SAFETY: Callbacks are guaranteed to get a header pointer created by
+    // `RQEIteratorWrapper::boxed_new`, which uses `Box::into_raw`.
+    let it = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
+    let profiled = it.inner.profile_children();
+    // `None`: see doc comment above.
+    RQEIteratorWrapper::boxed_new_inner(profiled, None)
 }
 
 extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {

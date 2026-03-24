@@ -14,7 +14,7 @@ use inverted_index::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    profile::Profilable,
+    profile::{Profilable, Profile},
 };
 
 /// An iterator that yields no results.
@@ -72,8 +72,22 @@ impl<'index> RQEIterator<'index> for Empty {
 }
 
 impl<'index> Profilable<'index> for Empty {
-    type Profiled = Self;
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf() -> bool {
+        true
+    }
+
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

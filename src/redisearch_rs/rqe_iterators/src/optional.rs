@@ -247,16 +247,29 @@ where
 
 impl<'index, I> Profilable<'index> for Optional<'index, I>
 where
-    I: Profilable<'index>,
+    I: Profilable<'index> + 'index,
 {
-    type Profiled = Optional<'index, Profile<'index, I::Profiled>>;
+    type ProfileChildren = Optional<'index, I::IntoProfiled>;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
 
-    fn profile_children(self) -> Self::Profiled {
+    fn is_leaf() -> bool {
+        false
+    }
+
+    fn profile_children(self) -> Self::ProfileChildren {
         Optional {
             max_doc_id: self.max_doc_id,
             weight: self.weight,
             result: self.result,
             child: self.child.map(Profilable::into_profiled),
         }
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

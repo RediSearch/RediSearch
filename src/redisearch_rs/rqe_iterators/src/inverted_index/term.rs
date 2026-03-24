@@ -15,7 +15,8 @@ use query_term::RSQueryTerm;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    expiration_checker::ExpirationChecker, profile::Profilable,
+    expiration_checker::ExpirationChecker,
+    profile::{Profilable, Profile},
 };
 
 use super::core::InvIndIterator;
@@ -218,11 +219,25 @@ where
 
 impl<'index, R, E> Profilable<'index> for Term<'index, R, E>
 where
-    R: TermReader<'index>,
-    E: ExpirationChecker,
+    R: TermReader<'index> + 'index,
+    E: ExpirationChecker + 'index,
 {
-    type Profiled = Self;
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf() -> bool {
+        true
+    }
+
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

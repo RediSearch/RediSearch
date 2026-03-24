@@ -18,7 +18,8 @@ use query_term::RSQueryTerm;
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
-    SkipToOutcome, profile::Profilable,
+    SkipToOutcome,
+    profile::{Profilable, Profile},
 };
 
 use super::InvIndIterator;
@@ -236,10 +237,24 @@ impl<'index, E, C> Profilable<'index> for Tag<'index, E, C>
 where
     E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker,
+    C: ExpirationChecker + 'index,
 {
-    type Profiled = Self;
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf() -> bool {
+        true
+    }
+
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }

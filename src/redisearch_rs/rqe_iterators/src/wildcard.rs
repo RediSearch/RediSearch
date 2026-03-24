@@ -18,7 +18,8 @@ use inverted_index::{DocIdsDecoder, RSIndexResult, opaque};
 
 use crate::{
     Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
-    SkipToOutcome, profile::Profilable,
+    SkipToOutcome,
+    profile::{Profilable, Profile},
 };
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
@@ -106,9 +107,23 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 }
 
 impl<'index> Profilable<'index> for Wildcard<'index> {
-    type Profiled = Self;
+    type ProfileChildren = Self;
+    type IntoProfiled = Profile<'index, Self::ProfileChildren>;
+
+    fn is_leaf() -> bool {
+        true
+    }
+
     fn profile_children(self) -> Self {
         self
+    }
+
+    fn into_profiled(self) -> Self::IntoProfiled {
+        Profile::new(self.profile_children())
+    }
+
+    fn into_profiled_boxed(self: Box<Self>) -> Box<dyn RQEIterator<'index> + 'index> {
+        Box::new((*self).into_profiled())
     }
 }
 
@@ -127,7 +142,7 @@ where
 {
 }
 
-/// A [`Profile`](crate::profile::Profile) wrapper preserves the wildcard property of its child.
+/// A [`Profile`] wrapper preserves the wildcard property of its child.
 impl<'index, I: WildcardIterator<'index>> WildcardIterator<'index>
     for crate::profile::Profile<'index, I>
 {
