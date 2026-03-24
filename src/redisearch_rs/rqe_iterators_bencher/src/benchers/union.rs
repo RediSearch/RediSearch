@@ -81,7 +81,7 @@ enum Overlap {
 
 impl DataGenParams {
     /// Create params for high overlap scenario.
-    fn high_overlap(num_children: usize) -> Self {
+    const fn high_overlap(num_children: usize) -> Self {
         Self {
             num_children,
             ids_per_child: IDS_PER_CHILD,
@@ -93,7 +93,7 @@ impl DataGenParams {
     }
 
     /// Create params for low overlap scenario.
-    fn low_overlap(num_children: usize) -> Self {
+    const fn low_overlap(num_children: usize) -> Self {
         Self {
             num_children,
             ids_per_child: IDS_PER_CHILD,
@@ -105,7 +105,7 @@ impl DataGenParams {
     }
 
     /// Create params for disjoint scenario.
-    fn disjoint(num_children: usize) -> Self {
+    const fn disjoint(num_children: usize) -> Self {
         Self {
             num_children,
             ids_per_child: IDS_PER_CHILD,
@@ -117,7 +117,7 @@ impl DataGenParams {
     }
 
     /// Create params for varying sizes scenario.
-    fn varying_sizes() -> Self {
+    const fn varying_sizes() -> Self {
         Self {
             num_children: NUM_CHILDREN_FEW,
             ids_per_child: IDS_PER_CHILD,
