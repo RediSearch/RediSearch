@@ -15,7 +15,7 @@ use std::{
     panic,
     ptr::NonNull,
 };
-use value::RSValueFFI;
+use value::{RsValue, SharedRsValue};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
@@ -34,11 +34,11 @@ pub const RS_SORTABLES_MAX: usize = 1024;
 pub unsafe extern "C" fn RSSortingVector_Get(
     vec: *const RSSortingVector,
     idx: size_t,
-) -> *mut ffi::RSValue {
+) -> *mut RsValue {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.as_ref().expect("vec must not be null") };
 
-    vec[idx].as_ptr()
+    vec[idx].as_ptr().cast_mut()
 }
 
 /// Returns the length of the sorting vector.
@@ -91,7 +91,7 @@ pub unsafe extern "C" fn RSSortingVector_PutNum(
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
-    vec.try_insert_val(idx, RSValueFFI::new_num(num))
+    vec.try_insert_val(idx, SharedRsValue::new_num(num))
         .unwrap_or_else(|_| {
             panic!("Index out of bounds: {} >= {}", idx, vec.len());
         });
@@ -179,13 +179,15 @@ pub unsafe extern "C" fn RSSortingVector_PutStrNormalize(
 pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
     idx: size_t,
-    val: Option<NonNull<ffi::RSValue>>,
+    val: Option<NonNull<RsValue>>,
 ) {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.expect("vec must not be null").as_mut() };
 
+    let value = val.expect("value must not be null").as_ptr().cast_const();
+
     // Safety: The caller must ensure that the pointer is valid (2.)
-    let val = unsafe { RSValueFFI::from_raw(val.expect("val must not be null")) };
+    let val = unsafe { SharedRsValue::from_raw(value) };
 
     vec.try_insert_val(idx, val).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());

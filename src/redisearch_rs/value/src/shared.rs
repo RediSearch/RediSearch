@@ -117,6 +117,18 @@ impl SharedRsValue {
             Arc::strong_count(&v)
         }
     }
+
+    pub fn new_num(num: f64) -> Self {
+        Self::new(RsValue::Number(num))
+    }
+
+    pub fn new_string(str: Vec<u8>) -> Self {
+        Self::new(RsValue::new_string(str))
+    }
+
+    pub const fn mem_size() -> usize {
+        16
+    }
 }
 
 impl Deref for SharedRsValue {
