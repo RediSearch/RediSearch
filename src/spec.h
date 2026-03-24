@@ -540,15 +540,20 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
-// This function locks the spec for writing. use it if you know the spec is not locked
+// Delete a document from the index by its key name.
+// Looks up the docId via DocIdMeta_Get on the key, then removes the document
+// from the DocTable and cleans up associated metadata (DocIdMeta_Delete).
+// Requires a RedisModuleCtx to access the key's metadata.
+// This function locks the spec for writing.
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
-// This function does not lock the spec. use it if you know the spec is locked for writing
+// Same as IndexSpec_DeleteDoc but does not lock the spec.
+// Use when the spec is already locked for writing.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 
-// Delete a document from the index by its docId directly.
-// This function acquires the write lock internally.
-// Used by the metadata unlink callback where the docId is already known.
+// Delete a document from the index by its docId directly, without needing
+// to look it up by key name. Removes the document from the DocTable but does
+// NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 /**

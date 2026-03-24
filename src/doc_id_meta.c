@@ -120,6 +120,9 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 
     // Delete the document from this index by its docId
     IndexSpec_DeleteDocById(spec, (t_docId)entry->docId);
+
+    // Invalidate the entry so it won't be used again
+    entry->docId = DOCID_META_INVALID;
   }
   dictReleaseIterator(iter);
 }

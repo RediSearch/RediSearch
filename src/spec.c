@@ -4111,7 +4111,8 @@ void Indexes_SpecOpsIndexingCtxFree(SpecOpIndexingCtx *specs) {
 void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
                                            RedisModuleString **hashFields) {
   if (type == DocumentType_Unsupported) {
-    // COPY could overwrite a hash/json with other types so we must try and remove old doc
+    // COPY could overwrite a hash/json with other types so we must try and remove old doc.
+    // In this case, the key is not removed from unlink.
     Indexes_DeleteMatchingWithSchemaRules(ctx, key, type, hashFields);
     return;
   }
@@ -4125,6 +4126,10 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
       if (specOp->op == SpecOp_Add) {
         IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
       } else {
+        // specOp->op is SpecOp_Del when the key matches the index prefix but
+        // the filter expression fails (e.g. a field value changed so the filter
+        // no longer passes, or a required field is missing). If the document was
+        // previously indexed, it must be removed now.
         IndexSpec_DeleteDoc(specOp->spec, ctx, key);
       }
     }
