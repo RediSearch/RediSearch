@@ -13,7 +13,8 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use sorting_vector::{IndexOutOfBounds, RSSortingVector};
-use value::RSValueFFI;
+use value::shared::SHARED_VALUE_CONTENT_SIZE;
+use value::{RsValue, SharedRsValue};
 
 #[test]
 #[cfg_attr(miri, ignore = "Calls FFI function `RSValue_NullStatic`")]
@@ -41,10 +42,8 @@ fn build_vector() -> Result<RSSortingVector, IndexOutOfBounds> {
 fn insert() -> Result<(), IndexOutOfBounds> {
     let vector: &mut RSSortingVector = &mut build_vector()?;
 
-    assert_eq!(vector[0].as_num(), Some(42.0));
-    assert_eq!(vector[0].get_type(), ffi::RSValueType_RSValueType_Number);
+    assert!(matches!(*vector[0], RsValue::Number(42.0)));
     assert_eq!(vector[1].as_str_bytes(), Some("abcdefg".as_bytes()));
-    assert_eq!(vector[1].get_type(), ffi::RSValueType_RSValueType_String);
     assert_eq!(vector[2].as_str_bytes(), Some("hello world".as_bytes())); // we normalize --> lowercase
     assert!(vector[3].is_null_static());
 
@@ -67,20 +66,26 @@ fn out_of_bounds() -> Result<(), IndexOutOfBounds> {
 fn override_value() -> Result<(), IndexOutOfBounds> {
     let src = build_vector()?;
     let mut dst: RSSortingVector = RSSortingVector::new(1);
-    assert!(RSValueFFI::ptr_eq(&dst[0], &RSValueFFI::null_static()));
+    assert!(SharedRsValue::ptr_eq(
+        &dst[0],
+        &SharedRsValue::null_static()
+    ));
 
     for (idx, val) in src.iter().enumerate() {
         dst.try_insert_val(0, val.clone())?;
-        assert!(RSValueFFI::ptr_eq(&dst[0], &src[idx]));
+        assert!(SharedRsValue::ptr_eq(&dst[0], &src[idx]));
     }
 
     // the following is only possible in Rust API
     let mut dupl = src.clone();
     for val in dupl.iter_mut() {
-        *val = RSValueFFI::new_num(42.0)
+        *val = SharedRsValue::new_num(42.0)
     }
 
-    assert!(RSValueFFI::ptr_eq(&dst[0], &RSValueFFI::null_static()));
+    assert!(SharedRsValue::ptr_eq(
+        &dst[0],
+        &SharedRsValue::null_static()
+    ));
     Ok(())
 }
 
@@ -95,14 +100,14 @@ fn memory_size() -> Result<(), IndexOutOfBounds> {
     let mut vec = RSSortingVector::new(1);
     vec.try_insert_num(0, 42.0)?;
     let size = vec.get_memory_size();
-    let expected_size = std::mem::size_of::<RSValueFFI>() + RSValueFFI::mem_size();
+    let expected_size = size_of::<SharedRsValue>() + SHARED_VALUE_CONTENT_SIZE;
     assert_eq!(size, expected_size);
 
     // test with more complex values
     let vector = build_vector()?;
     let size = vector.get_memory_size();
-    let expected_size = 4 * std::mem::size_of::<RSValueFFI>() // 4 RSValue pointers
-            + (3 * RSValueFFI::mem_size()) // 3 actually allocated RSValues (the 4th is a null)
+    let expected_size = 4 * size_of::<SharedRsValue>() // 4 RSValue pointers
+            + (3 * SHARED_VALUE_CONTENT_SIZE) // 3 actually allocated RSValues (the 4th is a null)
             + "abcdefg".len() // size of the string "abcdefg"
             + "Hello World".len(); // size of the string "Hello World"
 

@@ -1999,6 +1999,7 @@ dependencies = [
  "search_result",
  "sorting_vector",
  "value",
+ "value_ffi",
  "workspace_hack",
 ]
 
