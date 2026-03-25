@@ -1330,7 +1330,7 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_EQ((int)dmd->score, i);
     ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
 
-    ASSERT_TRUE(DocTable_Pop(&dt, dmd->id) != NULL);
+    ASSERT_TRUE(DocTable_PopById(&dt, dmd->id) != NULL);
     DMD_Return(dmd);
 
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));

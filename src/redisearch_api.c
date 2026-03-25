@@ -28,6 +28,7 @@
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "doc_id_meta.h"
+#include "search_disk.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -266,17 +267,23 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
   t_docId id = 0;
-  RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
-  uint64_t docId;
-  if (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK) {
-    id = docId;
-    DocIdMeta_Delete(RSDummyContext, keyName, sp->specId);
+  if (SearchDisk_IsEnabled()) {
+    RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
+    uint64_t docId;
+    if (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK) {
+      id = docId;
+      DocIdMeta_Delete(RSDummyContext, keyName, sp->specId);
+    }
+    RedisModule_FreeString(RSDummyContext, keyName);
+  } else {
+    id = DocTable_GetId(&sp->docs, docKey, len);
   }
-  RedisModule_FreeString(RSDummyContext, keyName);
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, id);
+    RSDocumentMetadata* md = SearchDisk_IsEnabled()
+      ? DocTable_PopById(&sp->docs, id)
+      : DocTable_Pop(&sp->docs, docKey, len);
     if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
       RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
@@ -367,8 +374,13 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
-  uint64_t existingDocId;
-  int exists = (DocIdMeta_Get(RSDummyContext, d->docKey, sp->specId, &existingDocId) == REDISMODULE_OK);
+  int exists;
+  if (SearchDisk_IsEnabled()) {
+    uint64_t existingDocId;
+    exists = (DocIdMeta_Get(RSDummyContext, d->docKey, sp->specId, &existingDocId) == REDISMODULE_OK);
+  } else {
+    exists = !!DocTable_GetIdR(&sp->docs, d->docKey);
+  }
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;
@@ -689,12 +701,15 @@ end:
 
 int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
   IndexSpec* sp = __RefManager_Get_Object(rm);
-  // Try to get docId from key metadata first
-  RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
-  uint64_t docId;
-  int exists = (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK);
-  RedisModule_FreeString(RSDummyContext, keyName);
-  return exists;
+  if (SearchDisk_IsEnabled()) {
+    RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
+    uint64_t docId;
+    int exists = (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK);
+    RedisModule_FreeString(RSDummyContext, keyName);
+    return exists;
+  } else {
+    return DocTable_GetId(&sp->docs, docKey, len) != 0;
+  }
 }
 
 RS_ApiIter* RediSearch_IterateQuery(RefManager* rm, const char* s, size_t n, char** error) {
@@ -941,6 +956,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->maxDocId = sp->docs.maxDocId;
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
+  info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
   info->numTerms = sp->stats.scoring.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;

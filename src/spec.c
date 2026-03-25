@@ -503,6 +503,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead,
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
+  res += TrieMap_MemUsage(sp->docs.dim.tm);
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += IndexSpec_collect_numeric_overhead(sp);
@@ -3101,7 +3102,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0); // DocIdMap (dim) removed
+  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
   if (!skip_unsafe_ops) {
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
@@ -3851,12 +3852,17 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       return;
     }
   } else {
-    uint64_t docIdMeta;
-    if (DocIdMeta_Get(ctx, key, spec->specId, &docIdMeta) != REDISMODULE_OK) {
-      // Nothing to delete
-      return;
+    RSDocumentMetadata *md = NULL;
+    if (SearchDisk_IsEnabled()) {
+      uint64_t docIdMeta;
+      if (DocIdMeta_Get(ctx, key, spec->specId, &docIdMeta) != REDISMODULE_OK) {
+        // Nothing to delete
+        return;
+      }
+      md = DocTable_PopById(&spec->docs, (t_docId)docIdMeta);
+    } else {
+      md = DocTable_PopR(&spec->docs, key);
     }
-    RSDocumentMetadata *md = DocTable_Pop(&spec->docs, (t_docId)docIdMeta);
     if (!md) {
       // Nothing to delete
       return;
@@ -3865,7 +3871,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     id = md->id;
     docLen = md->docLen;
 
-    DocIdMeta_Delete(ctx, key, spec->specId);
+    if (SearchDisk_IsEnabled()) {
+      DocIdMeta_Delete(ctx, key, spec->specId);
+    }
     DMD_Return(md);
   }
 
@@ -3925,7 +3933,7 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
       return;
     }
   } else {
-    RSDocumentMetadata *md = DocTable_Pop(&spec->docs, docId);
+    RSDocumentMetadata *md = DocTable_PopById(&spec->docs, docId);
     if (!md) {
       IndexSpec_DecrActiveWrites(spec);
       pthread_rwlock_unlock(&spec->rwlock);
@@ -4193,23 +4201,35 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      uint64_t docId;
-      // After RENAME, the metadata lives on to_key (rename callback keeps it).
-      if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
-        DocTable_Replace(&spec->docs, docId, to_str, to_len);
-        // Metadata is already on to_key (kept by rename), no need to move it.
+      if (SearchDisk_IsEnabled()) {
+        uint64_t docId;
+        // After RENAME, the metadata lives on to_key (rename callback keeps it).
+        if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
+          DocTable_ReplaceById(&spec->docs, docId, to_str, to_len);
+          // Metadata is already on to_key (kept by rename), no need to move it.
+        }
+      } else {
+        DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       }
       RedisSearchCtx_UnlockSpec(&sctx);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
     } else {
-      // After RENAME, from_key no longer exists. The metadata is on to_key.
-      // Look up the docId from to_key's metadata and delete by id.
-      uint64_t docId;
-      if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
-        IndexSpec_DeleteDocById(spec, (t_docId)docId);
-        DocIdMeta_Delete(ctx, to_key, spec->specId);
+      if (SearchDisk_IsEnabled()) {
+        // After RENAME, from_key no longer exists. The metadata is on to_key.
+        // Look up the docId from to_key's metadata and delete by id.
+        uint64_t docId;
+        if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
+          IndexSpec_DeleteDocById(spec, (t_docId)docId);
+          DocIdMeta_Delete(ctx, to_key, spec->specId);
+        }
+      } else {
+        // For RAM case, look up by old key name and delete
+        t_docId docId = DocTable_GetId(&spec->docs, from_str, from_len);
+        if (docId) {
+          IndexSpec_DeleteDocById(spec, docId);
+        }
       }
     }
   }

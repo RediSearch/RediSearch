@@ -243,10 +243,17 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
+  const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
-    uint64_t docId;
-    if (DocIdMeta_Get(ctx, argv[i], sctx->spec->specId, &docId) != REDISMODULE_OK) {
+    bool found = false;
+    if (SearchDisk_IsEnabled()) {
+      uint64_t docId;
+      found = (DocIdMeta_Get(ctx, argv[i], sctx->spec->specId, &docId) == REDISMODULE_OK);
+    } else {
+      found = (DocTable_GetIdR(dt, argv[i]) != 0);
+    }
+    if (!found) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
       continue;
@@ -286,8 +293,14 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  uint64_t docId;
-  if (DocIdMeta_Get(ctx, argv[2], sctx->spec->specId, &docId) != REDISMODULE_OK) {
+  bool found = false;
+  if (SearchDisk_IsEnabled()) {
+    uint64_t docId;
+    found = (DocIdMeta_Get(ctx, argv[2], sctx->spec->specId, &docId) == REDISMODULE_OK);
+  } else {
+    found = (DocTable_GetIdR(&sctx->spec->docs, argv[2]) != 0);
+  }
+  if (!found) {
     RedisModule_ReplyWithNull(ctx);
   } else {
     Document_ReplyAllFields(ctx, sctx->spec, argv[2]);
@@ -4609,7 +4622,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  DocIdMeta_Init(ctx, SearchDisk_IsEnabled());
+  if (SearchDisk_IsEnabled()) {
+    DocIdMeta_Init(ctx);
+  }
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);

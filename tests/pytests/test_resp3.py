@@ -455,6 +455,7 @@ def test_info():
         },
       'indexing': 0,
       'inverted_sz_mb': ANY,
+      'key_table_size_mb': ANY,
       'tag_overhead_sz_mb': ANY,
       'text_overhead_sz_mb': ANY,
       'total_index_memory_sz_mb': ANY,
@@ -1271,11 +1272,10 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 64 + (1000 * 8) = 8064 bytes
-      # Note: DocIdMap was removed from DocTable, sizeof(DocTable) went from 72 to 64
-      initial_doc_table_size_mb = 8064 / (1024 * 1024)
-      # DocIdMap (key-to-id mapping) was moved to key metadata, so key_table_size is always 0
-      key_table_sz_mb = 0
+      #              = 72 + (1000 * 8) = 8072 bytes
+      initial_doc_table_size_mb = 8072 / (1024 * 1024)
+      # Size of an empty TrieMap
+      key_table_sz_mb = 24 / (1024 * 1024)
       total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
@@ -1335,6 +1335,7 @@ def test_ft_info():
         'index_options': [],
         'indexing': 0.0,
         'inverted_sz_mb': 0.0,
+        'key_table_size_mb': key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
         'total_index_memory_sz_mb': total_index_memory_sz_mb,
@@ -1414,6 +1415,7 @@ def test_ft_info():
         'index_options': [],
         'indexing': 0,
         'inverted_sz_mb': 0.0,
+        'key_table_size_mb': nodes * key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
         'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,

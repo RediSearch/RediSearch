@@ -628,10 +628,12 @@ def test_background_index_no_lazy_expiration(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
 
-    # Validate that doc:1 has expired and was evicted during background indexing.
-    # DocIdMeta_Set opens the key with REDISMODULE_WRITE during indexing, which
-    # triggers lazy expiration, so doc:1 is already gone after indexing completes.
+    # Validate that doc:1 has expired but not evicted.
     env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['t', 'arr']])
+    env.expect('DBSIZE').equal(2)
+
+    # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
+    env.expect('HGET', 'doc:1', 't').equal(None)
     env.expect('DBSIZE').equal(1)
 
 
@@ -648,8 +650,10 @@ def test_background_index_no_lazy_expiration_json(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'TEXT').equal('OK')
     waitForIndex(env, 'idx')
 
-    # Validate that doc:1 has expired and was evicted during background indexing.
-    # DocIdMeta_Set opens the key with REDISMODULE_WRITE during indexing, which
-    # triggers lazy expiration, so doc:1 is already gone after indexing completes.
+    # Validate that doc:1 has expired but not evicted.
     env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['$', '{"t":"arr"}']])
+    env.expect('DBSIZE').equal(2)
+
+    # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
+    env.expect('JSON.GET', 'doc:1', "$").equal(None)
     env.expect('DBSIZE').equal(1)

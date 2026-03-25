@@ -22,6 +22,8 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error.h"
+#include "search_disk.h"
+#include "triemap.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -264,6 +266,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
+  if (!SearchDisk_IsEnabled()) {
+    REPLY_KVNUM("key_table_size_mb", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  }
 
   size_t tags_overhead = IndexSpec_collect_tags_overhead(sp);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);

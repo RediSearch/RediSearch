@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 // Initialize the DocIdMeta module
-void DocIdMeta_Init(RedisModuleCtx *ctx, bool diskEnabled);
+void DocIdMeta_Init(RedisModuleCtx *ctx);
 
 /*
  * Set the docId for the given key and index spec.
