@@ -11,8 +11,9 @@ use std::{
     mem::{self, ManuallyDrop},
     ops::Deref,
     ptr,
-    sync::Arc,
 };
+
+use triomphe::Arc;
 
 use crate::RsValue;
 
@@ -127,13 +128,10 @@ impl Deref for SharedRsValue {
     type Target = RsValue;
 
     fn deref(&self) -> &Self::Target {
-        if self.is_null_static() {
-            &NULL_VALUE
-        } else {
-            // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and the
-            // `Arc` is kept alive for the lifetime of `self`.
-            unsafe { &*self.ptr }
-        }
+        // SAFETY: `self.ptr` is either `&NULL_VALUE` (static) or was obtained
+        // from `Arc::into_raw` and the `Arc` is kept alive for the lifetime of
+        // `self`. Both cases produce a valid pointer.
+        unsafe { &*self.ptr }
     }
 }
 
