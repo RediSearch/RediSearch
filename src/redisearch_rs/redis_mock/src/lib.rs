@@ -337,6 +337,16 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             SSL_set_fd,
             SSL_write,
             TLS_client_method,
+            // DocIdMeta symbols used by RediSearch C code
+            DocIdMeta_Get,
+            DocIdMeta_Set,
+            DocIdMeta_Delete,
+            DocIdMeta_Init,
+            DocIdMeta_SubscribePersistenceEvent,
+            DocIdMeta_TrackDroppedSpecId,
+            DocIdMeta_DroppedSpecIdsRdbLoad,
+            DocIdMeta_DroppedSpecIdsRdbSave,
+            DocIdMeta_ClearDroppedSpecIds,
         }
     };
 }

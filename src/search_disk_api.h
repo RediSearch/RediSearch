@@ -259,7 +259,7 @@ typedef struct DocTableDiskAPI {
    * @brief Adds a new document to the table
    *
    * Assigns a new document ID and stores the document metadata.
-   * If the document key already exists, returns 0.
+   * If oldDocId is provided (non-zero), the old document is marked as deleted.
    *
    * @param handle Handle to the document table
    * @param key Document key
@@ -270,9 +270,10 @@ typedef struct DocTableDiskAPI {
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
+   * @param oldDocId Old document ID from DocIdMeta (0 if new document)
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set

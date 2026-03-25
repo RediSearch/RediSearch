@@ -154,17 +154,6 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, const char *term, siz
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
 /**
- * @brief Delete a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
- *
- * @param handle Handle to the document table
- * @param key Document key
- * @param keyLen Length of the document key
- * @param oldLen Optional pointer to receive the old document length (can be NULL)
- * @param id Optional pointer to receive the deleted document ID (can be NULL)
- */
-void SearchDisk_DeleteDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, uint32_t *oldLen, t_docId *id);
-
-/**
  * @brief Delete a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
  *
  * Used by the metadata unlink callback where the docId is already known.
@@ -248,9 +237,10 @@ QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, d
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
- * @return New document ID, or 0 on error or if the key already exists
+ * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+ * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
 /**
  * @brief Get document metadata by document ID

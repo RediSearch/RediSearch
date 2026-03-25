@@ -208,11 +208,26 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       if (cur->doc->docExpirationTime.tv_sec || cur->doc->docExpirationTime.tv_nsec) {
         cur->docFlags |= Document_HasExpiration;
       }
+
+      // Get old docId from key metadata (if document already exists)
+      uint64_t oldDocId = 0;
+      DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
+
       // Put the document and get a new doc-id, and remove the old id->dmd entry
       // if it existed.
       t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, len,
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
-        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime);
+        cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, (t_docId)oldDocId);
+
+      // Store docId early for cleanup path in case of indexing failure
+      cur->doc->docId = docId;
+
+      if (!docId) {
+        cur->stateFlags |= ACTX_F_ERRORED;
+        RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
+        continue;
+      }
+
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.scoring.numDocuments > 0);
@@ -221,20 +236,14 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         spec->numDocuments--;
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
-        updated = docId != 0; // If docId is 0, the document was not added
+        updated = true;
       }
-      if (docId) {
-        cur->doc->docId = docId;
-        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
-        ++spec->stats.scoring.numDocuments;
-        ++spec->numDocuments;
-        // Store docId in key metadata for fast lookup
-        DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
-      } else {
-        cur->stateFlags |= ACTX_F_ERRORED;
-        RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
-        continue;
-      }
+
+      spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+      ++spec->stats.scoring.numDocuments;
+      ++spec->numDocuments;
+      // Store docId in key metadata for fast lookup
+      DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,

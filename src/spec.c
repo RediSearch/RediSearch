@@ -3856,14 +3856,18 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   uint32_t docLen = 0;
   if (isSpecOnDisk(spec)) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    size_t len;
-    const char *keyStr = RedisModule_StringPtrLen(key, &len);
 
-    // Delete the document
-    SearchDisk_DeleteDocument(spec->diskSpec, keyStr, len, &docLen, &id);
-
-    if (id == 0) {
+    // Look up docId from key metadata
+    uint64_t docId = 0;
+    if (DocIdMeta_Get(ctx, key, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
       // Nothing to delete
+      return;
+    }
+    id = (t_docId)docId;
+
+    // Delete the document by docId
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, id, &docLen)) {
+      // Failed to delete
       return;
     }
   } else {
