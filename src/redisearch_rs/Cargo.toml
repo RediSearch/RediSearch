@@ -165,6 +165,7 @@ syn = "2"
 # need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).
 test-log = { version = "0.2", features = ["trace", "unstable"] }
 thiserror = "2.0.18"
+triomphe = "0.1.2"
 toml = "0.9"
 tracing = "0.1.44"
 tracing-core = "0.1"
