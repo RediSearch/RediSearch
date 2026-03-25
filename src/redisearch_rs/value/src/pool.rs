@@ -65,7 +65,18 @@ pub(crate) fn pool_release(mut arc: Arc<RsValue>) {
     // `get_mut` succeeds because the caller is the sole owner (see `Pool` docs).
     *Arc::get_mut(&mut arc).unwrap() = RsValue::Undefined;
 
-    POOL.with_borrow_mut(|pool| {
+    // This function is called from `SharedRsValue::drop`. During thread shutdown,
+    // thread-local destruction order is unspecified, so the `POOL` TLS may already
+    // be destroyed when a `SharedRsValue` held in another thread-local (or
+    // transitively via `RsValue::Ref`, `Trio`, `Array`, etc.) is dropped.
+    // `LocalKey::with` (used by `with_borrow_mut`) would panic in that case, and a
+    // panic inside `Drop` during thread shutdown aborts the process.
+    //
+    // We therefore use `try_with` + `borrow_mut` instead: if the pool is already
+    // destroyed, `try_with` returns `Err` and we silently fall through, letting the
+    // `Arc` deallocate normally rather than aborting.
+    let _ = POOL.try_with(|pool| {
+        let mut pool = pool.borrow_mut();
         if pool.0.len() < MAX_POOL_SIZE {
             pool.0.push(arc);
         }
