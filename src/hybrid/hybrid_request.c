@@ -14,7 +14,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "query_error.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "module.h"
 #include "profile/profile.h"
 

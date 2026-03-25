@@ -20,7 +20,7 @@
 #include "resp3.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "search_disk.h"
-#include "spec.h"
+#include "spec/spec.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

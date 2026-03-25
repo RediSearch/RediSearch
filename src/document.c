@@ -18,7 +18,7 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/mempool.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "tokenize.h"
 #include "util/logging.h"
 #include "rmalloc.h"

@@ -8,7 +8,7 @@
 */
 
 #include "info/info_redis/threads/current_thread.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "config.h"
 #include <assert.h>
 

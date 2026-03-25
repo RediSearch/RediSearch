@@ -9,7 +9,7 @@
 
 #include "result_processor.h"
 #include "gtest/gtest.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "search_ctx.h"
 #include "rmalloc.h"
 #include "common.h"

@@ -18,7 +18,7 @@
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
 #include "query_error.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "rmalloc.h"
 #include "cursor.h"
 #include "score_explain.h"

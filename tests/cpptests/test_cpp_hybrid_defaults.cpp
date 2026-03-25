@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "hybrid/parse_hybrid.h"
 #include "hybrid/hybrid_scoring.h"
 #include "common.h"

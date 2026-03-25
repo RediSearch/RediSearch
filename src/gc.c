@@ -17,7 +17,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "module.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 #include "util/logging.h"

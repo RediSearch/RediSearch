@@ -10,7 +10,7 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "common.h"
 #include "module.h"
 #include "rlookup.h"
