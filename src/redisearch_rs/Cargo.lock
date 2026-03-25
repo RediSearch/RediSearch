@@ -667,6 +667,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "field_spec"
+version = "0.0.1"
+dependencies = [
+ "enumflags2",
+ "ffi",
+ "field_spec",
+ "hidden_string",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -813,6 +827,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hidden_string"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -954,6 +979,29 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "idf",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_spec"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field_spec",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "schema_rule",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_spec_cache"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "field_spec",
+ "rm_array",
  "workspace_hack",
 ]
 
@@ -1896,6 +1944,9 @@ dependencies = [
  "document",
  "enumflags2",
  "ffi",
+ "field_spec",
+ "index_spec",
+ "index_spec_cache",
  "libc",
  "pin-project",
  "pretty_assertions",
@@ -1904,6 +1955,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "rlookup",
+ "schema_rule",
  "sorting_vector",
  "strum",
  "thiserror",
@@ -1926,6 +1978,14 @@ dependencies = [
  "rlookup_ffi",
  "sorting_vector",
  "value",
+ "workspace_hack",
+]
+
+[[package]]
+name = "rm_array"
+version = "0.0.1"
+dependencies = [
+ "ffi",
  "workspace_hack",
 ]
 
@@ -2164,6 +2224,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "schema_rule"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "pretty_assertions",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
 ]
 
 [[package]]
