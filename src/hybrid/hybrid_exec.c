@@ -691,7 +691,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       int rc = RPDepleter_DepleteAll(depleters);
       array_free(depleters);
       if (rc != RS_RESULT_OK) {
-        array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
+        array_free_ex(req->cursors, Cursor_Free(*(Cursor**)ptr));
         if (rc == RS_RESULT_TIMEDOUT) {
           QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
         } else {
