@@ -45,7 +45,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_direct_hnsw_insertions += vec_info.direct_hnsw_insertions;
     info.fields_stats.total_flat_buffer_size += vec_info.flat_buffer_size;
 
-    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, vec_info.memory);
+    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0, vec_info.memory);
     size_t prev_total_mem = info.total_mem;
     info.total_mem += cur_mem;
 

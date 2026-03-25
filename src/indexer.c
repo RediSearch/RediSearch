@@ -141,15 +141,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
-    RSDocumentMetadata *dmd = NULL;
-    if (SearchDisk_IsEnabled()) {
-      uint64_t existingDocId;
-      if (DocIdMeta_Get(ctx, doc->docKey, spec->specId, &existingDocId) == REDISMODULE_OK) {
-        dmd = DocTable_PopById(table, (t_docId)existingDocId);
-      }
-    } else {
-      dmd = DocTable_PopR(table, doc->docKey);
-    }
+    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
     if (dmd) {
       // Update stats of the index only if the document was there
       RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
@@ -184,11 +176,6 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (dmd) {
     doc->docId = dmd->id;
     ++spec->stats.scoring.numDocuments;
-    if (SearchDisk_IsEnabled()) {
-      // Store docId in key metadata for fast lookup
-      DocIdMeta_Set(ctx, doc->docKey, spec->specId, dmd->id);
-    }
-    // For RAM case, DocTable_Put already updates dim internally
   }
 
   return dmd;
@@ -235,6 +222,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->doc->docId = docId;
         spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
         ++spec->stats.scoring.numDocuments;
+        // Store docId in key metadata for fast lookup
+        DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
       } else {
         cur->stateFlags |= ACTX_F_ERRORED;
         RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
