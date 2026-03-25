@@ -276,7 +276,8 @@ jobs:
                   "aarch64": {
                       'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                       'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 ARM64'
+                      'name': 'Mariner 2 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "azurelinux:3": {
