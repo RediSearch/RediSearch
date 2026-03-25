@@ -1144,7 +1144,12 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
-  } else if (QueryError_HasError(&status)) {
+  } else {
+    if (!QueryError_HasError(&status)) {
+      // There was an error but it was not set in status, get it from hreq
+      HybridRequest_GetError(hreq, &status);
+      HybridRequest_ClearErrors(hreq);
+    }
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
   }
   RedisModule_FreeThreadSafeContext(outctx);
