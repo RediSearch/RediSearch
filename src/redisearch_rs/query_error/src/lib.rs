@@ -102,6 +102,7 @@ pub enum QueryErrorCode {
     ClusterNoResponses,
     FlexSearchNocontentOrReturn0Required,
     FlexSearchLoadUnsupported,
+    FlexUnsupportedArgument,
 }
 
 impl Debug for QueryErrorCode {
@@ -471,13 +472,18 @@ impl QueryErrorCode {
             },
             Self::FlexSearchNocontentOrReturn0Required => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED ",
-                default_msg: c"NOCONTENT or RETURN 0 must be provided for disk indexes",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED NOCONTENT or RETURN 0 must be provided for disk indexes",
+                default_msg: c"NOCONTENT or RETURN 0 must be provided in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_NOCONTENT_OR_RETURN_0_REQUIRED NOCONTENT or RETURN 0 must be provided in Redis Flex",
             },
             Self::FlexSearchLoadUnsupported => ErrorCodeStrings {
                 prefix: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED ",
-                default_msg: c"LOAD is not supported for disk indexes",
-                default_full_msg: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED LOAD is not supported for disk indexes",
+                default_msg: c"LOAD is not supported in Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_SEARCH_LOAD_UNSUPPORTED LOAD is not supported in Redis Flex",
+            },
+            Self::FlexUnsupportedArgument => ErrorCodeStrings {
+                prefix: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT ",
+                default_msg: c"Unsupported argument for Redis Flex",
+                default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_ARGUMENT Unsupported argument for Redis Flex",
             },
         }
     }

@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IteratorType_PROFILE_ITERATOR, QueryIterator};
+use ffi::QueryIterator;
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::profile::{Profile, ProfileCounters};
-use rqe_iterators_interop::RQEIteratorWrapper;
 use std::ptr::NonNull;
 
 use rqe_iterators::c2rust::CRQEIterator;
@@ -29,7 +30,7 @@ pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut Q
     let child = unsafe { NonNull::new_unchecked(child) };
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
-    RQEIteratorWrapper::boxed_new(IteratorType_PROFILE_ITERATOR, Profile::new(child))
+    RQEIteratorWrapper::boxed_new(IteratorType::Profile, Profile::new(child))
 }
 
 /// Get the child iterator from a profile iterator.
@@ -47,8 +48,8 @@ pub unsafe extern "C" fn ProfileIterator_GetChild(
     debug_assert!(!it.is_null());
     debug_assert_eq!(
         // SAFETY: guaranteed by 1.
-        unsafe { *it }.type_,
-        IteratorType_PROFILE_ITERATOR,
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
         "Expected a profile iterator"
     );
     // SAFETY: guaranteed by 1.
@@ -72,8 +73,8 @@ pub unsafe extern "C" fn ProfileIterator_GetCounters(
     debug_assert!(!it.is_null());
     debug_assert_eq!(
         // SAFETY: guaranteed by 1.
-        unsafe { *it }.type_,
-        IteratorType_PROFILE_ITERATOR,
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
         "Expected a profile iterator"
     );
     // SAFETY: guaranteed by 1.
@@ -92,8 +93,8 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
     debug_assert!(!it.is_null());
     debug_assert_eq!(
         // SAFETY: guaranteed by 1.
-        unsafe { *it }.type_,
-        IteratorType_PROFILE_ITERATOR,
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
         "Expected a profile iterator"
     );
     // SAFETY: guaranteed by 1.

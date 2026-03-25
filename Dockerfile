@@ -28,6 +28,6 @@ RUN bash retry.sh bash -l -eo pipefail install_script.sh && \
     if [ "$SAN" = "address" ]; then bash retry.sh bash -l -eo pipefail install_llvm.sh; fi
 WORKDIR /project
 # Expose newly-installed Rust and Python tools via PATH
-ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
+ENV PATH="/usr/local/llvm/bin:/root/.cargo/bin:/root/.local/bin:${PATH}"
 
 WORKDIR /project

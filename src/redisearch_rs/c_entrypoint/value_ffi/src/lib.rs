@@ -10,8 +10,10 @@
 #![allow(non_camel_case_types, non_snake_case)]
 
 pub mod array;
+pub mod comparisons;
 pub mod constructors;
 pub mod conversions;
+pub mod debug;
 pub mod getters;
 pub mod hash;
 pub mod map;

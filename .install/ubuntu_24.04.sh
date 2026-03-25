@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 
@@ -15,4 +15,4 @@ if [ "$(uname -m)" = "aarch64" ]; then
 fi
 
 # Need clang for LTO
-./install_llvm.sh $MODE
+source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

@@ -36,4 +36,14 @@ void* mmh_peek_max(const mm_heap_t* h);
 void* mmh_exchange_min(mm_heap_t* h, void* value); // combines pop-and-then-insert logic
 void* mmh_exchange_max(mm_heap_t* h, void* value); // combines pop-and-then-insert logic
 
+// Returns pointer to the internal data array (elements 0..count-1).
+// The heap uses 1-based indexing internally, so this returns &data[1].
+// WARNING: Modifying elements invalidates heap property - caller must call mmh_heapify after changes.
+void** mmh_get_data(mm_heap_t* h);
+
+// Rebuilds heap property after elements have been modified in-place.
+// Call this after modifying elements obtained via mmh_get_data().
+// Time complexity: O(n)
+void mmh_heapify(mm_heap_t* h);
+
 #endif  // MINMAX_HEAP_H_

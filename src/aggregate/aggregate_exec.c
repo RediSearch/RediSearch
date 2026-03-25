@@ -1108,6 +1108,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // lock spec
   RedisSearchCtx_LockSpecRead(sctx);
+
   if (prepareExecutionPlan(req, &status) != REDISMODULE_OK) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
@@ -1120,6 +1121,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   if (sctx->spec->diskSpec) {
     RedisSearchCtx_UnlockSpec(sctx);
   }
+
+#ifdef ENABLE_ASSERT
+  // Sync point (debug): pause after iterators are created and snapshot is established.
+  // For disk indexes, the lock is already released at this point.
+  // For RAM indexes, the lock is still held.
+  SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
+#endif
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
@@ -1149,6 +1157,58 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
+/**
+ * Validate SORTBY for disk indexes.
+ * In disk/flex mode, SORTBY is only allowed on vector score (distance) fields.
+ * Must be called after QAST_Iterate so that metricRequests is populated.
+ *
+ * Current flex assumptions (asserted):
+ * - FT.SEARCH allows only a single SORTBY field
+ * - KNN is allowed only once per query, yielding a single vector score field
+ *
+ * @param req The AREQ to validate
+ * @param status Error details set here
+ * @return REDISMODULE_OK if valid, REDISMODULE_ERR otherwise
+ */
+static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
+  // Skip validation if disk is not enabled
+  if (!SearchDisk_IsEnabledForValidation()) {
+    return REDISMODULE_OK;
+  }
+
+  // Skip if no SORTBY
+  if (!HasSortBy(req)) {
+    return REDISMODULE_OK;
+  }
+
+  // If HasSortBy is true, arrange step and sortKeys must exist
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+  RS_LOG_ASSERT(arng && arng->sortKeys && array_len(arng->sortKeys) == 1,
+                "Flex mode expects exactly one SORTBY field");
+
+  // Get the metric requests from the AST (vector score fields)
+  MetricRequest *metricRequests = req->ast.metricRequests;
+  size_t numMetrics = array_len(metricRequests);
+
+  // In flex mode, KNN is allowed only once, so at most one vector score field
+  RS_LOG_ASSERT(numMetrics <= 1, "Flex mode expects at most one vector score field");
+
+  // If there's no vector score field, or the sort key doesn't match it, block
+  const char *sortKey = arng->sortKeys[0];
+  bool isVectorScoreField = (numMetrics == 1) &&
+                            metricRequests[0].metric_name &&
+                            (strcasecmp(sortKey, metricRequests[0].metric_name) == 0);
+
+  if (!isVectorScoreField) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+      "SORTBY in Redis Flex is restricted to sorting results by vector distance in vector queries. "
+      "Otherwise, results are always sorted by the default document score.");
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
 int prepareExecutionPlan(AREQ *req, QueryError *status) {
@@ -1175,6 +1235,12 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   }
 
   if (QueryError_HasError(status)) {
+    return REDISMODULE_ERR;
+  }
+
+  // Validate SORTBY for disk indexes - must be after QAST_Iterate so that
+  // vector score field names are populated in metricRequests
+  if (validateSortbyForDiskIndex(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1543,15 +1609,14 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   // Take a read lock on the spec (to avoid conflicts with the GC).
+  // released in `AREQ_Free`.
   RedisSearchCtx_LockSpecRead(sctx);
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
-    RedisSearchCtx_UnlockSpec(sctx);
     AREQ_DecrRef(r);
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, sctx->spec);
-  RedisSearchCtx_UnlockSpec(sctx);
   AREQ_DecrRef(r);
   CurrentThread_ClearIndexSpec();
   return ret;

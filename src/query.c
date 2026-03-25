@@ -39,7 +39,6 @@
 #include "suffix.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
-#include "iterators/inverted_index_iterator.h"
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
 #include "iterators/optional_iterator.h"
@@ -142,6 +141,8 @@ void QueryNode_Free(QueryNode *n) {
     case QN_NULL:
     case QN_PHRASE:
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
   rm_free(n);
 }
@@ -932,14 +933,15 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   child = Query_EvalNode(q, qn->children[0]);
   q->notSubtree = currently_notSubtree;
 
-  return NewNotIterator(child, q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
+  t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
+  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
 }
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
   RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
-
-  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]), q, qn->opts.weight);
+  t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
+  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]), q, maxDocId, qn->opts.weight);
 }
 
 static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1509,6 +1511,8 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return NewEmptyIterator();
     case QN_MISSING:
       return Query_EvalMissingNode(q, n);
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
 
   return NULL;
@@ -1662,6 +1666,8 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
     case QN_MISSING:
       withChildren = 0;
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
@@ -1797,6 +1803,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_LEXRANGE:
     case QN_GEOMETRY:
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
 
   // Handle children
@@ -2064,6 +2072,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_MISSING:
       s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(qs->miss.field->fieldName, NULL));
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
 
   // print attributes if not the default

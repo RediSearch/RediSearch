@@ -674,6 +674,9 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
                RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
   bool delDocs = dropCommand;
+  if (SearchDisk_IsEnabledForValidation() && dropCommand) {
+    return RedisModule_ReplyWithError(ctx, "FT.DROP is not supported in Redis Flex");
+  }
   if (argc == 3){
     if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
       delDocs = false;
@@ -681,10 +684,15 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       delDocs = false;
     } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
       delDocs = true;
+      if (SearchDisk_IsEnabledForValidation()) {
+        return RedisModule_ReplyWithError(ctx, "DD is not supported in Redis Flex");
+      }
     } else {
       return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_ARG_UNRECOGNIZED));
     }
   }
+
+  RS_ASSERT(!(delDocs && SearchDisk_IsEnabledForValidation()));
 
   CurrentThread_SetIndexSpec(global_ref);
 
@@ -692,6 +700,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
+    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
@@ -1245,6 +1254,9 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   rlecVersion.patchVersion = -1;
   rlecVersion.buildVersion = -1;
   char *enterpriseStr = strstr(replyStr, "rlec_version:");
+  // Enterprise Redis has the rlec_version field in INFO output, OSS Redis does not.
+  // The field may have a version string (e.g., "7.4.0-1") or just "-" if not configured.
+  isEnterprise = (enterpriseStr != NULL);
   if (enterpriseStr) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
                &rlecVersion.minorVersion, &rlecVersion.patchVersion, &rlecVersion.buildVersion);
@@ -1289,15 +1301,7 @@ int IsMaster() {
 }
 
 bool IsEnterprise() {
-  return rlecVersion.majorVersion != -1;
-}
-
-bool IsEnterpriseBuild() {
-  #ifdef RS_CLUSTER_ENTERPRISE
-    return true;
-  #else
-    return false;
-  #endif
+  return isEnterprise;
 }
 
 int CheckSupportedVestion() {
@@ -1479,7 +1483,7 @@ static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
 static int DiskDisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argc);
   const char *command = RedisModule_StringPtrLen(argv[0], NULL);
-  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in disk mode", command);
+  return RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported in Redis Flex", command);
 }
 
 static RedisModuleCmdFunc DiskDisabledCmd(RedisModuleCmdFunc f) {
@@ -1690,26 +1694,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  if (SearchDisk_IsEnabled()) {
-    bool disk_initialized = SearchDisk_Initialize(ctx);
-    if (!disk_initialized) {
-      RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
-      return REDISMODULE_ERR;
-    }
-
-    // Register BigModule callbacks for disk usage reporting
-    if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
-      RedisModule_Log(ctx, "warning", "Failed to register BigModule callbacks for disk usage reporting");
-      return REDISMODULE_ERR;
-    }
-
-    if (RSGlobalConfig.numWorkerThreads == 0) {
-      RSGlobalConfig.numWorkerThreads = DEFAULT_WORKER_THREADS_FLEX;
-      workersThreadPool_SetNumWorkers();
-      RedisModule_Log(ctx, "notice", "WORKERS set to 1 (Flex mode default)");
-    }
-  }
-
   // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
 
@@ -1738,18 +1722,18 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     // to be able to replicate from an old RediSearch version.
     // If this is the light version then the _ft.safeadd/_ft.del does not exist
     // and we will get the normal ft.safeadd/ft.del command.
-    DEFINE_COMMAND(RS_ADD_CMD,            RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
-    DEFINE_COMMAND(RS_DEL_CMD,            DeleteCommand,        "write",           NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
-    DEFINE_COMMAND(RS_SAFEADD_CMD,        RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
-    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, "write deny-oom",  NULL, NONE, "write",       IsEnterpriseBuild(),  indexDocCmdArgs, true),
-    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DeleteCommand,        "write",           NULL, NONE, "write",       IsEnterpriseBuild(),  indexDocCmdArgs, true),
+    DEFINE_COMMAND(RS_ADD_CMD,            DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
+    DEFINE_COMMAND(RS_DEL_CMD,            DiskDisabledCmd(DeleteCommand),        "write",           NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
+    DEFINE_COMMAND(RS_SAFEADD_CMD,        DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
+    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom",  NULL, NONE, "write",       IsEnterprise(),  indexDocCmdArgs, true),
+    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DiskDisabledCmd(DeleteCommand),        "write",           NULL, NONE, "write",       IsEnterprise(),  indexDocCmdArgs, true),
 
     // write commands (on enterprise we do not define them, the dmc take care of them)
     // search write slow dangerous
     DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_RESTORE_IF_NX,       NULL,                          "write",            RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",  true, indexOnlyCmdArgs, !IsEnterprise()),
-    DEFINE_COMMAND(RS_SYNUPDATE_CMD,       SynUpdateCommand,              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
+    DEFINE_COMMAND(RS_SYNUPDATE_CMD,       DiskDisabledCmd(SynUpdateCommand),              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALTER_CMD,           DiskDisabledCmd(AlterIndexCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_ALTER_IF_NX_CMD,     DiskDisabledCmd(AlterIndexIfNXCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
     DEFINE_COMMAND(RS_DICT_ADD,            DiskDisabledCmd(DictAddCommand),  "write deny-oom",   SetFtDictaddInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !IsEnterprise()),
@@ -1769,21 +1753,21 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_EXPLAIN_CMD,    QueryExplainCommand,    "readonly",       SetFtExplainInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",       SetFtExplaincliInfo, SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_DICT_DUMP,      DiskDisabledCmd(DictDumpCommand), "readonly",       SetFtDictdumpInfo,   SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_SYNDUMP_CMD,    SynDumpCommand,         "readonly",       SetFtSyndumpInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_SYNDUMP_CMD,    DiskDisabledCmd(SynDumpCommand),         "readonly",       SetFtSyndumpInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       SetFt_ListInfo,      SET_COMMAND_INFO, "slow admin", true, indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_SYNADD_CMD,     SynAddCommand,          "write deny-oom", NULL,                NONE,             "",           true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_SYNADD_CMD,     DiskDisabledCmd(SynAddCommand),          "write deny-oom", NULL,                NONE,             "",           true, indexOnlyCmdArgs, false),
     // read only commands
     DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetFtInfoInfo,             SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_GET_CMD,       GetSingleDocumentCommand, "readonly"                , NULL,                      NONE,                  "read",                 true,             indexDocCmdArgs,  false),
+    DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , NULL,                      NONE,                  "read",                 true,             indexDocCmdArgs,  false),
     DEFINE_COMMAND(RS_HYBRID_CMD,    DiskDisabledCmd(RSShardedHybridCommand),   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_AGGREGATE_CMD, DiskDisabledCmd(RSAggregateCommand),       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_TAGVALS_CMD,   DiskDisabledCmd(TagValsCommand),           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
-    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_SPELL_CHECK,   DiskDisabledCmd(SpellCheckCommand),        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
   };
 
@@ -1807,7 +1791,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
 extern dict *legacySpecDict, *legacySpecRules;
 
-void RediSearch_CleanupModule(void) {
+void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   static int invoked = 0;
   if (invoked || !RS_Initialized) {
     return;
@@ -1815,7 +1799,7 @@ void RediSearch_CleanupModule(void) {
   invoked = 1;
 
   // First free all indexes
-  Indexes_Free(specDict_g, false);
+  Indexes_Free(ctx, specDict_g, false);
   dictRelease(specDict_g);
   specDict_g = NULL;
 
@@ -4540,7 +4524,7 @@ void setHiredisAllocators(){
 
 void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  RediSearch_CleanupModule(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
@@ -4619,6 +4603,13 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Register the module configuration parameters
   GetRedisVersion(ctx);
 
+  // Disk-based indexes cannot be enabled after server startup
+  if (SearchDisk_IsEnabled() &&
+      !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_SERVER_STARTUP)) {
+    RedisModule_Log(ctx, "error", "Cannot load module with disk indexes after server startup");
+    return REDISMODULE_ERR;
+  }
+
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
 
@@ -4661,7 +4652,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DiskDisabledCmd(DistAggregateCommand)), "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,            SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
-    DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", SetFtSpellcheckInfo,         SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(DiskDisabledCmd(SpellCheckCommandHandler)), "readonly", SetFtSpellcheckInfo,         SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
     DEFINE_COMMAND("FT.HYBRID",     SafeCmd(DiskDisabledCmd(DistHybridCommand)), "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.CURSOR",     NULL,                              "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, noKeyArgs, false),
   };
@@ -4670,7 +4661,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // OSS commands (registered via proxy in Enterprise)
-  if (!IsEnterpriseBuild()) {
+  if (!IsEnterprise()) {
     SearchCommand writeCommands[] = {
       DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
@@ -4686,7 +4677,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
-      DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
+      DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(DiskDisabledCmd(FanoutCommandHandlerWithIndexAtFirstArg)),        "write deny-oom", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     true,                noKeyArgs, false),
       DEFINE_COMMAND("FT.CONFIG",         NULL,                                                    "readonly",       RegisterCoordConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                !isClusterEnabled,   noKeyArgs, false),
 
       // // Deprecated OSS commands
@@ -4709,8 +4700,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   // Deprecated commands. Grouped here for easy tracking
   SearchCommand deprecatedCommands[] = {
-    DEFINE_COMMAND("FT.MGET",           SafeCmd(MGetCommandHandler),    "readonly", NULL,             NONE,             "read",           true, noKeyArgs, false),
-    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(TagValsCommandHandler), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
+    DEFINE_COMMAND("FT.MGET",           SafeCmd(DiskDisabledCmd(MGetCommandHandler)),    "readonly", NULL,             NONE,             "read",           true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(DiskDisabledCmd(TagValsCommandHandler)), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
   };
   if (CreateSearchCommands(ctx, deprecatedCommands, sizeof(deprecatedCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -4745,7 +4736,7 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RSGlobalConfig.defaultScorer = NULL;
   }
 
-  SearchDisk_Close();
+  SearchDisk_Close(ctx);
 
   return REDISMODULE_OK;
 }
