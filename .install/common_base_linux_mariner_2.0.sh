@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Common Base Linux Mariner is the actual full name of the platform.
+# Don't attempt to change the name of this file.
 MODE=$1 # whether to install using sudo or not
 set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
