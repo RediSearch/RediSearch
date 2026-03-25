@@ -18,7 +18,7 @@
 #include "vector_query_utils.h"
 #include "vector_index.h"
 #include "query_error.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "param.h"
 #include "rmalloc.h"
 #include "config.h"

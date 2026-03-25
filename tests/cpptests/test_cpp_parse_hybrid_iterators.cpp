@@ -15,7 +15,7 @@
 #include "src/hybrid/parse_hybrid.h"
 #include "src/hybrid/hybrid_scoring.h"
 #include "iterators/hybrid_reader.h"
-#include "src/spec.h"
+#include "src/spec/spec.h"
 #include "src/search_ctx.h"
 #include "aggregate/aggregate.h"
 

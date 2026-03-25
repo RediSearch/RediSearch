@@ -24,7 +24,7 @@
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "rmutil/args.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"

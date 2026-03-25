@@ -10,7 +10,7 @@
 #define ALIAS_H
 
 #include "redismodule.h"
-#include "spec.h"
+#include "spec/spec.h"
 
 #ifdef __cplusplus
 extern "C" {

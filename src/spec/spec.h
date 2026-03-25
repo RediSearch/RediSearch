@@ -127,25 +127,10 @@ struct IndexesScanner;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
-typedef enum {
-    DEBUG_INDEX_SCANNER_CODE_NEW,
-    DEBUG_INDEX_SCANNER_CODE_RUNNING,
-    DEBUG_INDEX_SCANNER_CODE_DONE,
-    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED,
-    DEBUG_INDEX_SCANNER_CODE_RESUMED,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
+// DebugIndexScannerCode, DEBUG_INDEX_SCANNER_STATUS_STRS, IndexesScanner,
+// DebugIndexesScanner structs and scanner functions moved to spec_scanner.h.
+#include "spec_scanner.h"
 
-    //Insert new codes here (before COUNT)
-    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
-    //Do not add new codes after COUNT
-} DebugIndexScannerCode;
-
-extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
-
-extern size_t pending_global_indexing_ops;
-extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
 
 typedef struct {
@@ -404,178 +389,22 @@ static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
 }
 
-/**
- * This lightweight object contains a COPY of the actual index spec.
- * This makes it safe for other modules to use for information such as
- * field names, WITHOUT worrying about the index schema changing.
- *
- * If the index schema changes, this object is simply recreated rather
- * than modified, making it immutable.
- *
- * It is freed when its reference count hits 0
- */
-typedef struct IndexSpecCache {
-  FieldSpec *fields;
-  size_t nfields;
-  size_t refcount;
-} IndexSpecCache;
+// IndexSpecCache — immutable, refcounted snapshot of index fields.
+// Full definition and functions in spec_cache.h.
+#include "spec_cache.h"
 
-/**
- * For testing only
- */
-void Spec_AddToDict(RefManager *w_spec);
+// Struct accessors, field lookups, format, version comparison
+#include "spec_struct.h"
 
-/**
- * Compare redis versions
- */
-int CompareVersions(Version v1, Version v2);
+// IndexSpec_GetStats, IndexSpec_GetIndexErrorCount
+#include "spec_info.h"
 
-/**
- * Retrieves the current spec cache from the index, incrementing its
- * reference count by 1. Use IndexSpecCache_Decref to free
- */
-IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
-
-/**
- * Decrement the reference count of the spec cache. Should be matched
- * with a previous call of GetSpecCache()
- * Can handle NULL
- */
-void IndexSpecCache_Decref(IndexSpecCache *cache);
-
-/*
- * Get a field spec by field name. Case insensitive!
- * Return the field spec if found, NULL if not
- */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name);
-const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char* name, size_t len);
-
-const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
-
-/*
-* Get a field spec by field mask.
-* Return the field spec if found, NULL if not
-*/
-const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id);
-
-/**
- * Get the field specs in the field mask `mask`.
- */
-arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask);
-
-/* Get the field bitmask id of a text field by name. Return 0 if the field is not found or is not a
- * text field */
-t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len);
-
-/**
- * Check if phonetic matching is enabled on any field within the fieldmask.
- * Returns true if any field has phonetics, and false if none of the fields
- * require it.
- */
-int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm);
-
-/**
- * Check that `slop` and/or `inorder` are allowed on all fields matching the fieldmask (e.g., fields cannot have undefined ordering)
- * (`RS_FIELDMASK_ALL` fieldmask checks all fields)
- * Returns true if allowed, and false otherwise.
- * If not allowed, set error message in status.
- */
-int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, QueryError *status);
-
-/**
- * Get the field spec from the sortable index
- */
-const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx);
-
-/* Initialize some index stats that might be useful for scoring functions */
-void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
-
-/* Get the number of indexing failures */
-size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
-
-/*
- * Parse an index spec from redis command arguments.
- * Returns REDISMODULE_ERR if there's a parsing error.
- * The command only receives the relevant part of argv.
- *
- * The format currently is <field> <weight>, <field> <weight> ...
- */
-StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
-                                   RedisModuleString **argv, int argc, QueryError *status);
-
-arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
-int isRdbLoading(RedisModuleCtx *ctx);
-
-/* Create a new index spec from redis arguments, set it in a redis key and start its GC.
- * If an error occurred - we set an error string in err and return NULL.
- */
-IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               QueryError *status);
-
-
-/**
- * Convert an IndexSpec to its RDB serialized form, by calling the `IndexSpecType` rdb_save function.
- * Note that the returned RedisModuleString* must be freed by the caller
- * using RedisModule_FreeString
-*/
-RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
-
-/**
- * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
- * Note that this function also stores the index spec in the global spec dictionary, as if it was loaded
- * from the RDB file.
- * Returns REDISMODULE_OK on success, REDISMODULE_ERR on failure.
- * Does not consume the serialized string, the caller is responsible for freeing it.
-*/
-int IndexSpec_Deserialize(const RedisModuleString *serialized, int encver);
-
-/* Start the garbage collection loop on the index spec */
-void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
-void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
-
-/* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status);
-// Calls IndexSpec_Parse after wrapping name with a hidden string
-StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status);
-
-FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
-
-// This function locks the spec for writing. use it if you know the spec is not locked
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
-
-// This function does not lock the spec. use it if you know the spec is locked for writing
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
-
-/**
- * Indicate that the index spec should use an internal dictionary,rather than
- * the Redis keyspace
- */
-void IndexSpec_MakeKeyless(IndexSpec *sp);
-
-void IndexesScanner_Cancel(struct IndexesScanner *scanner);
-void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
-
-void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
-/**
- * Exposing all the fields of the index to INFO command.
- * @param ctx - the redis module info context
- * @param sp - the index spec
- * @param obfuscate - if true, obfuscate the index name and field names
- * @param skip_unsafe_ops - if true, skips operations unsafe in signal handler context (allocations, locks)
- */
-void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate, bool skip_unsafe_ops);
-
-/**
- * Gets the next text id from the index. This does not currently
- * modify the index
- */
-int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
+// Parsing from redis args
+#include "spec_parse.h"
 
 /* Add fields to a redis schema */
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
-
-bool IndexSpec_IsCoherent(IndexSpec *sp, sds* prefixes, size_t n_prefixes);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
@@ -601,206 +430,28 @@ typedef struct {
 
 //---------------------------------------------------------------------------------------------
 
-/**
- * Find and load the index using the specified parameters.
- * @return the strong reference to the index spec owned by RediSearch (a borrow), or NULL if the index does not exist.
- * If an owned reference is needed, use StrongRef API to create one.
- */
-// TODO: Remove the context from this function!
-StrongRef IndexSpec_LoadUnsafe(const char *name);
+// Lifecycle: creation, destruction, mutation, GC, doc ops, compaction FFI
+#include "spec_lifecycle.h"
 
-/**
- * Find and load the index using the specified parameters. The call does not increase the spec reference counter
- * (only the weak reference counter).
- * @return the index spec, or NULL if the index does not exist
- */
-StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options);
-
-/**
- * Quick access to the spec's strong reference. This function should be called only if
- * the spec is valid and protected (by the GIL or the spec's lock).
- * The call does not increase the spec's reference counters.
- * @return a strong reference to the spec.
- */
-StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
-
-/**
- * @brief Removes the spec from the global data structures
- *
- * @param ref a strong reference to the spec
- * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
- */
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
-
-/*
- * Free an indexSpec. For LLAPI
- */
-void IndexSpec_Free(IndexSpec *spec);
-
-//---------------------------------------------------------------------------------------------
-
-void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
-
-IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
-IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status);
-void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
-int IndexSpec_RegisterType(RedisModuleCtx *ctx);
+
+// RDB serialization, type registration, legacy index support, and
+// serialize/deserialize/propagate moved to spec_rdb.h.
+#include "spec_rdb.h"
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
 
-void IndexSpec_InitializeSynonym(IndexSpec *sp);
-void Indexes_SetTempSpecsTimers(TimerOp op);
-
 //---------------------------------------------------------------------------------------------
 
-typedef struct IndexesScanner {
-  bool global;
-  bool cancelled;
-  bool isDebug;
-  bool scanFailedOnOOM;
-  WeakRef spec_ref;
-  char *spec_name_for_logs;
-  size_t scannedKeys;
-  RedisModuleString *OOMkey; // The key that caused the OOM
-} IndexesScanner;
-
-typedef struct DebugIndexesScanner {
-  IndexesScanner base;
-  int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool wasPaused;
-  bool pauseOnOOM;
-  int status;
-  bool pauseBeforeOOMRetry;
-} DebugIndexesScanner;
-
-
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
-
-/**
- * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
- * TrieMaps used for the `values` and `suffix` fields.
- */
-size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp);
-
-/**
- * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
- * sp->terms and sp->suffix Tries.
- */
-size_t IndexSpec_collect_text_overhead(const IndexSpec *sp);
-
-/**
- * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
- * numeric tree structs.
- */
-size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
-
-/**
- * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`
- * (otherwise compute them in-place). Vector overhead is expected to be passed in as an argument
- * and will not be computed in-place
- * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
- * currently it is a best effort that account only for part of the actual memory.
- */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
-  size_t text_overhead, size_t vector_overhead);
-
-/**
-* obfuscate argument is used to determine how we will format the index name
-* if obfuscate is true we will return the obfuscated name
-* meant to allow us and the user to use the same commands with different outputs
-* meaning we don't want to have access to the user data
-* @return the formatted name of the index
-*/
-const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
-char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
-
-//---------------------------------------------------------------------------------------------
-
-void Indexes_Init(RedisModuleCtx *ctx);
-/*
- * Free all indexes.
- * @param deleteDiskData - delete the disk data
-*/
-void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
-size_t Indexes_Count();
-void Indexes_Propagate(RedisModuleCtx *ctx);
-void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type,
-                                           RedisModuleString **hashFields);
-void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *key,
-                                           DocumentType type,
-                                           RedisModuleString **hashFields);
-void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
-                                            RedisModuleString *to_key);
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
-
-//---------------------------------------------------------------------------------------------
-
-void CleanPool_ThreadPoolStart();
-void CleanPool_ThreadPoolDestroy();
-size_t CleanInProgressOrPending();
-
-// Expose reindexpool for debug
-void ReindexPool_ThreadPoolDestroy();
-
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-
-// Tries to promote a WeakRef of a spec to a StrongRef
-// If a strong reference was obtained then we also set the current thread's active spec
-StrongRef IndexSpecRef_Promote(WeakRef ref);
-// Releases a strong reference to a spec
-// Must only be called if the spec was promoted successfully
-// Will also clear the current thread's active spec
-void IndexSpecRef_Release(StrongRef ref);
-
-// This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
-
-// This function is called in case the server ends RDB loading.
-void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);
-
-// This function is to be called when loading finishes (failed or not)
-void Indexes_EndLoading();
-
-// =============================================================================
-// Compaction FFI Functions (called by Rust during GC)
-// =============================================================================
-
-/**
- * @brief Acquire the IndexSpec write lock
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_AcquireWriteLock(IndexSpec* sp);
-
-/**
- * @brief Release the IndexSpec write lock
- * @param sp Pointer to the IndexSpec
- */
-void IndexSpec_ReleaseWriteLock(IndexSpec* sp);
-
-/**
- * @brief Update a term's document count in the Serving Trie
- *
- * @param sp Pointer to the IndexSpec
- * @param term Pointer to term string (NOT null-terminated)
- * @param term_len Length of term in bytes
- * @param doc_count_decrement Number of documents to decrement from the term's count
- * @return true if the term was completely emptied and deleted from the trie
- */
-bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t term_len,
-                                      size_t doc_count_decrement);
-
-/**
- * @brief Update IndexScoringStats based on the number of terms removed
- *
- * @param sp Pointer to the IndexSpec
- * @param num_terms_removed Number of terms that became empty during compaction
- */
-void IndexSpec_DecrementNumTerms(IndexSpec* sp, uint64_t num_terms_removed);
+// Indexes_Init, Indexes_Free, Indexes_Count, Indexes_UpdateMatchingWithSchemaRules,
+// Indexes_DeleteMatchingWithSchemaRules, Indexes_ReplaceMatchingWithSchemaRules,
+// Indexes_List, Indexes_SetTempSpecsTimers, CleanPool_ThreadPoolStart,
+// CleanPool_ThreadPoolDestroy, CleanInProgressOrPending,
+// IndexSpec_CreateNew, IndexSpec_LoadUnsafe, IndexSpec_LoadUnsafeEx,
+// IndexSpec_RemoveFromGlobals, Indexes_FindMatchingSchemaRules,
+// Indexes_SpecOpsIndexingCtxFree moved to spec_registry.h
+#include "spec_registry.h"
 
 #ifdef __cplusplus
 }
