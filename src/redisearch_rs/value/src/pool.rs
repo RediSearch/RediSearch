@@ -44,15 +44,20 @@ thread_local! {
 
 /// Get a recycled `Arc<RsValue>` with the given value, or allocate a new one.
 pub(crate) fn pool_get(value: RsValue) -> Arc<RsValue> {
-    POOL.with_borrow_mut(|pool| {
-        if let Some(mut arc) = pool.0.pop() {
-            // strong_count == 1 (pool held the only reference), so get_mut always succeeds.
-            *Arc::get_mut(&mut arc).unwrap() = value;
-            arc
-        } else {
-            Arc::new(value)
-        }
-    })
+    // Use `try_with` to be thread-local destruction safe in the rare case
+    // that `pool_get` is called during thread-local destruction.
+    if let Some(mut arc) = POOL
+        .try_with(|pool| pool.borrow_mut().0.pop())
+        .ok()
+        .flatten()
+    {
+        // `strong_count == 1` (pool held the only reference), so `get_mut`
+        // always succeeds.
+        *Arc::get_mut(&mut arc).unwrap() = value;
+        arc
+    } else {
+        Arc::new(value)
+    }
 }
 
 /// Return an `Arc<RsValue>` to the pool for recycling, or drop it if pool is full.
@@ -67,10 +72,9 @@ pub(crate) fn pool_release(mut arc: Arc<RsValue>) {
 
     // This function is called from `SharedRsValue::drop`. During thread shutdown,
     // thread-local destruction order is unspecified, so the `POOL` TLS may already
-    // be destroyed when a `SharedRsValue` held in another thread-local (or
-    // transitively via `RsValue::Ref`, `Trio`, `Array`, etc.) is dropped.
-    // `LocalKey::with` (used by `with_borrow_mut`) would panic in that case, and a
-    // panic inside `Drop` during thread shutdown aborts the process.
+    // be destroyed when a `SharedRsValue` held (directly or transitively) in another
+    // thread-local is dropped. `LocalKey::with` (used by `with_borrow_mut`) would panic
+    // in that case, and a panic inside `Drop` during thread shutdown aborts the process.
     //
     // We therefore use `try_with` + `borrow_mut` instead: if the pool is already
     // destroyed, `try_with` returns `Err` and we silently fall through, letting the
