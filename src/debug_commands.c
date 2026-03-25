@@ -763,10 +763,8 @@ DEBUG_COMMAND(DocIdToId) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2])
-  size_t specNameLen;
-  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   uint64_t docId;
-  if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+  if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &docId) == REDISMODULE_OK) {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, docId);
   } else {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, 0);
@@ -1359,10 +1357,8 @@ DEBUG_COMMAND(DocInfo) {
 
   const RSDocumentMetadata *dmd = NULL;
   {
-    size_t specNameLen;
-    const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
     uint64_t docId;
-    if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+    if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &docId) == REDISMODULE_OK) {
       dmd = DocTable_Borrow(&sctx->spec->docs, docId);
     }
   }
@@ -1543,10 +1539,8 @@ DEBUG_COMMAND(dumpHNSWData) {
   }
 
   if (argc == 5) {  // we want the neighbors of a specific vector only
-	  size_t specNameLen;
-	  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
 	  uint64_t doc_id;
-	  if (DocIdMeta_Get(ctx, argv[4], specName, specNameLen, sctx->spec->specId, &doc_id) != REDISMODULE_OK) {
+	  if (DocIdMeta_Get(ctx, argv[4], sctx->spec->specId, &doc_id) != REDISMODULE_OK) {
 		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
 		  goto cleanup;
 	  }

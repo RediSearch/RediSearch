@@ -266,13 +266,11 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
   t_docId id = 0;
-  size_t specNameLen;
-  const char *specName = HiddenString_GetUnsafe(sp->specName, &specNameLen);
   RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
   uint64_t docId;
-  if (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, sp->specId, &docId) == REDISMODULE_OK) {
+  if (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK) {
     id = docId;
-    DocIdMeta_Delete(RSDummyContext, keyName, specName, specNameLen, sp->specId);
+    DocIdMeta_Delete(RSDummyContext, keyName, sp->specId);
   }
   RedisModule_FreeString(RSDummyContext, keyName);
   if (id == 0) {
@@ -369,10 +367,8 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   aCtx->donecb = RediSearch_AddDocDone;
   aCtx->donecbData = &err;
   RedisSearchCtx sctx = {.redisCtx = RSDummyContext, .spec = sp};
-  size_t specNameLen2;
-  const char *specName2 = HiddenString_GetUnsafe(sp->specName, &specNameLen2);
   uint64_t existingDocId;
-  int exists = (DocIdMeta_Get(RSDummyContext, d->docKey, specName2, specNameLen2, sp->specId, &existingDocId) == REDISMODULE_OK);
+  int exists = (DocIdMeta_Get(RSDummyContext, d->docKey, sp->specId, &existingDocId) == REDISMODULE_OK);
   if (exists) {
     if (options & REDISEARCH_ADD_REPLACE) {
       options |= DOCUMENT_ADD_REPLACE;
@@ -694,11 +690,9 @@ end:
 int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
   IndexSpec* sp = __RefManager_Get_Object(rm);
   // Try to get docId from key metadata first
-  size_t specNameLen;
-  const char *specName = HiddenString_GetUnsafe(sp->specName, &specNameLen);
   RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
   uint64_t docId;
-  int exists = (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, sp->specId, &docId) == REDISMODULE_OK);
+  int exists = (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK);
   RedisModule_FreeString(RSDummyContext, keyName);
   return exists;
 }

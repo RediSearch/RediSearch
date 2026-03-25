@@ -141,11 +141,9 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
   if (replace) {
-    size_t specNameLen;
-    const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
     uint64_t existingDocId;
     RSDocumentMetadata *dmd = NULL;
-    if (DocIdMeta_Get(ctx, doc->docKey, specName, specNameLen, spec->specId, &existingDocId) == REDISMODULE_OK) {
+    if (DocIdMeta_Get(ctx, doc->docKey, spec->specId, &existingDocId) == REDISMODULE_OK) {
       dmd = DocTable_Pop(table, (t_docId)existingDocId);
     }
     if (dmd) {
@@ -183,9 +181,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
     doc->docId = dmd->id;
     ++spec->stats.scoring.numDocuments;
     // Store docId in key metadata for fast lookup
-    size_t specNameLen;
-    const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
-    DocIdMeta_Set(ctx, doc->docKey, specName, specNameLen, spec->specId, dmd->id);
+    DocIdMeta_Set(ctx, doc->docKey, spec->specId, dmd->id);
   }
 
   return dmd;

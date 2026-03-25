@@ -1082,12 +1082,10 @@ static inline size_t deduplicateDocIds(t_docId *ids, size_t num) {
 static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
   size_t num = 0;
   t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
-  size_t specNameLen;
-  const char *specName = HiddenString_GetUnsafe(q->sctx->spec->specName, &specNameLen);
   for (size_t ii = 0; ii < node->len; ++ii) {
     uint64_t docId;
     RedisModuleString *keyName = RedisModule_CreateString(q->sctx->redisCtx, node->keys[ii], sdslen(node->keys[ii]));
-    if (DocIdMeta_Get(q->sctx->redisCtx, keyName, specName, specNameLen, q->sctx->spec->specId, &docId) == REDISMODULE_OK) {
+    if (DocIdMeta_Get(q->sctx->redisCtx, keyName, q->sctx->spec->specId, &docId) == REDISMODULE_OK) {
       it_ids[num++] = docId;
     }
     RedisModule_FreeString(q->sctx->redisCtx, keyName);
@@ -2000,12 +1998,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
       s = sdscat(s, "IDS {");
       if (spec) {
-        size_t specNameLen;
-        const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
         for (int i = 0; i < qs->fn.len; i++) {
           uint64_t docId;
           RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
-          if (DocIdMeta_Get(RSDummyContext, keyName, specName, specNameLen, spec->specId, &docId) == REDISMODULE_OK) {
+          if (DocIdMeta_Get(RSDummyContext, keyName, spec->specId, &docId) == REDISMODULE_OK) {
             s = sdscatprintf(s, "%lu,", docId);
           }
           RedisModule_FreeString(RSDummyContext, keyName);

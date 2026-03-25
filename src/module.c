@@ -243,12 +243,10 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  size_t specNameLen;
-  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
     uint64_t docId;
-    if (DocIdMeta_Get(ctx, argv[i], specName, specNameLen, sctx->spec->specId, &docId) != REDISMODULE_OK) {
+    if (DocIdMeta_Get(ctx, argv[i], sctx->spec->specId, &docId) != REDISMODULE_OK) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
       continue;
@@ -288,10 +286,8 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  size_t specNameLen;
-  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   uint64_t docId;
-  if (DocIdMeta_Get(ctx, argv[2], specName, specNameLen, sctx->spec->specId, &docId) != REDISMODULE_OK) {
+  if (DocIdMeta_Get(ctx, argv[2], sctx->spec->specId, &docId) != REDISMODULE_OK) {
     RedisModule_ReplyWithNull(ctx);
   } else {
     Document_ReplyAllFields(ctx, sctx->spec, argv[2]);

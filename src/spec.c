@@ -3851,10 +3851,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       return;
     }
   } else {
-    size_t specNameLen;
-    const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
     uint64_t docIdMeta;
-    if (DocIdMeta_Get(ctx, key, specName, specNameLen, spec->specId, &docIdMeta) != REDISMODULE_OK) {
+    if (DocIdMeta_Get(ctx, key, spec->specId, &docIdMeta) != REDISMODULE_OK) {
       // Nothing to delete
       return;
     }
@@ -3867,7 +3865,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     id = md->id;
     docLen = md->docLen;
 
-    DocIdMeta_Delete(ctx, key, specName, specNameLen, spec->specId);
+    DocIdMeta_Delete(ctx, key, spec->specId);
     DMD_Return(md);
   }
 
@@ -4195,11 +4193,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
-      size_t specNameLen;
-      const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
       uint64_t docId;
       // After RENAME, the metadata lives on to_key (rename callback keeps it).
-      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, spec->specId, &docId) == REDISMODULE_OK) {
+      if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
         DocTable_Replace(&spec->docs, docId, to_str, to_len);
         // Metadata is already on to_key (kept by rename), no need to move it.
       }
@@ -4210,12 +4206,10 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     } else {
       // After RENAME, from_key no longer exists. The metadata is on to_key.
       // Look up the docId from to_key's metadata and delete by id.
-      size_t specNameLen;
-      const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
       uint64_t docId;
-      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, spec->specId, &docId) == REDISMODULE_OK) {
+      if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
         IndexSpec_DeleteDocById(spec, (t_docId)docId);
-        DocIdMeta_Delete(ctx, to_key, specName, specNameLen, spec->specId);
+        DocIdMeta_Delete(ctx, to_key, spec->specId);
       }
     }
   }

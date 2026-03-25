@@ -895,10 +895,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
 
   RedisSearchCtx_LockSpecRead(sctx);
   {
-    size_t specNameLen;
-    const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
     uint64_t docId;
-    if (DocIdMeta_Get(sctx->redisCtx, key, specName, specNameLen, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+    if (DocIdMeta_Get(sctx->redisCtx, key, sctx->spec->specId, &docId) == REDISMODULE_OK) {
       dmd = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
     }
   }
@@ -954,10 +952,8 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
   RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
-  size_t specNameLen;
-  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   uint64_t docId;
-  if (DocIdMeta_Get(sctx->redisCtx, doc->docKey, specName, specNameLen, sctx->spec->specId, &docId) != REDISMODULE_OK) {
+  if (DocIdMeta_Get(sctx->redisCtx, doc->docKey, sctx->spec->specId, &docId) != REDISMODULE_OK) {
     BAIL("Couldn't load old document");
   }
   // Assumes we are under write lock

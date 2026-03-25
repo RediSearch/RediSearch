@@ -62,10 +62,7 @@ protected:
   RedisModuleString *testKeyName;
   RedisModuleIO *rdbIO;
 
-  // Helper constants for spec names and IDs
-  static constexpr const char* SPEC1 = "idx1";
-  static constexpr const char* SPEC2 = "idx2";
-  static constexpr const char* SPEC3 = "idx3";
+  // Helper constants for spec IDs
   static constexpr uint64_t SPEC1_ID = 1;
   static constexpr uint64_t SPEC2_ID = 2;
   static constexpr uint64_t SPEC3_ID = 3;
@@ -74,11 +71,11 @@ protected:
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   uint64_t docId = 12345;
 
-  int result = DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, docId);
+  int result = DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId);
   EXPECT_EQ(result, REDISMODULE_OK);
 
   uint64_t retrievedDocId;
-  result = DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrievedDocId);
+  result = DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrievedDocId);
   EXPECT_EQ(result, REDISMODULE_OK);
   EXPECT_EQ(retrievedDocId, docId);
 }
@@ -86,7 +83,7 @@ TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
 TEST_F(DocIdMetaTest, TestGetNonExistentDocId) {
   // Test getting a docId that doesn't exist
   uint64_t docId;
-  int result = DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &docId);
+  int result = DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &docId);
   EXPECT_EQ(result, REDISMODULE_ERR);
 }
 
@@ -95,22 +92,22 @@ TEST_F(DocIdMetaTest, TestSetMultipleDocIds) {
   uint64_t docId2 = 222;
   uint64_t docId3 = 333;
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, docId1), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, docId2), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3, strlen(SPEC3), SPEC3_ID, docId3), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3), REDISMODULE_OK);
 
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId1);
 
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId2);
 
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC3, strlen(SPEC3), SPEC3_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId3);
 
   // Test that unset specs return error
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, "nonexistent", 11, 999, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, 999, &retrieved), REDISMODULE_ERR);
 }
 
 TEST_F(DocIdMetaTest, TestOverwriteDocId) {
@@ -118,15 +115,15 @@ TEST_F(DocIdMetaTest, TestOverwriteDocId) {
   uint64_t newDocId = 222;
 
   // Set original value
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, originalDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, originalDocId), REDISMODULE_OK);
 
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, originalDocId);
 
   // Overwrite with new value
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, newDocId), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, newDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, newDocId);
 }
 
@@ -134,24 +131,24 @@ TEST_F(DocIdMetaTest, TestDeleteDocId) {
   uint64_t docId = 555;
 
   // Set a value first
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, docId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId), REDISMODULE_OK);
 
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId);
 
   // Delete the value
-  int result = DocIdMeta_Delete(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID);
+  int result = DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID);
   EXPECT_EQ(result, REDISMODULE_OK);
 
   // Should now return error when trying to get
-  result = DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved);
+  result = DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved);
   EXPECT_EQ(result, REDISMODULE_ERR);
 }
 
 TEST_F(DocIdMetaTest, TestDeleteNonExistentDocId) {
   // Try to delete a docId that doesn't exist
-  int result = DocIdMeta_Delete(ctx, testKeyName, "nonexistent", 11, 999);
+  int result = DocIdMeta_Delete(ctx, testKeyName, 999);
   EXPECT_EQ(result, REDISMODULE_ERR);
 }
 
@@ -178,15 +175,15 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
   uint64_t docId2 = 222;
 
   // Set different values for the same spec on different keys
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1, strlen(SPEC1), SPEC1_ID, docId1), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1, strlen(SPEC1), SPEC1_ID, docId2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName1, SPEC1_ID, docId1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName2, SPEC1_ID, docId2), REDISMODULE_OK);
 
   // Verify they're independent
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, keyName1, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, keyName1, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId1);
 
-  EXPECT_EQ(DocIdMeta_Get(ctx, keyName2, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, keyName2, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId2);
 
   RedisModule_FreeString(ctx, keyName1);
@@ -196,33 +193,33 @@ TEST_F(DocIdMetaTest, TestMultipleKeys) {
 TEST_F(DocIdMetaTest, TestEdgeCases) {
   // Test with docId = 1 (minimum valid docId since 0 is DOCID_META_INVALID)
   uint64_t minValidDocId = 1;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, minValidDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, minValidDocId), REDISMODULE_OK);
 
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, minValidDocId);
 
   // Test with maximum uint64_t value
   uint64_t maxDocId = UINT64_MAX;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, maxDocId), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, maxDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, maxDocId);
 }
 
 TEST_F(DocIdMetaTest, TestDeleteAndReget) {
   // Test that getting from an unset spec returns ERR
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 
   // Set a valid docId and then delete it to test deletion behavior
   uint64_t validDocId = 42;
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, validDocId), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, validDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, validDocId);
 
   // Delete it and verify it's gone (should return ERR like uninitialized)
-  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 }
 
 // Simple test to check if basic setup works
@@ -239,9 +236,9 @@ TEST_F(DocIdMetaTest, TestBasicRdbSaveLoad) {
   uint64_t docId2 = 67890;
   uint64_t docId3 = 11111;
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, docId1), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, docId2), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3, strlen(SPEC3), SPEC3_ID, docId3), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, docId1), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, docId2), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, docId3), REDISMODULE_OK);
 
   // Get the metadata for RDB save
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -277,17 +274,17 @@ TEST_F(DocIdMetaTest, TestBasicRdbSaveLoad) {
 
   // Verify loaded data
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId1);
 
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId2);
 
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3, strlen(SPEC3), SPEC3_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, docId3);
 
   // Verify nonexistent specs return error
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, "nonexistent", 11, 999, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, 999, &retrieved), REDISMODULE_ERR);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
@@ -303,22 +300,22 @@ TEST_F(DocIdMetaTest, TestEmptyMetaRdbSaveLoad) {
   // Since nothing was saved, we can't test loading empty meta directly
   // Instead, test that we can handle the case where no data is available
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 }
 
 TEST_F(DocIdMetaTest, TestMultipleSpecsRdbSaveLoad) {
-  // Test with multiple specs: (specName, specId, docId)
-  struct SpecEntry { const char* name; uint64_t specId; uint64_t docId; };
+  // Test with multiple specs: (specId, docId)
+  struct SpecEntry { uint64_t specId; uint64_t docId; };
   std::vector<SpecEntry> specs = {
-    {SPEC1, SPEC1_ID, 1001},
-    {SPEC2, SPEC2_ID, 2002},
-    {SPEC3, SPEC3_ID, 3003},
-    {"spec4", 4, 4004},
+    {SPEC1_ID, 1001},
+    {SPEC2_ID, 2002},
+    {SPEC3_ID, 3003},
+    {4, 4004},
   };
 
   // Set all the docIds
   for (const auto& spec : specs) {
-    EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, spec.name, strlen(spec.name), spec.specId, spec.docId), REDISMODULE_OK);
+    EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, spec.specId, spec.docId), REDISMODULE_OK);
   }
 
   // Get the metadata for RDB save
@@ -356,13 +353,13 @@ TEST_F(DocIdMetaTest, TestMultipleSpecsRdbSaveLoad) {
   // Verify all loaded data
   for (const auto& spec : specs) {
     uint64_t retrieved;
-    EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, spec.name, strlen(spec.name), spec.specId, &retrieved), REDISMODULE_OK);
+    EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, spec.specId, &retrieved), REDISMODULE_OK);
     EXPECT_EQ(retrieved, spec.docId);
   }
 
   // Verify nonexistent specs return error
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, "nonexistent", 11, 999, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, 999, &retrieved), REDISMODULE_ERR);
 
   RedisModule_FreeString(ctx, newKeyName);
 }
@@ -372,8 +369,8 @@ TEST_F(DocIdMetaTest, TestMaxValueRdbSaveLoad) {
   uint64_t maxDocId = UINT64_MAX;
   uint64_t minValidDocId = 1;
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, maxDocId), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, minValidDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, maxDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, minValidDocId), REDISMODULE_OK);
 
   // Get the metadata for RDB save
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -409,10 +406,10 @@ TEST_F(DocIdMetaTest, TestMaxValueRdbSaveLoad) {
 
   // Verify loaded data
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, maxDocId);
 
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, minValidDocId);
 
   RedisModule_FreeString(ctx, newKeyName);
@@ -422,7 +419,7 @@ TEST_F(DocIdMetaTest, TestSingleElementRdbSaveLoad) {
   // Test with just one spec
   uint64_t singleDocId = 99999;
 
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, singleDocId), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, singleDocId), REDISMODULE_OK);
 
   // Get the metadata for RDB save
   RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
@@ -458,12 +455,12 @@ TEST_F(DocIdMetaTest, TestSingleElementRdbSaveLoad) {
 
   // Verify loaded data
   uint64_t retrieved;
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1, strlen(SPEC1), SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
   EXPECT_EQ(retrieved, singleDocId);
 
   // Verify other specs are not set
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2, strlen(SPEC2), SPEC2_ID, &retrieved), REDISMODULE_ERR);
-  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3, strlen(SPEC3), SPEC3_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_ERR);
 
   RedisModule_FreeString(ctx, newKeyName);
 }

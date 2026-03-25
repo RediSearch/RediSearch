@@ -22,41 +22,33 @@ void DocIdMeta_Init(RedisModuleCtx *ctx, bool diskEnabled);
  * Set the docId for the given key and index spec.
  * @param ctx The Redis module context
  * @param keyName The key name to set the docId for
- * @param specName The index spec name (used to identify which index this docId belongs to)
- * @param specNameLen The length of the spec name
  * @param specId The unique incarnation ID of the index spec
  * @param docId The docId to set
  * @return REDISMODULE_OK if the docId was set, REDISMODULE_ERR otherwise
 */
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                  const char *specName, size_t specNameLen, uint64_t specId,
-                  uint64_t docId);
+                  uint64_t specId, uint64_t docId);
 
 /*
  * Get the docId for the given key and index spec.
  * @param ctx The Redis module context
  * @param keyName The key name to get the docId for
- * @param specName The index spec name
- * @param specNameLen The length of the spec name
  * @param specId The unique incarnation ID of the index spec
  * @param docId Output parameter for the docId
  * @return REDISMODULE_OK if the docId was found, REDISMODULE_ERR otherwise
 */
 int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                  const char *specName, size_t specNameLen, uint64_t specId,
-                  uint64_t *docId);
+                  uint64_t specId, uint64_t *docId);
 
 /*
  * Delete the docId for the given key and index spec.
  * @param ctx The Redis module context
  * @param keyName The key name to delete the docId for
- * @param specName The index spec name
- * @param specNameLen The length of the spec name
  * @param specId The unique incarnation ID of the index spec
  * @return REDISMODULE_OK if the docId was found and deleted, REDISMODULE_ERR otherwise
 */
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName,
-                     const char *specName, size_t specNameLen, uint64_t specId);
+                     uint64_t specId);
 
 // Functions exposed to ease unit testing
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver);
