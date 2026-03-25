@@ -1,14 +1,14 @@
 name: Get Redis
 description: |
-  Checkout Redis repository. Uses actions/checkout for node20-supported platforms,
+  Checkout Redis repository. Uses actions/checkout for node24-supported platforms,
   falls back to manual git clone for legacy platforms.
 
 inputs:
   ref:
     description: "Redis git ref to checkout"
     required: true
-  node20_supported:
-    description: "Whether node20 is supported on this platform"
+  node24_supported:
+    description: "Whether node24 is supported on this platform"
     required: true
   path:
     description: "Path to checkout Redis into"
@@ -18,8 +18,8 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Get Redis (node20)
-      if: ${{ inputs.node20_supported == 'true' }}
+    - name: Get Redis (node24)
+      if: ${{ inputs.node24_supported == 'true' }}
       uses: actions/checkout@v4
       with:
         repository: redis/redis
@@ -27,7 +27,7 @@ runs:
         path: ${{ inputs.path }}
 
     - name: Get Redis (legacy)
-      if: ${{ inputs.node20_supported != 'true' }}
+      if: ${{ inputs.node24_supported != 'true' }}
       shell: bash
       env:
         REDIS_REF: ${{ inputs.ref }}

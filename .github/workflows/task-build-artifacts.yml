@@ -72,7 +72,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root {1}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node24:ro,rshared' || '')
         )
       || null }}
 
@@ -126,15 +126,15 @@ jobs:
         if: needs.get-config.outputs.post_setup_script
         run: ${{ needs.get-config.outputs.post_setup_script }}
 
-      - name: checkout (node20)
-        if: needs.get-config.outputs.node20_supported == 'true'
+      - name: checkout (node24)
+        if: needs.get-config.outputs.node24_supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
           ref: ${{ env.REF }}
       - name: checkout (legacy)
-        # Manual checkout path for platforms where Node 20-based actions are unavailable.
-        if: needs.get-config.outputs.node20_supported != 'true'
+        # Manual checkout path for platforms where Node 24-based actions are unavailable.
+        if: needs.get-config.outputs.node24_supported != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
@@ -169,8 +169,8 @@ jobs:
               ;;
           esac
       - name: Setup sccache
-        # sccache-action is a JavaScript action requiring Node.js 20+
-        if: needs.get-config.outputs.node20_supported == 'true'
+        # sccache-action is a JavaScript action requiring Node.js 24+
+        if: needs.get-config.outputs.node24_supported == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
@@ -197,7 +197,7 @@ jobs:
         uses: ./.github/actions/get-redis
         with:
           ref: ${{ inputs.redis-ref }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
+          node24_supported: ${{ needs.get-config.outputs.node24_supported }}
 
       - name: Build Redis
         working-directory: redis
@@ -210,7 +210,7 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       - name: Show sccache stats
-        if: needs.get-config.outputs.node20_supported == 'true'
+        if: needs.get-config.outputs.node24_supported == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       # Upload
@@ -222,7 +222,7 @@ jobs:
           aws_access_key_id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws_region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
+          node24_supported: ${{ needs.get-config.outputs.node24_supported }}
       - name: Set Version identifier
         id: set-versions
         run: |

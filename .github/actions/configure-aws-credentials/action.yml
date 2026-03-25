@@ -1,7 +1,7 @@
 name: Configure AWS Credentials
 description: |
   Configures AWS credentials using either IAM role (OIDC) or access keys.
-  Handles both node20-supported and legacy platforms.
+  Handles both node24-supported and legacy platforms.
 
 inputs:
   use_role:
@@ -19,24 +19,24 @@ inputs:
   aws_region:
     description: "AWS region"
     required: true
-  node20_supported:
-    description: "Whether node20 is supported on this platform"
+  node24_supported:
+    description: "Whether node24 is supported on this platform"
     required: true
 
 runs:
   using: composite
   steps:
-    # Role-based auth with node20
-    - name: Configure AWS Credentials Using Role (node20)
-      if: ${{ inputs.use_role == 'true' && inputs.node20_supported == 'true' }}
+    # Role-based auth with node24
+    - name: Configure AWS Credentials Using Role (node24)
+      if: ${{ inputs.use_role == 'true' && inputs.node24_supported == 'true' }}
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ inputs.role_to_assume }}
         aws-region: ${{ inputs.aws_region }}
 
-    # Role-based auth without node20 (manual OIDC)
+    # Role-based auth without node24 (manual OIDC)
     - name: Configure AWS Credentials Using Role (legacy)
-      if: ${{ inputs.use_role == 'true' && inputs.node20_supported != 'true' }}
+      if: ${{ inputs.use_role == 'true' && inputs.node24_supported != 'true' }}
       shell: bash
       env:
         ROLE_ARN: ${{ inputs.role_to_assume }}
@@ -91,18 +91,18 @@ runs:
 
         echo "AWS credentials configured successfully using OIDC."
 
-    # Key-based auth with node20
-    - name: Configure AWS Credentials Using Keys (node20)
-      if: ${{ inputs.use_role != 'true' && inputs.node20_supported == 'true' }}
+    # Key-based auth with node24
+    - name: Configure AWS Credentials Using Keys (node24)
+      if: ${{ inputs.use_role != 'true' && inputs.node24_supported == 'true' }}
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ inputs.aws_access_key_id }}
         aws-secret-access-key: ${{ inputs.aws_secret_access_key }}
         aws-region: ${{ inputs.aws_region }}
 
-    # Key-based auth without node20
+    # Key-based auth without node24
     - name: Configure AWS Credentials Using Keys (legacy)
-      if: ${{ inputs.use_role != 'true' && inputs.node20_supported != 'true' }}
+      if: ${{ inputs.use_role != 'true' && inputs.node24_supported != 'true' }}
       shell: bash
       env:
         AWS_ACCESS_KEY_ID: ${{ inputs.aws_access_key_id }}

@@ -36,9 +36,9 @@ on:
       ec2_instance_type:
         description: "EC2 instance type for self-hosted runners"
         value: ${{ jobs.get-config.outputs.ec2_instance_type }}
-      node20_supported:
-        description: "Whether node20 is supported on this platform"
-        value: ${{ jobs.get-config.outputs.node20_supported }}
+      node24_supported:
+        description: "Whether node24 is supported on this platform"
+        value: ${{ jobs.get-config.outputs.node24_supported }}
       install_mode:
         description: "Installation mode (sudo for non-container, empty for container)"
         value: ${{ jobs.get-config.outputs.install_mode }}
@@ -57,7 +57,7 @@ jobs:
       name: ${{ steps.get-config.outputs.name }}
       ec2_image_id: ${{ steps.get-config.outputs.ec2_image_id }}
       ec2_instance_type: ${{ steps.get-config.outputs.ec2_instance_type }}
-      node20_supported: ${{ steps.get-config.outputs.node20_supported }}
+      node24_supported: ${{ steps.get-config.outputs.node24_supported }}
       install_mode: ${{ steps.get-config.outputs.install_mode }}
       enable_lto: ${{ steps.get-config.outputs.enable_lto }}
     steps:
@@ -92,13 +92,13 @@ jobs:
               'name': '',
               'ec2_image_id': '',
               'ec2_instance_type': '',
-              'node20_supported': 'true',  # Most platforms support node20
+              'node24_supported': 'true',  # Most platforms support node24
               'install_mode': '',  # Empty for containers, 'sudo' for non-containers
               'enable_lto': '0'  # Whether LTO is enabled for this platform
           }
 
-          # Platforms that don't support node20
-          node20_unsupported_platforms = ['amazonlinux:2']
+          # Platforms that don't support node24
+          node24_unsupported_platforms = ['amazonlinux:2']
 
           # Platform configurations
           platform_configs = {
@@ -318,9 +318,9 @@ jobs:
               print(f"Error: Unsupported platform '{platform}'")
               sys.exit(1)
 
-          # Determine node20 support based on platform
-          if platform in node20_unsupported_platforms:
-              config['node20_supported'] = 'false'
+          # Determine node24 support based on platform
+          if platform in node24_unsupported_platforms:
+              config['node24_supported'] = 'false'
 
           # Determine install mode: 'sudo' for non-container builds, empty for containers
           if not config['container']:
@@ -338,6 +338,6 @@ jobs:
               f.write(f'name={config["name"]}\n')
               f.write(f'ec2_image_id={config["ec2_image_id"]}\n')
               f.write(f'ec2_instance_type={config["ec2_instance_type"]}\n')
-              f.write(f'node20_supported={config["node20_supported"]}\n')
+              f.write(f'node24_supported={config["node24_supported"]}\n')
               f.write(f'install_mode={config["install_mode"]}\n')
               f.write(f'enable_lto={config["enable_lto"]}\n')

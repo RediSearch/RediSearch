@@ -146,7 +146,7 @@ jobs:
         && fromJSON(
           format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            needs.get-config.outputs.container == 'alpine:3.22' && '-v /opt:/opt:rw,rshared -v /opt:/__e/node24:ro,rshared' || '')
         )
       || null }}
 
@@ -232,14 +232,14 @@ jobs:
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/ghc || true
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
-      - name: Full checkout (node20)
-        if: needs.get-config.outputs.node20_supported == 'true'
+      - name: Full checkout (node24)
+        if: needs.get-config.outputs.node24_supported == 'true'
         uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Full checkout (legacy)
-        # Manual checkout path for platforms where Node 20-based actions are unavailable.
-        if: needs.get-config.outputs.node20_supported != 'true'
+        # Manual checkout path for platforms where Node 24-based actions are unavailable.
+        if: needs.get-config.outputs.node24_supported != 'true'
         env:
           GITHUB_REF: ${{ github.ref }}
           GITHUB_REPO: ${{ github.repository }}
@@ -296,8 +296,8 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup sccache
-        # sccache-action is a JavaScript action requiring Node.js 20+
-        if: needs.get-config.outputs.node20_supported == 'true'
+        # sccache-action is a JavaScript action requiring Node.js 24+
+        if: needs.get-config.outputs.node24_supported == 'true'
         uses: ./.github/actions/setup-sccache
       - name: Setup
         if: needs.build-image.outputs.succeeded != 'true'
@@ -308,7 +308,7 @@ jobs:
 
       # Cache Rust packages
       - uses: Swatinem/rust-cache@v2
-        if: needs.get-config.outputs.node20_supported == 'true'
+        if: needs.get-config.outputs.node24_supported == 'true'
         with:
           prefix-key: "v2-rust"
           key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
@@ -350,7 +350,7 @@ jobs:
         uses: ./.github/actions/get-redis
         with:
           ref: ${{ inputs.get-redis }}
-          node20_supported: ${{ needs.get-config.outputs.node20_supported }}
+          node24_supported: ${{ needs.get-config.outputs.node24_supported }}
 
       - name: Build Redis
         working-directory: redis
@@ -453,7 +453,7 @@ jobs:
         run: make rust-tests
 
       - name: Show sccache stats
-        if: needs.get-config.outputs.node20_supported == 'true'
+        if: needs.get-config.outputs.node24_supported == 'true'
         run: ${SCCACHE_PATH:-sccache} --show-stats
 
       - name: Check test logs folder size
@@ -510,11 +510,11 @@ jobs:
           fi
           echo "=========================="
 
-      # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      - name: Upload Artifacts (node20)
-        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+      # Using version 4 if node24 is supported, since it is MUCH faster (15m vs 25s)
+      - name: Upload Artifacts (node24)
+        # Upload artifacts only if node24 is supported and tests failed (including sanitizer failures)
         if: >
-          needs.get-config.outputs.node20_supported == 'true' &&
+          needs.get-config.outputs.node24_supported == 'true' &&
           (failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
@@ -531,11 +531,11 @@ jobs:
             bin/**/redisearch.so.debug
 
           if-no-files-found: ignore
-      # If node20 is not supported, we can only use version 3.
+      # If node24 is not supported, we can only use version 3.
       # Here we only upload the artifacts if the tests had failed, since it is very slow
-      - name: Upload Artifacts (node20 not supported) (temporarily disabled)
+      - name: Upload Artifacts (node24 not supported) (temporarily disabled)
         if: >
-          needs.get-config.outputs.node20_supported != 'true' &&
+          needs.get-config.outputs.node24_supported != 'true' &&
           (failure() || (
             (steps.rust_unit_tests_miri.outcome == 'failure') ||
             steps.rust_unit_tests.outcome == 'failure' ||
