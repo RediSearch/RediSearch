@@ -197,7 +197,8 @@ jobs:
                   "aarch64": {
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
-                      'name': 'Rocky Linux 9 ARM64'
+                      'name': 'Rocky Linux 9 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "amazonlinux:2": {
