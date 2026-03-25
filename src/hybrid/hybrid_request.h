@@ -10,6 +10,8 @@
 extern "C" {
 #endif
 
+struct Cursor;
+
 // Number of requests in a hybrid command: SEARCH + VSIM
 #define HYBRID_REQUEST_NUM_SUBQUERIES 2
 #define SEARCH_INDEX 0
@@ -39,6 +41,13 @@ typedef struct HybridRequest {
     ProfilePrinterCtx profileCtx;
 
     // Synchronization context for timeout/reply callbacks
+    // In Shard level, HybridRequest has two reference counting mechanisms working together:
+    // 1. StrongRef (RefManager.strong_refcount) - for cursor lifetime and cross-thread sharing
+    // 2. syncCtx.refcount - for timeout callback coordination (BlockedQueryNode)
+    // Both are valid: StrongRef_Release calls HybridRequest_DecrRef (via FreeHybridRequest callback),
+    // so the syncCtx.refcount initial value of 1 is implicitly owned by the StrongRef system.
+    // Additional HybridRequest_IncrRef calls (e.g., from BlockHybridQueryClientWithTimeout) safely
+    // add to syncCtx.refcount, and all decrements will happen correctly during cleanup.
     RequestSyncCtx syncCtx;
 
     // Flag to indicate whether to skip timeout checks using clock checks
@@ -50,11 +59,32 @@ typedef struct HybridRequest {
     // Background thread stores results here, then calls UnblockClient.
     // The reply_callback reads from here to build the reply on the main thread.
     ChunkReplyState storedReplyState;
+
+    // Mutex for synchronizing cursor creation with timeout callback.
+    // Protects cursor array access to ensure proper cleanup on timeout.
+    pthread_mutex_t cursorMutex;
+
+    // Array of cursors for reply_callback path (internal hybrid search).
+    // Protected by cursorMutex to synchronize with timeout callback.
+    // Cleanup is handled by:
+    // - reply_callback: frees array after replying with cursor IDs
+    // - timeout_callback: acquires lock and frees cursors if they were already created
+    // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
+    arrayof(struct Cursor*) cursors;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 bool HybridRequest_TimedOut(HybridRequest *req);
 void HybridRequest_SetTimedOut(HybridRequest *req);
+
+// Cursor mutex wrappers for synchronizing cursor creation with timeout callback
+static inline void HybridRequest_LockCursors(HybridRequest *req) {
+  pthread_mutex_lock(&req->cursorMutex);
+}
+
+static inline void HybridRequest_UnlockCursors(HybridRequest *req) {
+  pthread_mutex_unlock(&req->cursorMutex);
+}
 
 static inline bool HybridRequest_ShouldCheckTimeout(HybridRequest *req) {
   return !req->skipTimeoutChecks;
