@@ -40,9 +40,6 @@
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "debug_commands.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "obfuscation/obfuscation_api.h"
-#include "util/hash/hash.h"
 #include "reply_macros.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
@@ -55,235 +52,9 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
-
-RedisModuleType *IndexSpecType;
-
-// specDict_g, pending_global_indexing_ops, legacySpecDict, legacySpecRules,
-// pendingIndexDropCount_g moved to spec_registry.c
-
-Version redisVersion;
-Version rlecVersion;
-bool isCrdt;
-bool isTrimming = false;
-bool isFlex = false;
-
-// Default values make no limits.
-size_t memoryLimit = -1;
-size_t used_memory = 0;
-
-// cleanPool moved to spec_registry.c
-
 extern DebugCTX globalDebugCtx;
 
-// DEBUG_INDEX_SCANNER_STATUS_STRS, debug scanner functions moved to spec_scanner.c
-
-// Forward declaration for disk validation
-inline static bool isSpecOnDiskForValidation(const IndexSpec *sp);
-
-// CheckRdbSstPersistence moved to spec_rdb.c
-
 //---------------------------------------------------------------------------------------------
-
-// threadSleepByConfigTime, scanStopAfterOOM, setMemoryInfo, isBgIndexingMemoryOverLimit
-// moved to spec_scanner.c
-/*
- * Initialize the spec's fields that are related to the cursors.
- */
-
-void Cursors_initSpec(IndexSpec *spec) {
-  spec->activeCursors = 0;
-}
-
-/*
- * Get a field spec by field name. Case sensitive!
- * Return the field spec if found, NULL if not.
- * Assuming the spec is properly locked before calling this function.
- */
-const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len) {
-  for (size_t i = 0; i < spec->numFields; i++) {
-    const FieldSpec *fs = spec->fields + i;
-    if (!HiddenString_CompareC(fs->fieldName, name, len)) {
-      return fs;
-    }
-  }
-  return NULL;
-}
-
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name) {
-  for (size_t i = 0; i < spec->numFields; i++) {
-    const FieldSpec *fs = spec->fields + i;
-    if (!HiddenString_Compare(fs->fieldName, name)) {
-      return fs;
-    }
-  }
-  return NULL;
-}
-
-// Assuming the spec is properly locked before calling this function.
-t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
-  const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, name, len);
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
-
-  return FIELD_BIT(fs);
-}
-
-// Assuming the spec is properly locked before calling this function.
-int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
-  if (!(sp->flags & Index_HasPhonetic)) {
-    return 0;
-  }
-
-  if (fm == 0 || fm == (t_fieldMask)-1) {
-    // No fields -- implicit phonetic match!
-    return 1;
-  }
-
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = sp->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsPhonetics(fs))) {
-        return 1;
-      }
-    }
-  }
-  return 0;
-}
-
-// Assuming the spec is properly locked before calling this function.
-int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    if (fm & ((t_fieldMask)1 << ii)) {
-      const FieldSpec *fs = spec->fields + ii;
-      if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && (FieldSpec_IsUndefinedOrder(fs))) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
-                               "slop/inorder are not supported for field with undefined ordering", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
-        return 0;
-      }
-    }
-  }
-  return 1;
-}
-
-// Assuming the spec is properly locked before calling this function.
-const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx) {
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    if (sp->fields[ii].options & FieldSpec_Sortable && sp->fields[ii].sortIdx == idx) {
-      return sp->fields + ii;
-    }
-  }
-  return NULL;
-}
-
-// Assuming the spec is properly locked before calling this function.
-const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
-  for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-      FieldSpec_IsIndexable(&sp->fields[i])) {
-      return HiddenString_GetUnsafe(sp->fields[i].fieldName, NULL);
-    }
-  }
-  return NULL;
-}
-
-// Get the field spec by the field mask.
-const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
-  for (int i = 0; i < sp->numFields; i++) {
-    if (FIELD_BIT(&sp->fields[i]) == id && FIELD_IS(&sp->fields[i], INDEXFLD_T_FULLTEXT) &&
-        FieldSpec_IsIndexable(&sp->fields[i])) {
-      return &sp->fields[i];
-    }
-  }
-  return NULL;
-}
-
-// Get the field specs that match a field mask.
-arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
-  arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
-  for (int i = 0; i < sp->numFields; i++) {
-    if (mask & FIELD_BIT(sp->fields + i) && FIELD_IS(sp->fields + i, INDEXFLD_T_FULLTEXT)) {
-      array_append(res, sp->fields + i);
-    }
-  }
-  return res;
-}
-
-//---------------------------------------------------------------------------------------------
-
-/*
-* Parse an index spec from redis command arguments.
-* Returns REDISMODULE_ERR if there's a parsing error.
-* The command only receives the relevant part of argv.
-*
-* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS] [NOFREQS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-*/
-StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
-                                    RedisModuleString **argv, int argc, QueryError *status) {
-
-  const char *args[argc];
-  for (int i = 0; i < argc; i++) {
-    args[i] = RedisModule_StringPtrLen(argv[i], NULL);
-  }
-
-  return IndexSpec_Parse(ctx, name, args, argc, status);
-}
-
-arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
-#define FIELDS_ARRAY_CAP 2
-  arrayof(FieldSpec *) fields = array_new(FieldSpec *, FIELDS_ARRAY_CAP);
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (FIELD_IS(spec->fields + i, type)) {
-      array_append(fields, &(spec->fields[i]));
-    }
-  }
-  return fields;
-}
-
-/* Check if Redis is currently loading from RDB. Our thread starts before RDB loading is finished */
-int isRdbLoading(RedisModuleCtx *ctx) {
-  long long isLoading = 0;
-  RMUtilInfo *info = RMUtil_GetRedisInfo(ctx);
-  if (!info) {
-    return 0;
-  }
-
-  if (!RMUtilInfo_GetInt(info, "loading", &isLoading)) {
-    isLoading = 0;
-  }
-
-  RMUtilRedisInfo_Free(info);
-  return isLoading == 1;
-}
-
-//---------------------------------------------------------------------------------------------
-
-// IndexSpec_LegacyFree moved to spec_rdb.c
-
-// IndexSpec_TimedOutProc, IndexSpec_SetTimeoutTimer, IndexSpec_ResetTimeoutTimer,
-// Indexes_SetTempSpecsTimers moved to spec_registry.c
-
-// Stats/info functions moved to spec_info.c
-
-const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
-    return obfuscate ? sp->obfuscatedName : HiddenString_GetUnsafe(sp->specName, NULL);
-}
-
-char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
-  Sha1 sha1;
-  size_t len;
-  const char* value = HiddenString_GetUnsafe(specName, &len);
-  Sha1_Compute(value, len, &sha1);
-  char buffer[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(&sha1, buffer);
-  return rm_strdup(buffer);
-}
-
-// checkIfSpecExists, IndexSpec_CreateNew moved to spec_registry.c
-
-// checkPhoneticAlgorithmAndLang, parseVectorField_*, parseTextField, parseTagField,
-// parseGeometryField, parseFieldSpec, IndexSpec_AddFieldsInternal, IndexSpec_AddFields,
-// VecSimIndex_validate_params moved to spec_field_parse.c
 
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
@@ -295,211 +66,6 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
   array_ensure_append_1(sp->fieldIdToIndex, index);
   return length;
 }
-
-// IndexSpec_BuildSpecCache is in spec_cache.c
-
-bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
-  if (!spec || !spec->rule) {
-    return false;
-  }
-  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
-  if (n_prefixes != array_len(spec_prefixes)) {
-    return false;
-  }
-
-  // Validate that the prefixes in the arguments are the same as the ones in the
-  // index (also in the same order)
-  for (size_t i = 0; i < n_prefixes; i++) {
-    sds arg = prefixes[i];
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
-      // Unmatching prefixes
-      return false;
-    }
-  }
-
-  return true;
-}
-
-// IndexSpec_PopulateVectorDiskParams moved to spec_rdb.c
-
-inline static bool isSpecOnDisk(const IndexSpec *sp) {
-  return SearchDisk_IsEnabled();
-}
-
-inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
-  return SearchDisk_IsEnabledForValidation();
-}
-
-void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (isSpecOnDiskForValidation(spec)) {
-    bool isKnownArg = false;
-    for (int i = 0; non_flex_argopts[i].name; i++) {
-      if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
-        isKnownArg = true;
-        break;
-      }
-    }
-    if (isKnownArg) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-        "Unsupported argument for Flex index:", " `%s`", badarg);
-    } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
-    }
-  } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
-  }
-}
-
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
-StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const char **argv, int argc, QueryError *status) {
-  IndexSpec *spec = NewIndexSpec(name);
-  StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
-  spec->own_ref = spec_ref;
-
-  IndexSpec_MakeKeyless(spec);
-
-  ArgsCursor ac = {0};
-  ArgsCursor acStopwords = {0};
-
-  ArgsCursor_InitCString(&ac, argv, argc);
-  long long timeout = -1;
-  int dummy;
-  size_t dummy2;
-  SchemaRuleArgs rule_args = {0};
-  ArgsCursor rule_prefixes = {0};
-  int rc = AC_OK;
-  ACArgSpec *errarg = NULL;
-  bool invalid_flex_on_type = false;
-  ACArgSpec flex_argopts[] = {
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-    {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE_FIELD", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-    {.name = NULL}
-  };
-  ACArgSpec non_flex_argopts[] = {
-    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
-                Index_StoreTermOffsets | Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
-    {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-
-    // For compatibility
-    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {.name = NULL}
-  };
-  ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
-  rc = AC_ParseArgSpec(&ac, argopts, &errarg);
-  invalid_flex_on_type = isSpecOnDiskForValidation(spec) && rule_args.type && (strcasecmp(rule_args.type, RULE_TYPE_HASH) != 0);
-  if (rc != AC_OK) {
-    if (rc != AC_ERR_ENOENT) {
-      QERR_MKBADARGS_AC(status, errarg->name, rc);
-      goto failure;
-    }
-  }
-  if (invalid_flex_on_type) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT, "Only HASH is supported as index data type for Flex indexes");
-    goto failure;
-  }
-
-  if (timeout != -1) {
-    // When disk validation is active, argopts is set to flex_argopts, which does not include SPEC_TEMPORARY_STR
-    RS_ASSERT(!SearchDisk_IsEnabled());
-    spec->flags |= Index_Temporary;
-  }
-  spec->timeout = timeout * 1000;  // convert to ms
-
-  if (rule_prefixes.argc > 0) {
-    rule_args.nprefixes = rule_prefixes.argc;
-    rule_args.prefixes = (const char **)rule_prefixes.objs;
-  } else {
-    rule_args.nprefixes = 1;
-    static const char *empty_prefix[] = {""};
-    rule_args.prefixes = empty_prefix;
-  }
-
-  spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
-  if (!spec->rule) {
-    goto failure;
-  }
-
-  // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskCtx).
-  // For new indexes (FT.CREATE), we don't delete before open since there's nothing to delete.
-  spec->diskSpec = NULL;
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(spec->specName, &len);
-
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, name, len, spec->rule->type, false);
-    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
-    if (!spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
-      goto failure;
-    }
-  }
-
-  if (AC_IsInitialized(&acStopwords)) {
-    if (spec->stopwords) {
-      StopWordList_Unref(spec->stopwords);
-    }
-    spec->stopwords = NewStopWordListCStr((const char **)acStopwords.objs, acStopwords.argc);
-    spec->flags |= Index_HasCustomStopwords;
-  }
-
-  if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
-    if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
-      handleBadArguments(spec, badarg, status, non_flex_argopts);
-    } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
-    }
-    goto failure;
-  }
-
-  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, &ac, status, 1)) {
-    goto failure;
-  }
-
-  if (spec->rule->filter_exp) {
-    SchemaRule_FilterFields(spec);
-  }
-
-  if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
-    goto failure;
-  }
-
-  return spec_ref;
-
-failure:  // on failure free the spec fields array and return an error
-  spec->flags &= ~Index_Temporary;
-  IndexSpec_RemoveFromGlobals(spec_ref, false);
-  return INVALID_STRONG_REF;
-}
-
-StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status) {
-  HiddenString *hidden = NewHiddenString(name, strlen(name), true);
-  return IndexSpec_Parse(ctx, hidden, argv, argc, status);
-}
-
-// IndexSpec_GetStats, IndexSpec_GetIndexErrorCount moved to spec_info.c
 
 // Assuming the spec is properly locked for writing before calling this function.
 void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len) {
@@ -516,13 +82,7 @@ void Spec_AddToDict(RefManager *rm) {
   dictAdd(specDict_g, (void*)spec->specName, (void *)rm);
 }
 
-// IndexSpecCache functions moved to spec_cache.c
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-// CleanPool_ThreadPoolStart, CleanPool_ThreadPoolDestroy, getPendingIndexDrop,
-// addPendingIndexDrop, removePendingIndexDrop, CleanInProgressOrPending
-// moved to spec_registry.c
 
 /*
  * Free resources of unlinked index spec
@@ -638,19 +198,6 @@ void IndexSpec_Free(IndexSpec *spec) {
 
 //---------------------------------------------------------------------------------------------
 
-// IndexSpec_RemoveFromGlobals, Indexes_Free moved to spec_registry.c
-
-
-// IndexSpec_IncreasCounter, IndexSpec_LoadUnsafe, IndexSpec_LoadUnsafeEx
-// moved to spec_registry.c
-
-StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec) {
-  return spec->own_ref;
-}
-
-// fmtRedisNumericIndexKey, TagIndex_FormatName, IndexSpec_LegacyGetFormattedKey
-// moved to spec_rdb.c
-
 // Assuming the spec is properly locked before calling this function.
 void IndexSpec_InitializeSynonym(IndexSpec *sp) {
   if (!sp->smap) {
@@ -674,8 +221,6 @@ void IndexSpec_InitLock(IndexSpec *sp) {
 
   pthread_rwlock_init(&sp->rwlock, &attr);
 }
-
-// initializeFieldSpec moved to spec_field_parse.c
 
 // Helper function for initializing an index spec
 // Solves issues where a field is initialized in index creation but not when loading from RDB
@@ -835,46 +380,7 @@ void IndexSpec_StartGC(StrongRef global, IndexSpec *sp, GCPolicy gcPolicy) {
   }
 }
 
-// given a field mask with one bit lit, it returns its offset
-// bit, FieldSpec_RdbLoadCompat8, FieldSpec_RdbSave, fieldTypeMap, FieldSpec_RdbLoad,
-// IndexScoringStats_RdbLoad, IndexScoringStats_RdbSave, IndexStats_RdbLoad,
-// IndexSpec_DropLegacyIndexFromKeySpace, Indexes_UpgradeLegacyIndexes
-// moved to spec_rdb.c
-
-// Scanner lifecycle, scan execution, ScanAndReindex, ReindexPool moved to spec_scanner.c
-// Indexes_ScanAndReindex moved to spec_scanner.c
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-// IndexSpec_RdbSave, IndexSpec_RdbLoad, IndexSpec_StoreAfterRdbLoad,
-// IndexSpec_CreateFromRdb, IndexSpec_LegacyRdbLoad, IndexSpec_LegacyRdbSave,
-// Indexes_RdbLoad, Indexes_RdbSave, Indexes_RdbSave2, IndexSpec_RdbLoad_Logic,
-// IndexSpec_Serialize, IndexSpec_Deserialize moved to spec_rdb.c
-
-int CompareVersions(Version v1, Version v2) {
-  if (v1.majorVersion < v2.majorVersion) {
-    return -1;
-  } else if (v1.majorVersion > v2.majorVersion) {
-    return 1;
-  }
-
-  if (v1.minorVersion < v2.minorVersion) {
-    return -1;
-  } else if (v1.minorVersion > v2.minorVersion) {
-    return 1;
-  }
-
-  if (v1.patchVersion < v2.patchVersion) {
-    return -1;
-  } else if (v1.patchVersion > v2.patchVersion) {
-    return 1;
-  }
-
-  return 0;
-}
-
-// Indexes_Propagate, IndexSpec_RdbSave_Wrapper, IndexSpec_RegisterType
-// moved to spec_rdb.c
 
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
@@ -940,6 +446,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
+}
+
+inline static bool isSpecOnDisk(const IndexSpec *sp) {
+  return SearchDisk_IsEnabled();
 }
 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
@@ -1011,28 +521,6 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-// onFlush, Indexes_Init, Indexes_Count, Indexes_FindMatchingSchemaRules,
-// hashFieldChanged, Indexes_SpecOpsIndexingCtxFree,
-// Indexes_UpdateMatchingWithSchemaRules, Indexes_DeleteMatchingWithSchemaRules,
-// Indexes_ReplaceMatchingWithSchemaRules, Indexes_List moved to spec_registry.c
-
-StrongRef IndexSpecRef_Promote(WeakRef ref) {
-  StrongRef strong = WeakRef_Promote(ref);
-  IndexSpec *spec = StrongRef_Get(strong);
-  if (spec) {
-    CurrentThread_SetIndexSpec(strong);
-  }
-  return strong;
-}
-
-void IndexSpecRef_Release(StrongRef ref) {
-  CurrentThread_ClearIndexSpec();
-  StrongRef_Release(ref);
-}
-
-// DebugIndexesScanner_pauseCheck, Indexes_StartRDBLoadingEvent,
-// Indexes_EndRDBLoadingEvent, Indexes_EndLoading moved to spec_scanner.c
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)
