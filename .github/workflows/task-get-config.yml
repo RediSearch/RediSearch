@@ -105,7 +105,7 @@ jobs:
                       'ec2_instance_type': 'c7i.xlarge'
                   }
               },
-              "ubuntu:default": {
+              "ubuntu:latest": {
                   "x86_64": {
                       'name': 'Ubuntu Latest x86_64'
                   },
