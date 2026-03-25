@@ -894,14 +894,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   ExprEval evaluator = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
-  if (SearchDisk_IsEnabled()) {
-    uint64_t docId;
-    if (DocIdMeta_Get(sctx->redisCtx, key, sctx->spec->specId, &docId) == REDISMODULE_OK) {
-      dmd = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
-    }
-  } else {
-    dmd = (RSDocumentMetadata *)DocTable_BorrowByKeyR(&sctx->spec->docs, key);
-  }
+  RS_ASSERT(!SearchDisk_IsEnabled());
+  dmd = (RSDocumentMetadata *)DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");
