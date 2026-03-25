@@ -124,7 +124,7 @@ jobs:
                       'ec2_instance_type': 'c7i.xlarge'
                   }
               },
-              "ubuntu:default": {
+              "ubuntu:latest": {
                   "x86_64": {
                       'container': 'ubuntu:latest',
                       'setup_script': 'apt update && apt install -y git',
@@ -159,7 +159,8 @@ jobs:
                   "aarch64": {
                       'container': 'ubuntu:jammy',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Jammy ARM64'
+                      'name': 'Ubuntu Jammy ARM64',
+                      'enable_lto': '1'
                   }
               },
               "ubuntu:focal": {
@@ -171,7 +172,8 @@ jobs:
                   "aarch64": {
                       'container': 'ubuntu:focal',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal ARM64'
+                      'name': 'Ubuntu Focal ARM64',
+                      'enable_lto': '1'
                   }
               },
               "rockylinux:8": {
@@ -235,7 +237,8 @@ jobs:
                   "aarch64": {
                       'container': 'gcc:11-bullseye',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bullseye ARM64'
+                      'name': 'Debian Bullseye ARM64',
+                      'enable_lto': '1'
                   }
               },
               "debian:bookworm": {
@@ -247,7 +250,8 @@ jobs:
                   "aarch64": {
                       'container': 'gcc:12-bookworm',
                       'setup_script': 'apt update && apt install -y git',
-                      'name': 'Debian Bookworm ARM64'
+                      'name': 'Debian Bookworm ARM64',
+                      'enable_lto': '1'
                   }
               },
               "amazonlinux:2023": {
@@ -259,7 +263,8 @@ jobs:
                   "aarch64": {
                       'container': 'amazonlinux:2023',
                       'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 ARM64'
+                      'name': 'Amazon Linux 2023 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "mariner:2": {
@@ -271,7 +276,8 @@ jobs:
                   "aarch64": {
                       'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                       'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 ARM64'
+                      'name': 'Mariner 2 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "azurelinux:3": {
@@ -283,7 +289,8 @@ jobs:
                   "aarch64": {
                       'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
                       'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 ARM64'
+                      'name': 'Azure Linux 3 ARM64',
+                      'enable_lto': '1'
                   }
               }
           }

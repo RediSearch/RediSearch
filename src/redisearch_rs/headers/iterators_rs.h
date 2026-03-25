@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "iterators/iterator_api.h"
-#include "iterators/inverted_index_iterator.h"
 #include "tag_index.h"
 #include "numeric_range_tree.h"
 #include "query.h"
@@ -101,10 +100,10 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
- * 2. If `it` iterator type is IteratorType_INV_IDX_NUMERIC_ITERATOR, it has been created using `NewInvIndIterator_NumericQuery`.
- * 3. If `it` iterator type is IteratorType_INV_IDX_TERM_ITERATOR, it has been created using `NewInvIndIterator_TermQuery`.
- * 4. If `it` iterator type is IteratorType_INV_IDX_MISSING_ITERATOR, it has been created using `NewInvIndIterator_MissingQuery`.
- * 5. If `it` iterator type is [`ffi::IteratorType_INV_IDX_TAG_ITERATOR`], it has been created using `NewInvIndIterator_TagQuery`.
+ * 2. If `it` iterator type is [`IteratorType::InvIdxNumeric`], it has been created using `NewInvIndIterator_NumericQuery`.
+ * 3. If `it` iterator type is [`IteratorType::InvIdxTerm`], it has been created using `NewInvIndIterator_TermQuery`.
+ * 4. If `it` iterator type is [`IteratorType::InvIdxMissing`], it has been created using `NewInvIndIterator_MissingQuery`.
+ * 5. If `it` iterator type is [`IteratorType::InvIdxTag`], it has been created using `NewInvIndIterator_TagQuery`.
  *
  * # Panics
  *
@@ -115,7 +114,7 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
  *
  * The flags of the `IndexReader`.
  */
-IndexFlags InvIndIterator_GetReaderFlags(const InvIndIterator *it);
+IndexFlags InvIndIterator_GetReaderFlags(const QueryIterator *it);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -194,13 +193,13 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndexNumeric *idx,
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `NumericInvIndIterator` created by `NewInvIndIterator_NumericQuery`.
+ * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
  *
  * # Returns
  *
  * A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
  */
-const NumericFilter *NumericInvIndIterator_GetNumericFilter(const NumericInvIndIterator *it);
+const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
 
 /**
  * Gets the minimum range value for profiling a numeric iterator.
@@ -213,7 +212,7 @@ const NumericFilter *NumericInvIndIterator_GetNumericFilter(const NumericInvIndI
  *
  * The minimum range value from the filter, or negative infinity if no filter was provided.
  */
-double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
  * Gets the maximum range value for profiling a numeric iterator.
@@ -226,7 +225,7 @@ double NumericInvIndIterator_GetProfileRangeMin(const NumericInvIndIterator *it)
  *
  * The maximum range value from the filter, or positive infinity if no filter was provided.
  */
-double NumericInvIndIterator_GetProfileRangeMax(const NumericInvIndIterator *it);
+double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
 
 /**
  * Creates numeric range iterators for all ranges in the tree matching the filter.

@@ -1,9 +1,8 @@
 [workspace]
 members = [
-    "buffer",
     "build_utils",
     "c_entrypoint/*",
-    "c_trie",
+    "c_wrappers/*",
     "document",
     "ffi",
     "field",
@@ -22,6 +21,7 @@ members = [
     "redis_reply",
     "result_processor",
     "rlookup",
+    "rqe_iterator_type",
     "rqe_iterators",
     "rqe_iterators_bencher",
     "rqe_iterators_test_utils",
@@ -84,17 +84,21 @@ license-file = "../../LICENSE.txt"
 publish = false
 
 [workspace.dependencies]
-buffer = { path = "./buffer" }
+buffer = { path = "./c_wrappers/buffer" }
 build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
-c_trie = { path = "./c_trie" }
+c_trie = { path = "./c_wrappers/c_trie" }
 document = { path = "./document" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
+field_spec = { path = "./c_wrappers/field_spec" }
 fnv = { path = "./fnv" }
 generational_slab = { path = "./generational_slab" }
+hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
+index_spec = { path = "./c_wrappers/index_spec" }
+index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 redis_reply = { path = "./redis_reply" }
@@ -106,8 +110,11 @@ redis_mock = { path = "./redis_mock" }
 redisearch_rs = { path = "./c_entrypoint/redisearch_rs" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
+rm_array = { path = "./c_wrappers/rm_array" }
+rqe_iterator_type = { path = "./rqe_iterator_type" }
 rqe_iterators = { path = "./rqe_iterators" }
 rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }
+schema_rule = { path = "./c_wrappers/schema_rule" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
@@ -158,6 +165,7 @@ syn = "2"
 # need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).
 test-log = { version = "0.2", features = ["trace", "unstable"] }
 thiserror = "2.0.18"
+triomphe = "0.1.2"
 toml = "0.9"
 tracing = "0.1.44"
 tracing-core = "0.1"

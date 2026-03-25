@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Safe wrapper around [`ffi::SchemaRule`].
+
 use std::{
     ffi::{CStr, c_char},
     slice,
 };
 
 use ffi::DocumentType;
-
-use crate::RLookupKey;
 
 /// A safe wrapper around an `ffi::SchemaRule`.
 #[repr(transparent)]
@@ -53,14 +53,6 @@ impl SchemaRule {
     pub const fn payload_field(&self) -> Option<&CStr> {
         // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { maybe_cstr_from_ptr(self.0.payload_field) }
-    }
-
-    /// Tests if the given [`crate::lookup::RLookupKey`] is a special key (lang, score, or payload field) with respect to this schema rule.
-    pub fn is_special_key(&self, key: &RLookupKey) -> bool {
-        // Check if the key is one of the special fields
-        [self.lang_field(), self.score_field(), self.payload_field()]
-            .into_iter()
-            .any(|f| f == Some(key.name()))
     }
 
     /// Expose the underlying `filter_fields` as a [`Vec`] of &[`CStr`].
@@ -113,7 +105,7 @@ impl SchemaRule {
 /// # Caveat
 ///
 /// The lifetime for the returned slice is inferred from its usage.
-/// To prevent accidental misuse, it’s suggested to tie the lifetime to whichever source lifetime is safe in the context,
+/// To prevent accidental misuse, it's suggested to tie the lifetime to whichever source lifetime is safe in the context,
 /// such as by providing a helper function taking the lifetime of a host value for the slice, or by explicit annotation.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -123,40 +115,5 @@ const unsafe fn maybe_cstr_from_ptr<'a>(ffi_field: *mut c_char) -> Option<&'a CS
     } else {
         // Safety: Ensured by caller (1., 2., 3., 4.). Non-nullness is ensured by the call to is_null() above.
         Some(unsafe { CStr::from_ptr(ffi_field) })
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::undocumented_unsafe_blocks)]
-mod test {
-    use super::*;
-    use crate::bindings::rs_array;
-
-    use pretty_assertions::assert_eq;
-    use std::{mem, ptr};
-
-    /// Test filter_fields and filter_fields_index together since their lengths are coupled.
-    #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
-    fn fields_and_indices() {
-        let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
-
-        schema_rule.filter_fields = rs_array([c"aaa", c"bbb"].map(|cstr| cstr.as_ptr().cast_mut()));
-        schema_rule.filter_fields_index = rs_array([10, 20]);
-
-        let sut = unsafe { SchemaRule::from_raw(ptr::from_ref(&schema_rule)) };
-
-        let mut ff = sut.filter_fields();
-        let ffi = sut.filter_fields_index();
-
-        assert_eq!(ff.len(), 2);
-        assert_eq!(ff.next().unwrap(), c"aaa");
-        assert_eq!(ff.next().unwrap(), c"bbb");
-        assert_eq!(ffi, [10, 20]);
-
-        unsafe {
-            ffi::array_free(schema_rule.filter_fields.cast());
-            ffi::array_free(schema_rule.filter_fields_index.cast());
-        }
     }
 }

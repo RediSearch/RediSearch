@@ -10,7 +10,6 @@
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
-#include "iterators/inverted_index_iterator.h"
 #include "iterators_rs.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"

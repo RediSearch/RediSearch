@@ -505,7 +505,6 @@ mod tests {
     use super::*;
     #[cfg_attr(miri, allow(unused))]
     use crate::bindings::FieldSpecBuilder;
-    use crate::bindings::rs_array;
     use enumflags2::make_bitflags;
     use std::ffi::CString;
     use std::mem::MaybeUninit;
@@ -1251,6 +1250,23 @@ mod tests {
                 ffi::HiddenString_Free(fs.fieldPath, false);
             }
         }
+    }
+
+    /// Create a C array from a fixed-size Rust array using the C `array_new_sz` function.
+    fn rs_array<const N: usize, T: Copy>(fields: [T; N]) -> *mut T {
+        let arr = unsafe {
+            let size_t_u16 = const { size_of::<T>() as u16 };
+            let len_u32 = const { N as u32 };
+
+            ffi::array_new_sz(size_t_u16, 0, len_u32).cast::<T>()
+        };
+
+        unsafe {
+            let elements = std::slice::from_raw_parts_mut(arr, fields.len());
+            elements.copy_from_slice(&fields);
+        }
+
+        arr
     }
 
     fn field_spec(field_name: &CStr, field_path: &CStr) -> ffi::FieldSpec {

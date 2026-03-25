@@ -59,17 +59,16 @@ pub enum RsValue {
 
 impl RsValue {
     pub fn fully_dereferenced_ref(&self) -> &Self {
-        if let RsValue::Ref(ref_value) = self {
-            ref_value.value().fully_dereferenced_ref()
-        } else {
-            self
+        match self {
+            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
+            _ => self,
         }
     }
 
     pub fn fully_dereferenced_ref_and_trio(&self) -> &Self {
         match self {
-            RsValue::Ref(ref_value) => ref_value.value().fully_dereferenced_ref_and_trio(),
-            RsValue::Trio(trio) => trio.left().value().fully_dereferenced_ref_and_trio(),
+            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref_and_trio(),
+            RsValue::Trio(trio) => trio.left().fully_dereferenced_ref_and_trio(),
             _ => self,
         }
     }

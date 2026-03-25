@@ -249,7 +249,11 @@ fn main() -> Result<()> {
         };
 
         // Classify as FFI or other
-        let is_ffi = pkg.name.contains("ffi") || pkg.name == "buffer";
+        let is_ffi = pkg.name.contains("ffi")
+            || pkg
+                .manifest_path
+                .components()
+                .any(|c| c.as_str() == "c_wrappers");
 
         if is_ffi {
             ffi_stats.push(stats);

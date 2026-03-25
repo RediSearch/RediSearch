@@ -9,7 +9,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IteratorType_OPTIONAL_ITERATOR, QueryIterator, t_docId};
+use ffi::{QueryIterator, t_docId};
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::optional::Optional;
 
@@ -32,10 +33,7 @@ pub unsafe extern "C" fn NewOptionalNonOptimizedIterator(
     );
     // SAFETY: thanks to 1 + 2
     let child = unsafe { CRQEIterator::new(child) };
-    RQEIteratorWrapper::boxed_new(
-        IteratorType_OPTIONAL_ITERATOR,
-        Optional::new(max_id, weight, child),
-    )
+    RQEIteratorWrapper::boxed_new(IteratorType::Optional, Optional::new(max_id, weight, child))
 }
 
 #[unsafe(no_mangle)]
@@ -51,8 +49,8 @@ pub unsafe extern "C" fn GetOptionalNonOptimizedIteratorChild(
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1
-        unsafe { *header }.type_,
-        IteratorType_OPTIONAL_ITERATOR,
+        unsafe { (*header).type_ },
+        IteratorType::Optional,
         "Expected an optional (Non-Optimized) iterator"
     );
     // SAFETY: Safe thanks to 1
@@ -78,8 +76,8 @@ pub unsafe extern "C" fn TakeOptionalNonOptimizedIteratorChild(
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: Safe thanks to 1
-        unsafe { *header }.type_,
-        IteratorType_OPTIONAL_ITERATOR,
+        unsafe { (*header).type_ },
+        IteratorType::Optional,
         "Expected an optional (Non-Optimized) iterator"
     );
     // SAFETY: Safe thanks to 1
@@ -106,8 +104,8 @@ pub unsafe extern "C" fn SetOptionalNonOptimizedIteratorChild(
     debug_assert!(!header.is_null());
     debug_assert_eq!(
         // SAFETY: thanks to 1
-        unsafe { *header }.type_,
-        IteratorType_OPTIONAL_ITERATOR,
+        unsafe { (*header).type_ },
+        IteratorType::Optional,
         "Expected an optional(Non-Optimized) iterator"
     );
     // SAFETY: thanks to 1
