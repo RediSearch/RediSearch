@@ -22,7 +22,7 @@ protected:
     // Initialize the DocIdMeta module
     ctx = RedisModule_GetThreadSafeContext(NULL);
     RMCK::flushdb(ctx);
-    DocIdMeta_Init(ctx);
+    DocIdMeta_Init(ctx, false);
 
     // Create a mock key name for testing
     testKeyName = RedisModule_CreateString(ctx, "testkey", 7);

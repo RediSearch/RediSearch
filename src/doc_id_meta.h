@@ -8,6 +8,7 @@
 */
 #pragma once
 
+#include <stdbool.h>
 #include "redismodule.h"
 
 #ifdef __cplusplus
@@ -15,7 +16,7 @@ extern "C" {
 #endif
 
 // Initialize the DocIdMeta module
-void DocIdMeta_Init(RedisModuleCtx *ctx);
+void DocIdMeta_Init(RedisModuleCtx *ctx, bool diskEnabled);
 
 /*
  * Set the docId for the given key and index spec.

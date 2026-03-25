@@ -4613,6 +4613,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
+  DocIdMeta_Init(ctx, SearchDisk_IsEnabled());
+
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
 

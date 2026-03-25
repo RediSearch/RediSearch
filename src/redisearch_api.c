@@ -947,7 +947,6 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->maxDocId = sp->docs.maxDocId;
   info->docTableSize = sp->docs.memsize;
   info->sortablesSize = sp->docs.sortablesSize;
-  info->docTrieSize = 0; // DocIdMap (dim) removed; key-to-id mapping is now in key metadata
   info->numTerms = sp->stats.scoring.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;

@@ -137,7 +137,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }
 
-  DocIdMeta_Init(RSDummyContext);
   if (mode == REDISEARCH_INIT_MODULE && initAsModule(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   } else if (mode == REDISEARCH_INIT_LIBRARY && initAsLibrary(ctx) != REDISMODULE_OK) {

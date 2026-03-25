@@ -1287,7 +1287,6 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.maxDocId, 2);
   ASSERT_EQ(info.docTableSize, 124 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 48);
-  ASSERT_EQ(info.docTrieSize, 0); // DocIdMap (dim) removed; key-to-id mapping is now in key metadata
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
   ASSERT_EQ(info.invertedSize, 677);

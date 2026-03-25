@@ -136,7 +136,6 @@ typedef struct RSIdxInfo {
   size_t maxDocId;
   size_t docTableSize;
   size_t sortablesSize;
-  size_t docTrieSize;
   size_t numTerms;
   size_t numRecords;
   size_t invertedSize;

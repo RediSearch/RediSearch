@@ -195,7 +195,7 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
-void DocIdMeta_Init(RedisModuleCtx *ctx) {
+void DocIdMeta_Init(RedisModuleCtx *ctx, bool diskEnabled) {
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
     .version = 1,
     .reset_value = 0,
@@ -205,8 +205,8 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
-    .rdb_load = NULL, // (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad,
-    .rdb_save = NULL, // (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave,
+    .rdb_load = diskEnabled ? (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad : NULL,
+    .rdb_save = diskEnabled ? (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave : NULL,
     .aof_rewrite = NULL,
     .defrag = NULL,
     .mem_usage = NULL,
