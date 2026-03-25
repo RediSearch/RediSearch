@@ -19,6 +19,11 @@
 
 static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 
+// When true, RDB save/load callbacks become no-ops.
+// Set during persistence events (BGSAVE/BGREWRITEAOF) to avoid
+// saving/loading DocIdMeta data while persistence is in progress.
+static bool docIdMetaPersistenceInProgress = false;
+
 RedisModuleKeyMetaClassId DocIdMeta_GetClassId() {
   return docIdKeyMetaClassId;
 }
@@ -139,6 +144,12 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   REDISMODULE_NOT_USED(encver);
+
+  if (docIdMetaPersistenceInProgress) {
+    *meta = 0;
+    return REDISMODULE_OK;
+  }
+
   struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
   docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
 
@@ -174,6 +185,10 @@ cleanup:
 
 void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
+
+  if (docIdMetaPersistenceInProgress) {
+    return;
+  }
 
   if (*meta == 0) {
     return;
@@ -222,6 +237,29 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
   };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, DOCID_META_CLASS_NAME, 1, &docIdKeyMetaClassIdConfig);
   RS_LOG_ASSERT(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
+}
+
+static void DocIdMeta_PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
+                                        uint64_t subevent, void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(data);
+
+  switch (subevent) {
+  case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
+    RedisModule_Log(ctx, "notice", "DocIdMeta: Persistence started, disabling RDB save/load");
+    docIdMetaPersistenceInProgress = true;
+    break;
+  case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
+  case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
+    RedisModule_Log(ctx, "notice", "DocIdMeta: Persistence ended, re-enabling RDB save/load");
+    docIdMetaPersistenceInProgress = false;
+    break;
+  }
+}
+
+void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx) {
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Persistence, DocIdMeta_PersistenceEvent);
 }
 
 // Helper to find or create an entry in the DocIdMeta hashmap

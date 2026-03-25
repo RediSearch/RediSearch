@@ -50,6 +50,9 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName,
                      uint64_t specId);
 
+// Subscribe to persistence events to disable RDB save/load during BGSAVE/AOF rewrite.
+void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx);
+
 // Functions exposed to ease unit testing
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver);
 void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta);
