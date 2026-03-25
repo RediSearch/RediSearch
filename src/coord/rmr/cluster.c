@@ -58,6 +58,19 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
     // Update dispatch time for this command
     MRCommand_SetDispatchTime(cmd);
   }
+
+  // Verify all shards are connected before sending any commands.
+  // If any shard is unreachable, fail the entire fanout rather than
+  // sending to a partial set of shards.
+  // Note: A TOCTOU gap exists — a connection may drop between this check
+  // and the send loop below. This is a best-effort guard, callers should
+  // handle partial send counts accordingly.
+  for (size_t i = 0; i < topo->numShards; i++) {
+    if (!MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id)) {
+      return 0;
+    }
+  }
+
   int ret = 0;
   for (size_t i = 0; i < topo->numShards; i++) {
     MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, topo->shards[i].node.id);

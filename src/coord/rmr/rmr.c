@@ -85,6 +85,12 @@ typedef struct MRCtx {
    */
   MRReduceFunc fn;
 
+  /* Set to true if the fanout could not reach all shards (TOCTOU gap:
+   * a connection dropped between the pre-check and the send loop).
+   * When set, fanoutCallback discards all incoming replies and unblocks
+   * the client with an error once every in-flight reply has been drained. */
+  bool partialFanout;
+
   /* State tracking for partial timeout support */
   _Atomic(bool) timedOut;
   _Atomic(bool) reducing;
@@ -243,10 +249,11 @@ static int unblockHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
 
-  // Check if timed out - discard reply.
-  // Currently, timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
+  // Check if timed out or partial fanout - discard reply.
+  // Timeout checks are relevant only for Coordinator FT.SEARCH fanouts.
+  // Partial fanout means not all shards were reached during the fanout send loop.
   bool timedOut = MRCtx_IsTimedOut(ctx);
-  if (timedOut) {
+  if (timedOut || ctx->partialFanout) {
     if (r) {
       MRReply_Free(r);
     }
@@ -264,7 +271,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    if (!timedOut && ctx->fn) {
+    if (!timedOut && !ctx->partialFanout && ctx->fn) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
@@ -293,6 +300,10 @@ static void uvFanoutRequest(void *p) {
     RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
+  } else if (mrctx->numExpected != (int)ioRuntime->topo->numShards) {
+    // Some commands were sent but not all shards were reached.
+    // Mark as partial so fanoutCallback drains replies and returns an error.
+    mrctx->partialFanout = true;
   }
 }
 
