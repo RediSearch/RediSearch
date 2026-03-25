@@ -1,7 +1,7 @@
 # Extraction Plan: Spec Cache
 
 **Source**: `src/spec.c` (~80 lines)
-**Target**: `src/spec_cache.c` + `src/spec_cache.h`
+**Target**: `src/spec/spec_cache.c` + `src/spec/spec_cache.h`
 **Extractability**: Very High
 
 ## Goal
@@ -70,9 +70,9 @@ The `IndexSpec` struct has `struct IndexSpecCache *spcache` — only needs a for
 
 ## Build Integration
 
-- Add `spec_cache.c` to build system.
-- `spec.h` gains `#include "spec_cache.h"` (or forward-declares + includes where needed).
-- `spec.c`, `spec_rdb.c` include `spec_cache.h`.
+- Add `src/spec/spec_cache.c` to build system.
+- `spec.h` (now at `src/spec/spec.h`) gains `#include "spec_cache.h"`.
+- `spec_rdb.c` includes `spec_cache.h`.
 
 ## Risks
 

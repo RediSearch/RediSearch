@@ -1,7 +1,7 @@
 # Extraction Plan: Background Scanner
 
 **Source**: `src/spec.c` (~350 lines)
-**Target**: `src/spec_scanner.c` + `src/spec_scanner.h`
+**Target**: `src/spec/spec_scanner.c` + `src/spec/spec_scanner.h`
 **Extractability**: High
 
 ## Goal
@@ -138,7 +138,7 @@ These are all via function calls — no direct struct mutation beyond the scanne
 
 - `Indexes_StartRDBLoadingEvent` calls `Indexes_Free` and touches `legacySpecDict` — couples scanner to registry and RDB.
 - `Indexes_EndRDBLoadingEvent` calls `Indexes_UpgradeLegacyIndexes` and `Indexes_ScanAndReindex` — couples to RDB.
-- **Recommendation**: Move the RDB loading event functions (`Start/End/EndLoading`) to the RDB submodule instead, since they're more about RDB lifecycle than scanning. The scanner would only export `IndexSpec_ScanAndReindex` / `Indexes_ScanAndReindex`.
+- **Decision**: The RDB loading event functions (`Start/End/EndLoading`) stayed in `spec_scanner.c` rather than moving to RDB — they are tightly coupled with scanning lifecycle (`Indexes_ScanAndReindex`, `Indexes_Free`).
 
 ## Validation
 

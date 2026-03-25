@@ -1,7 +1,7 @@
 # Extraction Plan: Stats & Info Reporting
 
 **Source**: `src/spec.c` (~200 lines)
-**Target**: `src/spec_info.c` + `src/spec_info.h`
+**Target**: `src/spec/spec_info.c` + `src/spec/spec_info.h`
 **Extractability**: High
 
 ## Goal
@@ -84,8 +84,7 @@ IndexSpec_AddToInfo
 
 ## Build Integration
 
-- Add `spec_info.c` to build system.
-- `spec.c` includes `spec_info.h` (for `TotalMemUsage` used in other contexts if any).
+- Add `src/spec/spec_info.c` to build system.
 - Remove moved function declarations from `spec.h`, add `#include "spec_info.h"` where needed.
 
 ## Validation

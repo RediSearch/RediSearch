@@ -1,7 +1,7 @@
 # Extraction Plan: RDB Serialization
 
 **Source**: `src/spec.c` (~530 lines)
-**Target**: `src/spec_rdb.c` + `src/spec_rdb.h`
+**Target**: `src/spec/spec_rdb.c` + `src/spec/spec_rdb.h`
 **Extractability**: High
 
 ## Goal
@@ -87,13 +87,12 @@ Do NOT move these to `spec_rdb.h`.
 
 ## Build Integration
 
-- Add `spec_rdb.c` to CMakeLists.txt / Makefile alongside `spec.c`.
-- `spec.c` gains `#include "spec_rdb.h"`.
+- Add `src/spec/spec_rdb.c` to CMakeLists.txt.
 - `spec_rdb.c` gains `#include "spec.h"` + all RDB-related includes.
 
 ## Note on RDB Loading Events
 
-`Indexes_StartRDBLoadingEvent`, `Indexes_EndRDBLoadingEvent`, `Indexes_EndLoading` (currently in scanner plan) should move here instead — they are about RDB lifecycle, not scanning. They call `Indexes_Free`, `Indexes_UpgradeLegacyIndexes`, and `Indexes_ScanAndReindex` but are triggered by RDB events via `notifications.c`.
+`Indexes_StartRDBLoadingEvent`, `Indexes_EndRDBLoadingEvent`, `Indexes_EndLoading` stayed in `spec_scanner.c` — despite being triggered by RDB events, they are tightly coupled with scanning lifecycle (`Indexes_ScanAndReindex`, `Indexes_Free`).
 
 ## Note on Callback Declarations
 

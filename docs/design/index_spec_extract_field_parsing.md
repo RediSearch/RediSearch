@@ -1,7 +1,7 @@
 # Extraction Plan: Field Parsing
 
 **Source**: `src/spec.c` (~750 lines)
-**Target**: `src/spec_field_parse.c` + `src/spec_field_parse.h`
+**Target**: `src/spec/spec_field_parse.c` + `src/spec/spec_field_parse.h`
 **Extractability**: Medium-High
 
 ## Goal
@@ -52,19 +52,19 @@ IndexSpec_AddFieldsInternal        (internal, for use by spec.c's IndexSpec_Pars
 5. Calls `IndexSpec_AddFieldsInternal` for the SCHEMA section
 6. Validates Flex constraints
 
-**Recommendation**: Keep `IndexSpec_Parse` in `spec.c` since it orchestrates multiple submodules. It just calls into `spec_field_parse.c` for step 5.
+**Decision**: `IndexSpec_Parse` was extracted into its own file `src/spec/spec_parse.c` — separate from field parsing, since it orchestrates multiple submodules. See `index_spec_extract_parse.md`.
 
 ## Shared Helpers
 
-These helpers are used by field parsing but defined/used elsewhere too:
+These helpers are used by field parsing but defined/used elsewhere:
 
-- `isSpecOnDiskForValidation` — used by parse and by `IndexSpec_Parse`. Define in spec.h as static inline or in a shared internal header.
+- `isSpecOnDiskForValidation` — defined as static inline in both `spec_parse.c` and `spec_field_parse.c`.
 - `isSpecJson` — macro/inline, stays in spec.h or field_spec.h.
-- `setMemoryInfo` — used by `IndexSpec_AddFields` and `IndexSpec_CreateNew`. Keep in spec.c, pass results as params or keep accessible.
-- `memoryLimit`, `BLOCK_MEMORY_LIMIT` — globals. Keep accessible via extern or pass as params.
-- `IndexSpec_CreateTextId` — called from `AddFieldsInternal`. Keep in spec.c, declare in spec.h.
-- `IndexSpec_BuildSpecCache` — called from `AddFieldsInternal`. Keep in spec.c, declare internally.
-- `FieldsGlobalStats_UpdateStats` — called on success. External dependency, just include header.
+- `setMemoryInfo` — moved to `spec_scanner.c`.
+- `memoryLimit`, `BLOCK_MEMORY_LIMIT` — globals externed via `spec_struct.h`.
+- `IndexSpec_CreateTextId` — in `spec_lifecycle.c`, declared in `spec_lifecycle.h`.
+- `IndexSpec_BuildSpecCache` — in `spec_cache.c`, declared in `spec_cache.h`.
+- `FieldsGlobalStats_UpdateStats` — external dependency, just include header.
 
 ## Potential Further Split
 
@@ -72,8 +72,8 @@ The vector parsing functions alone are ~500 lines and could become `spec_field_p
 
 ## Build Integration
 
-- Add `spec_field_parse.c` to build system.
-- `spec.c` includes `spec_field_parse.h`.
+- Add `src/spec/spec_field_parse.c` to build system.
+- `spec_parse.c` and `spec_rdb.c` include `spec_field_parse.h`.
 - `spec_field_parse.c` includes `spec.h`, `field_spec.h`, VecSim headers, ArgsCursor.
 
 ## Note on handleBadArguments

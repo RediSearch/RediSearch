@@ -2,9 +2,11 @@
 
 ## Overview
 
-`src/spec.h` (808 lines) + `src/spec.c` (4302 lines) form the central metadata hub for RediSearch indexes.
+Originally `src/spec.h` (808 lines) + `src/spec.c` (4302 lines) formed the central metadata hub for RediSearch indexes.
 The `IndexSpec` struct owns the schema, stats, data structures, and lifecycle for a single index.
-It is the "god object" of the codebase — nearly every other module depends on it.
+It was the "god object" of the codebase — nearly every other module depends on it.
+
+**Status (2026-03-25)**: Fully decomposed. `src/spec.c` has been deleted and replaced by 9 files under `src/spec/`. The header `src/spec.h` moved to `src/spec/spec.h` (460 lines, re-exports sub-headers).
 
 ## Core Structs
 
@@ -35,20 +37,25 @@ Background scanning state for follow-hash/JSON rule-based indexing with OOM hand
 ### IndexFlags (spec.h:170–197)
 Bitmask enum with 20+ flags covering storage options (offsets, freqs, field flags), features (phonetic, synonym, vecsim, suffix trie, geometry), and behavior (wide schema, temporary, async, skip initial scan).
 
-## Identified Submodules
+## Decomposition Result
 
-Six natural submodules have been identified within spec.c:
+The original spec.c was split into 9 files under `src/spec/`:
 
-| # | Submodule | Lines | Extractability |
-|---|-----------|-------|----------------|
-| 1 | RDB Serialization | ~530 | High |
-| 2 | Field Parsing | ~750 | Medium-High |
-| 3 | Global Index Registry | ~380 | Medium |
-| 4 | Background Scanner | ~350 | High |
-| 5 | Stats & Info Reporting | ~200 | High |
-| 6 | Spec Cache | ~80 | Very High |
+| # | File | Lines (.c) | Lines (.h) | Design Doc |
+|---|------|-----------|-----------|------------|
+| 1 | `spec_rdb` | 911 | 61 | [index_spec_extract_rdb_serialization.md](index_spec_extract_rdb_serialization.md) |
+| 2 | `spec_field_parse` | 1083 | 45 | [index_spec_extract_field_parsing.md](index_spec_extract_field_parsing.md) |
+| 3 | `spec_registry` | 637 | 81 | [index_spec_extract_global_registry.md](index_spec_extract_global_registry.md) |
+| 4 | `spec_scanner` | 562 | 90 | [index_spec_extract_scanner.md](index_spec_extract_scanner.md) |
+| 5 | `spec_info` | 286 | 73 | [index_spec_extract_stats_info.md](index_spec_extract_stats_info.md) |
+| 6 | `spec_cache` | 61 | 60 | [index_spec_extract_spec_cache.md](index_spec_extract_spec_cache.md) |
+| 7 | `spec_lifecycle` | 563 | 61 | [index_spec_extract_lifecycle.md](index_spec_extract_lifecycle.md) |
+| 8 | `spec_parse` | 220 | 32 | [index_spec_extract_parse.md](index_spec_extract_parse.md) |
+| 9 | `spec_struct` | 261 | 67 | [index_spec_extract_struct.md](index_spec_extract_struct.md) |
+| | `spec.h` (umbrella) | — | 460 | — |
+| | **Total** | **4584** | **1030** | |
 
-Remaining after extraction: ~1000 lines of core lifecycle (NewIndexSpec, CreateNew, CreateField, MakeKeyless, Free, InitLock, document ops, locking, misc utilities).
+Files 1–6 were originally identified as extractable submodules. Files 7–9 correspond to the "remaining core" (~1000 lines) which was further split into lifecycle, parse orchestration, and struct utilities/globals.
 
 ---
 
@@ -299,24 +306,12 @@ Lines 1897–1943.
 
 ---
 
-## Remaining Core (~1000 lines)
+## Former "Remaining Core" (~1000 lines)
 
-After extracting all six submodules, what remains is the essential IndexSpec lifecycle:
+The original analysis identified ~1000 lines of core lifecycle that would remain after extracting the 6 submodules. These were further decomposed into 3 files:
 
-- `NewIndexSpec`, `initializeIndexSpec`, `initializeFieldSpec` (~70 lines)
-- `IndexSpec_CreateField` (~30 lines)
-- `IndexSpec_MakeKeyless` (~5 lines)
-- `IndexSpec_Free`, `IndexSpec_FreeUnlinkedData` (~110 lines)
-- `IndexSpec_InitLock` (~15 lines)
-- `IndexSpec_Parse` (the top-level FT.CREATE orchestrator, ~140 lines — calls into field parsing + registry)
-- `IndexSpec_DeleteDoc`, `IndexSpec_DeleteDoc_Unsafe` (~70 lines)
-- `IndexSpec_UpdateDoc` (~65 lines)
-- `IndexSpec_AddTerm` (~10 lines)
-- Field lookup functions (`GetField`, `GetFieldByBit`, `GetFieldsByMask`, etc.) (~100 lines)
-- Field validation (`CheckPhoneticEnabled`, `CheckAllowSlopAndInorder`) (~35 lines)
-- Misc: `IndexSpec_FormatName`, `FormatObfuscatedName`, `InitializeSynonym`, `LegacyGetFormattedKey`, `bit()`, `CharBuf_*`, dict types (~150 lines)
-- `IndexSpec_IsCoherent` (~20 lines)
-- Compaction FFI functions (`AcquireWriteLock`, `ReleaseWriteLock`, `DecrementTrieTermCount`, `DecrementNumTerms`) (~40 lines)
-- Ref management (`IndexSpecRef_Promote`, `IndexSpecRef_Release`, `GetStrongRefUnsafe`) (~15 lines)
-- `CompareVersions`, `isRdbLoading` (~25 lines)
-- `Spec_AddToDict` (testing) (~5 lines)
+- **`spec_lifecycle.c`** (563 lines) — `NewIndexSpec`, `initializeIndexSpec`, `IndexSpec_Free`, `IndexSpec_FreeUnlinkedData`, `IndexSpec_CreateField`, `IndexSpec_MakeKeyless`, `IndexSpec_InitLock`, `IndexSpec_UpdateDoc`, `IndexSpec_DeleteDoc`, `IndexSpec_AddTerm`, `IndexSpec_StartGC`, `CharBuf_*` dict helpers, `InvIndFreeCb`, compaction FFI (`AcquireWriteLock`, `ReleaseWriteLock`, `DecrementTrieTermCount`, `DecrementNumTerms`), `Spec_AddToDict`, `IndexSpec_InitializeSynonym`.
+
+- **`spec_parse.c`** (220 lines) — `IndexSpec_Parse` (the FT.CREATE orchestrator), `IndexSpec_ParseRedisArgs`, `IndexSpec_ParseC`, `handleBadArguments`.
+
+- **`spec_struct.c`** (261 lines) — Field lookup functions (`GetField`, `GetFieldByBit`, `GetFieldsByMask`, `GetFieldBySortingIndex`, `getFieldsByType`), field validation (`CheckPhoneticEnabled`, `CheckAllowSlopAndInorder`), formatting (`FormatName`, `FormatObfuscatedName`), `IndexSpec_IsCoherent`, ref management (`GetStrongRefUnsafe`, `IndexSpecRef_Promote`, `IndexSpecRef_Release`), `CompareVersions`, `isRdbLoading`, `Cursors_initSpec`, and global variable definitions.

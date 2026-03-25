@@ -1,7 +1,7 @@
 # Extraction Plan: Global Index Registry
 
 **Source**: `src/spec.c` (~380 lines)
-**Target**: `src/spec_registry.c` + `src/spec_registry.h`
+**Target**: `src/spec/spec_registry.c` + `src/spec/spec_registry.h`
 **Extractability**: Medium
 
 ## Goal
@@ -149,7 +149,7 @@ This coupling cannot be fully eliminated without refactoring callers. Keep `spec
 - `Indexes_FindMatchingSchemaRules` is 100 lines with complex filter evaluation logic involving `EvalCtx` and `RLookup` — significant dependency surface.
 - Timer management (temp indexes) interacts with Redis module timer APIs and requires GIL awareness.
 - `IndexSpec_CreateNew` pulls in parsing, scanning, GC, cursors, timers, disk — it's a nexus function.
-- `memoryLimit` and `used_memory` are file-scoped to spec.c (set by `setMemoryInfo`), not extern globals. If registry functions need them, either pass as params or move `setMemoryInfo` to a shared location.
+- `memoryLimit` and `used_memory` are now externed via `spec_struct.h` (set by `setMemoryInfo` in `spec_scanner.c`).
 
 ## Validation
 
