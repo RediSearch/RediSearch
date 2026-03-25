@@ -2037,6 +2037,14 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
     return RS_RESULT_ERROR;
   }
 
+  // Check for timeout during depletion (all depleters started successfully but one timed out)
+  for (size_t i = 0; i < count; i++) {
+    RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
+    if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+  }
+
   return RS_RESULT_OK;
 }
 
