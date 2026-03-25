@@ -188,7 +188,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
 
     case change_cmd:

@@ -959,8 +959,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     if (DocIdMeta_Get(sctx->redisCtx, doc->docKey, sctx->spec->specId, &docId) != REDISMODULE_OK) {
       BAIL("Couldn't load old document");
     }
-    // Assumes we are under write lock
-    md = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
+    // TODO: Handle disk variant
   } else {
     t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
     if (docId == 0) {
