@@ -234,6 +234,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 
     // Initialize timeout coordination fields
     RequestSyncCtx_Init(&hybridReq->syncCtx);
+    pthread_mutex_init(&hybridReq->cursorMutex, NULL);
     hybridReq->storedReplyState.err = QueryError_Default();
 }
 
@@ -278,6 +279,10 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
  */
 static void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
+
+    // Cursors should have been freed by the timeout callback or reply callback.
+    // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
+    RS_ASSERT(req->cursors == NULL);
 
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -328,6 +333,9 @@ static void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up storedReplyState
     ChunkReplyState_Destroy(&req->storedReplyState);
+
+    // Destroy the cursor mutex
+    pthread_mutex_destroy(&req->cursorMutex);
 
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
