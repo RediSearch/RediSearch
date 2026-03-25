@@ -15,6 +15,10 @@ concurrency: # Global concurrency because newer runs should also cancel failure 
 jobs:
   deploy-snapshots:
     secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     uses: ./.github/workflows/flow-build-artifacts.yml
 
   notify-failure:
