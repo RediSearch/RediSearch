@@ -504,7 +504,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
   res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
-  res += TrieMap_MemUsage(sp->docs.dim.tm);
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += IndexSpec_collect_numeric_overhead(sp);

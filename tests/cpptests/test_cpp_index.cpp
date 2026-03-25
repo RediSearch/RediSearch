@@ -18,7 +18,6 @@ extern "C" {
 #include "src/spec.h"
 #include "src/tokenize.h"
 #include "varint.h"
-#include "src/iterators/inverted_index_iterator.h"
 #include "src/iterators/hybrid_reader.h"
 #include "iterators_rs.h"
 #include "src/iterators/union_iterator.h"
@@ -1330,6 +1329,11 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_EQ((int)dmd->score, i);
     ASSERT_EQ((int)dmd->flags, (int)(Document_DefaultFlags | Document_HasPayload));
 
+    t_docId xid = DocIdMap_Get(&dt.dim, buf, strlen(buf));
+
+    ASSERT_EQ((int)xid, i + 1);
+
+    ASSERT_TRUE(DocTable_Pop(&dt, dmd->keyPtr, sdslen(dmd->keyPtr)) != NULL);
     DMD_Return(dmd);
 
     ASSERT_TRUE((int)(dmd->flags & Document_Deleted));
@@ -1338,6 +1342,7 @@ TEST_F(IndexTest, testDocTable) {
     ASSERT_TRUE(!dmd);
   }
 
+  ASSERT_FALSE(DocIdMap_Get(&dt.dim, "foo bar", strlen("foo bar")));
   ASSERT_FALSE(DocTable_Borrow(&dt, N + 2));
 
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
@@ -1348,11 +1353,14 @@ TEST_F(IndexTest, testDocTable) {
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
   const size_t binBufLen = 11;
+  ASSERT_FALSE(DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
   ASSERT_EQ(132 + doc_table_size, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
+  ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
+  ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));
   DMD_Return(dmd);
   DocTable_Free(&dt);
 }

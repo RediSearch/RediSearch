@@ -188,6 +188,7 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
+      RS_ASSERT(!SearchDisk_IsEnabled());
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
 
@@ -573,12 +574,17 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
 void Initialize_KeyspaceNotifications() {
   static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
-    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
-      REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+    int notifyFlags = 0;
+    if (SearchDisk_IsEnabled()) {
+      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING |
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
+    } else {
+      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
       REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_KEY_TRIMMED | REDISMODULE_NOTIFY_STRING |
       REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
-      HashNotificationCallback);
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
+    }
+    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, HashNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
   }
 }
