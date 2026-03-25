@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "alias.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "util/dict.h"
 #include "rmutil/rm_assert.h"
 

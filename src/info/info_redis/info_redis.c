@@ -18,7 +18,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
-#include "spec.h"
+#include "spec/spec.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics

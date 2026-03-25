@@ -12,7 +12,7 @@
 #include <sched.h>
 
 #include "redismodule.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include <time.h>
 
 #ifdef __cplusplus

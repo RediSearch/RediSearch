@@ -8,7 +8,7 @@
 */
 #include "disk_gc.h"
 #include "config.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "search_disk.h"
 #include "module.h"
 #include "redismodule.h"

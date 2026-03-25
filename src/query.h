@@ -15,7 +15,7 @@
 #include "query_parser/tokenizer.h"
 #include "redis_index.h"
 #include "redismodule.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "redisearch.h"
 #include "hiredis/sds.h"
 #include "concurrent_ctx.h"

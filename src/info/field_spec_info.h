@@ -13,7 +13,7 @@
 #include "coord/rmr/reply.h"
 #include "field_spec.h"
 #include "vector_index_stats.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "redis_index.h"
 #include "vector_index.h"
 #include "obfuscation/hidden.h"

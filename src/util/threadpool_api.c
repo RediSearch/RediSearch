@@ -9,7 +9,7 @@
 
 #include "threadpool_api.h"
 #include "rmalloc.h"
-#include "spec.h"
+#include "spec/spec.h"
 
 static void ThreadPoolAPI_Execute(void *ctx) {
   ThreadPoolAPI_AsyncIndexJob *job = ctx;

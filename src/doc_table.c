@@ -15,7 +15,7 @@
 #include "triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "config.h"
 
 /* Creates a new DocTable with a given capacity */

@@ -8,7 +8,7 @@
 */
 #include "indexes_info.h"
 #include "util/dict.h"
-#include "spec.h"
+#include "spec/spec.h"
 #include "field_spec_info.h"
 #include "search_disk.h"
 #include <string.h>  // Add this for strerror

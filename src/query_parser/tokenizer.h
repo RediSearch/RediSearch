@@ -13,7 +13,7 @@
 #include <stdbool.h>
 #include "../tokenize.h"
 #include "VecSim/vec_sim_common.h"
-#include "spec.h"
+#include "spec/spec.h"
 
 typedef enum {
   // Concrete types
