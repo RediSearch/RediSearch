@@ -92,18 +92,18 @@ jobs:
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
-          # Add coverage job if requested (only on ubuntu:default x86_64)
+          # Add coverage job if requested (only on ubuntu:latest x86_64)
           if include_coverage:
               matrix_items.append({
-                  'platform': 'ubuntu:default',
+                  'platform': 'ubuntu:latest',
                   'architecture': 'x86_64',
                   'job-type': 'coverage'
               })
 
-          # Add sanitize job if requested (only on ubuntu:default x86_64)
+          # Add sanitize job if requested (only on ubuntu:latest x86_64)
           if include_sanitize:
               matrix_items.append({
-                  'platform': 'ubuntu:default',
+                  'platform': 'ubuntu:latest',
                   'architecture': 'x86_64',
                   'job-type': 'sanitize'
               })
