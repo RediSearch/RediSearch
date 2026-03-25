@@ -79,17 +79,108 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
 ---
 
+### 3. FIRST_VALUE Reducer — In-Group Sort Precedent (`src/aggregate/reducers/first_value.c`)
+
+While not a general-purpose sorter, FIRST_VALUE is the **closest existing relative** to the in-group sorter. It already solves a miniature version of the same problem: *"from the rows within a group, pick one value based on a sort criterion on a different field."*
+
+**Operates on:** Captured `RSValue *` pointers inside a per-group accumulator (`fvCtx`), within the reducer lifecycle.
+
+**Mechanism:** Running min/max tracker — a **degenerate heap of size 1.** Each incoming row is compared against the current best; the winner is kept.
+
+**Two-level struct pattern:**
+
+```c
+// Reducer-level (shared across all groups) — holds config
+typedef struct {
+  Reducer base;
+  const RLookupKey *sortprop;  // The property the value is sorted by
+  int ascending;
+} FVReducer;
+
+// Per-group instance — holds accumulated state
+typedef struct {
+  const RLookupKey *retprop;   // The key to return (payload)
+  const RLookupKey *sortprop;  // The key to sort by
+  RSValue *value;              // Best value seen so far (payload)
+  RSValue *sortval;            // Best sort-key seen so far
+  int ascending;
+} fvCtx;
+```
+
+**Data access pattern — the same one the sorter needs:**
+
+```c
+// Simplified from first_value.c:fvAdd_sort
+static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
+  fvCtx *fvx = ctx;
+  // 1. Read the return value (payload)
+  RSValue *val = RLookupRow_Get(fvx->retprop, srcrow);
+  if (!val) val = RSValue_NullStatic();
+
+  // 2. Read the sort key
+  RSValue *curSortval = RLookupRow_Get(fvx->sortprop, srcrow);
+  if (!curSortval) curSortval = RSValue_NullStatic();
+
+  if (!fvx->sortval) {
+    // First value — always accept
+    fvx->value = RSValue_IncrRef(val);          // 3. IncrRef to survive wipe
+    fvx->sortval = RSValue_IncrRef(curSortval);
+  } else if (RSValue_IsNull(curSortval)) {
+    // Null sort key loses — skip
+  } else if (RSValue_IsNull(fvx->sortval)) {
+    // Stored sort key is null, current is not — replace
+    RSValue_Replace(&fvx->sortval, curSortval);
+  } else {
+    // Both non-null: compare and keep the winner
+    int rc = RSValue_Cmp(curSortval, fvx->sortval, NULL);
+    if (fvx->ascending ? rc < 0 : rc > 0) {
+      RSValue_Replace(&fvx->sortval, curSortval);   // DecrRef old + IncrRef new
+      RSValue_Replace(&fvx->value, val);
+    }
+  }
+  return 1;
+}
+```
+
+**Key observations for the sorter design:**
+
+1. **Separate return field and sort field.** `retprop` (what gets returned) and `sortprop` (what determines which row wins) are two distinct `RLookupKey *` pointers. This is the same concept the sorter generalizes: `payload` vs `sortvals[0..N-1]`.
+
+2. **`RLookupRow_Get` + `IncrRef` capture pattern.** FIRST_VALUE proves this works: read a field by its `RLookupKey`, `IncrRef` it to survive the row wipe, store it in the per-group accumulator. The sorter does the same in a loop over N sort keys.
+
+3. **Null handling: nulls lose.** A null sort key never beats a real value. This matches RPSorter's `cmpByFields` behavior and becomes the sorter's null policy.
+
+4. **ASC/DESC toggle.** A single `int ascending` flag that flips the comparison direction — `ascending ? rc < 0 : rc > 0`. The sorter generalizes this to a bitmap for multi-key support.
+
+5. **`RSValue_Replace` for eviction.** When a better row arrives, `RSValue_Replace` handles the DecrRef-old + IncrRef-new atomically. The sorter's heap eviction uses the same lifecycle pattern, applied to each field in a `HeapEntry`.
+
+6. **`BlkAlloc` for per-group instances.** `fvCtx` is allocated via `BlkAlloc_Alloc` from the reducer's block allocator, reducing fragmentation across thousands of groups. The sorter's per-group state can use the same allocator.
+
+7. **Cleanup via DecrRef.** `fvFreeInstance` decrefs both `value` and `sortval`. The sorter extends this to all captured `RSValue *` pointers in each heap entry.
+
+**What FIRST_VALUE is NOT:**
+- No multi-key sort (single `sortprop` vs bitmap + array).
+- No bounded heap (single slot vs `mm_heap_t` of size K).
+- No dedup.
+- No wildcard payload (`TOLIST *`).
+- No doc ID tie-breaking.
+
+**Structural equivalence:** FIRST_VALUE is a **bounded heap of capacity K=1.** The sorter generalizes it to K = offset + count. The comparison logic, data access pattern, null handling, and lifecycle management are identical — only the container changes.
+
+---
+
 ## What the In-Group Sorter Needs
 
-The TOLIST in-group sorter is fundamentally different from both existing sorters because:
+The TOLIST in-group sorter is fundamentally different from both pipeline-level sorters, and is a generalization of FIRST_VALUE's approach:
 
-| Aspect | RPSorter | Coord Heap | TOLIST In-Group |
-|--------|----------|------------|-----------------|
-| **Operates on** | `SearchResult *` (pipeline row) | `searchResult *` (parsed reply) | Accumulated entries within a single reducer instance |
-| **Lifetime** | Exists as a pipeline node | Exists during coord merge | Lives inside the reducer's per-group state |
-| **Data available** | Full `RLookupRow` with all fields | Parsed strings/numbers | Captured RSValues (snapshot from `Add()` calls) |
-| **Multi-field sort** | Yes (up to 8) | No (single key) | Yes (up to 8, same as RPSorter) |
-| **Tie-break** | Doc ID via `SearchResult_GetDocId` | Doc ID string compare | Doc ID on shard; arbitrary on coordinator |
+| Aspect | RPSorter | Coord Heap | FIRST_VALUE | TOLIST In-Group |
+|--------|----------|------------|-------------|-----------------|
+| **Operates on** | `SearchResult *` (pipeline row) | `searchResult *` (parsed reply) | Captured `RSValue *` in per-group `fvCtx` | Captured `RSValue *` in per-group `HeapEntry` structs |
+| **Lifetime** | Exists as a pipeline node | Exists during coord merge | Lives inside reducer's per-group state | Lives inside reducer's per-group state |
+| **Data available** | Full `RLookupRow` with all fields | Parsed strings/numbers | Single payload + single sort key (IncrRef'd) | Multiple sort keys + payload (IncrRef'd) |
+| **Multi-field sort** | Yes (up to 8) | No (single key) | No (single key) | Yes (up to 8, same as RPSorter) |
+| **Capacity** | Bounded heap (offset + count) | Bounded heap | **1** (single best value) | Bounded heap (offset + count) |
+| **Tie-break** | Doc ID via `SearchResult_GetDocId` | Doc ID string compare | None | Doc ID on shard; arbitrary on coordinator |
 
 ### How `RLookupRow` Works (what the reducer receives)
 
@@ -255,14 +346,54 @@ The per-group instance:
 └──────────────────────────────────┘
 ```
 
-### Reuse Opportunity
+### No Early Capping: All Reducers Must See All Rows
 
-The **comparator logic** from `cmpByFields` can be simplified — instead of `RLookupRow_Get(key, &row)` per field, it's just `entry->sortvals[i]`. The `RSValue_Cmp` + ASC/DESC bitmap + null handling is identical.
+A critical constraint: **no reducer can cap the row stream before all reducers in the same GROUPBY have processed every row.**
 
-The **heap infrastructure** (`mm_heap_t`) is directly reusable.
+The Grouper feeds each incoming row to all reducers for that group. A TOLIST reducer's bounded heap (size K = offset + count) only bounds what *that specific reducer instance* retains — it does **not** limit the rows fed to sibling reducers. This matters because:
 
-The main new work is:
-1. **Capture logic in `Add()`** — snapshot payload + sort keys (via `IncrRef`) + doc ID into a heap entry.
-2. **Heap entry lifecycle** — `DecrRef` all captured RSValues when an entry is evicted or freed.
+1. **Multiple enhanced TOLIST reducers with different SORTBY/LIMIT** can coexist in the same GROUPBY. Each has its own heap with its own sort criteria and capacity. Reducer A's LIMIT of 3 must not prevent Reducer B (with LIMIT 10 and different sort keys) from seeing all rows.
+
+2. **TOLIST coexists with scalar reducers** (COUNT, MAX, MIN, SUM, COUNT_DISTINCT, FIRST_VALUE, etc.). Scalar reducers require *every* row to produce correct results — COUNT must count all rows, MAX must see all values.
+
+3. **This will become more important as more reducers gain in-group sorting.** If FIRST_VALUE or future reducers add their own SORTBY/LIMIT semantics, each instance must independently accumulate from the full input stream.
+
+**Implication for the heap:** The bounded heap is a per-reducer-instance optimization that limits *memory* within one reducer, not an *input filter*. The Grouper loop remains:
+
+```
+for each row in group:
+    for each reducer in group:
+        reducer->Add(row)    // every reducer sees every row
+```
+
+The heap eviction inside `Add()` (discard the worst entry when full) is strictly local to that reducer instance. The row continues to the next reducer regardless.
+
+**Verified empirically:** All combinations of multiple TOLIST + scalar reducers work correctly today (see [findings](../findings/multiple-reducers-coexistence-with-tolist.md)). The design must preserve this property.
+
+---
+
+### Reuse Opportunity — What Comes From Where
+
+The in-group sorter is a synthesis of three existing, proven pieces:
+
+**From FIRST_VALUE** (`src/aggregate/reducers/first_value.c`) — the data access and lifecycle pattern:
+- **`RLookupRow_Get` + `IncrRef` capture in `Add()`** — proven pattern for reading fields from the ephemeral row and retaining them across calls. The sorter does this in a loop over N sort keys instead of one.
+- **Separate return field vs sort field** — `retprop` ≠ `sortprop`. The sorter generalizes to `payload` vs `sortvals[]`.
+- **`RSValue_Replace` for eviction** — DecrRef old + IncrRef new when a better value arrives. The sorter applies this to heap entry replacement.
+- **Two-level struct pattern** — `FVReducer` (shared config) + `fvCtx` (per-group state). The sorter uses the same architecture with a heap replacing the single slot.
+- **`BlkAlloc` for per-group instances** — same allocator strategy.
+- **Null handling** — nulls lose, never beat a real value. Directly adopted.
+
+**From RPSorter** (`src/result_processor.c`) — the multi-key comparison and heap infrastructure:
+- **`mm_heap_t` bounded heap** — reused as-is, moved inside per-group state.
+- **Multi-key comparison with `RSValue_Cmp`** — same algorithm, but simplified: `entry->sortvals[i]` replaces `RLookupRow_Get(key, &row)`.
+- **ASC/DESC bitmap** (`sortAscMap`) — same `SORTASCMAP_GETASC` mechanism for multi-key direction control.
+
+**From current TOLIST** (`src/aggregate/reducers/to_list.c`) — the dedup infrastructure:
+- **`RSValueSet` dict type** — hash, compare, dup, destructor for `RSValue`. Reusable for the sorter's optional dedup dictionary.
+
+**The main new work is:**
+1. **Capture logic in `Add()`** — generalize FIRST_VALUE's single-field capture to snapshot payload + N sort keys (via `IncrRef`) + doc ID into a heap entry.
+2. **Heap entry lifecycle** — extend FIRST_VALUE's `RSValue_Replace`/`DecrRef` pattern to all captured `RSValue *` pointers in each heap entry on eviction or free.
 3. **Finalize** — extract from heap, sort, slice window, build output `RSValue` array from payloads.
 4. **Doc ID injection** — make doc ID available to the reducer (option 1 above or alternative).

@@ -1,0 +1,402 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Data Preparation
+# ══════════════════════════════════════════════════════════════════════════════
+
+HSET doc_1  fruit banana color yellow sweetness 5 origin ecuador
+HSET doc_2  fruit apple  color red    sweetness 4
+HSET doc_3  fruit banana color green  sweetness 3
+HSET doc_4  fruit orange color orange sweetness 4 season winter
+HSET doc_5  fruit apple  color green  sweetness 3
+HSET doc_6  fruit banana color yellow sweetness 4
+HSET doc_7  fruit grape  color purple sweetness 5 organic true
+HSET doc_8  fruit orange color yellow sweetness 2
+HSET doc_9  fruit grape  color green  sweetness 4
+HSET doc_10 fruit apple  color yellow sweetness 6
+HSET doc_11 fruit apple  color yellow sweetness 6  # identical payload to doc_10 (dedup demo)
+HSET doc_12 fruit apple  color yellow sweetness 6  # identical payload to doc_10 (dedup demo)
+
+FT.CREATE idx:fruits ON HASH SCHEMA fruit TEXT color TEXT sweetness NUMERIC SORTABLE
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Example 1 — Single field, no DEDUP, no SORTBY
+# All entries are retained, including duplicates.
+# Without SORTBY, the order of elements within a group is not guaranteed.
+# narg = 3: FIELDS 1 @fruit
+# ──────────────────────────────────────────────────────────────────────────────
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE COLLECT 3 FIELDS 1 @fruit AS fruits
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "fruits" =>
+            1) 1# "fruit" => "banana"     // doc_1
+            2) 1# "fruit" => "banana"     // doc_6 (duplicate retained — no DEDUP)
+            3) 1# "fruit" => "orange"     // doc_8
+            4) 1# "fruit" => "apple"      // doc_10
+            5) 1# "fruit" => "apple"      // doc_11 (duplicate retained)
+            6) 1# "fruit" => "apple"      // doc_12 (duplicate retained)
+            // Note: Without SORTBY, the order is not guaranteed.
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "fruits" =>
+            1) 1# "fruit" => "grape"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "fruits" =>
+            1) 1# "fruit" => "banana"
+            2) 1# "fruit" => "apple"
+            3) 1# "fruit" => "grape"
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "fruits" =>
+            1) 1# "fruit" => "apple"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "fruits" =>
+            1) 1# "fruit" => "orange"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Example 2 — Single field, DEDUP, no SORTBY
+# DEDUP removes entries with identical projected fields.
+# Without SORTBY there is no "best" to pick — first-seen wins.
+# narg = 4: FIELDS 1 @fruit DEDUP
+# ──────────────────────────────────────────────────────────────────────────────
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE COLLECT 4 FIELDS 1 @fruit DEDUP AS fruits
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "fruits" =>
+            1) 1# "fruit" => "banana"
+            2) 1# "fruit" => "orange"
+            3) 1# "fruit" => "apple"
+            // 6 docs → 3 unique fruits
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "fruits" =>
+            1) 1# "fruit" => "grape"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "fruits" =>
+            1) 1# "fruit" => "banana"
+            2) 1# "fruit" => "apple"
+            3) 1# "fruit" => "grape"
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "fruits" =>
+            1) 1# "fruit" => "apple"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "fruits" =>
+            1) 1# "fruit" => "orange"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Example 3 — Single field, DEDUP, SORTBY DESC
+# DEDUP compares only projected fields (@fruit).
+# When duplicates are found, the entry with the best sort key is kept.
+# banana(5) and banana(4) are duplicates — banana(5) wins.
+# narg = 8: FIELDS 1 @fruit DEDUP SORTBY 2 @sweetness DESC
+# ──────────────────────────────────────────────────────────────────────────────
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE COLLECT 8 FIELDS 1 @fruit DEDUP SORTBY 2 @sweetness DESC AS fruits
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "fruits" =>
+            1) 1# "fruit" => "apple"      // sweetness 6  (best of doc_10/11/12)
+            2) 1# "fruit" => "banana"     // sweetness 5  (best of doc_1=5, doc_6=4 → keeps 5)
+            3) 1# "fruit" => "orange"     // sweetness 2  (doc_8)
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "fruits" =>
+            1) 1# "fruit" => "grape"      // sweetness 5
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "fruits" =>
+            1) 1# "fruit" => "grape"      // sweetness 4
+            2) 1# "fruit" => "banana"     // sweetness 3
+            3) 1# "fruit" => "apple"      // sweetness 3
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "fruits" =>
+            1) 1# "fruit" => "apple"      // sweetness 4
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "fruits" =>
+            1) 1# "fruit" => "orange"     // sweetness 4
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Example 4 — Full payload (*), DEDUP, SORTBY DESC
+# Each entry is a nested map containing the full document.
+# DEDUP deep-compares the full payload. doc_10/11/12 are identical → deduped.
+# doc_1 and doc_6 differ (different sweetness, origin) → both kept.
+# narg = 8: FIELDS 1 * DEDUP SORTBY 2 @sweetness DESC
+# ──────────────────────────────────────────────────────────────────────────────
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE COLLECT 8 FIELDS 1 * DEDUP SORTBY 2 @sweetness DESC AS fruits
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "fruits" =>
+            1) 1# "*" =>                                               // sweetness 6 (doc_10; doc_11/12 deduped — identical payload)
+                  1# "fruit" => "apple"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "6"
+            2) 1# "*" =>                                               // sweetness 5 (doc_1 — unique payload, has origin)
+                  1# "fruit" => "banana"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "5"
+                  4# "origin" => "ecuador"
+            3) 1# "*" =>                                               // sweetness 4 (doc_6 — different payload from doc_1)
+                  1# "fruit" => "banana"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "4"
+            4) 1# "*" =>                                               // sweetness 2 (doc_8)
+                  1# "fruit" => "orange"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "2"
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "fruits" =>
+            1) 1# "*" =>
+                  1# "fruit" => "grape"
+                  2# "color" => "purple"
+                  3# "sweetness" => "5"
+                  4# "organic" => "true"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "fruits" =>
+            1) 1# "*" =>                                               // sweetness 4
+                  1# "fruit" => "grape"
+                  2# "color" => "green"
+                  3# "sweetness" => "4"
+            2) 1# "*" =>                                               // sweetness 3
+                  1# "fruit" => "banana"
+                  2# "color" => "green"
+                  3# "sweetness" => "3"
+            3) 1# "*" =>                                               // sweetness 3
+                  1# "fruit" => "apple"
+                  2# "color" => "green"
+                  3# "sweetness" => "3"
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "fruits" =>
+            1) 1# "*" =>
+                  1# "fruit" => "apple"
+                  2# "color" => "red"
+                  3# "sweetness" => "4"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "fruits" =>
+            1) 1# "*" =>
+                  1# "fruit" => "orange"
+                  2# "color" => "orange"
+                  3# "sweetness" => "4"
+                  4# "season" => "winter"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Example 5 — Full payload (*), DEDUP, SORTBY DESC, LIMIT
+# Top 2 entries per group.
+# narg = 11: FIELDS 1 * DEDUP SORTBY 2 @sweetness DESC LIMIT 0 2
+# ──────────────────────────────────────────────────────────────────────────────
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE COLLECT 11 FIELDS 1 * DEDUP SORTBY 2 @sweetness DESC LIMIT 0 2 AS top_fruits
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "top_fruits" =>
+            1) 1# "*" =>                                               // sweetness 6
+                  1# "fruit" => "apple"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "6"
+            2) 1# "*" =>                                               // sweetness 5
+                  1# "fruit" => "banana"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "5"
+                  4# "origin" => "ecuador"
+            // 3rd and 4th entries capped by LIMIT
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "top_fruits" =>
+            1) 1# "*" =>
+                  1# "fruit" => "grape"
+                  2# "color" => "purple"
+                  3# "sweetness" => "5"
+                  4# "organic" => "true"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "top_fruits" =>
+            1) 1# "*" =>                                               // sweetness 4
+                  1# "fruit" => "grape"
+                  2# "color" => "green"
+                  3# "sweetness" => "4"
+            2) 1# "*" =>                                               // sweetness 3
+                  1# "fruit" => "banana"
+                  2# "color" => "green"
+                  3# "sweetness" => "3"
+            // 3rd entry capped by LIMIT
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "top_fruits" =>
+            1) 1# "*" =>
+                  1# "fruit" => "apple"
+                  2# "color" => "red"
+                  3# "sweetness" => "4"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "top_fruits" =>
+            1) 1# "*" =>
+                  1# "fruit" => "orange"
+                  2# "color" => "orange"
+                  3# "sweetness" => "4"
+                  4# "season" => "winter"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Example 6 — @__key + full payload (*), DEDUP, SORTBY DESC, LIMIT
+# Each entry includes the Redis key alongside the full document map.
+# @__key in FIELDS makes every entry unique, so DEDUP has no effect.
+# narg = 12: FIELDS 2 @__key * DEDUP SORTBY 2 @sweetness DESC LIMIT 0 2
+# ──────────────────────────────────────────────────────────────────────────────
+
+FT.AGGREGATE idx:fruits *
+	LOAD *
+	GROUPBY 1 @color
+		REDUCE COLLECT 12 FIELDS 2 @__key * DEDUP SORTBY 2 @sweetness DESC LIMIT 0 2 AS top_fruits
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "top_fruits" =>
+            1) 1# "__key" => "doc_10"
+               2# "*" =>
+                  1# "fruit" => "apple"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "6"
+            2) 1# "__key" => "doc_11"                                  // NOT deduped — @__key makes it unique
+               2# "*" =>
+                  1# "fruit" => "apple"
+                  2# "color" => "yellow"
+                  3# "sweetness" => "6"
+            // doc_12 (also apple/6) didn't make it — heap is full with equal-rank entries
+            // doc_1 (banana/5), doc_6 (banana/4), doc_8 (orange/2) are strictly worse
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "top_fruits" =>
+            1) 1# "__key" => "doc_7"
+               2# "*" =>
+                  1# "fruit" => "grape"
+                  2# "color" => "purple"
+                  3# "sweetness" => "5"
+                  4# "organic" => "true"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "top_fruits" =>
+            1) 1# "__key" => "doc_9"
+               2# "*" =>
+                  1# "fruit" => "grape"
+                  2# "color" => "green"
+                  3# "sweetness" => "4"
+            2) 1# "__key" => "doc_3"
+               2# "*" =>
+                  1# "fruit" => "banana"
+                  2# "color" => "green"
+                  3# "sweetness" => "3"
+            // doc_5 (apple/3) capped by LIMIT
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "top_fruits" =>
+            1) 1# "__key" => "doc_2"
+               2# "*" =>
+                  1# "fruit" => "apple"
+                  2# "color" => "red"
+                  3# "sweetness" => "4"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "top_fruits" =>
+            1) 1# "__key" => "doc_4"
+               2# "*" =>
+                  1# "fruit" => "orange"
+                  2# "color" => "orange"
+                  3# "sweetness" => "4"
+                  4# "season" => "winter"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)

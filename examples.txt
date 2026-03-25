@@ -1,0 +1,270 @@
+HSET doc_1  fruit banana color yellow sweetness 5 origin ecuador
+HSET doc_2  fruit apple  color red    sweetness 4
+HSET doc_3  fruit banana color green  sweetness 3
+HSET doc_4  fruit orange color orange sweetness 4 season winter
+HSET doc_5  fruit apple  color green  sweetness 3
+HSET doc_6  fruit banana color yellow sweetness 4
+HSET doc_7  fruit grape  color purple sweetness 5 organic true
+HSET doc_8  fruit orange color yellow sweetness 2
+HSET doc_9  fruit grape  color green  sweetness 4
+HSET doc_10 fruit apple  color yellow sweetness 6
+
+# identical payload, different keys (for dedup demo)
+HSET doc_11 fruit apple  color yellow sweetness 6
+HSET doc_12 fruit apple  color yellow sweetness 6
+
+FT.CREATE idx:fruits ON HASH SCHEMA fruit TEXT color TEXT sweetness NUMERIC SORTABLE
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 1 @fruit
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "Fruit" =>
+            1) "apple"
+            2) "banana"
+            3) "orange"
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "Fruit" => 1) "grape"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "Fruit" =>
+            1) "apple"
+            2) "banana"
+            3) "grape"
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "Fruit" => 1) "apple"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "Fruit" => 1) "orange"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 2 @fruit ALLOWDUPS
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "Fruit" =>
+            1) "apple"
+            2) "banana"
+            3) "orange"
+            4) "banana" //duplicate
+            5) "apple"	//duplicate
+            6) "apple"	//duplicate
+            // Note: Without SORTBY, the order of elements in TOLIST is not guaranteed.
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "Fruit" => 1) "grape"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "Fruit" =>
+            1) "apple"
+            2) "banana"
+            3) "grape"
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "Fruit" => 1) "apple"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "Fruit" => 1) "orange"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 6 @fruit ALLOWDUPS SORTBY 2 @sweetness DESC
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "Fruit" =>
+            1) "apple"  // sweetness - 6
+            2) "apple"  // sweetness - 6
+            3) "apple"  // sweetness - 6
+            4) "banana" // sweetness - 5
+            5) "banana" // sweetness - 4
+            6) "orange" // sweetness - 2
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "Fruit" => 1) "grape"
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "Fruit" =>
+            1) "grape"
+            2) "banana"
+            3) "apple"
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "Fruit" => 1) "apple"
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "Fruit" => 1) "orange"
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 6 * ALLOWDUPS SORTBY 2 @sweetness DESC
+
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "Fruit" =>
+            1) ["fruit", "apple",  "color", "yellow", "sweetness", "6"]
+            2) ["fruit", "apple",  "color", "yellow", "sweetness", "6"]
+            3) ["fruit", "apple",  "color", "yellow", "sweetness", "6"]
+            4) ["fruit", "banana", "color", "yellow", "sweetness", "5", "origin", "ecuador"]
+            5) ["fruit", "banana", "color", "yellow", "sweetness", "4"]
+            6) ["fruit", "orange", "color", "yellow", "sweetness", "2"]
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "Fruit" =>
+            1) ["fruit", "grape", "color", "purple", "sweetness", "5", "organic", "true"]
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "Fruit" =>
+            1) ["fruit", "grape",  "color", "green", "sweetness", "4"]
+            2) ["fruit", "banana", "color", "green", "sweetness", "3"]
+            3) ["fruit", "apple",  "color", "green", "sweetness", "3"]
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "Fruit" =>
+            1) ["fruit", "apple", "color", "red", "sweetness", "4"]
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "Fruit" =>
+            1) ["fruit", "orange", "color", "orange", "sweetness", "4", "season", "winter"]
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 5 * SORTBY 2 @sweetness DESC
+
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "Fruit" =>
+            1) ["fruit", "apple",  "color", "yellow", "sweetness", "6"]  						// doc_10, doc_11, and doc_12
+            2) ["fruit", "banana", "color", "yellow", "sweetness", "5", "origin", "ecuador"]
+            3) ["fruit", "banana", "color", "yellow", "sweetness", "4"]
+            4) ["fruit", "orange", "color", "yellow", "sweetness", "2"]
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "Fruit" =>
+            1) ["fruit", "grape", "color", "purple", "sweetness", "5", "organic", "true"]
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "Fruit" =>
+            1) ["fruit", "grape",  "color", "green", "sweetness", "4"]
+            2) ["fruit", "banana", "color", "green", "sweetness", "3"]
+            3) ["fruit", "apple",  "color", "green", "sweetness", "3"]
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "Fruit" =>
+            1) ["fruit", "apple", "color", "red", "sweetness", "4"]
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "Fruit" =>
+            1) ["fruit", "orange", "color", "orange", "sweetness", "4", "season", "winter"]
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+
+
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 7 * SORTBY 2 @sweetness DESC LIMIT 0 2
+
+
+Response
+1# attributes => (empty array)
+2# format => STRING
+3# results =>
+   1) 1# extra_attributes =>
+         1# "color" => "yellow"
+         2# "Fruit" =>
+            1) ["fruit", "apple",  "color", "yellow", "sweetness", "6"]  						// doc_10, doc_11, and doc_12
+            2) ["fruit", "banana", "color", "yellow", "sweetness", "5", "origin", "ecuador"]
+            // 3rd and 4th results were capped
+      2# values => (empty array)
+   2) 1# extra_attributes =>
+         1# "color" => "purple"
+         2# "Fruit" =>
+            1) ["fruit", "grape", "color", "purple", "sweetness", "5", "organic", "true"]
+      2# values => (empty array)
+   3) 1# extra_attributes =>
+         1# "color" => "green"
+         2# "Fruit" =>
+            1) ["fruit", "grape",  "color", "green", "sweetness", "4"]
+            2) ["fruit", "banana", "color", "green", "sweetness", "3"]
+            // 3rd result was capped
+      2# values => (empty array)
+   4) 1# extra_attributes =>
+         1# "color" => "red"
+         2# "Fruit" =>
+            1) ["fruit", "apple", "color", "red", "sweetness", "4"]
+      2# values => (empty array)
+   5) 1# extra_attributes =>
+         1# "color" => "orange"
+         2# "Fruit" =>
+            1) ["fruit", "orange", "color", "orange", "sweetness", "4", "season", "winter"]
+      2# values => (empty array)
+4# total_results => (integer) 5
+5# warning => (empty array)
+
+

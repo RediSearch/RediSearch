@@ -1,0 +1,223 @@
+# Enhanced TOLIST — Examples
+# ==================================
+
+# ──────────────────────────────────────────────
+# DATASET SETUP
+# ──────────────────────────────────────────────
+
+HSET doc_1  fruit banana color yellow sweetness 5 origin ecuador
+HSET doc_2  fruit apple  color red    sweetness 4
+HSET doc_3  fruit banana color green  sweetness 3
+HSET doc_4  fruit orange color orange sweetness 4 season winter
+HSET doc_5  fruit apple  color green  sweetness 3
+HSET doc_6  fruit banana color yellow sweetness 4
+HSET doc_7  fruit grape  color purple sweetness 5 organic true
+HSET doc_8  fruit orange color yellow sweetness 2
+HSET doc_9  fruit grape  color green  sweetness 4
+HSET doc_10 fruit apple  color yellow sweetness 6
+
+# Identical payload, different keys (for dedup demo)
+HSET doc_11 fruit apple  color yellow sweetness 6
+HSET doc_12 fruit apple  color yellow sweetness 6
+
+FT.CREATE idx:fruits ON HASH SCHEMA fruit TEXT color TEXT sweetness NUMERIC SORTABLE
+
+# Note: Response arrays shown as ["k1", "v1", "k2", "v2", ...] represent
+# Redis RESP arrays (flat key-value pairs), not serialized array as a string.
+
+
+# ──────────────────────────────────────────────
+# EXAMPLE 1: Basic TOLIST @field (single field, deduplicated)
+# ──────────────────────────────────────────────
+#
+# Collects distinct values of @fruit per color group.
+# Default behavior — duplicates are removed.
+# Order within each list is NOT guaranteed.
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 3 @fruit AS Fruit
+
+# Response:
+# 1# attributes => (empty array)
+# 2# format => STRING
+# 3# results =>
+#    1) 1# extra_attributes =>
+#          1# "color" => "yellow"
+#          2# "Fruit" =>
+#             1) "apple"
+#             2) "banana"
+#             3) "orange"
+#       2# values => (empty array)
+#    2) 1# extra_attributes =>
+#          1# "color" => "purple"
+#          2# "Fruit" => 1) "grape"
+#       2# values => (empty array)
+#    3) 1# extra_attributes =>
+#          1# "color" => "green"
+#          2# "Fruit" =>
+#             1) "apple"
+#             2) "banana"
+#             3) "grape"
+#       2# values => (empty array)
+#    4) 1# extra_attributes =>
+#          1# "color" => "red"
+#          2# "Fruit" => 1) "apple"
+#       2# values => (empty array)
+#    5) 1# extra_attributes =>
+#          1# "color" => "orange"
+#          2# "Fruit" => 1) "orange"
+#       2# values => (empty array)
+# 4# total_results => (integer) 5
+# 5# warning => (empty array)
+
+
+# ──────────────────────────────────────────────
+# EXAMPLE 2: TOLIST @field + ALLOWDUPS
+# ──────────────────────────────────────────────
+#
+# Same as Example 1 but duplicates are preserved.
+# doc_10, doc_11, doc_12 all have fruit=apple, color=yellow
+# → "apple" appears 3 times in the yellow group.
+# Order is NOT guaranteed (no SORTBY).
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 4 @fruit ALLOWDUPS AS Fruit
+
+# Response (yellow group — others unchanged from Example 1):
+#    color=yellow | Fruit => ["apple", "banana", "orange", "banana", "apple", "apple"]
+#                                                          ^^^^^^^ duplicates preserved
+
+
+# ──────────────────────────────────────────────
+# EXAMPLE 3: TOLIST @field + ALLOWDUPS + SORTBY
+# ──────────────────────────────────────────────
+#
+# Duplicates preserved, sorted by @sweetness descending within each group.
+# Yellow group: apple(6) × 3, banana(5), banana(4), orange(2).
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 8 @fruit ALLOWDUPS SORTBY 2 @sweetness DESC AS Fruit
+
+# Response (yellow group):
+#    Fruit => ["apple",   // sweetness 6 (doc_10)
+#              "apple",   // sweetness 6 (doc_11)
+#              "apple",   // sweetness 6 (doc_12)
+#              "banana",  // sweetness 5 (doc_1)
+#              "banana",  // sweetness 4 (doc_6)
+#              "orange"]  // sweetness 2 (doc_8)
+
+
+# ──────────────────────────────────────────────
+# EXAMPLE 4: TOLIST * + ALLOWDUPS + SORTBY (full payload)
+# ──────────────────────────────────────────────
+#
+# Wildcard (*) collects the full payload (all loaded fields) per document.
+# ALLOWDUPS keeps all entries including documents with identical payloads.
+# Sorted by @sweetness descending.
+# Note: documents may have different numbers of fields (origin, season, organic).
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 8 * ALLOWDUPS SORTBY 2 @sweetness DESC AS Fruit
+
+# Response (yellow group):
+#    Fruit => [
+#      ["fruit", "apple",  "color", "yellow", "sweetness", "6"],
+#      ["fruit", "apple",  "color", "yellow", "sweetness", "6"],
+#      ["fruit", "apple",  "color", "yellow", "sweetness", "6"],
+#      ["fruit", "banana", "color", "yellow", "sweetness", "5", "origin", "ecuador"],
+#      ["fruit", "banana", "color", "yellow", "sweetness", "4"],
+#      ["fruit", "orange", "color", "yellow", "sweetness", "2"]
+#    ]
+#
+# Response (purple group):
+#    Fruit => [["fruit", "grape", "color", "purple", "sweetness", "5", "organic", "true"]]
+#
+# Response (green group):
+#    Fruit => [
+#      ["fruit", "grape",  "color", "green", "sweetness", "4"],
+#      ["fruit", "banana", "color", "green", "sweetness", "3"],
+#      ["fruit", "apple",  "color", "green", "sweetness", "3"]
+#    ]
+
+
+# ──────────────────────────────────────────────
+# EXAMPLE 5: TOLIST * + SORTBY (full payload, deduplicated)
+# ──────────────────────────────────────────────
+#
+# Without ALLOWDUPS → dedup by payload content.
+# doc_10, doc_11, doc_12 have identical payloads → collapsed to one entry.
+# Yellow group now has 4 entries instead of 6.
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 7 * SORTBY 2 @sweetness DESC AS Fruit
+
+# Response (yellow group):
+#    Fruit => [
+#      ["fruit", "apple",  "color", "yellow", "sweetness", "6"],           // doc_10/11/12 collapsed
+#      ["fruit", "banana", "color", "yellow", "sweetness", "5", "origin", "ecuador"],
+#      ["fruit", "banana", "color", "yellow", "sweetness", "4"],
+#      ["fruit", "orange", "color", "yellow", "sweetness", "2"]
+#    ]
+
+
+# ──────────────────────────────────────────────
+# EXAMPLE 6: TOLIST * + SORTBY + LIMIT (full payload, dedup, capped)
+# ──────────────────────────────────────────────
+#
+# LIMIT 0 2 → return at most 2 entries per group after sorting.
+# Yellow group had 4 distinct entries → capped to top 2 by sweetness.
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 10 * SORTBY 2 @sweetness DESC LIMIT 0 2 AS Fruit
+
+# Response (yellow group):
+#    Fruit => [
+#      ["fruit", "apple",  "color", "yellow", "sweetness", "6"],           // doc_10/11/12 collapsed
+#      ["fruit", "banana", "color", "yellow", "sweetness", "5", "origin", "ecuador"]
+#      // remaining entries capped by LIMIT
+#    ]
+#
+# Response (green group):
+#    Fruit => [
+#      ["fruit", "grape",  "color", "green", "sweetness", "4"],
+#      ["fruit", "banana", "color", "green", "sweetness", "3"]
+#      // remaining entry capped by LIMIT
+#    ]
+
+
+# ══════════════════════════════════════════════
+# FUTURE IDEAS (NOT part of current PRD/feature)
+# ══════════════════════════════════════════════
+#
+# The following is NOT in scope for the current delivery.
+# Included here as a reference for future discussion.
+#
+# Problem: TOLIST * returns the payload but not the Redis key.
+# Raymond James has an identifier inside the payload, so this works for them.
+# However, customers who use the Redis key as their entity identifier would
+# have no way to correlate grouped entries back to source documents.
+#
+# One possible future solution: an INCLUDE_KEY flag.
+# Dedup semantics with INCLUDE_KEY are TBD.
+# Response format is also TBD — two options shown below.
+
+
+# ──────────────────────────────────────────────
+# FUTURE EXAMPLE: TOLIST * + INCLUDE_KEY
+# ──────────────────────────────────────────────
+
+FT.AGGREGATE idx:fruits *
+	GROUPBY 1 @color
+		REDUCE TOLIST 12 * SORTBY 2 @sweetness DESC LIMIT 0 2 INCLUDE_KEY AS Fruit
+
+# Response format option A (nested payload):
+#    ["key", "doc_10", "payload", ["fruit", "apple", "color", "yellow", "sweetness", "6"]]
+#
+# Response format option B (flat, key prepended):
+#    ["key", "doc_10", "fruit", "apple", "color", "yellow", "sweetness", "6"]
