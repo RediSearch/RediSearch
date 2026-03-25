@@ -18,7 +18,7 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
-#include "iterators/inverted_index_iterator.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 #include "search_disk.h"
 #include "spec/spec.h"
 

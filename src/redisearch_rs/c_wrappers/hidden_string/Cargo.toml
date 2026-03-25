@@ -1,0 +1,20 @@
+[package]
+name = "hidden_string"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ffi.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+# Crate required to invoke C symbols
+redisearch_rs.workspace = true
+redis_mock.workspace = true

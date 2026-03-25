@@ -488,7 +488,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   IndexFlags flags = 0;
   int16_t numFields = 0;
   size_t narr = 0;
-
+  RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup_no_index);
   len = strlen(rawName);
   specName = NewHiddenString(rawName, len, true);
@@ -576,13 +576,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_ASSERT(disk_db);
     size_t len;
     const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
 
     sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, !useSst);
     IndexSpec_PopulateVectorDiskParams(sp);
     if (!sp->diskSpec) {
       goto cleanup;
     }
+    SearchDisk_RegisterIndex(ctx, sp->diskSpec);
   }
 
   // Load the disk-related index data if we are on disk and the save flow used
@@ -604,6 +604,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   return sp;
 
 cleanup:
+  if (sp->diskSpec) {
+    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
+  }
   StrongRef_Release(spec_ref);
 cleanup_no_index:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
@@ -664,6 +667,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
   }
+  RS_ASSERT(!SearchDisk_IsEnabled());
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
@@ -759,26 +763,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
                            formattedIndexName, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     StrongRef_Release(spec_ref);
     return NULL;
-  }
-
-  if (SearchDisk_IsEnabled()) {
-    RS_ASSERT(SearchDisk_IsInitialized());
-    size_t len;
-    const char* name = HiddenString_GetUnsafe(sp->specName, &len);
-    RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-
-    // Legacy RDB does not have SST persistence, so always delete before opening.
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, name, len, sp->rule->type, false);
-    // We do not call `SearchDisk_IndexSpecRdbLoad` since there cannot be disk-related
-    // data in this version of RDB (encver).
-    if (!sp->diskSpec) {
-      RedisModule_LogIOError(rdb, "warning",
-        "Could not open disk index");
-        StrongRef_Release(spec_ref);
-        return NULL;
-      }
-    // Populate diskCtx for vector fields now that diskSpec is available
-    IndexSpec_PopulateVectorDiskParams(sp);
   }
 
   // Start GC after diskSpec is available so the disk GC callback can use it immediately.

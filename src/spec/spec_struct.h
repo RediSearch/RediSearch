@@ -27,6 +27,7 @@ extern const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *
 extern RedisModuleType *IndexSpecType;
 extern struct Version redisVersion;
 extern struct Version rlecVersion;
+extern bool isEnterprise;
 extern bool isCrdt;
 extern bool isTrimming;
 extern bool isFlex;

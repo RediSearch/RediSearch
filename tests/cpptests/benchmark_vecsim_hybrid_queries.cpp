@@ -22,7 +22,6 @@
 #include "src/tokenize.h"
 #include "varint.h"
 #include "src/iterators/hybrid_reader.h"
-#include "src/iterators/inverted_index_iterator.h"
 #include "redisearch_rs/headers/iterators_rs.h"
 #include "src/iterators/union_iterator.h"
 
@@ -202,7 +201,7 @@ void SetUp() {
 
 void TearDown() {
     RMCK_Shutdown();
-    RediSearch_CleanupModule();
+    RediSearch_CleanupModule(NULL);
 }
 
 /**

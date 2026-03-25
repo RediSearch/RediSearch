@@ -8,6 +8,7 @@
 */
 #include "spec_info.h"
 #include "spec.h"
+#include "search_disk.h"
 #include "numeric_index.h"
 #include "tag_index.h"
 #include "trie/trie_type.h"
@@ -83,6 +84,12 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
   size_t text_overhead, size_t vector_overhead) {
   size_t res = 0;
+
+  // For disk indexes, add storage + in-memory components.
+  if (sp->diskSpec) {
+    res += SearchDisk_CollectIndexMetrics(sp->diskSpec);
+  }
+
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
   res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
@@ -191,8 +198,12 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
       RedisModule_InfoAddFieldCString(ctx, "identifier", path);
       RedisModule_InfoAddFieldCString(ctx, "attribute", name);
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "identifier", FieldSpec_FormatPath(fs, obfuscate));
-      RedisModule_InfoAddFieldCString(ctx, "attribute", FieldSpec_FormatName(fs, obfuscate));
+      const char *path = FieldSpec_FormatPath(fs, obfuscate);
+      const char *name = FieldSpec_FormatName(fs, obfuscate);
+      RedisModule_InfoAddFieldCString(ctx, "identifier", path);
+      RedisModule_InfoAddFieldCString(ctx, "attribute", name);
+      rm_free((void*)path);
+      rm_free((void*)name);
     }
 
     if (fs->options & FieldSpec_Dynamic)

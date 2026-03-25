@@ -25,8 +25,8 @@ void Backup_Globals() {
   IndexAlias_InitGlobal();
 }
 
-void Restore_Globals() {
-  Indexes_Free(specDict_g, false);
+void Restore_Globals(RedisModuleCtx *ctx) {
+  Indexes_Free(ctx, specDict_g, false);
   dictRelease(specDict_g);
   specDict_g = specDict_g_bkup;
   specDict_g_bkup = NULL;
@@ -42,7 +42,7 @@ void Restore_Globals() {
 
 
 
-void Discard_Globals_Backup() {
+void Discard_Globals_Backup(RedisModuleCtx *ctx) {
   // This is a temporary fix until we change functions to get pointer to lists
   // save global to temp
   dict *specDict_g_temp = specDict_g;
@@ -53,7 +53,7 @@ void Discard_Globals_Backup() {
   SchemaPrefixes_g = ScemaPrefixes_g_bkup;
   AliasTable_g = AliasTable_g_bkup;
   // clear data
-  Indexes_Free(specDict_g, false);
+  Indexes_Free(ctx, specDict_g, false);
   SchemaPrefixes_Free(SchemaPrefixes_g);
   IndexAlias_DestroyGlobal(&AliasTable_g);
   // restore global from temp

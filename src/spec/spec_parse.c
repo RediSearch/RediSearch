@@ -169,6 +169,7 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
+    SearchDisk_RegisterIndex(ctx, spec->diskSpec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -206,6 +207,9 @@ StrongRef IndexSpec_Parse(RedisModuleCtx *ctx, const HiddenString *name, const c
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
+  if (spec->diskSpec) {
+    SearchDisk_UnregisterIndex(ctx, spec->diskSpec);
+  }
   IndexSpec_RemoveFromGlobals(spec_ref, false);
   return INVALID_STRONG_REF;
 }

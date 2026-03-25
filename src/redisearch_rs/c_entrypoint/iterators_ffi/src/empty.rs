@@ -7,12 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IteratorType_EMPTY_ITERATOR, QueryIterator};
+use ffi::QueryIterator;
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::Empty;
 use rqe_iterators::interop::RQEIteratorWrapper;
 
 #[unsafe(no_mangle)]
 /// Creates a new empty iterator.
 pub extern "C" fn NewEmptyIterator() -> *mut QueryIterator {
-    RQEIteratorWrapper::boxed_new(IteratorType_EMPTY_ITERATOR, Empty)
+    RQEIteratorWrapper::boxed_new(IteratorType::Empty, Empty)
 }

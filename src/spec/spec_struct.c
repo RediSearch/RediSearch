@@ -21,6 +21,7 @@ RedisModuleType *IndexSpecType;
 
 Version redisVersion;
 Version rlecVersion;
+bool isEnterprise = false;
 bool isCrdt;
 bool isTrimming = false;
 bool isFlex = false;

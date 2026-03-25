@@ -13,6 +13,7 @@
 #include "spec/spec.h"
 #include "common.h"
 #include "module.h"
+#include "rlookup.h"
 
 #include <vector>
 

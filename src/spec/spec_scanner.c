@@ -532,8 +532,8 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 // RDB loading events
 //---------------------------------------------------------------------------------------------
 
-void Indexes_StartRDBLoadingEvent() {
-  Indexes_Free(specDict_g, false);
+void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx) {
+  Indexes_Free(ctx, specDict_g, false);
   if (legacySpecDict) {
     dictEmpty(legacySpecDict, NULL);
   } else {

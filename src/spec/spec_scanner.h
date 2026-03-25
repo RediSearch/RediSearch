@@ -69,7 +69,7 @@ void Indexes_ScanAndReindex(void);
 void ReindexPool_ThreadPoolDestroy(void);
 
 // This function is called in case the server starts RDB loading.
-void Indexes_StartRDBLoadingEvent(void);
+void Indexes_StartRDBLoadingEvent(RedisModuleCtx *ctx);
 
 // This function is called in case the server ends RDB loading.
 void Indexes_EndRDBLoadingEvent(RedisModuleCtx *ctx);

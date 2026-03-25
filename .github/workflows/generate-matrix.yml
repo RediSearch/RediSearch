@@ -110,13 +110,13 @@ jobs:
           for platform, architecture in filtered_combinations:
               add_matrix_entries(matrix_items, platform, architecture, 'test')
 
-          # Add coverage job if requested (only on ubuntu:default x86_64)
+          # Add coverage job if requested (only on ubuntu:latest x86_64)
           if include_coverage:
-              add_matrix_entries(matrix_items, 'ubuntu:default', 'x86_64', 'coverage')
+              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'coverage')
 
-          # Add sanitize job if requested (only on ubuntu:default x86_64)
+          # Add sanitize job if requested (only on ubuntu:latest x86_64)
           if include_sanitize:
-              add_matrix_entries(matrix_items, 'ubuntu:default', 'x86_64', 'sanitize')
+              add_matrix_entries(matrix_items, 'ubuntu:latest', 'x86_64', 'sanitize')
 
           # Check if matrix has any jobs
           has_jobs = len(matrix_items) > 0

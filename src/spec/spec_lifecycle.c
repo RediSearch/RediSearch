@@ -135,15 +135,14 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     TrieType_Free(spec->suffix);
   }
 
-  // Close disk index before freeing spec name (needs the name for tracking)
-  if (spec->diskSpec) SearchDisk_CloseIndex(NULL, spec->diskSpec);
-
-  // Free spec name (after disk close, which needs the name)
+  // Free spec name
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
 
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
+
+  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
 
   // Free spec struct
   rm_free(spec);

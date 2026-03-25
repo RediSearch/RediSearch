@@ -24,9 +24,12 @@ mod rs_value_ffi;
 pub use rs_value_ffi::*;
 
 pub mod collection;
+pub mod comparison;
+pub mod debug;
 pub mod hash;
 pub mod redis_string;
 pub mod rs_string;
+pub mod sds_writer;
 pub mod shared;
 pub mod trio;
 pub mod util;
@@ -56,17 +59,16 @@ pub enum RsValue {
 
 impl RsValue {
     pub fn fully_dereferenced_ref(&self) -> &Self {
-        if let RsValue::Ref(ref_value) = self {
-            ref_value.value().fully_dereferenced_ref()
-        } else {
-            self
+        match self {
+            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
+            _ => self,
         }
     }
 
     pub fn fully_dereferenced_ref_and_trio(&self) -> &Self {
         match self {
-            RsValue::Ref(ref_value) => ref_value.value().fully_dereferenced_ref_and_trio(),
-            RsValue::Trio(trio) => trio.left().value().fully_dereferenced_ref_and_trio(),
+            RsValue::Ref(ref_value) => ref_value.fully_dereferenced_ref_and_trio(),
+            RsValue::Trio(trio) => trio.left().fully_dereferenced_ref_and_trio(),
             _ => self,
         }
     }
@@ -93,12 +95,11 @@ impl RsValue {
             _ => None,
         }
     }
-}
 
-#[cfg(test)]
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
-#[cfg(test)]
-#[allow(non_upper_case_globals)]
-#[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
-    redis_mock::globals::redis_module_ctx();
+    pub const fn debug_formatter(&self, obfuscate: bool) -> debug::DebugFormatter<'_> {
+        debug::DebugFormatter {
+            value: self,
+            obfuscate,
+        }
+    }
+}

@@ -523,7 +523,7 @@ static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
-  RediSearch_CleanupModule();
+  RediSearch_CleanupModule(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
@@ -637,10 +637,10 @@ void ReplicaBackupCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t s
     Backup_Globals();
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE:
-    Restore_Globals();
+    Restore_Globals(ctx);
     break;
   case REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD:
-    Discard_Globals_Backup();
+    Discard_Globals_Backup(ctx);
     break;
   }
 }
@@ -708,7 +708,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
   case REDISMODULE_SUBEVENT_LOADING_RDB_START:
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
   case REDISMODULE_SUBEVENT_LOADING_REPL_START:
-    Indexes_StartRDBLoadingEvent();
+    Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
     RedisModule_Log(RSDummyContext, "notice", "Loading event started");
     break;

@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![expect(dead_code)]
-
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
@@ -143,7 +141,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
 /// 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewInvIndIterator_TagQuery_Rs(
+pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     idx: *const ffi::InvertedIndex,
     tag_idx: *const ffi::TagIndex,
     sctx: *const ffi::RedisSearchCtx,
@@ -212,5 +210,5 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery_Rs(
         ),
     };
 
-    RQEIteratorWrapper::boxed_new(ffi::IteratorType_INV_IDX_TAG_ITERATOR, iterator)
+    RQEIteratorWrapper::boxed_new(rqe_iterator_type::IteratorType::InvIdxTag, iterator)
 }

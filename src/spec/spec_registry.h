@@ -20,7 +20,7 @@
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
-void Indexes_Free(dict *d, bool deleteDiskData);
+void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
 size_t Indexes_Count();
 void Indexes_List(RedisModule_Reply *reply, bool obfuscate);
 
