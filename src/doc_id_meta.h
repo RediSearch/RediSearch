@@ -53,6 +53,40 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName,
 // Subscribe to persistence events to disable RDB save/load during BGSAVE/AOF rewrite.
 void DocIdMeta_SubscribePersistenceEvent(RedisModuleCtx *ctx);
 
+/*
+ * Track a dropped specId with a refcount equal to the number of keys
+ * that still carry a DocIdEntry for this specId.
+ * If refcount is 0, the entry is not added (no cleanup needed).
+ */
+void DocIdMeta_TrackDroppedSpecId(uint64_t specId, size_t refcount);
+
+/*
+ * Check if a specId belongs to a dropped index that is still being cleaned up.
+ */
+bool DocIdMeta_IsDroppedSpecId(uint64_t specId);
+
+/*
+ * Decrement the refcount for a dropped specId. When refcount reaches 0,
+ * the tracking entry is removed (all keys have been cleaned).
+ */
+void DocIdMeta_DecrDroppedRefcount(uint64_t specId);
+
+/*
+ * Clear all dropped specId tracking entries.
+ * Called on full RDB load and FLUSHDB.
+ */
+void DocIdMeta_ClearDroppedSpecIds(void);
+
+/*
+ * Save the dropped specIds set to RDB (auxiliary data).
+ */
+void DocIdMeta_DroppedSpecIdsRdbSave(RedisModuleIO *rdb);
+
+/*
+ * Load the dropped specIds set from RDB (auxiliary data).
+ */
+int DocIdMeta_DroppedSpecIdsRdbLoad(RedisModuleIO *rdb);
+
 // Functions exposed to ease unit testing
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver);
 void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta);

@@ -2117,6 +2117,13 @@ void IndexSpec_Free(IndexSpec *spec) {
 void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
 
+  // Track the dropped specId for stale DocIdMeta cleanup (disk mode only).
+  // Must be done before removing from specDict_g so the specId is still
+  // considered "live" until we register it as dropped.
+  if (SearchDisk_IsEnabled()) {
+    DocIdMeta_TrackDroppedSpecId(spec->specId, spec->numDocuments);
+  }
+
   // Remove spec from global index list
   dictDelete(specDict_g, (void*)spec->specName);
 
@@ -3624,6 +3631,14 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     }
   }
 
+  if (SearchDisk_IsEnabled()) {
+    // Load the dropped specIds tracking set (if present in this RDB version).
+    if (DocIdMeta_DroppedSpecIdsRdbLoad(rdb) != REDISMODULE_OK) {
+      RedisModule_LogIOError(rdb, "warning", "RDB Load: failed to load dropped specIds");
+      return REDISMODULE_ERR;
+    }
+  }
+
   // If we have indexes in the auxiliary data, we need to subscribe to the
   // keyspace notifications
   Initialize_KeyspaceNotifications();
@@ -3649,6 +3664,11 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   }
 
   dictReleaseIterator(iter);
+
+  if (SearchDisk_IsEnabled()) {
+    // Persist the dropped specIds tracking set.
+    DocIdMeta_DroppedSpecIdsRdbSave(rdb);
+  }
 }
 
 void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
@@ -3864,6 +3884,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   spec->stats.scoring.totalDocsLen -= docLen;
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
+  RS_LOG_ASSERT(spec->numDocuments > 0, "numDocuments cannot be negative");
+  spec->numDocuments--;
 
   // Increment the index's garbage collector's scanning frequency after document deletions
   if (spec->gc) {
@@ -3920,6 +3942,8 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
   spec->stats.scoring.totalDocsLen -= docLen;
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
+  RS_LOG_ASSERT(spec->numDocuments > 0, "numDocuments cannot be negative");
+  spec->numDocuments--;
 
   // Increment the index's garbage collector's scanning frequency after document deletions
   if (spec->gc) {
@@ -3954,6 +3978,9 @@ static void onFlush(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent
   if (specDict_g) {
     Indexes_Free(ctx, specDict_g, true);
     // specDict_g itself is not actually freed
+  }
+  if (SearchDisk_IsEnabled()) {
+    DocIdMeta_ClearDroppedSpecIds();
   }
   Dictionary_Clear();
   RSGlobalStats.totalStats.used_dialects = 0;
@@ -4327,6 +4354,7 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 
 void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   Indexes_Free(ctx, specDict_g, false);
+  DocIdMeta_ClearDroppedSpecIds();
   if (legacySpecDict) {
     dictEmpty(legacySpecDict, NULL);
   } else {

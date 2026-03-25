@@ -24,6 +24,118 @@ static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 // saving/loading DocIdMeta data while persistence is in progress.
 static bool docIdMetaPersistenceInProgress = false;
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Dropped SpecID tracking
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+typedef struct DroppedSpecEntry {
+  uint64_t specId;
+  uint64_t  refcount;  // number of keys still carrying this specId
+} DroppedSpecEntry;
+
+// Dict callbacks for DroppedSpecEntry (keyed by specId stored in the struct)
+static uint64_t droppedSpecEntryHash(const void *key) {
+  const DroppedSpecEntry *entry = key;
+  return entry->specId;
+}
+
+static int droppedSpecEntryCompare(void *privdata, const void *key1, const void *key2) {
+  DICT_NOTUSED(privdata);
+  const DroppedSpecEntry *e1 = key1;
+  const DroppedSpecEntry *e2 = key2;
+  return e1->specId == e2->specId;
+}
+
+static void droppedSpecEntryFree(void *privdata, void *val) {
+  DICT_NOTUSED(privdata);
+  rm_free(val);
+}
+
+static dictType droppedSpecDictType = {
+  .hashFunction = droppedSpecEntryHash,
+  .keyDup = NULL,
+  .valDup = NULL,
+  .keyCompare = droppedSpecEntryCompare,
+  .keyDestructor = NULL,
+  .valDestructor = droppedSpecEntryFree,
+};
+
+// Global dict: specId -> DroppedSpecEntry*
+static dict *droppedSpecIds_g = NULL;
+
+static void ensureDroppedSpecDict(void) {
+  if (!droppedSpecIds_g) {
+    droppedSpecIds_g = dictCreate(&droppedSpecDictType, NULL);
+  }
+}
+
+void DocIdMeta_TrackDroppedSpecId(uint64_t specId, size_t refcount) {
+  if (refcount == 0) return;  // No keys to clean up
+  ensureDroppedSpecDict();
+  DroppedSpecEntry *entry = rm_malloc(sizeof(DroppedSpecEntry));
+  entry->specId = specId;
+  entry->refcount = (int64_t)refcount;
+  dictAdd(droppedSpecIds_g, entry, entry);
+}
+
+bool DocIdMeta_IsDroppedSpecId(uint64_t specId) {
+  if (!droppedSpecIds_g) return false;
+  DroppedSpecEntry lookupKey = {.specId = specId, .refcount = 0};
+  return dictFind(droppedSpecIds_g, &lookupKey) != NULL;
+}
+
+void DocIdMeta_DecrDroppedRefcount(uint64_t specId) {
+  RS_ASSERT(droppedSpecIds_g);
+  DroppedSpecEntry lookupKey = {.specId = specId, .refcount = 0};
+  dictEntry *de = dictFind(droppedSpecIds_g, &lookupKey);
+  if (!de) return;
+  DroppedSpecEntry *entry = dictGetVal(de);
+  entry->refcount--;
+  if (entry->refcount == 0) {
+    dictDelete(droppedSpecIds_g, &lookupKey);
+  }
+}
+
+void DocIdMeta_ClearDroppedSpecIds(void) {
+  if (droppedSpecIds_g) {
+    dictEmpty(droppedSpecIds_g, NULL);
+  }
+}
+
+void DocIdMeta_DroppedSpecIdsRdbSave(RedisModuleIO *rdb) {
+  size_t count = dictSize(droppedSpecIds_g);
+  RedisModule_SaveUnsigned(rdb, count);
+  if (count == 0) return;
+
+  dictIterator *iter = dictGetIterator(droppedSpecIds_g);
+  dictEntry *de;
+  while ((de = dictNext(iter))) {
+    DroppedSpecEntry *entry = dictGetVal(de);
+    RedisModule_SaveUnsigned(rdb, entry->specId);
+    RedisModule_SaveUnsigned(rdb, (uint64_t)entry->refcount);
+  }
+  dictReleaseIterator(iter);
+}
+
+int DocIdMeta_DroppedSpecIdsRdbLoad(RedisModuleIO *rdb) {
+  ensureDroppedSpecDict();
+  size_t count = LoadUnsigned_IOError(rdb, goto cleanup);
+  for (size_t i = 0; i < count; i++) {
+    uint64_t specId = LoadUnsigned_IOError(rdb, goto cleanup);
+    uint64_t refcount = LoadUnsigned_IOError(rdb, goto cleanup);
+    if (refcount > 0) {
+      DroppedSpecEntry *entry = rm_malloc(sizeof(DroppedSpecEntry));
+      entry->specId = specId;
+      entry->refcount = (int64_t)refcount;
+      dictAdd(droppedSpecIds_g, entry, entry);
+    }
+  }
+  return REDISMODULE_OK;
+
+cleanup:
+  return REDISMODULE_ERR;
+}
+
 RedisModuleKeyMetaClassId DocIdMeta_GetClassId() {
   return docIdKeyMetaClassId;
 }
@@ -164,10 +276,16 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   // Load the number of entries
   size_t numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  // Load each entry (specId + docId)
+  // Load each entry (specId + docId), skipping stale entries from dropped indexes.
   for (size_t i = 0; i < numEntries; i++) {
     uint64_t specId = LoadUnsigned_IOError(rdb, goto cleanup);
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
+
+    // Skip entries belonging to dropped indexes (stale DocIdMeta cleanup).
+    if (DocIdMeta_IsDroppedSpecId(specId)) {
+      DocIdMeta_DecrDroppedRefcount(specId);
+      continue;
+    }
 
     // Create entry
     DocIdEntry *entry = rm_malloc(sizeof(DocIdEntry));
@@ -212,17 +330,47 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     return;
   }
 
-  // Save the version
-  RedisModule_SaveUnsigned(rdb, docIdMeta->version);
-
-  // Save the number of entries
-  RedisModule_SaveUnsigned(rdb, numEntries);
-
-  // Save each entry (specId + docId)
+  // First pass: count valid (non-stale) entries.
+  size_t validEntries = 0;
   dictIterator *iter = dictGetIterator(docIdMeta->entries);
   dictEntry *de;
   while ((de = dictNext(iter))) {
     DocIdEntry *entry = dictGetVal(de);
+    if (!DocIdMeta_IsDroppedSpecId(entry->specId)) {
+      validEntries++;
+    }
+  }
+  dictReleaseIterator(iter);
+
+  if (validEntries == 0) {
+    // All entries are stale — decrement refcounts and return without saving.
+    iter = dictGetIterator(docIdMeta->entries);
+    while ((de = dictNext(iter))) {
+      DocIdEntry *entry = dictGetVal(de);
+      if (DocIdMeta_IsDroppedSpecId(entry->specId)) {
+        DocIdMeta_DecrDroppedRefcount(entry->specId);
+      }
+    }
+    dictReleaseIterator(iter);
+    return;
+  }
+
+  // Save the version
+  RedisModule_SaveUnsigned(rdb, docIdMeta->version);
+
+  // Save the number of valid entries
+  RedisModule_SaveUnsigned(rdb, validEntries);
+
+  // Second pass: save valid entries, decrement refcount for stale ones.
+  // Each specId appears at most once per key, so decrementing one entry's
+  // refcount cannot affect the IsDroppedSpecId check for a different entry.
+  iter = dictGetIterator(docIdMeta->entries);
+  while ((de = dictNext(iter))) {
+    DocIdEntry *entry = dictGetVal(de);
+    if (DocIdMeta_IsDroppedSpecId(entry->specId)) {
+      DocIdMeta_DecrDroppedRefcount(entry->specId);
+      continue;
+    }
     RedisModule_SaveUnsigned(rdb, entry->specId);
     RedisModule_SaveUnsigned(rdb, entry->docId);
   }
@@ -248,6 +396,9 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
   };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, DOCID_META_CLASS_NAME, 1, &docIdKeyMetaClassIdConfig);
   RS_LOG_ASSERT(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
+
+  // Initialize the dropped specIds dictionary so it's always available.
+  ensureDroppedSpecDict();
 }
 
 static void DocIdMeta_PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,

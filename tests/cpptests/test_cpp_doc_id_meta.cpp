@@ -41,6 +41,9 @@ protected:
   }
 
   void TearDown() override {
+    // Clean up dropped specIds tracking state
+    DocIdMeta_ClearDroppedSpecIds();
+
     // Clean up KeyMeta storage
     RMCK_ClearKeyMetaStorage();
 
@@ -463,4 +466,250 @@ TEST_F(DocIdMetaTest, TestSingleElementRdbSaveLoad) {
   EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_ERR);
 
   RedisModule_FreeString(ctx, newKeyName);
+}
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// DroppedSpecEntry tracking tests
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+TEST_F(DocIdMetaTest, TestTrackDroppedSpecId_Basic) {
+  // Track a dropped specId with refcount 3
+  DocIdMeta_TrackDroppedSpecId(100, 3);
+
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(200));
+}
+
+TEST_F(DocIdMetaTest, TestTrackDroppedSpecId_ZeroRefcount) {
+  // Tracking with refcount 0 should be a no-op
+  DocIdMeta_TrackDroppedSpecId(100, 0);
+
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(100));
+}
+
+TEST_F(DocIdMetaTest, TestDecrDroppedRefcount_RemovesAtZero) {
+  DocIdMeta_TrackDroppedSpecId(100, 3);
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+
+  DocIdMeta_DecrDroppedRefcount(100);
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+
+  DocIdMeta_DecrDroppedRefcount(100);
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+
+  // Third decrement should bring refcount to 0 and remove the entry
+  DocIdMeta_DecrDroppedRefcount(100);
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(100));
+}
+
+TEST_F(DocIdMetaTest, TestDecrDroppedRefcount_NonExistent) {
+  // Decrementing a non-existent specId should be a no-op (no crash)
+  DocIdMeta_DecrDroppedRefcount(999);
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(999));
+}
+
+TEST_F(DocIdMetaTest, TestMultipleDroppedSpecs) {
+  DocIdMeta_TrackDroppedSpecId(100, 2);
+  DocIdMeta_TrackDroppedSpecId(200, 1);
+  DocIdMeta_TrackDroppedSpecId(300, 5);
+
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(200));
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(300));
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(400));
+
+  // Remove 200 (refcount was 1)
+  DocIdMeta_DecrDroppedRefcount(200);
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(200));
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(300));
+}
+
+TEST_F(DocIdMetaTest, TestClearDroppedSpecIds) {
+  DocIdMeta_TrackDroppedSpecId(100, 5);
+  DocIdMeta_TrackDroppedSpecId(200, 3);
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(200));
+
+  DocIdMeta_ClearDroppedSpecIds();
+
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(100));
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(200));
+}
+
+TEST_F(DocIdMetaTest, TestDroppedSpecIdsRdbSaveLoad) {
+  // Track some dropped specIds
+  DocIdMeta_TrackDroppedSpecId(100, 5);
+  DocIdMeta_TrackDroppedSpecId(200, 3);
+  DocIdMeta_TrackDroppedSpecId(300, 1);
+
+  // Save to RDB
+  DocIdMeta_DroppedSpecIdsRdbSave(rdbIO);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  // Clear and verify they're gone
+  DocIdMeta_ClearDroppedSpecIds();
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(100));
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(200));
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(300));
+
+  // Load from RDB
+  rdbIO->read_pos = 0;
+  int result = DocIdMeta_DroppedSpecIdsRdbLoad(rdbIO);
+  EXPECT_EQ(result, REDISMODULE_OK);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  // Verify they're restored
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(100));
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(200));
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(300));
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(400));
+}
+
+TEST_F(DocIdMetaTest, TestDroppedSpecIdsRdbSaveLoad_Empty) {
+  // Save with no dropped specs
+  DocIdMeta_DroppedSpecIdsRdbSave(rdbIO);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  // Load from RDB
+  rdbIO->read_pos = 0;
+  int result = DocIdMeta_DroppedSpecIdsRdbLoad(rdbIO);
+  EXPECT_EQ(result, REDISMODULE_OK);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(100));
+}
+
+TEST_F(DocIdMetaTest, TestRdbLoadSkipsStaleEntries) {
+  // Set up docId metadata for 3 specs on a key
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
+
+  // Get the metadata and save to RDB
+  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
+  uint64_t meta = 0;
+  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
+  EXPECT_NE(meta, 0);
+  RedisModule_CloseKey(testKey);
+
+  docIdMetaRDBSave(rdbIO, nullptr, &meta);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  // Now mark SPEC2_ID as dropped with refcount 1
+  DocIdMeta_TrackDroppedSpecId(SPEC2_ID, 1);
+  EXPECT_TRUE(DocIdMeta_IsDroppedSpecId(SPEC2_ID));
+
+  // Load from RDB — SPEC2_ID entry should be skipped
+  rdbIO->read_pos = 0;
+  uint64_t loadedMeta = 0;
+  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
+  EXPECT_EQ(result, REDISMODULE_OK);
+  EXPECT_NE(loadedMeta, 0);
+
+  // SPEC2_ID should have been cleaned (refcount decremented to 0, entry removed)
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(SPEC2_ID));
+
+  // Create a new key and attach the loaded metadata
+  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "stalekey", 8);
+  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
+  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
+  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
+  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
+  RedisModule_FreeString(ctx, fieldName);
+  RedisModule_FreeString(ctx, fieldValue);
+  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
+  RedisModule_CloseKey(newKey);
+
+  // SPEC1 and SPEC3 should be present, SPEC2 should be gone
+  uint64_t retrieved;
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 1001);
+
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 3003);
+
+  RedisModule_FreeString(ctx, newKeyName);
+}
+
+TEST_F(DocIdMetaTest, TestRdbSaveSkipsStaleEntries) {
+  // Set up docId metadata for 3 specs on a key
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC3_ID, 3003), REDISMODULE_OK);
+
+  // Mark SPEC2_ID as dropped with refcount 1
+  DocIdMeta_TrackDroppedSpecId(SPEC2_ID, 1);
+
+  // Get the metadata and save to RDB — should skip SPEC2_ID
+  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
+  uint64_t meta = 0;
+  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
+  EXPECT_NE(meta, 0);
+  RedisModule_CloseKey(testKey);
+
+  docIdMetaRDBSave(rdbIO, nullptr, &meta);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  // SPEC2_ID refcount should have been decremented to 0 and removed
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(SPEC2_ID));
+
+  // Load from RDB — should only have SPEC1 and SPEC3
+  rdbIO->read_pos = 0;
+  uint64_t loadedMeta = 0;
+  int result = docIdMetaRDBLoad(rdbIO, &loadedMeta, 1);
+  EXPECT_EQ(result, REDISMODULE_OK);
+  EXPECT_NE(loadedMeta, 0);
+
+  // Create a new key and attach the loaded metadata
+  RedisModuleString *newKeyName = RedisModule_CreateString(ctx, "savekey", 7);
+  RedisModuleKey *newKey = RedisModule_OpenKey(ctx, newKeyName, REDISMODULE_WRITE);
+  RedisModuleString *fieldName = RedisModule_CreateString(ctx, "field", 5);
+  RedisModuleString *fieldValue = RedisModule_CreateString(ctx, "value", 5);
+  RedisModule_HashSet(newKey, REDISMODULE_HASH_NONE, fieldName, fieldValue, NULL);
+  RedisModule_FreeString(ctx, fieldName);
+  RedisModule_FreeString(ctx, fieldValue);
+  EXPECT_EQ(RedisModule_SetKeyMeta(DocIdMeta_GetClassId(), newKey, loadedMeta), REDISMODULE_OK);
+  RedisModule_CloseKey(newKey);
+
+  // SPEC1 and SPEC3 should be present, SPEC2 should be gone
+  uint64_t retrieved;
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 1001);
+
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+
+  EXPECT_EQ(DocIdMeta_Get(ctx, newKeyName, SPEC3_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 3003);
+
+  RedisModule_FreeString(ctx, newKeyName);
+}
+
+TEST_F(DocIdMetaTest, TestRdbSaveAllStale_SavesNothing) {
+  // Set up docId metadata for a single spec
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+
+  // Mark it as dropped
+  DocIdMeta_TrackDroppedSpecId(SPEC1_ID, 1);
+
+  // Get the metadata and save to RDB — all entries are stale, should save nothing
+  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
+  uint64_t meta = 0;
+  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
+  EXPECT_NE(meta, 0);
+  RedisModule_CloseKey(testKey);
+
+  docIdMetaRDBSave(rdbIO, nullptr, &meta);
+  EXPECT_EQ(RMCK_IsIOError(rdbIO), 0);
+
+  // Refcount should have been decremented to 0
+  EXPECT_FALSE(DocIdMeta_IsDroppedSpecId(SPEC1_ID));
+
+  // The RDB buffer should have nothing to load (save returned early after
+  // finding 0 valid entries). Attempting to load should fail or produce empty.
+  // Since nothing was written, we can't call docIdMetaRDBLoad.
+  // Just verify the refcount cleanup happened.
 }
