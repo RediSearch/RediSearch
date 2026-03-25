@@ -200,7 +200,12 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
         kType = getDocType(kp);
         RedisModule_CloseKey(kp);
       }
-      if (kType != DocumentType_Unsupported) {
+      if (kType == DocumentType_Unsupported) {
+        // in crdt empty key means that key was deleted
+        // TODO:FIX
+        RS_ASSERT(!SearchDisk_IsEnabled());
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      } else {
         // in crdt empty key means that key was deleted (this is handled by the unlink callback)
         // todo: here we will open the key again, we can optimize it by
         //       somehow passing the key pointer
