@@ -815,8 +815,8 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryReplyCallback: no node or privdata");
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
+    RedisModule_ReplyWithError(ctx, "Internal error: no request context");
     return REDISMODULE_OK;
   }
 
@@ -845,7 +845,7 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    RedisModule_ReplyWithError(ctx, "Internal error: no request context");
     return REDISMODULE_OK;
   }
 
@@ -858,7 +858,7 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
     return REDISMODULE_OK;
   }

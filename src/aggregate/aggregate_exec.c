@@ -1401,7 +1401,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (!node || !node->privdata) {
     // Shouldn't happen, but handle gracefully
     RedisModule_Log(ctx, "warning", "QueryReplyCallback: no node or privdata");
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
+    RedisModule_ReplyWithError(ctx, "Internal error: no request context");
     return REDISMODULE_OK;
   }
 
@@ -1415,7 +1415,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
       QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
     } else {
-      RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
+      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
     return REDISMODULE_OK;
   }
