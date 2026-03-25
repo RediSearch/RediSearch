@@ -176,10 +176,6 @@ static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *
   return DocTable_Pop(t, s, n);
 }
 
-/* Remove a document from the table by its docId.
- * Returns the popped DMD or NULL if not found. The caller takes ownership. */
-RSDocumentMetadata *DocTable_PopById(DocTable *t, t_docId docId);
-
 static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const char *key) {
   t_docId id = DocTable_GetId(dt, key, strlen(key));
   if (id == 0) {
@@ -191,9 +187,6 @@ static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const
 /* Change name of document hash in the same spec without reindexing */
 int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
                      size_t to_len);
-
-/* Change name of document hash by docId (for disk case where dim is not used) */
-int DocTable_ReplaceById(DocTable *t, t_docId docId, const char *to_str, size_t to_len);
 
 /* increasing the ref count of the given dmd */
 /*

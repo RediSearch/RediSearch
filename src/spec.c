@@ -3853,17 +3853,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
       return;
     }
   } else {
-    RSDocumentMetadata *md = NULL;
-    if (SearchDisk_IsEnabled()) {
-      uint64_t docIdMeta;
-      if (DocIdMeta_Get(ctx, key, spec->specId, &docIdMeta) != REDISMODULE_OK) {
-        // Nothing to delete
-        return;
-      }
-      md = DocTable_PopById(&spec->docs, (t_docId)docIdMeta);
-    } else {
-      md = DocTable_PopR(&spec->docs, key);
-    }
+    RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
     if (!md) {
       // Nothing to delete
       return;
@@ -3921,26 +3911,14 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
   pthread_rwlock_wrlock(&spec->rwlock);
 
   uint32_t docLen = 0;
+  RS_ASSERT(isSpecOnDisk(spec));
+  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
 
-  if (isSpecOnDisk(spec)) {
-    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-      // Document not found on disk
-      IndexSpec_DecrActiveWrites(spec);
-      pthread_rwlock_unlock(&spec->rwlock);
-      return;
-    }
-  } else {
-    RSDocumentMetadata *md = DocTable_PopById(&spec->docs, docId);
-    if (!md) {
-      IndexSpec_DecrActiveWrites(spec);
-      pthread_rwlock_unlock(&spec->rwlock);
-      return;
-    }
-
-    RS_LOG_ASSERT(md->id == docId, "DocId mismatch between metadata and input");
-    docLen = md->docLen;
-    DMD_Return(md);
+  if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
+    // Document not found on disk
+    IndexSpec_DecrActiveWrites(spec);
+    pthread_rwlock_unlock(&spec->rwlock);
+    return;
   }
 
   // Update the stats
@@ -4202,8 +4180,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
         uint64_t docId;
         // After RENAME, the metadata lives on to_key (rename callback keeps it).
         if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
-          DocTable_ReplaceById(&spec->docs, docId, to_str, to_len);
-          // Metadata is already on to_key (kept by rename), no need to move it.
+          // TODO: Update Doc Table in disk from ID
         }
       } else {
         DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);

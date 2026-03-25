@@ -1365,7 +1365,7 @@ DEBUG_COMMAND(DocInfo) {
   if (SearchDisk_IsEnabled()) {
     uint64_t docId;
     if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &docId) == REDISMODULE_OK) {
-      dmd = DocTable_Borrow(&sctx->spec->docs, docId);
+      // TODO: get dmd from disk by ID
     }
   } else {
     dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);

@@ -371,56 +371,44 @@ void DocTable_Free(DocTable *t) {
   DocIdMap_Free(&t->dim);
 }
 
-// Internal helper: unchain, update stats, mark deleted
-static RSDocumentMetadata *DocTable_PopInternal(DocTable *t, t_docId docId) {
-  RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
-  if (!md) {
-    return NULL;
-  }
-
-  if (t->ttl && hasExpirationTimeInformation(md->flags)) {
-    TimeToLiveTable_Remove(t->ttl, md->id);
-    if (TimeToLiveTable_IsEmpty(t->ttl)) {
-      TimeToLiveTable_Destroy(&t->ttl);
-    }
-  }
-
-  // Assuming we already locked the spec for write, and we don't have multiple writers,
-  // all the next operations don't need to be atomic
-  md->flags |= Document_Deleted;
-
-  t->memsize -= sdsAllocSize(md->keyPtr);
-  if (!hasPayload(md->flags)) {
-    t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
-  } else {
-    t->memsize -= sizeof(RSDocumentMetadata);
-    t->memsize -= md->payload->len + sizeof(RSPayload);
-  }
-  if (md->sortVector) {
-    t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
-  }
-
-  --t->size;
-  // Move ownership of the metadata to the caller, without changing the ref count
-  return md;
-}
-
 RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
   t_docId docId = DocIdMap_Get(&t->dim, s, n);
 
   if (docId && docId <= t->maxDocId) {
-    RSDocumentMetadata *md = DocTable_PopInternal(t, docId);
-    if (md) {
-      DocIdMap_Delete(&t->dim, s, n);
+
+    RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
+    if (!md) {
+      return NULL;
     }
+
+    if (t->ttl && hasExpirationTimeInformation(md->flags)) {
+      TimeToLiveTable_Remove(t->ttl, md->id);
+      if (TimeToLiveTable_IsEmpty(t->ttl)) {
+        TimeToLiveTable_Destroy(&t->ttl);
+      }
+    }
+
+    // Assuming we already locked the spec for write, and we don't have multiple writers,
+    // all the next operations don't need to be atomic
+    md->flags |= Document_Deleted;
+
+    t->memsize -= sdsAllocSize(md->keyPtr);
+    if (!hasPayload(md->flags)) {
+      t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
+    } else {
+      t->memsize -= sizeof(RSDocumentMetadata);
+      t->memsize -= md->payload->len + sizeof(RSPayload);
+    }
+    if (md->sortVector) {
+      t->sortablesSize -= RSSortingVector_GetMemorySize(md->sortVector);
+    }
+
+    DocIdMap_Delete(&t->dim, s, n);
+    --t->size;
+    // Move ownership of the metadata to the caller, without changing the ref count
     return md;
   }
   return NULL;
-}
-
-RSDocumentMetadata *DocTable_PopById(DocTable *t, t_docId docId) {
-  RS_ASSERT(0 < docId <= t->maxDocId);
-  return DocTable_PopInternal(t, docId);
 }
 
 // Not thread safe. Assumes the caller has locked the spec for write
@@ -433,19 +421,6 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   DocIdMap_Delete(&t->dim, from_str, from_len);
   DocIdMap_Put(&t->dim, to_str, to_len, id);
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
-  t->memsize -= sdsAllocSize(dmd->keyPtr);
-  sdsfree(dmd->keyPtr);
-  dmd->keyPtr = sdsnewlen(to_str, to_len);
-  t->memsize += sdsAllocSize(dmd->keyPtr);
-  return REDISMODULE_OK;
-}
-
-// Not thread safe. Assumes the caller has locked the spec for write
-int DocTable_ReplaceById(DocTable *t, t_docId docId, const char *to_str, size_t to_len) {
-  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-  if (!dmd) {
-    return REDISMODULE_ERR;
-  }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);

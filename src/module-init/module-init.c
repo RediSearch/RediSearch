@@ -34,7 +34,6 @@
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
 #include "asm_state_machine.h"
-#include "doc_id_meta.h"
 
 #define DEPLETER_POOL_SIZE 4
 

@@ -281,9 +281,12 @@ int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    RSDocumentMetadata* md = SearchDisk_IsEnabled()
-      ? DocTable_PopById(&sp->docs, id)
-      : DocTable_Pop(&sp->docs, docKey, len);
+    RSDocumentMetadata* md = NULL;
+    if (SearchDisk_IsEnabled()) {
+      //TODO: get dmd from disk by ID
+    } else {
+      md = DocTable_Pop(&sp->docs, docKey, len);
+    }
     if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
       RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
