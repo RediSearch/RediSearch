@@ -11,8 +11,9 @@ use std::{
     mem::{self, ManuallyDrop},
     ops::Deref,
     ptr,
-    sync::Arc,
 };
+
+use triomphe::Arc;
 
 use crate::RsValue;
 

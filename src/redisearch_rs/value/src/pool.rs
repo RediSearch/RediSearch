@@ -8,7 +8,8 @@
 */
 
 use std::cell::RefCell;
-use std::sync::Arc;
+
+use triomphe::Arc;
 
 use crate::RsValue;
 
