@@ -263,7 +263,8 @@ jobs:
                   "aarch64": {
                       'container': 'amazonlinux:2023',
                       'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 ARM64'
+                      'name': 'Amazon Linux 2023 ARM64',
+                      'enable_lto': '1'
                   }
               },
               "mariner:2": {
