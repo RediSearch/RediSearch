@@ -37,9 +37,12 @@ typedef struct DocIdEntry {
   uint64_t docId;
 } DocIdEntry;
 
+#define DOCID_META_VERSION 0
+
 // DocIdMeta uses a hashmap keyed by specId
 struct DocIdMeta {
-  dict *entries;  // dict of specId -> DocIdEntry*
+  uint16_t version;  // Version of the DocIdMeta format, must be DOCID_META_VERSION
+  dict *entries;     // dict of specId -> DocIdEntry*
 };
 
 // Dict type callbacks for DocIdMeta entries
@@ -153,6 +156,11 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
   docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
 
+  // Load and validate the version
+  uint16_t version = LoadUnsigned_IOError(rdb, goto cleanup);
+  RS_LOG_ASSERT(version == DOCID_META_VERSION, "DocIdMeta: unexpected version in RDB load");
+  docIdMeta->version = version;
+
   // Load the number of entries
   size_t numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
 
@@ -203,6 +211,9 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   if (numEntries == 0) {
     return;
   }
+
+  // Save the version
+  RedisModule_SaveUnsigned(rdb, docIdMeta->version);
 
   // Save the number of entries
   RedisModule_SaveUnsigned(rdb, numEntries);
@@ -298,6 +309,7 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
 
   // Create new DocIdMeta
   docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
+  docIdMeta->version = DOCID_META_VERSION;
   docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
 
   DocIdEntry *entry = findOrCreateEntry(docIdMeta, specId, true);
@@ -316,6 +328,7 @@ static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
     return REDISMODULE_ERR;
   }
   struct DocIdMeta *docIdMeta = (struct DocIdMeta *)meta;
+  RS_LOG_ASSERT(docIdMeta->version == DOCID_META_VERSION, "DocIdMeta: unexpected version in Get");
   DocIdEntry *entry = findOrCreateEntry(docIdMeta, specId, false);
   if (!entry || entry->docId == DOCID_META_INVALID) {
     return REDISMODULE_ERR;
