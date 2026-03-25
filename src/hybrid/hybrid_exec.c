@@ -81,8 +81,8 @@ static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *e
 static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, HybridRequest *hybridRequest,
                                              bool internal) {
   const bool shouldReplyWithError =
-      ShouldReplyWithError(QUERY_ERROR_CODE_TIMED_OUT, hybridRequest->reqConfig.timeoutPolicy,
-                           IsProfile(hybridRequest));
+      ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, hybridRequest->reqConfig.timeoutPolicy,
+                                  IsProfile(hybridRequest));
 
   if (shouldReplyWithError) {
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !internal);
@@ -286,10 +286,11 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   if (QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
-    QueryError_ClearError(qctx->err);
   }
 
   replyWarningsWithSuffixes(reply, hreq, qctx, rc);
+  // Clear after replyWarningsWithSuffixes, which also reads qctx->err (for post-processing warnings)
+  QueryError_ClearError(qctx->err);
 
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 
@@ -447,9 +448,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
     QueryError err = QueryError_Default();
-    RedisSearchCtx *sctx = NULL;
-    rs_wall_clock_ns_t duration = 0;
-    double executionTime = 0.0;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
@@ -540,21 +538,16 @@ void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError
     RedisModule_Reply_ArrayEnd(reply);
 
     // warning
-    RedisModule_Reply_SimpleString(reply, "warnings");
+    RedisModule_ReplyKV_Array(reply, "warnings");
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
         QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-        RedisModule_Reply_Array(reply);
         RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
-        RedisModule_Reply_ArrayEnd(reply);
     } else if (QueryError_HasQueryOOMWarning(err)) {
         QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
-        RedisModule_Reply_Array(reply);
         // This function is called by Coordinator or SA
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
-        RedisModule_Reply_ArrayEnd(reply);
-    } else {
-        RedisModule_Reply_EmptyArray(reply);
     }
+    RedisModule_Reply_ArrayEnd(reply);
 
     // execution_time
     RedisModule_ReplyKV_Double(reply, "execution_time", 0.0);
@@ -1066,7 +1059,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   hybridRequest->profile = printHybridProfile;
   hybridRequest->tailPipeline->qctx.isProfile = profileOptions != EXEC_NO_FLAGS;
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
-  HybridPipelineParams hybridParams = {0};
 
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
@@ -1102,14 +1094,14 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   if (profileOptions != EXEC_NO_FLAGS) {
-    rs_wall_clock parseClock;
-    rs_wall_clock_init(&parseClock);
-    // Calculate the time elapsed for profileParseTime by using the initialized parseClock
-    hybridRequest->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&hybridRequest->profileClocks.initClock, &parseClock);
+    hybridRequest->profileClocks.profileParseTime = rs_wall_clock_elapsed_ns(&hybridRequest->profileClocks.initClock);
   }
 
   if (timeoutExhaustedBeforeExecution) {
-    return replyForHybridPreExecutionTimeout(ctx, hybridRequest, internal);
+    int rc = replyForHybridPreExecutionTimeout(ctx, hybridRequest, internal);
+    freeHybridParams(cmd.hybridParams);
+    DefaultCleanup(hybrid_ref);
+    return rc;
   }
 
   // Initialize timeout for all subqueries BEFORE building pipelines

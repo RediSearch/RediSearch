@@ -487,7 +487,7 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
 static int replyForPreExecutionTimeout(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv,
                                        int argc, ProfileOptions profileOptions, QueryError *status) {
   const bool shouldReplyWithError =
-      ShouldReplyWithError(QUERY_ERROR_CODE_TIMED_OUT, req->reqConfig.timeoutPolicy, IsProfile(req));
+      ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, req->reqConfig.timeoutPolicy, IsProfile(req));
 
   if (shouldReplyWithError) {
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -626,8 +626,15 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
+    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug).
+    // Exceptions:
+    // - return-strict: shard-originated timeouts (via RPNet/processWarningsAndCleanup)
+    //   are expected even when local timeout checks are skipped on the coordinator.
+    // - profile: ShouldReplyWithTimeoutError returns false for profile commands (timeout
+    //   becomes a warning, not an error), so the timeout legitimately reaches here.
+    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req)
+              || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict
+              || IsProfile(req));
 
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
@@ -823,8 +830,15 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
-    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug)
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req));
+    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug).
+    // Exceptions:
+    // - return-strict: shard-originated timeouts (via RPNet/processWarningsAndCleanup)
+    //   are expected even when local timeout checks are skipped on the coordinator.
+    // - profile: ShouldReplyWithTimeoutError returns false for profile commands (timeout
+    //   becomes a warning, not an error), so the timeout legitimately reaches here.
+    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req)
+              || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict
+              || IsProfile(req));
 
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT

@@ -392,6 +392,10 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
   SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
+  // Propagate skipTimeoutChecks from request to sctx.
+  // AREQ_Compile set req->skipTimeoutChecks before sctx existed, so the flag
+  // was not propagated. RPNet and startPipeline read from sctx->time.skipTimeoutChecks.
+  r->sctx->time.skipTimeoutChecks = r->skipTimeoutChecks;
   // r->sctx->expanded should be received from shards
 
   return REDISMODULE_OK;

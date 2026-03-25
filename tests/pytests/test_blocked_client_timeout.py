@@ -102,16 +102,6 @@ def wait_for_blocked_query_client(env, query, msg='Client for query not found', 
                 return client_id
             time.sleep(0.1)
 
-def wait_for_blocked_query_client_any(env, queries, msg='Client for query not found', timeout=30):
-    """Wait for a client to become blocked on any of the given query names."""
-    with TimeLimit(timeout, msg):
-        while True:
-            output = env.execute_command('CLIENT', 'LIST')
-            clients = parse_client_list(output)
-            for client in clients:
-                if client.get('cmd') in queries and 'b' in client.get('flags', ''):
-                    return client['id']
-            time.sleep(0.1)
 
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
@@ -289,33 +279,47 @@ class TestCoordinatorTimeout:
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
         ])
 
-    def _test_remaining_timeout_exhausted_before_shard_execution_impl(self, query_args,
-                                                                      blocked_query_names,
-                                                                      verify_result):
+    def _run_dispatch_timeout_scenario(self, query_args, on_timeout_policy,
+                                       t_target, t_args, verify_result=lambda: None):
+        """
+        Core helper: pause coordinator threads to simulate a long dispatch time, send a
+        query whose timeout budget will be exhausted before the coordinator thread picks
+        it up, then resume and verify the response.
+
+        A 50 ms global query timeout is set for the duration of the test.  The coordinator
+        thread pool is paused for 200 ms, guaranteeing the dispatch time exceeds the
+        budget regardless of scheduling jitter.
+
+        For 'return-strict' policy the coordinator eventually dispatches to shards; each
+        shard detects the exhausted budget via RequestConfig_ApplyCoordinatorElapsedTime
+        and returns empty results.  For 'fail' policy the coordinator's own blocked-client
+        timer fires first (after the per-query timeout) and replies with an error before
+        the coordinator thread is even awoken.
+        """
         env = self.env
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
-        query_result = []
 
         try:
-            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return').ok()
+            # Set the ON_TIMEOUT policy on the coordinator and all shard nodes,
+            # since shards use their own config for timeout policy decisions.
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy).ok()
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout_policy)
             env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1, {}),
                 'Timeout while waiting for coordinator threads to pause', timeout=30)
 
-            t_query = threading.Thread(
-                target=call_and_store,
-                args=(env.cmd, query_args, query_result),
-                daemon=True
-            )
+            t_query = threading.Thread(target=t_target, args=t_args, daemon=True)
             t_query.start()
 
-            wait_for_blocked_query_client_any(
+            wait_for_blocked_query_client(
                 env,
-                blocked_query_names,
-                f'Client for query {blocked_query_names} not found'
+                query_args[0],
+                f'Client for query {query_args[0]} not found'
             )
 
+            # Sleep well past the 50 ms query timeout so the dispatch time is guaranteed
+            # to exceed the budget regardless of scheduling jitter.
             time.sleep(0.2)
 
             env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
@@ -326,17 +330,81 @@ class TestCoordinatorTimeout:
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
 
-            env.assertEqual(len(query_result), 1, message="Expected 1 result from query thread")
-            verify_result(query_result[0])
+
+            verify_result()
         finally:
             if env.cmd(debug_cmd(), 'COORD_THREADS', 'IS_PAUSED') == 1:
                 env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
+    def _test_remaining_timeout_exhausted_before_shard_execution_impl(self, query_args,
+                                                                      verify_return_result,
+                                                                      verify_fail_result=None):
+        """
+        Test that a query whose entire timeout budget is consumed by coordinator dispatch
+        time is handled correctly for the 'fail' and 'return-strict' ON_TIMEOUT policies.
+
+        Timeout deduction is only applied for 'fail' and 'return-strict'; the standard
+        'return' policy does not adjust the timeout (backwards compatibility).
+
+        Dispatch time is simulated by pausing the coordinator thread pool (COORD_THREADS
+        PAUSE) and sleeping for 200 ms while the query has only a 50 ms timeout.
+
+        - 'return-strict' policy: the coordinator thread eventually dispatches to shards;
+          each shard detects the exhausted budget and returns empty results with a timeout
+          warning, without executing the query pipeline.
+        - 'fail' policy: the coordinator's own blocked-client timer fires after 50 ms
+          and returns a timeout error immediately, before the coordinator thread even
+          picks up the job.
+
+        For FT.PROFILE commands, the 'fail' policy behaves like 'return-strict': timeout
+        becomes a warning rather than an error. Use verify_fail_result to provide custom
+        verification for the fail scenario (e.g. for profile commands).
+        """
+        env = self.env
+
+        # Append TIMEOUT 50 to the query so shards receive it explicitly.
+        # This avoids relying on the global search-timeout config being propagated
+        # to each shard node.
+        query_args = list(query_args) + ['TIMEOUT', '50']
+
+        # 'return-strict' policy: shards detect exhausted budget → empty results + warning.
+        query_result = []
+        self._run_dispatch_timeout_scenario(
+            query_args, 'return-strict',
+            t_target=call_and_store, t_args=(env.cmd, query_args, query_result),
+            verify_result=lambda: (
+                env.assertEqual(len(query_result), 1,
+                                message="Expected exactly 1 result from query thread"),
+                verify_return_result(query_result[0])
+            )
+        )
+
+        if verify_fail_result is not None:
+            # Custom fail verification (e.g. for profile commands where timeout
+            # is a warning, not an error).
+            fail_result = []
+            self._run_dispatch_timeout_scenario(
+                query_args, 'fail',
+                t_target=call_and_store, t_args=(env.cmd, query_args, fail_result),
+                verify_result=lambda: (
+                    env.assertEqual(len(fail_result), 1,
+                                    message="Expected exactly 1 result from fail query thread"),
+                    verify_fail_result(fail_result[0])
+                )
+            )
+        else:
+            # 'fail' policy: coordinator-side timer fires → timeout error.
+            # run_cmd_expect_timeout handles the Redis error response internally.
+            self._run_dispatch_timeout_scenario(
+                query_args, 'fail',
+                t_target=run_cmd_expect_timeout, t_args=(env, query_args),
+            )
 
     def test_remaining_timeout_exhausted_before_shard_execution_search(self):
         self._test_remaining_timeout_exhausted_before_shard_execution_impl(
-            ['FT.SEARCH', 'idx', '*', 'TIMEOUT', '50'],
-            ['FT.SEARCH'],
+            ['FT.SEARCH', 'idx', '*'],
             lambda res: (
                 self.env.assertEqual(res['total_results'], 0, message="Expected 0 results"),
                 assert_timeout_warning(self.env, res, message="FT.SEARCH")
@@ -345,8 +413,7 @@ class TestCoordinatorTimeout:
 
     def test_remaining_timeout_exhausted_before_shard_execution_aggregate(self):
         self._test_remaining_timeout_exhausted_before_shard_execution_impl(
-            ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name', 'TIMEOUT', '50'],
-            ['FT.AGGREGATE'],
+            ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name'],
             lambda res: (
                 self.env.assertEqual(len(res['results']), 0, message="Expected 0 aggregate results"),
                 assert_timeout_warning(self.env, res, message="FT.AGGREGATE")
@@ -360,9 +427,7 @@ class TestCoordinatorTimeout:
                 'SEARCH', '*',
                 'VSIM', '@embedding', '$BLOB',
                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
-                'TIMEOUT', '50'
             ],
-            ['FT.HYBRID'],
             lambda res: (
                 self.env.assertEqual(res['total_results'], 0, message="Expected 0 hybrid results"),
                 assert_timeout_warning(self.env, res, message="FT.HYBRID")
@@ -371,8 +436,7 @@ class TestCoordinatorTimeout:
 
     def test_remaining_timeout_exhausted_before_shard_execution_profile_search(self):
         self._test_remaining_timeout_exhausted_before_shard_execution_impl(
-            ['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'TIMEOUT', '50'],
-            ['FT.PROFILE'],
+            ['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'],
             lambda res: (
                 self.env.assertContains('Results', res, message="Expected FT.PROFILE results"),
                 self.env.assertContains('Profile', res, message="Expected FT.PROFILE profile"),
@@ -382,15 +446,18 @@ class TestCoordinatorTimeout:
         )
 
     def test_remaining_timeout_exhausted_before_shard_execution_profile_aggregate(self):
+        # For FT.PROFILE, timeout is reported as a warning (not an error) even with
+        # 'fail' policy, so both scenarios verify results rather than expecting an error.
+        verify = lambda res: (
+            self.env.assertContains('Results', res, message="Expected FT.PROFILE results"),
+            self.env.assertContains('Profile', res, message="Expected FT.PROFILE profile"),
+            self.env.assertEqual(len(res['Results']['results']), 0, message="Expected 0 profiled aggregate results"),
+            assert_timeout_warning(self.env, res['Results'], message="FT.PROFILE AGGREGATE")
+        )
         self._test_remaining_timeout_exhausted_before_shard_execution_impl(
-            ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', '1', '@name', 'TIMEOUT', '50'],
-            ['FT.PROFILE'],
-            lambda res: (
-                self.env.assertContains('Results', res, message="Expected FT.PROFILE results"),
-                self.env.assertContains('Profile', res, message="Expected FT.PROFILE profile"),
-                self.env.assertEqual(len(res['Results']['results']), 0, message="Expected 0 profiled aggregate results"),
-                assert_timeout_warning(self.env, res['Results'], message="FT.PROFILE AGGREGATE")
-            )
+            ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', '1', '@name'],
+            verify_return_result=verify,
+            verify_fail_result=verify,
         )
 
     def test_remaining_timeout_exhausted_before_shard_execution_profile_hybrid(self):
@@ -400,9 +467,7 @@ class TestCoordinatorTimeout:
                 'SEARCH', '*',
                 'VSIM', '@embedding', '$BLOB',
                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
-                'TIMEOUT', '50'
             ],
-            ['FT.PROFILE'],
             lambda res: (
                 self.env.assertContains('Profile', res, message="Expected FT.PROFILE profile"),
                 self.env.assertEqual(res['total_results'], 0, message="Expected 0 profiled hybrid results"),

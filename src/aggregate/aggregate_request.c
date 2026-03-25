@@ -1143,10 +1143,9 @@ static bool IsNeededDepleter(AREQ *req) {
 // AREQ execution flags are not set when this function is called currently
 static bool shouldCheckInPipelineTimeout(AREQ *req) {
   // We should check for timeout in pipeline only if timeout is > 0
-  // and when the policy is RETURN or the policy is FAIL, without workers.
+  // and when the policy is RETURN or the policy is FAIL/RETURN-strict, without workers.
   return req->reqConfig.queryTimeoutMS > 0 &&
-         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return ||
-          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail && !RunInThread()));
+         (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return || !RunInThread());
 
 }
 

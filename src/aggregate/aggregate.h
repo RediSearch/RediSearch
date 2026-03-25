@@ -26,8 +26,6 @@
 
 #include "rmutil/rm_assert.h"
 
-#define NS_IN_MS 1000000ULL
-
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
@@ -597,27 +595,32 @@ static inline void AREQ_SetSkipTimeoutChecks(AREQ *req, bool skipTimeoutChecks) 
 
 static inline bool RequestConfig_ApplyCoordinatorElapsedTime(RequestConfig *reqConfig,
                                                              rs_wall_clock_ns_t coordinatorElapsedTime) {
+  // Only adjust the timeout for 'fail' and 'return-strict' policies.
+  // 'return' policy keeps the original timeout for backwards compatibility.
+  if (reqConfig->timeoutPolicy == TimeoutPolicy_Return) {
+    return false;
+  }
+
   if (reqConfig->queryTimeoutMS == 0) {
     return false;
   }
 
-  const unsigned long long elapsedMSRoundedUp =
-      ((unsigned long long)coordinatorElapsedTime + NS_IN_MS - 1) / NS_IN_MS;
+  const rs_wall_clock_ms_t elapsedMS = rs_wall_clock_convert_ns_to_ms(coordinatorElapsedTime);
 
-  if (elapsedMSRoundedUp >= (unsigned long long)reqConfig->queryTimeoutMS) {
-    reqConfig->queryTimeoutMS = 0;
+  if (elapsedMS >= (rs_wall_clock_ms_t)reqConfig->queryTimeoutMS) {
+    reqConfig->queryTimeoutMS = 1; // Avoid underflow, and reserved 0 for "no timeout"
     return true;
   }
 
-  reqConfig->queryTimeoutMS -= (long long)elapsedMSRoundedUp;
+  reqConfig->queryTimeoutMS -= (long long)elapsedMS;
   return false;
 }
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
-#ifdef __cplusplus
 #undef RS_Atomic
 
+#ifdef __cplusplus
 }
 #endif
 #endif
