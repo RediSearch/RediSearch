@@ -67,6 +67,11 @@ dict *legacySpecRules;
 // Pending or in-progress index drops
 uint16_t pendingIndexDropCount_g = 0;
 
+// Global monotonically increasing counter for unique spec incarnation IDs.
+// Each new IndexSpec gets the next value, ensuring that even if an index is
+// dropped and recreated with the same name, the new incarnation has a different ID.
+static uint64_t nextSpecId_g = 1;
+
 Version redisVersion;
 Version rlecVersion;
 bool isEnterprise = false;
@@ -2305,6 +2310,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
+  sp->specId = nextSpecId_g++;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
@@ -3274,6 +3280,9 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
       RedisSearchCtx_UnlockSpec(&sctx);
     }
   }
+
+  // Save the spec incarnation ID
+  RedisModule_SaveUnsigned(rdb, sp->specId);
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
@@ -3395,6 +3404,15 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
     if (SearchDisk_IndexSpecRdbLoad(rdb, sp->diskSpec) != REDISMODULE_OK) {
       goto cleanup;
+    }
+  }
+
+  // Load the spec incarnation ID
+  if (encver >= INDEX_SPEC_ID_VERSION) {
+    sp->specId = LoadUnsigned_IOError(rdb, goto cleanup);
+    // Ensure the global counter stays ahead of any loaded specId
+    if (sp->specId >= nextSpecId_g) {
+      nextSpecId_g = sp->specId + 1;
     }
   }
 
@@ -3836,7 +3854,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     size_t specNameLen;
     const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
     uint64_t docIdMeta;
-    if (DocIdMeta_Get(ctx, key, specName, specNameLen, &docIdMeta) != REDISMODULE_OK) {
+    if (DocIdMeta_Get(ctx, key, specName, specNameLen, spec->specId, &docIdMeta) != REDISMODULE_OK) {
       // Nothing to delete
       return;
     }
@@ -3849,7 +3867,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     id = md->id;
     docLen = md->docLen;
 
-    DocIdMeta_Delete(ctx, key, specName, specNameLen);
+    DocIdMeta_Delete(ctx, key, specName, specNameLen, spec->specId);
     DMD_Return(md);
   }
 
@@ -4181,7 +4199,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
       uint64_t docId;
       // After RENAME, the metadata lives on to_key (rename callback keeps it).
-      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, &docId) == REDISMODULE_OK) {
+      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, spec->specId, &docId) == REDISMODULE_OK) {
         DocTable_Replace(&spec->docs, docId, to_str, to_len);
         // Metadata is already on to_key (kept by rename), no need to move it.
       }
@@ -4195,9 +4213,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       size_t specNameLen;
       const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
       uint64_t docId;
-      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, &docId) == REDISMODULE_OK) {
+      if (DocIdMeta_Get(ctx, to_key, specName, specNameLen, spec->specId, &docId) == REDISMODULE_OK) {
         IndexSpec_DeleteDocById(spec, (t_docId)docId);
-        DocIdMeta_Delete(ctx, to_key, specName, specNameLen);
+        DocIdMeta_Delete(ctx, to_key, specName, specNameLen, spec->specId);
       }
     }
   }

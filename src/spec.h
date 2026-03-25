@@ -227,7 +227,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
   (Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_StoreNumeric | \
    Index_WideSchema)
 
-#define INDEX_CURRENT_VERSION 26
+#define INDEX_CURRENT_VERSION 27
+#define INDEX_SPEC_ID_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
 #define INDEX_INDEXALL_VERSION 24
@@ -299,6 +300,7 @@ typedef struct CharBuf {
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
+  uint64_t specId;                // Unique monotonically increasing ID for this spec incarnation
   FieldSpec *fields;              // Fields in the index schema
   int16_t numFields;              // Number of fields
   int16_t numSortableFields;      // Number of sortable fields

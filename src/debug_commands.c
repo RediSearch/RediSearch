@@ -766,7 +766,7 @@ DEBUG_COMMAND(DocIdToId) {
   size_t specNameLen;
   const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
   uint64_t docId;
-  if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, &docId) == REDISMODULE_OK) {
+  if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, sctx->spec->specId, &docId) == REDISMODULE_OK) {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, docId);
   } else {
     RedisModule_ReplyWithLongLong(sctx->redisCtx, 0);
@@ -1362,7 +1362,7 @@ DEBUG_COMMAND(DocInfo) {
     size_t specNameLen;
     const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
     uint64_t docId;
-    if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, &docId) == REDISMODULE_OK) {
+    if (DocIdMeta_Get(ctx, argv[3], specName, specNameLen, sctx->spec->specId, &docId) == REDISMODULE_OK) {
       dmd = DocTable_Borrow(&sctx->spec->docs, docId);
     }
   }
@@ -1546,7 +1546,7 @@ DEBUG_COMMAND(dumpHNSWData) {
 	  size_t specNameLen;
 	  const char *specName = HiddenString_GetUnsafe(sctx->spec->specName, &specNameLen);
 	  uint64_t doc_id;
-	  if (DocIdMeta_Get(ctx, argv[4], specName, specNameLen, &doc_id) != REDISMODULE_OK) {
+	  if (DocIdMeta_Get(ctx, argv[4], specName, specNameLen, sctx->spec->specId, &doc_id) != REDISMODULE_OK) {
 		  RedisModule_ReplyWithError(ctx, "The given key does not exist in index");
 		  goto cleanup;
 	  }

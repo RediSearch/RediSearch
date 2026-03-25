@@ -352,9 +352,7 @@ void DocTable_Free(DocTable *t) {
 }
 
 RSDocumentMetadata *DocTable_Pop(DocTable *t, t_docId docId) {
-  if (!docId || docId > t->maxDocId) {
-    return NULL;
-  }
+  RS_ASSERT(0 < docId <= t->maxDocId);
 
   RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
   if (!md) {
