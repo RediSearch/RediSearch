@@ -263,8 +263,8 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 }
 
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
-  RWLOCK_ACQUIRE_WRITE();
   RS_ASSERT(!SearchDisk_IsEnabled());
+  RWLOCK_ACQUIRE_WRITE();
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
   t_docId id = DocTable_GetId(&sp->docs, docKey, len);

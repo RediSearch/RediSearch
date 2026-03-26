@@ -882,7 +882,7 @@ cleanup:
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
 int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const HiddenString *expr,
                             int *result, QueryError *status) {
-
+  RS_ASSERT(!SearchDisk_IsEnabled());
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
   const RSDocumentMetadata *dmd = 0;
@@ -894,7 +894,6 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   ExprEval evaluator = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
-  RS_ASSERT(!SearchDisk_IsEnabled());
   dmd = (RSDocumentMetadata *)DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...

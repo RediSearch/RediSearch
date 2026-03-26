@@ -231,6 +231,7 @@ bool debugCommandsEnabled(RedisModuleCtx *ctx) {
  * be an array the same size of the ids list
  */
 int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -246,7 +247,6 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
-    RS_ASSERT(!SearchDisk_IsEnabled());
     if (DocTable_GetIdR(dt, argv[i]) == 0) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
@@ -270,6 +270,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
  * If referred docs are missing or not HASH keys, we simply reply with Null
  */
 int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -286,8 +287,6 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
-
-  RS_ASSERT(!SearchDisk_IsEnabled());
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
