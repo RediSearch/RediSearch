@@ -10,8 +10,8 @@
 #include "iterators/iterator_api.h"
 #include "iterators/not_iterator.h"
 #include "iterators/optional_iterator.h"
-#include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
+#include "iterators/union_iterator.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators/optimizer_reader.h"
 #include "iterators_rs.h"
@@ -404,10 +404,7 @@ void Profile_AddIters(QueryIterator **root) {
       break;
     }
     case INTERSECT_ITERATOR: {
-      IntersectionIterator *ii = (IntersectionIterator *)(*root);
-      for (int i = 0; i < ii->num_its; i++) {
-        Profile_AddIters(&(ii->its[i]));
-      }
+      ForEachIntersectionChildMut(*root, Profile_AddIters);
       break;
     }
     case WILDCARD_ITERATOR:
@@ -496,8 +493,6 @@ PRINT_PROFILE_FUNC(printUnionIt) {
 }
 
 PRINT_PROFILE_FUNC(printIntersectIt) {
-  const IntersectionIterator *ii = (const IntersectionIterator *)root;
-
   RedisModule_Reply_Map(reply);
 
   printProfileType("INTERSECT");
@@ -508,9 +503,11 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 
   printProfileCounters(counters);
 
+  size_t num_children = GetIntersectionIteratorNumChildren(root);
   RedisModule_ReplyKV_Array(reply, "Child iterators");
-    for (int i = 0; i < ii->num_its; i++) {
-      printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
+    for (size_t i = 0; i < num_children; i++) {
+      printIteratorProfile(reply, GetIntersectionIteratorChild(root, i),
+                           0, 0, depth + 1, limited, config);
     }
   RedisModule_Reply_ArrayEnd(reply);
 

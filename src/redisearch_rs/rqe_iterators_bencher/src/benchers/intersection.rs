@@ -20,7 +20,7 @@ use criterion::{
 };
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
+    IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
 };
 use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
 use query_term::RSQueryTerm;
@@ -29,7 +29,7 @@ use rqe_iterators::{
 };
 use rqe_iterators_test_utils::MockContext;
 
-use crate::ffi::{self, InvertedIndex as CInvertedIndex, IteratorStatus_ITERATOR_OK};
+use crate::ffi::{self, InvertedIndex as CInvertedIndex};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -38,13 +38,17 @@ pub struct Bencher;
 const NUM_CHILDREN: usize = 5;
 /// Size of each child iterator's ID list.
 const CHILD_SIZE: u64 = 100_000;
-/// Weight for intersection results.
-const WEIGHT: f64 = 1.0;
 /// Step size for skip_to benchmarks.
 const STEP: u64 = 100;
 
 /// Number of documents for slop/order benchmarks.
 const NUM_DOCS: u64 = 100_000;
+
+/// Weight applied to intersection iterators (neutral value that does not skew scoring).
+const WEIGHT: f64 = 1.0;
+
+/// Whether to prioritize union children during intersection child sorting.
+const PRIORITIZE_UNION_CHILDREN: bool = false;
 
 /// Mirrors `INDEX_DEFAULT_FLAGS` from `spec.h`, a realistic production configuration:
 /// - `StoreTermOffsets` is required for positional data; without it `max_slop`/`in_order`
@@ -259,24 +263,15 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C implementation benchmark
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_intersection(&make_ids(), WEIGHT),
-                |it| {
-                    while it.read() == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(make_ids())),
+                || {
+                    Intersection::new(
+                        ids_to_rust_children(make_ids()),
+                        WEIGHT,
+                        PRIORITIZE_UNION_CHILDREN,
+                    )
+                },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
                         black_box(current);
@@ -292,24 +287,15 @@ impl Bencher {
         M: Measurement,
         F: Fn() -> Vec<Vec<u64>>,
     {
-        // C implementation benchmark
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || ffi::QueryIterator::new_intersection(&make_ids(), WEIGHT),
-                |it| {
-                    while it.skip_to(it.last_doc_id() + STEP) == IteratorStatus_ITERATOR_OK {
-                        black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        // Rust implementation benchmark
         group.bench_function("Rust", |b| {
             b.iter_batched_ref(
-                || Intersection::new(ids_to_rust_children(make_ids())),
+                || {
+                    Intersection::new(
+                        ids_to_rust_children(make_ids()),
+                        WEIGHT,
+                        PRIORITIZE_UNION_CHILDREN,
+                    )
+                },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + STEP) {
                         black_box(current);
@@ -378,7 +364,13 @@ impl Bencher {
                     };
                     let children: Vec<Box<dyn RQEIterator<'_>>> =
                         vec![Box::new(first_iter), Box::new(second_iter)];
-                    Intersection::new_with_slop_order(children, max_slop, in_order)
+                    Intersection::new_with_slop_order(
+                        children,
+                        WEIGHT,
+                        PRIORITIZE_UNION_CHILDREN,
+                        max_slop,
+                        in_order,
+                    )
                 },
                 |it| {
                     while let Ok(Some(r)) = it.read() {

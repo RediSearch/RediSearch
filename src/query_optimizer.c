@@ -13,6 +13,7 @@
 #include "ext/default.h"
 #include "iterators/union_iterator.h"
 #include "iterators/intersection_iterator.h"
+#include "iterators_rs.h"
 
 /********************* Horrific hacks moved from index.c *********************/
 
@@ -67,14 +68,6 @@ void trimUnionIterator(QueryIterator *iter, size_t offset, size_t limit, bool as
     UI_SyncIterList(ui);
   }
   iter->Read = UI_ReadUnsorted;
-}
-
-void AddIntersectIterator(QueryIterator *parentIter, QueryIterator *childIter) {
-  RS_LOG_ASSERT(parentIter->type == INTERSECT_ITERATOR, "add applies to intersect iterators only");
-  IntersectionIterator *ii = (IntersectionIterator *)parentIter;
-  ii->num_its++;
-  ii->its = rm_realloc(ii->its, ii->num_its);
-  ii->its[ii->num_its - 1] = childIter;
 }
 
 /********************* End of horrific hacks moved from index.c *********************/
@@ -282,7 +275,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
 // creates an intersect from root and numeric
 static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   if (root->type == INTERSECT_ITERATOR) {
-    AddIntersectIterator(root, new);
+    AddIntersectionIteratorChild(root, new);
   } else {
     QueryIterator **its = rm_malloc(2 * sizeof(*its));
     its[0] = req->rootiter;

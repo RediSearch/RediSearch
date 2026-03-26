@@ -316,4 +316,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::Wildcard | IteratorType::InvIdxWildcard
         )
     }
+
+    fn as_c_iterator(&self) -> Option<&CRQEIterator> {
+        Some(self)
+    }
 }
