@@ -13,6 +13,7 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use sorting_vector::{IndexOutOfBounds, RSSortingVector};
+use value::shared::{SHARED_VALUE_CONTENT_SIZE, SHARED_VALUE_SIZE};
 use value::{RsValue, SharedRsValue};
 
 #[test]
@@ -99,14 +100,14 @@ fn memory_size() -> Result<(), IndexOutOfBounds> {
     let mut vec = RSSortingVector::new(1);
     vec.try_insert_num(0, 42.0)?;
     let size = vec.get_memory_size();
-    let expected_size = std::mem::size_of::<SharedRsValue>() + SharedRsValue::mem_size();
+    let expected_size = SHARED_VALUE_SIZE + SHARED_VALUE_CONTENT_SIZE;
     assert_eq!(size, expected_size);
 
     // test with more complex values
     let vector = build_vector()?;
     let size = vector.get_memory_size();
-    let expected_size = 4 * std::mem::size_of::<SharedRsValue>() // 4 RSValue pointers
-            + (3 * SharedRsValue::mem_size()) // 3 actually allocated RSValues (the 4th is a null)
+    let expected_size = 4 * SHARED_VALUE_SIZE // 4 RSValue pointers
+            + (3 * SHARED_VALUE_CONTENT_SIZE) // 3 actually allocated RSValues (the 4th is a null)
             + "abcdefg".len() // size of the string "abcdefg"
             + "Hello World".len(); // size of the string "Hello World"
 

@@ -17,12 +17,16 @@ use triomphe::Arc;
 
 use crate::RsValue;
 
-/// The total heap allocation size of an `RsValue` wrapped in a `triomphe::Arc`.
-pub const SHARED_VALUE_SIZE: usize = 32;
+/// The size of a `SharedRsValue`, which is simply a `triomphe::Arc` value/pointer.
+pub const SHARED_VALUE_SIZE: usize = size_of::<SharedRsValue>();
+
+/// The total heap allocation size of the `triomphe::Arc` inner struct.
+/// Since that struct is inaccessible/hidden, the size is calculated manually,
+/// which contains an `RsValue` and a `usize` atomic refcount.
+pub const SHARED_VALUE_CONTENT_SIZE: usize = size_of::<RsValue>() + size_of::<usize>();
 
 // Ensure the size doesn't increase unexpectedly.
-// The 8 bytes overhead is from the `triomphe::Arc` atomic refcount.
-const _: () = assert!(SHARED_VALUE_SIZE == size_of::<RsValue>() + size_of::<usize>());
+const _: () = assert!(SHARED_VALUE_CONTENT_SIZE == 32);
 
 /// A reference-counted, shared pointer to an [`RsValue`].
 ///
@@ -136,10 +140,6 @@ impl SharedRsValue {
 
     pub fn new_string(str: Vec<u8>) -> Self {
         Self::new(RsValue::new_string(str))
-    }
-
-    pub const fn mem_size() -> usize {
-        SHARED_VALUE_SIZE
     }
 }
 

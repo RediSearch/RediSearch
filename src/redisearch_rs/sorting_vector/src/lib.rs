@@ -15,6 +15,7 @@ use std::{
 
 use icu_casemap::CaseMapper;
 use value::SharedRsValue;
+use value::shared::{SHARED_VALUE_CONTENT_SIZE, SHARED_VALUE_SIZE};
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
 ///
@@ -127,14 +128,14 @@ impl RSSortingVector {
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
     /// as in C.
     pub fn get_memory_size(&self) -> usize {
-        let mut sz = self.values.len() * size_of::<SharedRsValue>();
+        let mut sz = self.values.len() * SHARED_VALUE_SIZE;
 
         for idx in 0..self.values.len() {
             if self.values[idx].is_null_static() {
                 continue;
             }
 
-            sz += SharedRsValue::mem_size();
+            sz += SHARED_VALUE_CONTENT_SIZE;
 
             // the original behavior would by-pass references in the middle of the chain
             // fixup in: MOD-10347
