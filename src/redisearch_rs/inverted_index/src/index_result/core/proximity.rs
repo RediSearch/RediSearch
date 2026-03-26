@@ -307,9 +307,6 @@ mod tests {
         }
     }
 
-    // For the C++ test mirror:
-    //   vw1 = {1, 9, 13, 16, 22} → deltas [1, 8, 4, 3, 6]
-    //   vw2 = {4, 7, 32}          → deltas [4, 3, 25]
     // Since all values < 128, varint bytes equal the delta values.
     static VW1_BYTES: [u8; 5] = [1, 8, 4, 3, 6];
     static VW2_BYTES: [u8; 3] = [4, 3, 25];
@@ -320,9 +317,8 @@ mod tests {
 
     // ── within_range_in_order ─────────────────────────────────────────────────
 
-    /// C-Code: Mirrors the C++ `testDistance` assertions for in-order checks.
     #[test]
-    fn in_order_mirrors_cpp_test() {
+    fn in_order() {
         // slop=0: no window of size 1+0 exists  → false
         assert!(!within_range_in_order(&mut make_vw_iters(), 0));
         // slop=1: need gap of ≤1 → false
@@ -336,7 +332,7 @@ mod tests {
 
     #[test]
     fn in_order_exact_consecutive() {
-        // positions: [3], [4] → span = 4-3-1 = 0 ≤ 0 → true at slop 0
+        // span = 4-3-1 = 0 ≤ 0 → true at slop 0
         static A: [u8; 1] = [3];
         static B: [u8; 1] = [4];
         let mut iters = [static_term_iter(&A), static_term_iter(&B)];
@@ -363,11 +359,9 @@ mod tests {
 
     // ── within_range_unordered ────────────────────────────────────────────────
 
-    /// C-Code: Mirrors the C++ `testDistance` assertions for unordered checks.
-    ///
     /// slop=1 returns true because the pair (vw1=9, vw2=7) has span = 9-7-1 = 1 ≤ 1.
     #[test]
-    fn unordered_mirrors_cpp_test() {
+    fn unordered() {
         assert!(!within_range_unordered(&mut make_vw_iters(), 0));
         assert!(within_range_unordered(&mut make_vw_iters(), 1));
         assert!(within_range_unordered(&mut make_vw_iters(), 2));
