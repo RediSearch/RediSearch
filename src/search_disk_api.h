@@ -169,17 +169,6 @@ typedef struct IndexDiskAPI {
   bool (*indexTags)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
   /**
-   * @brief Deletes a document by key, looking up its doc ID, removing it from the doc table and marking its ID as deleted
-   *
-   * @param handle Handle to the document table
-   * @param key Document key
-   * @param keyLen Length of the document key
-   * @param oldLen Optional pointer to receive the old document length (can be NULL)
-   * @param id Optional pointer to receive the deleted document ID (can be NULL)
-   */
-  void (*deleteDocument)(RedisSearchDiskIndexSpec* handle, const char* key, size_t keyLen, uint32_t *oldLen, t_docId *id);
-
-  /**
    * @brief Deletes a document by its doc ID directly, removing it from the doc table and marking its ID as deleted
    *
    * Used by the metadata unlink callback where the docId is already known
