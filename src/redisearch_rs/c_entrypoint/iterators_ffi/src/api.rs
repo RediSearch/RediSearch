@@ -17,6 +17,7 @@ use rqe_iterators::SearchEnterpriseIterators;
 /// The following safety conditions must be upheld by the caller:
 /// 1. `iters` must be a valid pointer to a heap-allocated instance of a type that implements the `SearchEnterpriseIterators` trait.
 /// 2. The caller must ensure it has the same version of the `SearchEnterpriseIterators` trait as this library.
+/// 3. This function should only be called once during the lifetime of the program. Any subsequent calls will result in a panic.
 #[unsafe(no_mangle)]
 #[expect(
     improper_ctypes_definitions,
@@ -25,7 +26,9 @@ use rqe_iterators::SearchEnterpriseIterators;
 pub unsafe extern "C" fn redisearch_init_iterators(iters: *mut dyn SearchEnterpriseIterators) {
     // Safety: See safety comment 1 and 2
     let boxed = unsafe { Box::from_raw(iters) };
-    let _ = SEARCH_ENTERPRISE_ITERATORS.set(boxed);
+    let _ = SEARCH_ENTERPRISE_ITERATORS.set(boxed).unwrap_or_else(|_| {
+        panic!("SEARCH_ENTERPRISE_ITERATORS is already initialized. This function should only be called once during the lifetime of the program.")
+    });
 }
 
 /// Get the global `SEARCH_ENTERPRISE_ITERATORS` instance.
