@@ -688,16 +688,9 @@ end:
 }
 
 int RediSearch_DocumentExists(RefManager* rm, const void* docKey, size_t len) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
   IndexSpec* sp = __RefManager_Get_Object(rm);
-  if (SearchDisk_IsEnabled()) {
-    RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
-    uint64_t docId;
-    int exists = (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK);
-    RedisModule_FreeString(RSDummyContext, keyName);
-    return exists;
-  } else {
-    return DocTable_GetId(&sp->docs, docKey, len) != 0;
-  }
+  return DocTable_GetId(&sp->docs, docKey, len) != 0;
 }
 
 RS_ApiIter* RediSearch_IterateQuery(RefManager* rm, const char* s, size_t n, char** error) {
