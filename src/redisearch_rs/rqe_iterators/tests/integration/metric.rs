@@ -300,7 +300,7 @@ fn key_mut_ref_initially_null() {
     assert!(it.key_mut_ref().is_null());
 }
 
-#[cfg(not(miri))]
+#[cfg_attr(miri, ignore)]
 #[test]
 fn set_handle_non_null_invalidates_on_drop() {
     use ffi::RLookupKeyHandle;

@@ -620,7 +620,7 @@ mod tests {
     }
 
     // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
-    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[cfg_attr(miri, ignore)] // uses strncmp under the hood for HiddenString
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache() {
         // setup:
@@ -659,7 +659,7 @@ mod tests {
         assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
     }
 
-    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[cfg_attr(miri, ignore)] // uses strncmp under the hood for HiddenString
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe() {
         // setup:
@@ -691,7 +691,7 @@ mod tests {
         assert!(retrieved_key.is_none());
     }
 
-    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[cfg_attr(miri, ignore)] // uses strncmp under the hood for HiddenString
     #[test]
     fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe_however_force_load() {
         // setup:

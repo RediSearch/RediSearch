@@ -381,7 +381,7 @@ fn test_hyperloglog6_small_precision() {
     );
 }
 
-#[cfg(not(miri))]
+#[cfg_attr(miri, ignore)]
 #[test]
 fn test_debug_repr() {
     let mut hll = HyperLogLog10::<u32, Murmur3Hasher>::default();

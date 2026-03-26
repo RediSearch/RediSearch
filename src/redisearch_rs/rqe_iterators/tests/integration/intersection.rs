@@ -147,7 +147,7 @@ fn read_test_case(num_children: usize, result_set: &[t_docId]) {
 // =============================================================================
 
 #[test]
-#[cfg(not(miri))] // Takes too long with Miri
+#[cfg_attr(miri, ignore)] // Takes too long with Miri
 fn skip_to_all_combinations() {
     for &num_children in NUM_CHILDREN_CASES {
         for &result_set in RESULT_SET_CASES {
@@ -156,7 +156,6 @@ fn skip_to_all_combinations() {
     }
 }
 
-#[cfg(not(miri))]
 fn skip_to_test_case(num_children: usize, result_set: &[t_docId]) {
     let children = create_children(num_children, result_set);
     let mut ii = Intersection::new(children, 1.0, false);
