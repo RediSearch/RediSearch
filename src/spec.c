@@ -4201,7 +4201,8 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
         uint64_t docId;
         // After RENAME, the metadata lives on to_key (rename callback keeps it).
         if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
-          // TODO: Update Doc Table in disk from ID
+          // Update the key name in the disk doc table
+          SearchDisk_ReplaceKey(spec->diskSpec, (t_docId)docId, to_str, to_len);
         }
       } else {
         DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);

@@ -224,6 +224,11 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
 }
 
+bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
+    RS_ASSERT(disk && handle);
+    return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
+}
+
 RedisSearchDiskAsyncReadPool SearchDisk_CreateAsyncReadPool(RedisSearchDiskIndexSpec *handle, uint16_t max_concurrent) {
     RS_ASSERT(disk && handle);
     return disk->docTable.createAsyncReadPool(handle, max_concurrent);

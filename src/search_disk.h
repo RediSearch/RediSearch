@@ -291,6 +291,21 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
+/**
+ * @brief Replace the key name in document metadata for a given document ID
+ *
+ * Used when a Redis key is renamed - updates the document metadata to reflect
+ * the new key name while keeping the same document ID and all other metadata
+ * unchanged.
+ *
+ * @param handle Handle to the document table
+ * @param docId Document ID whose key should be replaced
+ * @param newKey New key name
+ * @param newKeyLen Length of the new key
+ * @return true if the document was found and updated, false if not found or on error
+ */
+bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen);
+
 // Async Read Pool API
 
 /**

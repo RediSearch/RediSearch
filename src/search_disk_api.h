@@ -368,6 +368,21 @@ typedef struct DocTableDiskAPI {
    * @param pool Pool handle from createAsyncReadPool
    */
   void (*freeAsyncReadPool)(RedisSearchDiskAsyncReadPool pool);
+
+  /**
+   * @brief Replaces the key name in document metadata for a given document ID
+   *
+   * Used when a Redis key is renamed - updates the document metadata to reflect
+   * the new key name while keeping the same document ID and all other metadata
+   * (score, flags, expiration, etc.) unchanged.
+   *
+   * @param handle Handle to the document table
+   * @param docId Document ID whose key should be replaced
+   * @param newKey New key name
+   * @param newKeyLen Length of the new key
+   * @return true if the document was found and updated, false if not found or on error
+   */
+  bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {
