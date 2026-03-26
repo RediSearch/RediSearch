@@ -239,7 +239,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       // Store docId in key metadata for fast lookup
       size_t specNameLen;
       const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
-      DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId, specName, specNameLen);
+      int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId, specName, specNameLen);
+      //TODO: Review this here.
+      RS_ASSERT(rc == REDISMODULE_OK);
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,

@@ -298,7 +298,7 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .free_effort = NULL,
   };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, DOCID_META_CLASS_NAME, 1, &docIdKeyMetaClassIdConfig);
-  RS_LOG_ASSERT(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
+  RS_LOG_ASSERT_ALWAYS(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
 }
 
 static void DocIdMeta_PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
@@ -371,7 +371,13 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
   DocIdEntry *entry = findOrCreateEntry(docIdMeta, specId, true, specName, specNameLen);
   entry->docId = docId;
 
-  return RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)docIdMeta);
+  int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)docIdMeta);
+  if (result != REDISMODULE_OK) {
+    // Free allocated resources on failure
+    dictRelease(docIdMeta->entries);  // This also frees the DocIdEntry via valDestructor
+    rm_free(docIdMeta);
+  }
+  return result;
 }
 
 static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
