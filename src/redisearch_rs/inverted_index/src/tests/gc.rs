@@ -786,8 +786,7 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
-// the memory hack below raises error in miri
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
 #[test]
 fn test_refresh_buffer_pointers_after_reallocation() {
     use crate::IndexReader as _;
