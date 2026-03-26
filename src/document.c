@@ -940,6 +940,7 @@ done:
 }
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
+  RS_ASSERT(!SearchDisk_IsEnabled());
 #define BAIL(s)                                            \
   do {                                                     \
     QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, s); \
@@ -948,23 +949,15 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
   RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
-  if (SearchDisk_IsEnabled()) {
-    uint64_t docId;
-    if (DocIdMeta_Get(sctx->redisCtx, doc->docKey, sctx->spec->specId, &docId) != REDISMODULE_OK) {
-      BAIL("Couldn't load old document");
-    }
-    // TODO: Handle disk variant
-  } else {
-    t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
-    if (docId == 0) {
-      BAIL("Couldn't load old document");
-    }
-    md = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
+  t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
+  if (docId == 0) {
+    BAIL("Couldn't load old document");
   }
+  // Assumes we are under write lock
+  md = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
   if (!md) {
     BAIL("Couldn't load document metadata");
   }
-
   // Update the score
   md->score = doc->score;
   // Set the payload if needed
