@@ -239,7 +239,7 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
-rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 void RPProfile_IncrementCount(ResultProcessor *rp);
 

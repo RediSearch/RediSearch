@@ -1408,9 +1408,14 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   return &rpp->base;
 }
 
-rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp) {
-  RPProfile *self = (RPProfile *)rp;
-  return self->profileTime;
+rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp) {
+  if (rp->upstream && rp->upstream->type == RP_SAFE_DEPLETER) {
+    return RPSafeDepleter_GetDepletionTime(rp->upstream);
+  } else if (rp->upstream && rp->upstream->type == RP_DEPLETER) {
+    return RPDepleter_GetDepletionTime(rp->upstream);
+  } else {
+    return ((RPProfile *)rp)->profileTime;
+  }
 }
 
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {

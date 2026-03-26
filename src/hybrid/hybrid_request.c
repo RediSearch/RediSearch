@@ -79,11 +79,6 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
           ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
           QITR_PushRP(qctx, depleter);
-          if (isProfile) {
-            // Wrap the depleter with a Profile RP to match the expected end processor type
-            ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
-            QITR_PushRP(qctx, profileRP);
-          }
         } else {
           // Create a depleter processor for foreground depletion (WORKERS == 0)
           // This depletes all results synchronously on the main thread while
@@ -91,11 +86,11 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           // modified between cursor creation and first read.
           ResultProcessor *depleter = RPDepleter_New();
           QITR_PushRP(qctx, depleter);
-          if (isProfile) {
-            // Wrap the depleter with a Profile RP to match the expected end processor type
-            ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
-            QITR_PushRP(qctx, profileRP);
-          }
+        }
+        if (isProfile) {
+          // Wrap the depleter with a Profile RP to match the expected end processor type
+          ResultProcessor *profileRP = RPProfile_New(qctx->endProc, qctx);
+          QITR_PushRP(qctx, profileRP);
         }
     }
     if (depleteInBackground) {
