@@ -49,6 +49,7 @@ static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *resul
 
   // It will be released by the block allocator destruction, so we refer to it is a static string so
   // the value ref counter will not release it
+  RS_ASSERT(rv <= UINT32_MAX);
   RSValue_SetConstString(result, buf, rv);
   return EXPR_EVAL_OK;
 err:

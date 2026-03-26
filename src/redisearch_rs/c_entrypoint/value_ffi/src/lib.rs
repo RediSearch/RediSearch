@@ -7,13 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(non_camel_case_types, non_snake_case)]
+#![allow(unused_variables)]
 
 pub mod array;
+pub mod comparisons;
 pub mod constructors;
+pub mod conversions;
 pub mod getters;
+pub mod hash;
 pub mod map;
+pub mod sds;
 pub mod setters;
 pub mod shared;
 pub mod util;
 pub mod value_type;
+
+// TODO: This should export the size of const expr below instead
+// pub const RSValueSize: usize = std::mem::size_of::<RsValue>();
+#[allow(non_upper_case_globals)]
+pub const RSValueSize: usize = 16;

@@ -1787,6 +1787,7 @@ dependencies = [
  "toml",
  "triemap_ffi",
  "types_ffi",
+ "value_ffi",
  "varint_ffi",
  "walkdir",
  "workspace_hack",
@@ -2758,6 +2759,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "libc",
  "redis-module",
  "redis_mock",
  "thiserror",
@@ -2772,7 +2774,10 @@ dependencies = [
  "c_ffi_utils",
  "cbindgen",
  "ffi",
+ "fnv",
  "libc",
+ "query_error",
+ "redis_mock",
  "value",
  "workspace_hack",
 ]

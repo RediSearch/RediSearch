@@ -1197,6 +1197,7 @@ static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   if (RS_RESULT_OK == rc) {
     RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
     size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
+    RS_ASSERT(keyLen <= UINT32_MAX);
     RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
   }
   return rc;
