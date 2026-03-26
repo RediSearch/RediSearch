@@ -408,7 +408,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_without_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -444,7 +447,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_required_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -467,7 +473,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_excluded_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -491,7 +500,10 @@ mod tests {
 
     // historically this mix caused no items to be counted
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_required_and_excluded_flags_same() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -515,7 +527,10 @@ mod tests {
 
     // Without a rule we expect no filtering for special purpose keys like score, lang or payload
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_without_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
@@ -536,7 +551,10 @@ mod tests {
 
     // The rule is used to filter special purpose keys like score, lang or payload
     #[test]
-    #[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
     fn get_length_with_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
