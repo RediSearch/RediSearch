@@ -1727,6 +1727,18 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
+// Helper function to validate that trie-based query types are not used on disk indexes.
+// Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
+static int QueryNode_ValidateNotDiskUnsupported(QueryNodeType type, const char *queryTypeName,
+  IndexSpec *spec, QueryError *status) {
+  if (spec->diskSpec) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
+      "%s queries are not supported on Flex indexes", queryTypeName);
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
   // Check if this is the main vector node in a hybrid vector subquery
@@ -1792,19 +1804,25 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         res = REDISMODULE_ERR;
       }
       break;
+    case QN_PREFIX:
+      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Prefix", spec, status);
+      break;
+    case QN_WILDCARD_QUERY:
+      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Wildcard pattern", spec, status);
+      break;
+    case QN_FUZZY:
+      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Fuzzy", spec, status);
+      break;
+    case QN_LEXRANGE:
+      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Lexrange", spec, status);
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
-    case QN_PREFIX:
     case QN_IDS:
     case QN_WILDCARD:
-    case QN_WILDCARD_QUERY:
-    case QN_FUZZY:
-    case QN_LEXRANGE:
     case QN_GEOMETRY:
       break;
-    case QN_MAX:
-      RS_ABORT("Invalid query node type");
   }
 
   // Handle children
