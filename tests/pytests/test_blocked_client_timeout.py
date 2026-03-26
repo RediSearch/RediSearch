@@ -345,6 +345,9 @@ class TestCoordinatorTimeout:
         )
 
     def test_remaining_timeout_exhausted_before_shard_execution_hybrid(self):
+        def verify_return(env, args):
+            res = env.cmd(*args)
+            assert_timeout_warning(env, res, message=f"_FT.HYBRID return-strict, got: {res}")
         self._test_remaining_timeout_exhausted_before_shard_execution_impl(
             [
                 '_FT.HYBRID', 'hybrid_idx',
@@ -352,9 +355,7 @@ class TestCoordinatorTimeout:
                 'VSIM', '@embedding', '$BLOB',
                 'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
             ],
-            verify_return_result=lambda env, args: (
-                assert_timeout_warning(env, env.cmd(*args), message=f"_FT.HYBRID return-strict, got: {env.cmd(*args)}")
-            ),
+            verify_return_result=verify_return,
         )
 
     def _test_remaining_timeout_exhausted_before_shard_execution_profile_impl(self, internal_cmd_args):
