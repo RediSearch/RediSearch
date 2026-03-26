@@ -381,7 +381,10 @@ fn test_hyperloglog6_small_precision() {
     );
 }
 
-#[cfg_attr(miri, ignore)]
+#[cfg_attr(
+    miri,
+    ignore = "insta calls `open` which is not available under Miri isolation"
+)]
 #[test]
 fn test_debug_repr() {
     let mut hll = HyperLogLog10::<u32, Murmur3Hasher>::default();
