@@ -359,28 +359,27 @@ static int DocIdMeta_SetInternal(RedisModuleKey *key, uint64_t specId,
   uint64_t meta = 0;
   struct DocIdMeta *docIdMeta = NULL;
 
-  if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) == REDISMODULE_OK && meta != 0) {
+  if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
+    // Create new DocIdMeta
+    docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
+    docIdMeta->version = DOCID_META_VERSION;
+    docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
+
+    int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)docIdMeta);
+    if (result != REDISMODULE_OK) {
+      // Free allocated resources on failure
+      dictRelease(docIdMeta->entries);
+      rm_free(docIdMeta);
+      return result;
+    }
+  } else {
     docIdMeta = (struct DocIdMeta *)meta;
-    DocIdEntry *entry = findOrCreateEntry(docIdMeta, specId, true, specName, specNameLen);
-    entry->docId = docId;
-    return REDISMODULE_OK;
   }
 
-  // Create new DocIdMeta
-  docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
-  docIdMeta->version = DOCID_META_VERSION;
-  docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
-
+  // At this point, docIdMeta is a valid, initialized pointer
   DocIdEntry *entry = findOrCreateEntry(docIdMeta, specId, true, specName, specNameLen);
   entry->docId = docId;
-
-  int result = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, (uint64_t)docIdMeta);
-  if (result != REDISMODULE_OK) {
-    // Free allocated resources on failure
-    dictRelease(docIdMeta->entries);  // This also frees the DocIdEntry via valDestructor
-    rm_free(docIdMeta);
-  }
-  return result;
+  return REDISMODULE_OK;
 }
 
 static int DocIdMeta_GetInternal(RedisModuleKey *key, uint64_t specId,
