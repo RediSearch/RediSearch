@@ -1327,6 +1327,42 @@ DEBUG_COMMAND(VecsimInfo) {
 }
 
 /**
+ * FT.DEBUG VECSIM_SHRINK_INCOMING_EDGES <index> <field>
+ * Shrinks all incoming edges vectors in the HNSW index to reclaim unused memory.
+ * Returns the amount of memory saved in bytes.
+ */
+DEBUG_COMMAND(VecsimShrinkIncomingEdges) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2]);
+
+  FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
+  if (!fs) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Vector index not found");
+  }
+  VecSimIndex *vecsimIndex = openVectorIndex(fs, DONT_CREATE_INDEX);
+  if (!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Can't open vector index");
+  }
+
+  size_t memorySaved = 0;
+  VecSimDebugCommandCode res = VecSimDebug_ShrinkIncomingEdgesInHNSWGraph(vecsimIndex, &memorySaved);
+  SearchCtx_Free(sctx);
+
+  if (res != VecSimDebugCommandCode_OK) {
+    return RedisModule_ReplyWithError(ctx, "Index is not an HNSW index");
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, (long long)memorySaved);
+}
+
+/**
  * FT.DEBUG DEL_CURSORS
  * Deletes the local cursors of the shard.
 */
@@ -1346,6 +1382,7 @@ DEBUG_COMMAND(DeleteCursors) {
 
 void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 	int **neighbours_data = NULL;
+	int *incoming_edges_counts = NULL;
 	VecSimDebugCommandCode res = VecSimDebug_GetElementNeighborsInHNSWGraph(index, doc_id, &neighbours_data);
 	RedisModule_Reply reply = RedisModule_NewReply(ctx);
 	if (res == VecSimDebugCommandCode_LabelNotExists){
@@ -1353,20 +1390,31 @@ void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 		RedisModule_EndReply(&reply);
 		return;
 	}
+	// Also get incoming edges counts
+	VecSimDebug_GetElementIncomingEdgesInHNSWGraph(index, doc_id, &incoming_edges_counts);
+
 	START_POSTPONED_LEN_ARRAY(response);
 	REPLY_WITH_LONG_LONG("Doc id", (long long)doc_id, ARRAY_LEN_VAR(response));
 
 	size_t level = 0;
 	while (neighbours_data[level]) {
-		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 1);
+		// Output neighbors + incoming edges count for this level
+		RedisModule_ReplyWithArray(ctx, neighbours_data[level][0] + 2); // +2: header + incoming count
 		RedisModule_Reply_Stringf(&reply, "Neighbors in level %d", level);
 		for (size_t i = 0; i < neighbours_data[level][0]; i++) {
 			RedisModule_ReplyWithLongLong(ctx, neighbours_data[level][i + 1]);
+		}
+		// Add incoming edges count as last element
+		if (incoming_edges_counts && incoming_edges_counts[level] != -1) {
+			RedisModule_Reply_Stringf(&reply, "Incoming edges: %d", incoming_edges_counts[level]);
+		} else {
+			RedisModule_Reply_SimpleString(&reply, "Incoming edges: N/A");
 		}
     level++; ARRAY_LEN_VAR(response)++;
 	}
 	END_POSTPONED_LEN_ARRAY(response);
 	VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours_data);
+	VecSimDebug_ReleaseElementIncomingEdgesInHNSWGraph(incoming_edges_counts);
 	RedisModule_EndReply(&reply);
 }
 
@@ -2155,6 +2203,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"VECSIM_SHRINK_INCOMING_EDGES", VecsimShrinkIncomingEdges},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},

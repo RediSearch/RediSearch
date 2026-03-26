@@ -343,11 +343,12 @@ def testDumpHNSW(env):
         .contains("The given key does not exist in index")
 
     # Test valid scenarios - with and without specifying a specific document (dump for all if doc is not provided).
+    # Note: Each level array now includes incoming edges count at the end
     env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW', '_doc1').\
-        equal(['Doc id', 1, ['Neighbors in level 0', 2]])
+        equal(['Doc id', 1, ['Neighbors in level 0', 2, 'Incoming edges: 0']])
 
     env.expect(debug_cmd(), 'DUMP_HNSW', 'temp-idx', 'v_HNSW').\
-        equal([['Doc id', 1, ['Neighbors in level 0', 2]], ['Doc id', 2, ['Neighbors in level 0', 1]],
+        equal([['Doc id', 1, ['Neighbors in level 0', 2, 'Incoming edges: 0']], ['Doc id', 2, ['Neighbors in level 0', 1, 'Incoming edges: 0']],
                "Doc id 3 doesn't contain the given field"])
 
 @skip(cluster=False)
