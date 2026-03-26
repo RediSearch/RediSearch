@@ -1729,9 +1729,9 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 
 // Helper function to validate that trie-based query types are not used on disk indexes.
 // Returns REDISMODULE_ERR if the query type is not supported on disk indexes, REDISMODULE_OK otherwise.
-static int QueryNode_ValidateNotDiskUnsupported(QueryNodeType type, const char *queryTypeName,
+static int QueryNode_ValidateNotDiskUnsupported(const char *queryTypeName,
   IndexSpec *spec, QueryError *status) {
-  if (spec->diskSpec) {
+  if (SearchDisk_IsEnabledForValidation()) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_QUERY,
       "%s queries are not supported on Flex indexes", queryTypeName);
     return REDISMODULE_ERR;
@@ -1805,16 +1805,16 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_PREFIX:
-      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Prefix", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Prefix", spec, status);
       break;
     case QN_WILDCARD_QUERY:
-      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Wildcard pattern", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Wildcard pattern", spec, status);
       break;
     case QN_FUZZY:
-      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Fuzzy", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Fuzzy", spec, status);
       break;
     case QN_LEXRANGE:
-      res = QueryNode_ValidateNotDiskUnsupported(n->type, "Lexrange", spec, status);
+      res = QueryNode_ValidateNotDiskUnsupported("Lexrange", spec, status);
       break;
     case QN_NOT:
     case QN_OPTIONAL:
@@ -1823,6 +1823,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_WILDCARD:
     case QN_GEOMETRY:
       break;
+    case QN_MAX:
+      RS_ABORT("Invalid query node type");
   }
 
   // Handle children
@@ -1839,7 +1841,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 // Checks whether query nodes are valid
 // Currently Phrase nodes are checked whether slop/inorder are allowed
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (!q || !q->root ||
+  if (!q || !q->root) {
+    return REDISMODULE_OK;
+  }
+
+  // Always validate disk indexes (for unsupported query types like prefix/fuzzy/wildcard/lexrange)
+  // For non-disk indexes, skip validation if there's no TEXT/TAG field that doesn't index empty
+  // and no JSON spec with undefined order
+  if (!SearchDisk_IsEnabledForValidation() &&
       !(spec->flags & Index_HasNonEmpty) &&
       (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
   ) {
