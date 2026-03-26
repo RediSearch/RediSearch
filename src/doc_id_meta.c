@@ -178,15 +178,17 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
 
   // Load each entry (specName + specId + docId), skipping entries whose spec no longer exists.
+  char *specName = NULL;
   for (size_t i = 0; i < numEntries; i++) {
     size_t specNameLen = 0;
-    char *specName = LoadStringBuffer_IOError(rdb, &specNameLen, goto cleanup);
+    specName = LoadStringBuffer_IOError(rdb, &specNameLen, goto cleanup);
     uint64_t specId = LoadUnsigned_IOError(rdb, goto cleanup);
     uint64_t docId = LoadUnsigned_IOError(rdb, goto cleanup);
 
     // Skip entries belonging to indexes that are no longer in specDict_g (O(1) lookup).
     if (!findSpecByNameAndId(specName, specNameLen, specId)) {
       RedisModule_Free(specName);
+      specName = NULL;
       continue;
     }
 
@@ -198,6 +200,7 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     entry->specNameLen = specNameLen;
     entry->specName = rm_strndup(specName, specNameLen);
     RedisModule_Free(specName);
+    specName = NULL;
 
     dictAdd(docIdMeta->entries, entry, entry);
   }
@@ -206,6 +209,10 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   return REDISMODULE_OK;
 
 cleanup:
+  // Free specName if it was allocated before the IO error
+  if (specName) {
+    RedisModule_Free(specName);
+  }
   if (docIdMeta) {
     if (docIdMeta->entries) {
       dictRelease(docIdMeta->entries);
