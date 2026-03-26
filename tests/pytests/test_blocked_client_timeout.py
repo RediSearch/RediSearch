@@ -967,8 +967,8 @@ class TestCoordinatorReducePause:
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
 
-        # Set pause after last result (N=-1)
-        setPauseBeforeReduce(env, -1)
+        # Set pause after last result
+        setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 
@@ -1073,7 +1073,7 @@ class TestCoordinatorReducePause:
 
         # Pause right after the background reducer claims reducing so timeout
         # will wait for it, then force the reducer to take the timed-out early exit.
-        setPauseBeforeReduce(env, -2)
+        setPauseBeforeReduce(env, PAUSE_BEFORE_REDUCER_INIT)
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 
@@ -1185,7 +1185,7 @@ class TestCoordinatorReducePause:
         before_info = info_modules_to_dict(env)
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
-        setPauseBeforeReduce(env, -1)
+        setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
 
         blocked_client_id = env.cmd('CLIENT', 'ID')
 

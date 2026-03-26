@@ -3291,7 +3291,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
   // Debug-only hook to pause after claiming reducing but before reducer setup.
   // This lets tests force the timeout race where the background reducer exits
   // before initializing req->rctx.
-  if (CoordReduceDebugCtx_GetPauseBeforeN() == -2) {
+  if (CoordReduceDebugCtx_GetPauseBeforeN() == COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT) {
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
       if (MRCtx_IsTimedOut(mc)) {
@@ -3410,7 +3410,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies, b
 
 #ifdef ENABLE_ASSERT
   // Handle N=-1: pause after the last result is reduced
-  if (CoordReduceDebugCtx_GetPauseBeforeN() == -1) {
+  if (CoordReduceDebugCtx_GetPauseBeforeN() == COORD_REDUCE_PAUSE_AFTER_LAST_RESULT) {
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
       // Check if timed out - break to avoid deadlock with timeout callback
