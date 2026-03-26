@@ -368,12 +368,6 @@ typedef struct IndexSpec {
 
   // Disk index handle (NULL for memory-only indexes)
   RedisSearchDiskIndexSpec *diskSpec;
-
-  // Authoritative count of indexed documents.
-  // Incremented on every successful document indexing, decremented on every
-  // document deletion. Used as the refcount when tracking dropped specIds
-  // for stale DocIdMeta cleanup.
-  size_t numDocuments;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

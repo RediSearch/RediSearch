@@ -146,8 +146,6 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       // Update stats of the index only if the document was there
       RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
       --spec->stats.scoring.numDocuments;
-      RS_LOG_ASSERT(spec->numDocuments > 0, "numDocuments cannot be negative");
-      --spec->numDocuments;
       RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= dmd->docLen, "totalDocsLen is smaller than dmd->docLen");
       spec->stats.scoring.totalDocsLen -= dmd->docLen;
       *updated = true;
@@ -178,7 +176,6 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   if (dmd) {
     doc->docId = dmd->id;
     ++spec->stats.scoring.numDocuments;
-    ++spec->numDocuments;
   }
 
   return dmd;
@@ -232,8 +229,6 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         // We deleted a document in the above call, update the stats accordingly
         RS_ASSERT(spec->stats.scoring.numDocuments > 0);
         spec->stats.scoring.numDocuments--;
-        RS_ASSERT(spec->numDocuments > 0);
-        spec->numDocuments--;
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
         updated = true;
@@ -241,9 +236,10 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
       spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
       ++spec->stats.scoring.numDocuments;
-      ++spec->numDocuments;
       // Store docId in key metadata for fast lookup
-      DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId);
+      size_t specNameLen;
+      const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+      DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId, specName, specNameLen);
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
