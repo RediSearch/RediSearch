@@ -18,11 +18,11 @@ use triomphe::Arc;
 use crate::RsValue;
 
 /// The total heap allocation size of an `RsValue` wrapped in a `triomphe::Arc`.
-pub const SHARED_VALUE_SIZE: usize = 32;
+/// The 8 bytes overhead is from the `triomphe::Arc`'s inner atomic refcount.
+pub const SHARED_VALUE_SIZE: usize = size_of::<RsValue>() + size_of::<usize>();
 
 // Ensure the size doesn't increase unexpectedly.
-// The 8 bytes overhead is from the `triomphe::Arc` atomic refcount.
-const _: () = assert!(SHARED_VALUE_SIZE == size_of::<RsValue>() + size_of::<usize>());
+const _: () = assert!(SHARED_VALUE_SIZE == 32);
 
 /// A reference-counted, shared pointer to an [`RsValue`].
 ///

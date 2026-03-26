@@ -44,7 +44,7 @@ fn insert() -> Result<(), IndexOutOfBounds> {
     assert!(matches!(*vector[0], RsValue::Number(42.0)));
     assert_eq!(vector[1].as_str_bytes(), Some("abcdefg".as_bytes()));
     assert_eq!(vector[2].as_str_bytes(), Some("hello world".as_bytes())); // we normalize --> lowercase
-    assert!(matches!(*vector[3], RsValue::Null));
+    assert!(vector[3].is_null());
 
     Ok(())
 }
