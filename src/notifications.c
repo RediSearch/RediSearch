@@ -147,6 +147,10 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
   }
 
   switch (redisCommand) {
+
+/********************************************************
+ *  GROUP A: Normal operation (no special SearchDisk handling)
+ ********************************************************/
     case loaded_cmd:
       // on loaded event the key is stack allocated so to use it to load the
       // document we must copy it
@@ -167,12 +171,8 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       if (!IS_SST_RDB_IN_PROCESS(ctx)) {
         Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Hash, hashFields);
       }
-
       break;
 
-/********************************************************
- *              Handling Redis commands                 *
- ********************************************************/
     case expire_cmd:
     case persist_cmd:
     case hexpire_cmd:
@@ -182,37 +182,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
 
-    case del_cmd:
-    case set_cmd:
-    case trimmed_cmd:
-    case key_trimmed_cmd:
-    case expired_cmd:
-    case evicted_cmd:
-      RS_ASSERT(!SearchDisk_IsEnabled());
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
-      break;
-
-    case change_cmd:
-    // TODO: hash/json
-      kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-      kType = DocumentType_Unsupported;
-      if (kp) {
-        kType = getDocType(kp);
-        RedisModule_CloseKey(kp);
-      }
-      if (kType == DocumentType_Unsupported) {
-        // in crdt empty key means that key was deleted
-        // TODO:FIX
-        RS_ASSERT(!SearchDisk_IsEnabled());
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      } else {
-        // in crdt empty key means that key was deleted (this is handled by the unlink callback)
-        // todo: here we will open the key again, we can optimize it by
-        //       somehow passing the key pointer
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      }
-      break;
-
     case rename_from_cmd:
       // Notification rename_to is called right after rename_from so this is safe.
       global_RenameFromKey = key;
@@ -220,6 +189,54 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
 
     case rename_to_cmd:
       Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
+      break;
+
+/********************************************************
+ *  GROUP B: Skip deletion for SearchDisk (Unlink handles it)
+ ********************************************************/
+    case del_cmd:
+    case set_cmd:
+      if (SearchDisk_IsEnabled()) {
+        // Deletion handled by keyMetaOnUnlink callback
+        break;
+      }
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      break;
+
+/********************************************************
+ *  GROUP C: Has deletion branch to skip for SearchDisk
+ ********************************************************/
+    case change_cmd:
+      // TODO: hash/json
+      kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+      kType = DocumentType_Unsupported;
+      if (kp) {
+        kType = getDocType(kp);
+        RedisModule_CloseKey(kp);
+      }
+      if (kType == DocumentType_Unsupported) {
+        // In CRDT, empty key means key was deleted
+        if (SearchDisk_IsEnabled()) {
+          // Deletion handled by keyMetaOnUnlink callback
+          break;
+        }
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      } else {
+        // todo: here we will open the key again, we can optimize it by
+        //       somehow passing the key pointer
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
+      }
+      break;
+
+/********************************************************
+ *  GROUP D: Never received with SearchDisk (not subscribed)
+ ********************************************************/
+    case trimmed_cmd:
+    case key_trimmed_cmd:
+    case expired_cmd:
+    case evicted_cmd:
+      RS_ASSERT(!SearchDisk_IsEnabled());
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
   }
 

@@ -268,13 +268,16 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   struct DocIdMeta *docIdMeta = rm_malloc(sizeof(struct DocIdMeta));
   docIdMeta->entries = dictCreate(&docIdMetaDictType, NULL);
 
+  uint16_t version;
+  size_t numEntries;
+
   // Load and validate the version
-  uint16_t version = LoadUnsigned_IOError(rdb, goto cleanup);
+  version = LoadUnsigned_IOError(rdb, goto cleanup);
   RS_LOG_ASSERT(version == DOCID_META_VERSION, "DocIdMeta: unexpected version in RDB load");
   docIdMeta->version = version;
 
   // Load the number of entries
-  size_t numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
+  numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
 
   // Load each entry (specId + docId), skipping stale entries from dropped indexes.
   for (size_t i = 0; i < numEntries; i++) {
