@@ -7,9 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::SEARCH_ENTERPRISE_ITERATORS;
-
-use rqe_iterators::SearchEnterpriseIterators;
+use rqe_iterators::{SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators};
 
 /// Initialize the global `SEARCH_ENTERPRISE_ITERATORS` with the provided implementation.
 ///
