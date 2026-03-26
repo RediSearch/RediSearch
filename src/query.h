@@ -116,9 +116,8 @@ typedef struct {
   size_t nkeys;
 } QAST_GlobalFilterOptions;
 
-/** Set global filters on the AST.
- *  Ownership of docIds is transferred to the QueryNode (freed in QueryNode_Free). */
-void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options);
+/** Set global filters on the AST. */
+void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options);
 
 /** Set a filter node on the AST, handling different node types appropriately */
 void SetFilterNode(QueryAST *q, QueryNode *filterNode);

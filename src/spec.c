@@ -3853,7 +3853,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
   t_docId id = 0;
   uint32_t docLen = 0;
-  if (isSpecOnDisk(spec)) {
+  if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
 
     // Look up docId from key metadata
@@ -3923,13 +3923,13 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 }
 
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+  RS_ASSERT(isSpecOnDisk(spec));
+  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
   // Acquire the write lock
   IndexSpec_IncrActiveWrites(spec);
   pthread_rwlock_wrlock(&spec->rwlock);
 
   uint32_t docLen = 0;
-  RS_ASSERT(isSpecOnDisk(spec));
-  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
 
   if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
     // Document not found on disk

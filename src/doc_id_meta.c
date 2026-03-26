@@ -22,7 +22,7 @@ static RedisModuleKeyMetaClassId docIdKeyMetaClassId;
 // When true, RDB save/load callbacks become no-ops.
 // Set during persistence events (BGSAVE/BGREWRITEAOF) to avoid
 // saving/loading DocIdMeta data while persistence is in progress.
-static bool docIdMetaPersistenceInProgress = false;
+static bool PersistenceInProgress = false;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // SpecId lookup in global spec dictionary
@@ -123,7 +123,7 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   return 0;
 }
 
-/* Unlink callback - called when a key is being deleted/overwritten, BEFORE
+/* Unlink callback - called when a key is being deleted from the DB, BEFORE
  * the key and metadata are actually freed. At this point the metadata is still
  * valid and we can use it to clean up the document from all indexes that
  * reference it.
@@ -158,7 +158,7 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   REDISMODULE_NOT_USED(encver);
 
-  if (docIdMetaPersistenceInProgress) {
+  if (PersistenceInProgress) {
     *meta = 0;
     return REDISMODULE_OK;
   }
@@ -226,7 +226,7 @@ cleanup:
 void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   REDISMODULE_NOT_USED(value);
 
-  if (docIdMetaPersistenceInProgress) {
+  if (PersistenceInProgress) {
     return;
   }
 
@@ -307,12 +307,12 @@ static void DocIdMeta_PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
     RedisModule_Log(ctx, "notice", "DocIdMeta: Persistence started, disabling RDB save/load");
-    docIdMetaPersistenceInProgress = true;
+    PersistenceInProgress = true;
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
   case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
     RedisModule_Log(ctx, "notice", "DocIdMeta: Persistence ended, re-enabling RDB save/load");
-    docIdMetaPersistenceInProgress = false;
+    PersistenceInProgress = false;
     break;
   }
 }

@@ -428,7 +428,12 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
 }
 
 void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
-  if (q->root == NULL || filterNode == NULL) return;
+  if (filterNode == NULL) return;
+  if (q->root == NULL) {
+    // Cannot add filter to empty AST - free the node to avoid leaking its resources
+    QueryNode_Free(filterNode);
+    return;
+  }
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
@@ -458,7 +463,7 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
   }
 }
 
-void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
+void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   if (options->empty) {
     SetFilterNode(ast, NewQueryNode(QN_NULL));
   }
@@ -478,6 +483,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
     n->fn.len = options->nkeys;
     // Transfer ownership of docIds to the QueryNode (freed in QueryNode_Free)
     n->fn.docIds = options->docIds;
+    options->docIds = NULL;
     SetFilterNode(ast, n);
   }
 }

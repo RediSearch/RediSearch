@@ -196,7 +196,8 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
     RS_ASSERT(cur->doc);
     bool updated = false;
-    if (spec->diskSpec) {
+    if (SearchDisk_IsEnabled()) {
+      RS_ASSERT(spec->diskSpec);
       size_t len;
       const char *key = RedisModule_StringPtrLen(cur->doc->docKey, &len);
       uint32_t oldLen = 0;
