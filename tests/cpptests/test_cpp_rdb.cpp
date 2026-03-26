@@ -285,6 +285,8 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     for (int i = 0; i < 30; i++) {
         IndexSpec_RdbSave(io, spec, 0);
     }
+    // Write the global next spec ID counter (as Indexes_RdbSave does)
+    RMCK_SaveUnsigned(io, GetNextSpecId());
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Remove the original spec from globals before loading from RDB

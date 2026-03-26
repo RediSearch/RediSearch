@@ -72,6 +72,14 @@ uint16_t pendingIndexDropCount_g = 0;
 // dropped and recreated with the same name, the new incarnation has a different ID.
 static uint64_t nextSpecId_g = 1;
 
+uint64_t GetNextSpecId() {
+  return nextSpecId_g;
+}
+
+void SetNextSpecId(uint64_t id) {
+  nextSpecId_g = id;
+}
+
 Version redisVersion;
 Version rlecVersion;
 bool isEnterprise = false;
@@ -2321,6 +2329,13 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
+  // Assign a default specId from the global counter. For new indexes this is
+  // the final value. During RDB load of encver >= INDEX_SPEC_ID_VERSION, this
+  // will be overwritten by the persisted specId, and the global counter will be
+  // restored from the separately saved nextSpecId_g value in Indexes_RdbLoad.
+  // For older RDB versions (encver < INDEX_SPEC_ID_VERSION), no specId is
+  // persisted, so this assignment produces fresh sequential IDs and
+  // nextSpecId_g naturally ends up correct after all specs are loaded.
   sp->specId = nextSpecId_g++;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
@@ -3420,10 +3435,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   // Load the spec incarnation ID
   if (encver >= INDEX_SPEC_ID_VERSION) {
     sp->specId = LoadUnsigned_IOError(rdb, goto cleanup);
-    // Ensure the global counter stays ahead of any loaded specId
-    if (sp->specId >= nextSpecId_g) {
-      nextSpecId_g = sp->specId + 1;
-    }
   }
 
   return sp;
@@ -3623,6 +3634,11 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
     }
   }
 
+  // Load the global next spec ID counter.
+  if (encver >= INDEX_SPEC_ID_VERSION) {
+    nextSpecId_g = LoadUnsigned_IOError(rdb, goto cleanup);
+  }
+
   // If we have indexes in the auxiliary data, we need to subscribe to the
   // keyspace notifications
   Initialize_KeyspaceNotifications();
@@ -3649,6 +3665,9 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
 
   dictReleaseIterator(iter);
 
+  // Save the global next spec ID counter so it survives restarts,
+  // even if the spec with the highest ID was dropped before saving.
+  RedisModule_SaveUnsigned(rdb, nextSpecId_g);
 }
 
 void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
@@ -4340,6 +4359,9 @@ void Indexes_StartRDBLoadingEvent(RedisModuleCtx* ctx) {
   } else {
     legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
   }
+  // Reset the global spec ID counter; it will be restored from the RDB data
+  // (either from individual spec IDs or the saved global counter).
+  nextSpecId_g = 0;
   g_isLoading = true;
 }
 
