@@ -30,6 +30,7 @@
 #include "coord/rmr/command.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "doc_id_meta.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -1286,6 +1287,24 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
 
   if (opts->inkeys) {
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
+
+    // For SearchDisk, resolve docIds from keys on the main thread
+    if (SearchDisk_IsEnabled()) {
+      t_docId* docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
+      for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+        uint64_t docId = 0;
+        RedisModuleString* keyName = RedisModule_CreateString(
+            sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
+        if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+          docIds[ii] = docId;
+        } else {
+          docIds[ii] = 0;  // Mark as not found
+        }
+        RedisModule_FreeString(sctx->redisCtx, keyName);
+      }
+      filterOpts.docIds = docIds;
+    }
+
     QAST_SetGlobalFilters(ast, &filterOpts);
   }
   return REDISMODULE_OK;

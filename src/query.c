@@ -132,9 +132,14 @@ void QueryNode_Free(QueryNode *n) {
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
       break;
+    case QN_IDS:
+      if (n->fn.docIds) {
+        rm_free(n->fn.docIds);
+        n->fn.docIds = NULL;
+      }
+      break;
     case QN_MISSING:
     case QN_WILDCARD:
-    case QN_IDS:
     case QN_TAG:
     case QN_UNION:
     case QN_NOT:
@@ -471,6 +476,8 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.keys = options->keys;
     n->fn.len = options->nkeys;
+    // Transfer ownership of docIds to the QueryNode (freed in QueryNode_Free)
+    n->fn.docIds = options->docIds;
     SetFilterNode(ast, n);
   }
 }
@@ -1085,13 +1092,9 @@ static QueryIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode 
   t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
   for (size_t ii = 0; ii < node->len; ++ii) {
     t_docId did = 0;
-    if (SearchDisk_IsEnabled()) {
-      uint64_t docId;
-      RedisModuleString *keyName = RedisModule_CreateString(q->sctx->redisCtx, node->keys[ii], sdslen(node->keys[ii]));
-      if (DocIdMeta_Get(q->sctx->redisCtx, keyName, q->sctx->spec->specId, &docId) == REDISMODULE_OK) {
-        did = docId;
-      }
-      RedisModule_FreeString(q->sctx->redisCtx, keyName);
+    if (node->docIds) {
+      RS_ASSERT(SearchDisk_IsEnabled());
+      did = node->docIds[ii];
     } else {
       did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
     }
@@ -2010,18 +2013,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
     case QN_IDS:
-
       s = sdscat(s, "IDS {");
       if (spec) {
-        for (int i = 0; i < qs->fn.len; i++) {
+        for (size_t i = 0; i < qs->fn.len; i++) {
           t_docId did = 0;
-          if (SearchDisk_IsEnabled()) {
-            uint64_t docId;
-            RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
-            if (DocIdMeta_Get(RSDummyContext, keyName, spec->specId, &docId) == REDISMODULE_OK) {
-              did = docId;
-            }
-            RedisModule_FreeString(RSDummyContext, keyName);
+          if (qs->fn.docIds) {
+            RS_ASSERT(SearchDisk_IsEnabled());
+            did = qs->fn.docIds[i];
           } else {
             did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
           }
