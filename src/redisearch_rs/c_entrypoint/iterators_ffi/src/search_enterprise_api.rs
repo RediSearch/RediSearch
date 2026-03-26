@@ -24,7 +24,7 @@ use rqe_iterators::{SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators};
 pub unsafe extern "C" fn redisearch_init_iterators(iters: *mut dyn SearchEnterpriseIterators) {
     // Safety: See safety comment 1 and 2
     let boxed = unsafe { Box::from_raw(iters) };
-    let _ = SEARCH_ENTERPRISE_ITERATORS.set(boxed).unwrap_or_else(|_| {
+    SEARCH_ENTERPRISE_ITERATORS.set(boxed).unwrap_or_else(|_| {
         panic!("SEARCH_ENTERPRISE_ITERATORS is already initialized. This function should only be called once during the lifetime of the program.")
     });
 }
