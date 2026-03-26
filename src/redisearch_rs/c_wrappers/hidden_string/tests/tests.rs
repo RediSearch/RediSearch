@@ -15,7 +15,10 @@ use hidden_string::HiddenStringRef;
 use pretty_assertions::assert_eq;
 
 #[test]
-#[cfg_attr(miri, ignore = "miri does not support FFI functions")]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
 fn get_secret_value() {
     let input = c"Ab#123!";
     let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
