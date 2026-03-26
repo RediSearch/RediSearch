@@ -264,29 +264,14 @@ void RediSearch_FreeDocument(RSDoc* doc) {
 
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   RWLOCK_ACQUIRE_WRITE();
+  RS_ASSERT(!SearchDisk_IsEnabled());
   IndexSpec* sp = __RefManager_Get_Object(rm);
   int rc = REDISMODULE_OK;
-  t_docId id = 0;
-  if (SearchDisk_IsEnabled()) {
-    RedisModuleString *keyName = RedisModule_CreateString(RSDummyContext, docKey, len);
-    uint64_t docId;
-    if (DocIdMeta_Get(RSDummyContext, keyName, sp->specId, &docId) == REDISMODULE_OK) {
-      id = docId;
-      DocIdMeta_Delete(RSDummyContext, keyName, sp->specId);
-    }
-    RedisModule_FreeString(RSDummyContext, keyName);
-  } else {
-    id = DocTable_GetId(&sp->docs, docKey, len);
-  }
+  t_docId id = DocTable_GetId(&sp->docs, docKey, len);
   if (id == 0) {
     rc = REDISMODULE_ERR;
   } else {
-    RSDocumentMetadata* md = NULL;
-    if (SearchDisk_IsEnabled()) {
-      //TODO: get dmd from disk by ID
-    } else {
-      md = DocTable_Pop(&sp->docs, docKey, len);
-    }
+    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, docKey, len);
     if (md) {
       // Delete returns true/false, not RM_{OK,ERR}
       RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");

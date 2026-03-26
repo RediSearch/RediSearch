@@ -2116,9 +2116,6 @@ void IndexSpec_Free(IndexSpec *spec) {
 // This function consumes the Strong reference it gets
 void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
-
-
-
   // Remove spec from global index list
   dictDelete(specDict_g, (void*)spec->specName);
 
