@@ -484,13 +484,16 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   return false;
 }
 
-static int replyForPreExecutionTimeout(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv,
+static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **argv,
                                        int argc, ProfileOptions profileOptions, QueryError *status) {
+  const bool isInternal = RedisModule_StringPtrLen(argv[0], NULL)[0] == '_';
+  const bool isProfile = profileOptions & EXEC_WITH_PROFILE;
+  const RSTimeoutPolicy timeoutPolicy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
   const bool shouldReplyWithError =
-      ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, req->reqConfig.timeoutPolicy, IsProfile(req));
+      ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, timeoutPolicy, isProfile);
 
   if (shouldReplyWithError) {
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
+    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !isInternal);
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     return QueryError_ReplyAndClear(ctx, status);
   }
@@ -625,16 +628,6 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
-
-    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug).
-    // Exceptions:
-    // - return-strict: shard-originated timeouts (via RPNet/processWarningsAndCleanup)
-    //   are expected even when local timeout checks are skipped on the coordinator.
-    // - profile: ShouldReplyWithTimeoutError returns false for profile commands (timeout
-    //   becomes a warning, not an error), so the timeout legitimately reaches here.
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req)
-              || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict
-              || IsProfile(req));
 
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
@@ -830,16 +823,6 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
-    // Assert that timeout only occurs when skipTimeoutChecks is false (if not in debug).
-    // Exceptions:
-    // - return-strict: shard-originated timeouts (via RPNet/processWarningsAndCleanup)
-    //   are expected even when local timeout checks are skipped on the coordinator.
-    // - profile: ShouldReplyWithTimeoutError returns false for profile commands (timeout
-    //   becomes a warning, not an error), so the timeout legitimately reaches here.
-    RS_ASSERT(!(rc == RS_RESULT_TIMEDOUT) || !req->skipTimeoutChecks || IsDebug(req)
-              || req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict
-              || IsProfile(req));
-
     state->cursor_done = (rc != RS_RESULT_OK
                           && !(rc == RS_RESULT_TIMEDOUT
                                && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
@@ -1363,16 +1346,10 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
 done:
   if (rc != REDISMODULE_OK && *r) {
-    if (QueryError_GetCode(status) == QUERY_ERROR_CODE_TIMED_OUT && IsInternal(*r)) {
-      if (thctx) {
-        RedisModule_FreeThreadSafeContext(thctx);
-      }
-    } else {
-      AREQ_DecrRef(*r);
-      *r = NULL;
-      if (thctx) {
-        RedisModule_FreeThreadSafeContext(thctx);
-      }
+    AREQ_DecrRef(*r);
+    *r = NULL;
+    if (thctx) {
+      RedisModule_FreeThreadSafeContext(thctx);
     }
   }
   return rc;
@@ -1623,10 +1600,9 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   AREQ *r = AREQ_New();
 
   if (prepareRequest(&r, ctx, argv, argc, type, profileOptions, &status) != REDISMODULE_OK) {
-    if (r && IsInternal(r) && QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
-      int rc = replyForPreExecutionTimeout(r, ctx, argv, argc, profileOptions, &status);
-      AREQ_DecrRef(r);
-      return rc;
+    RS_ASSERT(r == NULL);
+    if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
+      return replyForPreExecutionTimeout(ctx, argv, argc, profileOptions, &status);
     }
     goto error;
   }
@@ -1989,10 +1965,9 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // Parse the query, not including debug params
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
-    if (r && IsInternal(r) && QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
-      int rc = replyForPreExecutionTimeout(r, ctx, argv, argc - debug_argv_count, profileOptions, &status);
-      AREQ_DecrRef(r);
-      return rc;
+    RS_ASSERT(r == NULL);
+    if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
+      return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);
     }
     goto error;
   }
