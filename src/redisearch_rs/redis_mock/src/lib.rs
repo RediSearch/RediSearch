@@ -343,10 +343,6 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             DocIdMeta_Delete,
             DocIdMeta_Init,
             DocIdMeta_SubscribePersistenceEvent,
-            DocIdMeta_TrackDroppedSpecId,
-            DocIdMeta_DroppedSpecIdsRdbLoad,
-            DocIdMeta_DroppedSpecIdsRdbSave,
-            DocIdMeta_ClearDroppedSpecIds,
         }
     };
 }

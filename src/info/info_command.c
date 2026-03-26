@@ -22,8 +22,6 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error.h"
-#include "search_disk.h"
-#include "triemap.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
@@ -254,12 +252,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
   REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
-  t_docId maxDocId = sp->diskSpec ? SearchDisk_GetMaxDocId(sp->diskSpec) : sp->docs.maxDocId;
-  REPLY_KVINT("max_doc_id", maxDocId);
+  REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
-  // NOTE: The following fields are not supported for disk indexes and will report
-  // incorrect values (typically 0).
-  // See MOD-13832 for tracking.
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
@@ -270,19 +264,15 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
-  size_t dt_tm_size = 0;
-  if (!SearchDisk_IsEnabled()) {
-    dt_tm_size = TrieMap_MemUsage(sp->docs.dim.tm);
-    REPLY_KVNUM("key_table_size_mb", dt_tm_size/ (float)0x100000);
-  }
 
+  size_t dt_tm_size = TrieMap_MemUsage(sp->docs.dim.tm);
+  REPLY_KVNUM("key_table_size_mb", dt_tm_size / (float)0x100000);
   size_t tags_overhead = IndexSpec_collect_tags_overhead(sp);
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
-  size_t total_memory = IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
-    tags_overhead, text_overhead, vector_indexes_size);
-  REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
+  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
+    tags_overhead, text_overhead, vector_indexes_size) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.scoring.numDocuments);
