@@ -301,6 +301,9 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
   RS_LOG_ASSERT_ALWAYS(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
 }
 
+
+// We need to listen to the persistence event to skip the RDB loading/saving while RDB is used for replication/key transfer.
+// For now, RDB save/load is intended to serialize/deserialize in swap IN/OUT ops.
 static void DocIdMeta_PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
                                         uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);

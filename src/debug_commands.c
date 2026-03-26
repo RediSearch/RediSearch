@@ -1416,6 +1416,7 @@ DEBUG_COMMAND(DocInfo) {
   const bool reveal = !strcasecmp(obfuscateOrReveal, "REVEAL");
   const bool obfuscate = !strcasecmp(obfuscateOrReveal, "OBFUSCATE");
   if (!reveal && !obfuscate) {
+    DMD_Return(dmd);
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }

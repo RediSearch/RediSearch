@@ -598,6 +598,7 @@ void Initialize_KeyspaceNotifications() {
   if (!RS_KeyspaceEvents_Initialized) {
     int notifyFlags = 0;
     if (SearchDisk_IsEnabled()) {
+      // On Disk we do not listen to notifications that lead to deleting the keys as the unlink callback of DocIDMeta will handle it.
       notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING |
       REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
     } else {
