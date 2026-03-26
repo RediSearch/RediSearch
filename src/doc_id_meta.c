@@ -235,39 +235,33 @@ void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   }
 
   struct DocIdMeta *docIdMeta = (struct DocIdMeta *)*meta;
-  if (!docIdMeta->entries) {
-    return;
-  }
-
-  size_t numEntries = dictSize(docIdMeta->entries);
-  if (numEntries == 0) {
-    return;
-  }
 
   // First pass: count valid entries (those whose spec still exists in specDict_g).
   size_t validEntries = 0;
-  dictIterator *iter = dictGetIterator(docIdMeta->entries);
-  dictEntry *de;
-  while ((de = dictNext(iter))) {
-    DocIdEntry *entry = dictGetVal(de);
-    if (findSpecByNameAndId(entry->specName, entry->specNameLen, entry->specId)) {
-      validEntries++;
+  if (docIdMeta->entries && dictSize(docIdMeta->entries) > 0) {
+    dictIterator *iter = dictGetIterator(docIdMeta->entries);
+    dictEntry *de;
+    while ((de = dictNext(iter))) {
+      DocIdEntry *entry = dictGetVal(de);
+      if (findSpecByNameAndId(entry->specName, entry->specNameLen, entry->specId)) {
+        validEntries++;
+      }
     }
+    dictReleaseIterator(iter);
   }
-  dictReleaseIterator(iter);
+
+  // Always save version and entry count when *meta is non-zero,
+  // so that rdb_load can read them consistently.
+  RedisModule_SaveUnsigned(rdb, docIdMeta->version);
+  RedisModule_SaveUnsigned(rdb, validEntries);
 
   if (validEntries == 0) {
     return;
   }
 
-  // Save the version
-  RedisModule_SaveUnsigned(rdb, docIdMeta->version);
-
-  // Save the number of valid entries
-  RedisModule_SaveUnsigned(rdb, validEntries);
-
   // Second pass: save only entries whose spec still exists.
-  iter = dictGetIterator(docIdMeta->entries);
+  dictIterator *iter = dictGetIterator(docIdMeta->entries);
+  dictEntry *de;
   while ((de = dictNext(iter))) {
     DocIdEntry *entry = dictGetVal(de);
     if (!findSpecByNameAndId(entry->specName, entry->specNameLen, entry->specId)) {
