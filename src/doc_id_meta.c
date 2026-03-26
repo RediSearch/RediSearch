@@ -168,6 +168,7 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
 
   uint16_t version;
   size_t numEntries;
+  char *specName = NULL;
 
   // Load and validate the version
   version = LoadUnsigned_IOError(rdb, goto cleanup);
@@ -178,7 +179,6 @@ int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   numEntries = LoadUnsigned_IOError(rdb, goto cleanup);
 
   // Load each entry (specName + specId + docId), skipping entries whose spec no longer exists.
-  char *specName = NULL;
   for (size_t i = 0; i < numEntries; i++) {
     size_t specNameLen = 0;
     specName = LoadStringBuffer_IOError(rdb, &specNameLen, goto cleanup);

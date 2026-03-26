@@ -1390,10 +1390,19 @@ DEBUG_COMMAND(DocInfo) {
   GET_SEARCH_CTX(argv[2]);
 
   const RSDocumentMetadata *dmd = NULL;
+  RSDocumentMetadata *dmd_disk = NULL;  // For disk mode, we allocate and must free
   if (SearchDisk_IsEnabled()) {
     uint64_t docId;
     if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &docId) == REDISMODULE_OK) {
-      // TODO: get dmd from disk by ID
+      dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
+      dmd_disk->ref_count = 1;
+      // Pass NULL to skip expiration check - debug command should show all docs
+      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, &sctx->time.current)) {
+        dmd = dmd_disk;
+      } else {
+        rm_free(dmd_disk);
+        dmd_disk = NULL;
+      }
     }
   } else {
     dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
