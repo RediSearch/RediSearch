@@ -20,10 +20,7 @@
 class DocIdMetaTest : public ::testing::Test {
 protected:
   void SetUp() override {
-    // Initialize redismock and clear any previous state
-    RMCK::init();
-
-    // Initialize the DocIdMeta module
+    // Get context - MyEnvironment already initialized redismock
     ctx = RedisModule_GetThreadSafeContext(NULL);
     RMCK::flushdb(ctx);
 
@@ -70,8 +67,6 @@ protected:
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
     }
-
-    RMCK_Shutdown();
   }
 
   // Helper: creates a spec in specDict_g with the given name and specId.
