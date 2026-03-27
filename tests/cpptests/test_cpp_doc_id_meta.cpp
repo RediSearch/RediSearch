@@ -714,3 +714,83 @@ TEST_F(DocIdMetaTest, TestRdbSaveSkipsSoftDeletedEntries) {
 
   RedisModule_FreeString(ctx, newKeyName);
 }
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Unlink callback tests
+//
+// Note: These tests don't add specs to specDict_g, so findSpecByNameAndId returns NULL
+// and IndexSpec_DeleteDocById is not called. This tests the entry invalidation logic
+// without requiring disk-based index support (which would trigger isSpecOnDisk assertions).
+// The full unlink flow with IndexSpec_DeleteDocById is tested in integration/flow tests.
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+TEST_F(DocIdMetaTest, TestUnlinkWithEmptyMeta) {
+  // Test that unlink handles empty/zero meta gracefully
+  uint64_t meta = 0;
+  docIdMetaUnlink(nullptr, &meta);
+  // Should not crash, just return early
+  EXPECT_EQ(meta, 0);
+}
+
+TEST_F(DocIdMetaTest, TestUnlinkInvalidatesEntries) {
+  // Don't add specs to specDict_g - this tests entry invalidation without triggering
+  // IndexSpec_DeleteDocById (which requires disk-based indexes)
+
+  // Set up docId metadata for 2 specs
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
+
+  // Verify entries exist
+  uint64_t retrieved;
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 1001);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 2002);
+
+  // Get the metadata pointer
+  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
+  uint64_t meta = 0;
+  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
+  EXPECT_NE(meta, 0);
+  RedisModule_CloseKey(testKey);
+
+  // Call unlink - specs don't exist in specDict_g, so IndexSpec_DeleteDocById is skipped
+  // but entries should still be invalidated
+  docIdMetaUnlink(nullptr, &meta);
+
+  // Verify entries are now invalid (Get should return ERR)
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+}
+
+TEST_F(DocIdMetaTest, TestUnlinkSkipsSoftDeletedEntries) {
+  // Don't add specs to specDict_g
+
+  // Set up docId metadata for 2 specs
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001, SPEC1_NAME, strlen(SPEC1_NAME)), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002, SPEC2_NAME, strlen(SPEC2_NAME)), REDISMODULE_OK);
+
+  // Soft-delete SPEC1's entry
+  EXPECT_EQ(DocIdMeta_SoftDelete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+
+  // Verify SPEC1 is already invalid, SPEC2 still valid
+  uint64_t retrieved;
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_OK);
+  EXPECT_EQ(retrieved, 2002);
+
+  // Get the metadata pointer
+  RedisModuleKey *testKey = RedisModule_OpenKey(ctx, testKeyName, REDISMODULE_READ);
+  uint64_t meta = 0;
+  EXPECT_EQ(RedisModule_GetKeyMeta(DocIdMeta_GetClassId(), testKey, &meta), REDISMODULE_OK);
+  EXPECT_NE(meta, 0);
+  RedisModule_CloseKey(testKey);
+
+  // Call unlink - should skip SPEC1 (already soft-deleted) and process SPEC2
+  // The test verifies unlink doesn't crash when encountering soft-deleted entries
+  docIdMetaUnlink(nullptr, &meta);
+
+  // Both entries should now be invalid
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
+  EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC2_ID, &retrieved), REDISMODULE_ERR);
+}

@@ -343,6 +343,7 @@ macro_rules! mock_or_stub_missing_redis_c_symbols {
             DocIdMeta_SoftDelete,
             DocIdMeta_Init,
             DocIdMeta_SubscribePersistenceEvent,
+            docIdMetaUnlink,
         }
     };
 }

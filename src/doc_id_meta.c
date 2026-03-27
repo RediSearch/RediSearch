@@ -130,7 +130,7 @@ static int docIdMetaMove(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
  *
  * This fires before the keyspace notification, which is why we handle
  * deletion here rather than in the notification handler. */
-static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   if (*meta == 0) return;
 
   struct DocIdMeta *docIdMeta = (struct DocIdMeta *)*meta;
@@ -140,14 +140,16 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictEntry *de;
   while ((de = dictNext(iter))) {
     DocIdEntry *entry = dictGetVal(de);
-    if (entry->docId == DOCID_META_INVALID) continue;
+    if (entry->docId == DOCID_META_INVALID) continue;  // Already soft-deleted
 
     // Find the IndexSpec by name + specId in the global dict (O(1) lookup).
     IndexSpec *spec = findSpecByNameAndId(entry->specName, entry->specNameLen, entry->specId);
-    if (!spec) continue;  // Spec may have been dropped already
-
-    // Delete the document from this index by its docId
-    IndexSpec_DeleteDocById(spec, (t_docId)entry->docId);
+    if (spec) {
+      // Delete the document from this index by its docId
+      IndexSpec_DeleteDocById(spec, (t_docId)entry->docId);
+    }
+    // Spec may have been dropped already, but we still invalidate the entry
+    // since the key is being deleted
 
     // Invalidate the entry so it won't be used again
     entry->docId = DOCID_META_INVALID;
