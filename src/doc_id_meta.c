@@ -60,6 +60,8 @@ typedef struct DocIdEntry {
 } DocIdEntry;
 
 #define DOCID_META_VERSION 0
+#define KEY_OPEN_META_SET_FLAGS (REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOEFFECTS)
+#define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
 
 // DocIdMeta uses a hashmap keyed by specId
 struct DocIdMeta {
@@ -432,7 +434,7 @@ static int DocIdMeta_SoftDeleteInternal(RedisModuleKey *key, uint64_t specId) {
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
                   uint64_t specId, uint64_t docId,
                   const HiddenString *specName) {
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ | REDISMODULE_WRITE);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
   if (!key) {
     return REDISMODULE_ERR;
   }
@@ -444,7 +446,7 @@ int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName,
 // Get docId using key name and spec incarnation ID
 int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
                   uint64_t specId, uint64_t *docId) {
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_GET_FLAGS);
   if (!key) {
     return REDISMODULE_ERR;
   }
