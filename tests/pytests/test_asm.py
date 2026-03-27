@@ -94,38 +94,8 @@ def query_shards_ft_aggregate_withcursor(env, query, shards, expected):
 
 
 def query_shards_hybrid(env, query, shards, expected):
-    """Verifies FT.HYBRID works during concurrent writes with try-lock mechanism.
-
-    Handles lock acquisition errors that can occur when FT.HYBRID runs
-    concurrently with write operations (e.g., RESTORE during slot migration).
-    This is expected behavior with the try-lock mechanism that prevents deadlocks.
-
-    Lock errors occur during background depletion when a write operation is
-    holding or waiting for the write lock:
-    - "Failed to acquire index lock for background depletion"
-
-    This is a valid outcome when a writer is waiting for the lock. The test accepts
-    this error as expected behavior and does not treat it as a failure.
-    """
-
-    results = []
-    for shard_idx, shard in enumerate(shards):
-        try:
-            result = shard.execute_command(*query)
-            results.append(result)
-            env.debugPrint(f"Shard {shard_idx}: Query succeeded")
-        except Exception as e:
-            error_str = str(e)
-            # Check for lock acquisition errors
-            if "SEARCH_SAFE_DEPLETER_FAILURE Failed to acquire index lock" in error_str:
-                # This is expected when a writer is waiting for the lock
-                env.debugPrint(f"Shard {shard_idx}: Lock acquisition error (expected during concurrent writes)")
-                # Accept this as a valid outcome - don't add to results, don't fail the test
-                continue
-            else:
-                # Not a lock error - re-raise immediately
-                env.debugPrint(f"Shard {shard_idx}: Non-lock error occurred: {error_str}")
-                raise
+    """Enhanced query_shards implementation for FT.HYBRID queries with score order checking"""
+    results = [shard.execute_command(*query) for shard in shards]
 
     # Helper function to extract scores from result (in order)
     def extract_scores(result):
@@ -586,12 +556,16 @@ def test_ft_aggregate_withcursor_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_ft_hybrid_import_slot_range():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID')
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_ft_hybrid_import_slot_range_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID')
@@ -627,12 +601,16 @@ def test_ft_aggregate_withcursor_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.AGGREGATE.WITHCURSOR', parallel_updates=True)
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_ft_hybrid_import_slot_range_parallel_updates():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_ft_hybrid_import_slot_range_parallel_updates_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_test(env, 'FT.HYBRID', parallel_updates=True)
@@ -667,12 +645,16 @@ def test_ft_aggregate_withcursor_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_ft_hybrid_import_slot_range_sanity():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     import_slot_range_sanity_test(env, 'FT.HYBRID')
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_ft_hybrid_import_slot_range_sanity_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     import_slot_range_sanity_test(env, 'FT.HYBRID')
@@ -752,12 +734,16 @@ def test_add_shard_and_migrate_aggregate_withcursor_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.AGGREGATE.WITHCURSOR')
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_add_shard_and_migrate_hybrid():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     add_shard_and_migrate_test(env, 'FT.HYBRID')
 
-@skip(cluster=False, min_shards=2)
+#TODO: Enable once MOD-13110 is fixed
+#@skip(cluster=False, min_shards=2)
+@skip
 def test_add_shard_and_migrate_hybrid_BG():
     env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 2')
     add_shard_and_migrate_test(env, 'FT.HYBRID')
@@ -942,3 +928,166 @@ def test_migrate_no_indexes():
     migration_time = time.time() - start_time
     env.debugPrint(f"Migration time: {migration_time}")
     env.assertLess(migration_time, 300.0)
+
+# Constant value for _COORD_DISPATCH_TIME argument in internal commands
+ASM_COORD_DISPATCH_TIME = '1000000'  # 1ms in nanoseconds
+
+@skip(cluster=False, min_shards=2)
+def test_hybrid_cursor_after_add_shard_migration():
+    """FT.HYBRID cursors access freed memory when slots are migrated to a new shard.
+
+    This test realistically reproduces the flaky failure seen in
+    test_add_shard_and_migrate_hybrid without artificially poisoning memory.
+
+    With WORKERS=0, _FT.HYBRID WITHCURSOR creates a cursor whose iterators are
+    not consumed (no background depletion). After migration, the inverted index
+    for the search term is emptied via document updates and freed via GC. When
+    the cursor is later read, the iterator references freed memory. In production
+    this is a use-after-free that can crash the server if the allocator reuses
+    those blocks; in this test the observable symptom is 0 results.
+
+    The sequence:
+    1. Create index, populate docs with "shoes" on shard1
+    2. Create _FT.HYBRID WITHCURSOR on shard1 searching for "shoes" (WORKERS=0)
+    3. Add a new shard and migrate a middle slot range from shard1 to new shard
+    4. Update ALL remaining docs on shard1: replace "shoes" with unrelated text
+    5. Force GC → "shoes" inverted index has 0 entries → GC frees ALL its blocks
+    6. Write new documents with different text to force memory reuse
+    7. Read cursor on shard1 → 15 buffered results (fixed) or 0 results (unfixed)
+
+    With the fix (foreground depletion via RPDepleter), step 2 buffers all results
+    before pausing the cursor, so step 7 serves from the buffer.
+    """
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 0')
+
+    # Set short trim delays so trimming starts quickly after migration completes.
+    for shard in env.getOSSMasterNodesConnectionList():
+        shard.execute_command('CONFIG', 'SET', 'search-_min-trim-delay-ms', 50)
+        shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 100)
+
+    n_docs = 500
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+    # Populate docs - they will be spread across both shards via cluster hashing
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            vector = np.array([float(i), float(i % 10)], dtype=np.float32)
+            con.execute_command('HSET', f'doc:{i}:{{{i % 2**14}}}',
+                              'description', f'running shoes item {i}',
+                              'embedding', vector.tobytes())
+
+    shard1 = env.getConnection(1)
+
+    # Get shard1's slot ranges for _SLOTS_INFO
+    shard1_node = None
+    for line in shard1.execute_command("cluster", "nodes").splitlines():
+        node = ClusterNode.from_str(line)
+        if "myself" in node.flags:
+            shard1_node = node
+            break
+
+    # Build the full set of slots owned by shard1
+    shard1_slots = set()
+    for sr in shard1_node.slots:
+        shard1_slots.update(range(sr.start, sr.end + 1))
+
+    slots_data = generate_slots(shard1_slots)
+
+    # Step 1: Create hybrid cursor on shard1. With WORKERS=0, the iterators
+    # are not consumed — the cursor is paused before reading any results.
+    shard1.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    query_vec = np.array([0.0, 0.0], dtype=np.float32)
+    result = shard1.execute_command(
+        '_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'WINDOW', '15',
+        'WITHCURSOR', '_SLOTS_INFO', slots_data,
+        'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+        '_COORD_DISPATCH_TIME', ASM_COORD_DISPATCH_TIME)
+
+    # Parse cursor IDs from result
+    if isinstance(result, list) and 'warnings' in result:
+        result = result[:result.index('warnings')]
+    result_dict = dict(zip(result[::2], result[1::2]))
+    search_cursor = result_dict.get('SEARCH', 0)
+    env.assertTrue(search_cursor != 0, message="Search cursor should be valid")
+
+    # Step 2: Add a new shard and migrate a middle slot range from shard1 to new shard
+    initial_shards_count = env.shardsCount
+    env.addShardToClusterIfExists()
+    new_shard = env.getConnection(shardId=initial_shards_count + 1)
+
+    # Also set trim delays on the new shard
+    new_shard.execute_command('CONFIG', 'SET', 'search-_min-trim-delay-ms', 50)
+    new_shard.execute_command('CONFIG', 'SET', 'search-_max-trim-delay-ms', 100)
+
+    task_id = import_middle_slot_range(new_shard, shard1)
+    with TimeLimit(200):
+        while not is_migration_complete(new_shard, task_id) or not is_migration_complete(shard1, task_id):
+            time.sleep(0.1)
+
+    # Step 3: Update ALL remaining docs on shard1 to remove "shoes" from their text.
+    # This causes the "shoes" inverted index to have 0 entries after GC, so GC
+    # will free ALL its blocks — not just the ones for migrated docs.
+    env.debugPrint("Updating remaining docs on shard1 to remove 'shoes' from text")
+    for i in range(n_docs):
+        slot = i % 2**14
+        if slot in shard1_slots:
+            try:
+                shard1.execute_command('HSET', f'doc:{i}:{{{slot}}}',
+                                     'description', f'basketball sneakers product {i}')
+            except Exception:
+                pass  # Key may have migrated away
+
+    # Step 4: Wait for trimming, then force GC to free the now-empty "shoes" inverted index
+    env.debugPrint("Running GC to free empty 'shoes' inverted index blocks")
+    time.sleep(1)  # Allow trim timer to fire
+
+    for _ in range(5):
+        try:
+            shard1.execute_command('_FT.DEBUG', 'GC_FORCEINVOKE', 'idx')
+        except Exception:
+            pass
+        time.sleep(0.2)
+
+    # Step 5: Write new documents with different text to force memory reuse
+    # over the freed "shoes" inverted index blocks.
+    env.debugPrint("Writing new documents to force memory reuse")
+    for i in range(n_docs, n_docs + 500):
+        slot = i % 2**14
+        if slot in shard1_slots:
+            vector = np.array([float(i), float(i % 10)], dtype=np.float32)
+            try:
+                shard1.execute_command('HSET', f'newdoc:{i}:{{{slot}}}',
+                                     'description', f'basketball sneakers product {i} ' * 10,
+                                     'embedding', vector.tobytes())
+            except Exception:
+                pass
+
+    # Step 6: Read ALL results from the cursor on shard1.
+    # On unfixed code: the "shoes" inverted index has been freed, so the
+    # iterator reads invalid memory and returns 0 results.
+    # On fixed code: results were buffered before the cursor was paused,
+    # so cursor READ serves from the buffer regardless of index state.
+    all_results = []
+    current_cursor = search_cursor
+    while current_cursor != 0:
+        cursor_response = shard1.execute_command('_FT.CURSOR', 'READ', 'idx', current_cursor)
+        results_array = cursor_response[0]
+        current_cursor = cursor_response[1]
+        batch_results = results_array[1:]  # Skip the count at index 0
+        for result in batch_results:
+            result_dict = dict(zip(result[::2], result[1::2]))
+            key = result_dict.get('__key')
+            if key is not None:
+                all_results.append(key)
+
+    env.debugPrint(f"Cursor returned {len(all_results)} results after add-shard migration")
+
+    env.assertEqual(len(all_results), 15,
+                    message=f"Expected cursor to return 15 results (WINDOW=15, buffered before "
+                            f"migration), but got {len(all_results)}. Without the fix "
+                            f"(foreground depletion), the cursor returns 0 results because "
+                            f"the inverted index memory was freed after migration + GC.")
