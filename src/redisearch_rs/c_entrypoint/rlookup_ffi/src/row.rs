@@ -323,14 +323,16 @@ pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
 pub unsafe extern "C" fn RLookupRow_Get(
     key: *const RLookupKey,
     row: *const OpaqueRLookupRow,
-) -> Option<NonNull<RSValue>> {
+) -> *mut RSValue {
     // Safety: ensured by caller (1.)
-    let key = unsafe { key.as_ref().unwrap() };
+    let key = unsafe { &*key };
 
     // Safety: ensured by caller (2.)
-    let row = unsafe { RLookupRow::from_opaque_ptr(row).unwrap() };
+    let row = unsafe { RLookupRow::from_opaque_ptr_unchecked(row) };
 
-    row.get(key).map(|x| NonNull::new(x.as_ptr()).unwrap())
+    row.get(key)
+        .map(|x| x.as_ptr())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Returns the sorting vector for the row, or null if none exists.
