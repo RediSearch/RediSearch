@@ -14,6 +14,8 @@
 #include "query_node.h"
 #include "query_param.h"
 #include "iterators_rs.h"
+#include "redisearch_rs/headers/numeric_range_tree.h"
+#include "redisearch_rs/headers/iterators_rs.h"
 
 static double extractUnitFactor(GeoDistance unit);
 

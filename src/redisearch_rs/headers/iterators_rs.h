@@ -139,7 +139,7 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
- * 2. If `it` iterator type is [`IteratorType::InvIdxNumeric`], it has been created using `CreateNumericIterator`.
+ * 2. If `it` iterator type is [`IteratorType::InvIdxNumeric`], it has been created using `NewNumericFilterIterator`.
  * 3. If `it` iterator type is [`IteratorType::InvIdxTerm`], it has been created using `NewInvIndIterator_TermQuery`.
  * 4. If `it` iterator type is [`IteratorType::InvIdxMissing`], it has been created using `NewInvIndIterator_MissingQuery`.
  * 5. If `it` iterator type is [`IteratorType::InvIdxTag`], it has been created using `NewInvIndIterator_TagQuery`.
@@ -236,31 +236,42 @@ double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
 
 /**
- * Creates a union iterator from a numeric filter over all matching sub-ranges in the tree.
- *
- * # Returns
- *
- * - `NULL` if no ranges match the filter, or if `f` is NULL.
- * - The single matching iterator directly if exactly one range matches.
- * - A union iterator over all matching ranges otherwise.
  *
  * # Safety
  *
- * 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`], remaining valid for the
- *    lifetime of all returned iterators.
- * 2. `sctx` and `sctx.spec` must be valid non-NULL pointers, remaining valid for the lifetime of
- *    all returned iterators.
- * 3. `f` may be NULL. If non-NULL, it must be a valid pointer to a [`NumericFilter`], remaining
- *    valid for the lifetime of all returned iterators.
- * 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
- * 5. `field_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field index
- *    (not a field mask).
+ * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
+ * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
  */
-QueryIterator *CreateNumericIterator(const RedisSearchCtx *sctx,
-                                     const NumericRangeTree *t,
-                                     const NumericFilter *f,
-                                     const IteratorsConfig *config,
-                                     const FieldFilterContext *field_ctx);
+NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
+
+/**
+ * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
+ *
+ * # Returns
+ *
+ * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
+ *   for it yet).
+ * - `NULL` if no sub-ranges in the tree match the filter.
+ * - A single iterator if exactly one sub-range matches.
+ * - A union iterator over all matching sub-ranges otherwise.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+ *    for the lifetime of the returned iterator.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
+ * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
+ *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+ *    returned iterator.
+ * 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
+ * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+ *    index (not a field mask).
+ */
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx,
+                                        const NumericFilter *flt,
+                                        FieldType _for_type,
+                                        const IteratorsConfig *config,
+                                        const FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new tag inverted index iterator.

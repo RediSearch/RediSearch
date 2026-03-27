@@ -13,7 +13,6 @@
 #include "rlookup_load_document.h"
 #include "forward_index.h"
 #include "numeric_filter.h"
-#include "numeric_index.h"
 #include "redisearch_rs/headers/numeric_range_tree.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
@@ -34,6 +33,7 @@
 #include "info/global_stats.h"
 #include "sorting_vector.h"
 #include "doc_id_meta.h"
+#include "iterators_rs.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -581,7 +581,9 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   return 0;
 }
 
-
+// Passes RSGlobalConfig.numericTreeMaxDepthRange automatically
+#define NumericRangeTree_Add(t, docId, value, isMulti) \
+  _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
 
 FIELD_BULK_INDEXER(numericIndexer) {
 

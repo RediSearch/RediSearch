@@ -177,7 +177,7 @@ impl TestContext {
         let ctx = ModuleCtx::new();
         // Create IndexSpec for NUMERIC field with unique name to avoid parallel test conflicts
         let index_name = unique_index_name("numeric_idx");
-        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", &index_name);
+        let (mut spec, sctx) = create_spec_sctx(&ctx, "SCHEMA num_field NUMERIC", &index_name);
 
         // We need to properly set up the numeric range tree
         // so that NumericCheckAbort can find it and check revision IDs
@@ -189,18 +189,13 @@ impl TestContext {
                 field_name.as_bytes().len(),
             )
         };
-        let fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+        let mut fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
         // Create the numeric range tree through the proper API
         let numeric_range_tree = unsafe {
-            ffi::openNumericOrGeoIndex(spec.as_ptr(), fs.as_ptr(), true)
-                as *mut numeric_range_tree::NumericRangeTree
-        };
-        let numeric_range_tree = unsafe {
-            ptr::NonNull::new(numeric_range_tree)
-                .expect("NumericRangeTree should not be null")
-                .as_mut()
-        };
+            rqe_iterators::open_numeric_or_geo_index(spec.as_mut(), fs.as_mut(), true, true)
+        }
+        .expect("NumericRangeTree should not be None");
 
         // Add numeric data to the range tree
         for record in records {

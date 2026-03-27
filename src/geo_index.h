@@ -16,7 +16,6 @@
 #include "search_ctx.h"
 #include "query_error.h"
 #include "rs_geo.h"
-#include "numeric_index.h"
 #include "query_node.h"
 #include "obfuscation/hidden.h"
 

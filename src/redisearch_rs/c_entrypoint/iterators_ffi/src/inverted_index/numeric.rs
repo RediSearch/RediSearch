@@ -7,14 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
+use ffi::{FieldSpec, RSGlobalConfig};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
+use rqe_iterators::{
+    NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    open_numeric_or_geo_index,
+};
 
 /// Wrapper around [`NumericIteratorVariant`].
 /// Needed to keep the `filter` pointer around so it can be returned in
@@ -189,44 +193,25 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
 ///
 /// # Returns
 ///
-/// - `NULL` if no ranges match the filter, or if `f` is NULL.
+/// - `NULL` if no ranges match the filter.
 /// - The single matching iterator directly if exactly one range matches.
 /// - A union iterator over all matching ranges otherwise.
 ///
 /// # Safety
 ///
-/// 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`], remaining valid for the
-///    lifetime of all returned iterators.
-/// 2. `sctx` and `sctx.spec` must be valid non-NULL pointers, remaining valid for the lifetime of
-///    all returned iterators.
-/// 3. `f` may be NULL. If non-NULL, it must be a valid pointer to a [`NumericFilter`], remaining
-///    valid for the lifetime of all returned iterators.
+/// 1. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
+/// 2. `tree` and `filter` must remain valid for the lifetime of all returned iterators.
+/// 3. `field_ctx.field` must be a field index (not a field mask).
 /// 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
-/// 5. `field_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field index
-///    (not a field mask).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateNumericIterator(
-    sctx: *const ffi::RedisSearchCtx,
-    t: *const NumericRangeTree,
-    f: *const NumericFilter,
+unsafe fn create_numeric_iterator_c<'index>(
+    sctx: NonNull<ffi::RedisSearchCtx>,
+    tree: &'index NumericRangeTree,
+    filter: &'index NumericFilter,
     config: *const ffi::IteratorsConfig,
-    field_ctx: *const FieldFilterContext,
+    field_ctx: &FieldFilterContext,
 ) -> *mut ffi::QueryIterator {
-    // SAFETY: 1. guarantees t is valid and non-null.
-    let tree = unsafe { &*t };
-    // SAFETY: 2. guarantees sctx is valid and non-null.
-    let sctx_nn = unsafe { NonNull::new_unchecked(sctx as *mut ffi::RedisSearchCtx) };
-    // SAFETY: 5. guarantees field_ctx is valid and non-null.
-    let field_ctx_ref = unsafe { &*field_ctx };
-
-    // SAFETY: 3. A NULL filter means there is nothing to search for.
-    let Some(filter) = (unsafe { f.as_ref() }) else {
-        return std::ptr::null_mut();
-    };
-
-    // SAFETY: caller upholds requirements 1–3, 5.
-    let variants =
-        unsafe { NumericIteratorVariant::from_tree(tree, sctx_nn, filter, field_ctx_ref) };
+    // SAFETY: caller upholds requirements 1–3.
+    let variants = unsafe { NumericIteratorVariant::from_tree(tree, sctx, filter, field_ctx) };
 
     if variants.is_empty() {
         return std::ptr::null_mut();
@@ -255,7 +240,6 @@ pub unsafe extern "C" fn CreateNumericIterator(
             unsafe { CRQEIterator::new(ptr) }
         })
         .collect();
-
     crate::union::build_union_from_children(
         children,
         true,
@@ -264,4 +248,85 @@ pub unsafe extern "C" fn CreateNumericIterator(
         std::ptr::null(),
         1.0,
     )
+}
+
+///
+/// # Safety
+///
+/// 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
+/// 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn openNumericOrGeoIndex(
+    spec: *mut ffi::IndexSpec,
+    fs: *mut FieldSpec,
+    create_if_missing: bool,
+) -> *mut ffi::NumericRangeTree {
+    debug_assert!(!spec.is_null());
+    debug_assert!(!fs.is_null());
+    // SAFETY: 1. guarantees spec is valid and non-null.
+    let spec = unsafe { &mut *spec };
+    // SAFETY: 2. guarantees fs is valid and non-null.
+    let fs = unsafe { &mut *fs };
+
+    // SAFETY: RSGlobalConfig is initialised by the time any index is created.
+    let compress = unsafe { RSGlobalConfig.numericCompress };
+    // SAFETY: 1. and 2. are forwarded from this function's safety contract.
+    match unsafe { open_numeric_or_geo_index(spec, fs, create_if_missing, compress) } {
+        Some(tree) => std::ptr::from_mut(tree).cast::<ffi::NumericRangeTree>(),
+        None => ptr::null_mut(),
+    }
+}
+
+/// Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
+///
+/// # Returns
+///
+/// - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
+///   for it yet).
+/// - `NULL` if no sub-ranges in the tree match the filter.
+/// - A single iterator if exactly one sub-range matches.
+/// - A union iterator over all matching sub-ranges otherwise.
+///
+/// # Safety
+///
+/// 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+///    for the lifetime of the returned iterator.
+/// 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
+/// 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
+///    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+///    returned iterator.
+/// 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
+/// 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+///    index (not a field mask).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewNumericFilterIterator(
+    ctx: *const ffi::RedisSearchCtx,
+    flt: *const NumericFilter,
+    _for_type: ffi::FieldType,
+    config: *const ffi::IteratorsConfig,
+    filter_ctx: *const FieldFilterContext,
+) -> *mut ffi::QueryIterator {
+    debug_assert!(!ctx.is_null());
+    debug_assert!(!flt.is_null());
+
+    // SAFETY: 1. guarantees ctx is valid and non-null.
+    let ctx_ref = unsafe { &*ctx };
+    // SAFETY: 2. guarantees ctx.spec is valid and non-null.
+    let spec = unsafe { &mut *ctx_ref.spec };
+    // SAFETY: 3. guarantees flt is valid and non-null.
+    let flt_ref = unsafe { &*flt };
+    // SAFETY: 3. guarantees flt.field_spec is valid and non-null.
+    let fs = unsafe { &mut *(flt_ref.field_spec as *mut FieldSpec) };
+    // SAFETY: RSGlobalConfig is initialised by the time any index is created.
+    let compress = unsafe { RSGlobalConfig.numericCompress };
+    // SAFETY: 1.–3. are forwarded from this function's safety contract.
+    let Some(t) = (unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }) else {
+        return ptr::null_mut();
+    };
+    // SAFETY: 1. guarantees ctx is valid and non-null.
+    let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
+    // SAFETY: 5. guarantees filter_ctx is valid and non-null.
+    let field_ctx = unsafe { &*filter_ctx };
+    // SAFETY: caller upholds requirements 1–5.
+    unsafe { create_numeric_iterator_c(sctx, t, flt_ref, config, field_ctx) }
 }
