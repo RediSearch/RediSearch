@@ -83,7 +83,7 @@ impl SharedRsValue {
 
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// rather than a heap-allocated [`Arc`].
-    fn is_null_static(&self) -> bool {
+    pub fn is_null_static(&self) -> bool {
         ptr::eq(self.ptr, &NULL_VALUE)
     }
 

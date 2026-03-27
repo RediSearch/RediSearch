@@ -23,7 +23,7 @@ fn creation() {
     assert_eq!(vector.iter().count(), 10);
 
     for value in vector {
-        assert!(value.is_null());
+        assert!(value.is_null_static());
     }
 }
 
@@ -46,7 +46,7 @@ fn insert() -> Result<(), IndexOutOfBounds> {
     assert_eq!(vector[1].as_str_bytes(), Some("abcdefg".as_bytes()));
     assert_eq!(vector[1].get_type(), ffi::RSValueType_RSValueType_String);
     assert_eq!(vector[2].as_str_bytes(), Some("hello world".as_bytes())); // we normalize --> lowercase
-    assert!(vector[3].is_null());
+    assert!(vector[3].is_null_static());
 
     Ok(())
 }
