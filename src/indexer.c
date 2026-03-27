@@ -217,14 +217,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->doc->score, cur->docFlags, cur->fwIdx->maxTermFreq,
         cur->fwIdx->totalFreq, &oldLen, cur->doc->docExpirationTime, (t_docId)oldDocId);
 
-      // Store docId early for cleanup path in case of indexing failure
-      cur->doc->docId = docId;
-
-      if (!docId) {
-        cur->stateFlags |= ACTX_F_ERRORED;
-        RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
-        continue;
-      }
+      bool failure = docId == 0;
 
       if (oldLen > 0) {
         // We deleted a document in the above call, update the stats accordingly
@@ -232,17 +225,31 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         spec->stats.scoring.numDocuments--;
         RS_ASSERT(spec->stats.scoring.totalDocsLen >= oldLen);
         spec->stats.scoring.totalDocsLen -= oldLen;
-        updated = true;
+        updated = docId != 0; // If docId is 0, the document was not added;
       }
 
-      spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
-      ++spec->stats.scoring.numDocuments;
-      // Store docId in key metadata for fast lookup
-      size_t specNameLen;
-      const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
-      int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId, specName, specNameLen);
-      //TODO: Review this here.
-      RS_ASSERT(rc == REDISMODULE_OK);
+      if (!failure) {
+        cur->doc->docId = docId;
+        spec->stats.scoring.totalDocsLen += cur->fwIdx->totalFreq;
+        ++spec->stats.scoring.numDocuments;
+        // Store docId in key metadata for fast lookup
+        size_t specNameLen;
+        const char *specName = HiddenString_GetUnsafe(spec->specName, &specNameLen);
+        int rc = DocIdMeta_Set(ctx->redisCtx, cur->doc->docKey, spec->specId, docId, specName, specNameLen);
+        failure = rc != REDISMODULE_OK;
+        RS_ASSERT(!failure); // In Debug raise
+
+        if (failure) {
+          uint32_t docLen = 0;
+          SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen);
+        }
+      }
+
+      if (failure) {
+        cur->stateFlags |= ACTX_F_ERRORED;
+        RS_LOG_ASSERT(false, "Unexpected: Failed to add document to disk index");
+        continue;
+      }
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
