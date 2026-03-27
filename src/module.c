@@ -4182,12 +4182,10 @@ static void DistSearchMRCtxFreePrivData(struct MRCtx *mrctx) {
 // Releases only the blocked-client reference; MRCtx cleanup runs on the final release.
 static void DistSearchFreePrivData(RedisModuleCtx *ctx, void *privdata) {
   UNUSED(ctx);
-  struct MRCtx *mrctx = privdata;
-  if (!mrctx) {
-    return;
+  if (privdata) {
+    struct MRCtx *mrctx = privdata;
+    MRCtx_DecrRef(mrctx);
   }
-
-  MRCtx_DecrRef(mrctx);
 }
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
