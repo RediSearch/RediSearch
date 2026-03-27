@@ -239,6 +239,66 @@ unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
     unsafe { free_fn(its.cast::<std::ffi::c_void>()) };
 }
 
+/// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`] children.
+///
+/// Applies the same reduction and variant-selection logic as [`NewUnionIterator`]:
+/// empty children are removed, a single surviving child is returned directly, and
+/// multiple children are placed in a flat or heap union depending on
+/// `min_union_iter_heap`.
+///
+/// Intended for internal Rust callers that create their own boxed iterators and
+/// want to combine them into a union without going through the C ABI.
+pub(crate) fn build_union_from_children(
+    children: Vec<CRQEIterator>,
+    quick_exit: bool,
+    min_union_iter_heap: usize,
+    type_: QueryNodeType,
+    q_str: *const c_char,
+    weight: f64,
+) -> *mut QueryIterator {
+    use rqe_iterators::union_reducer::NewUnionIterator as NewUI;
+    match new_union_iterator(children, quick_exit, min_union_iter_heap) {
+        NewUI::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
+        NewUI::ReducedSingle(child) => child.into_raw().as_ptr(),
+        NewUI::Flat(flat) => {
+            let mut ffi = UnionIteratorFfi {
+                variant: UnionVariant::FlatFull(flat),
+                query_node_type: type_,
+                query_string: q_str,
+            };
+            ffi.set_result_weight(weight);
+            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
+        }
+        NewUI::FlatQuick(flat) => {
+            let mut ffi = UnionIteratorFfi {
+                variant: UnionVariant::FlatQuick(flat),
+                query_node_type: type_,
+                query_string: q_str,
+            };
+            ffi.set_result_weight(weight);
+            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
+        }
+        NewUI::Heap(heap) => {
+            let mut ffi = UnionIteratorFfi {
+                variant: UnionVariant::HeapFull(heap),
+                query_node_type: type_,
+                query_string: q_str,
+            };
+            ffi.set_result_weight(weight);
+            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
+        }
+        NewUI::HeapQuick(heap) => {
+            let mut ffi = UnionIteratorFfi {
+                variant: UnionVariant::HeapQuick(heap),
+                query_node_type: type_,
+                query_string: q_str,
+            };
+            ffi.set_result_weight(weight);
+            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
+        }
+    }
+}
+
 /// Creates a new union iterator, applying reduction rules and choosing between
 /// flat and heap variants based on the number of children.
 ///
@@ -286,53 +346,7 @@ pub unsafe extern "C" fn NewUnionIterator(
     // SAFETY: its was allocated via rm_malloc per the function's safety contract (1).
     unsafe { free_iterators_array(its) };
 
-    // Apply reduction and choose variant.
-    let result = new_union_iterator(children, quick_exit, min_union_iter_heap);
-
-    use rqe_iterators::union_reducer::NewUnionIterator as NewUI;
-    match result {
-        NewUI::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
-        NewUI::ReducedSingle(child) => {
-            // Return the single child's raw pointer, unwrapping from CRQEIterator.
-            child.into_raw().as_ptr()
-        }
-        NewUI::Flat(flat) => {
-            let mut ffi = UnionIteratorFfi {
-                variant: UnionVariant::FlatFull(flat),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            ffi.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
-        }
-        NewUI::FlatQuick(flat) => {
-            let mut ffi = UnionIteratorFfi {
-                variant: UnionVariant::FlatQuick(flat),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            ffi.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
-        }
-        NewUI::Heap(heap) => {
-            let mut ffi = UnionIteratorFfi {
-                variant: UnionVariant::HeapFull(heap),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            ffi.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
-        }
-        NewUI::HeapQuick(heap) => {
-            let mut ffi = UnionIteratorFfi {
-                variant: UnionVariant::HeapQuick(heap),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            ffi.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(ffi, Some(union_profile_children))
-        }
-    }
+    build_union_from_children(children, quick_exit, min_union_iter_heap, type_, q_str, weight)
 }
 
 // ============================================================================

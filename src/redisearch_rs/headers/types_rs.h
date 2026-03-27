@@ -581,16 +581,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Check if this is a numeric filter and not a geo filter
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
- */
-bool NumericFilter_IsNumeric(const struct NumericFilter *filter);
-
-/**
  * Check if the given value matches the numeric filter.
  *
  * # Safety

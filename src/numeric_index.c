@@ -23,29 +23,6 @@
 #include "redismodule.h"
 #include "util/misc.h"
 
-/* Create a union iterator from the numeric filter, over all the sub-ranges in the tree that fit
- * the filter */
-// This function should move over to Rust once the union iterator is ported.
-QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
-                                     const NumericFilter *f, IteratorsConfig *config,
-                                     const FieldFilterContext *filterCtx) {
-  NumericRangeIteratorsResult result = CreateNumericRangeIterators(t, sctx, f, filterCtx);
-
-  if (result.len == 0) {
-    return NULL;
-  }
-
-  if (result.len == 1) {
-    QueryIterator *it = result.iterators[0];
-    rm_free(result.iterators);
-    return it;
-  }
-
-  // NewUnionIterator takes ownership of the rm_calloc'd array directly
-  QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
-  return NewUnionIterator(result.iterators, (int)result.len, true, 1.0, type, NULL, config);
-}
-
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(fs, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO));
   if (!fs->tree && create_if_missing) {
@@ -69,5 +46,5 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const Numeric
     return NULL;
   }
 
-  return createNumericIterator(ctx, t, flt, config, filterCtx);
+  return CreateNumericIterator(ctx, t, flt, config, filterCtx);
 }

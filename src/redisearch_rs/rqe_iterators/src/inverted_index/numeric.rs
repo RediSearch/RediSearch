@@ -9,13 +9,19 @@
 
 use std::{f64, ptr::NonNull};
 
-use ffi::t_docId;
-use inverted_index::{NumericReader, RSIndexResult};
-use numeric_range_tree::NumericRangeTree;
+use ffi::{IndexFlags, t_docId};
+use inverted_index::{
+    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
+};
+use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+
+use field::FieldFilterContext;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
+    SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
+    union_reducer::{NewUnionIterator, new_union_iterator},
 };
 
 use super::core::InvIndIterator;
@@ -195,4 +201,295 @@ where
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
     }
+}
+
+/// Selects the correct numeric reader variant based on the filter.
+///
+/// - No filter → [`NumericIteratorVariant::Unfiltered`]
+/// - Numeric filter (no geo sub-filter) → [`NumericIteratorVariant::Filtered`]
+/// - Geo filter → [`NumericIteratorVariant::Geo`]
+pub enum NumericIteratorVariant<'index> {
+    /// No filter: iterates all entries in the range.
+    Unfiltered(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
+    /// Numeric filter: skips entries outside the filter's value range.
+    Filtered(
+        Numeric<
+            'index,
+            FilterNumericReader<'index, NumericIndexReader<'index>>,
+            FieldExpirationChecker,
+        >,
+    ),
+    /// Geo filter: skips entries that do not pass the geo predicate.
+    Geo(
+        Numeric<
+            'index,
+            FilterGeoReader<'index, NumericIndexReader<'index>>,
+            FieldExpirationChecker,
+        >,
+    ),
+}
+
+impl<'index> NumericIteratorVariant<'index> {
+    /// Creates a [`NumericIteratorVariant`] for each range in `tree` matching `filter`.
+    ///
+    /// # Returns
+    ///
+    /// One variant per matching range. Empty when no ranges match.
+    ///
+    /// # Safety
+    ///
+    /// 1. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
+    /// 2. `field_ctx.field` must be a field index (tag == `FieldMaskOrIndex::Index`), not a field mask.
+    pub unsafe fn from_tree(
+        tree: &'index NumericRangeTree,
+        sctx: NonNull<ffi::RedisSearchCtx>,
+        filter: &'index NumericFilter,
+        field_ctx: &field::FieldFilterContext,
+    ) -> Vec<Self> {
+        let field_index = match field_ctx.field {
+            field::FieldMaskOrIndex::Index(index) => index,
+            field::FieldMaskOrIndex::Mask(_) => {
+                panic!("Numeric queries require a field index, not a field mask");
+            }
+        };
+
+        let ranges = tree.find(filter);
+
+        let range_tree: Option<&NumericRangeTree> = if filter.field_spec.is_null() {
+            None
+        } else {
+            Some(tree)
+        };
+
+        ranges
+            .iter()
+            .map(|range| {
+                let min_val = range.min_val();
+                let max_val = range.max_val();
+
+                // Determine if we can skip the filter: if the filter is numeric (not geo)
+                // and both the range min and max are within the filter bounds, the reader
+                // doesn't need to check the filter for each record.
+                let reader_filter = if filter.is_numeric_filter()
+                    && filter.value_in_range(min_val)
+                    && filter.value_in_range(max_val)
+                {
+                    None
+                } else {
+                    Some(filter)
+                };
+
+                let reader = range.entries().reader();
+
+                // SAFETY: 1. guarantees `sctx` and `sctx.spec` are valid for the iterators' lifetime.
+                let expiration_checker = unsafe {
+                    crate::FieldExpirationChecker::new(
+                        sctx,
+                        field::FieldFilterContext {
+                            field: field::FieldMaskOrIndex::Index(field_index),
+                            predicate: field_ctx.predicate,
+                        },
+                        reader.flags(),
+                    )
+                };
+
+                Self::new(
+                    reader,
+                    reader_filter,
+                    expiration_checker,
+                    range_tree,
+                    min_val,
+                    max_val,
+                )
+            })
+            .collect()
+    }
+
+    /// Create the correct iterator variant for the given reader and optional filter.
+    ///
+    /// The variant is selected as follows:
+    /// - `filter` is `None` → [`NumericIteratorVariant::Unfiltered`]
+    /// - `filter` is `Some(f)` where `f.is_numeric_filter()` → [`NumericIteratorVariant::Filtered`]
+    /// - `filter` is `Some(f)` where `!f.is_numeric_filter()` → [`NumericIteratorVariant::Geo`]
+    pub fn new(
+        reader: NumericIndexReader<'index>,
+        filter: Option<&'index NumericFilter>,
+        expiration_checker: FieldExpirationChecker,
+        range_tree: Option<&'index NumericRangeTree>,
+        range_min: f64,
+        range_max: f64,
+    ) -> Self {
+        match filter {
+            None => {
+                // SAFETY: `range_tree` lifetime is enforced by `'index`.
+                let iter = unsafe {
+                    Numeric::new(
+                        reader,
+                        expiration_checker,
+                        range_tree,
+                        Some(range_min),
+                        Some(range_max),
+                    )
+                };
+                Self::Unfiltered(iter)
+            }
+            Some(f) if f.is_numeric_filter() => {
+                // SAFETY: `range_tree` lifetime is enforced by `'index`.
+                let iter = unsafe {
+                    Numeric::new(
+                        FilterNumericReader::new(f, reader),
+                        expiration_checker,
+                        range_tree,
+                        Some(range_min),
+                        Some(range_max),
+                    )
+                };
+                Self::Filtered(iter)
+            }
+            Some(f) => {
+                // SAFETY: `range_tree` lifetime is enforced by `'index`.
+                let iter = unsafe {
+                    Numeric::new(
+                        FilterGeoReader::new(f, reader),
+                        expiration_checker,
+                        range_tree,
+                        Some(range_min),
+                        Some(range_max),
+                    )
+                };
+                Self::Geo(iter)
+            }
+        }
+    }
+
+    /// Returns the flags from the underlying index reader.
+    pub fn flags(&self) -> IndexFlags {
+        match self {
+            Self::Unfiltered(iter) => iter.reader().flags(),
+            Self::Filtered(iter) => iter.reader().flags(),
+            Self::Geo(iter) => iter.reader().flags(),
+        }
+    }
+
+    /// Returns the minimum value of the numeric range (used for profiling).
+    pub const fn range_min(&self) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => iter.range_min(),
+            Self::Filtered(iter) => iter.range_min(),
+            Self::Geo(iter) => iter.range_min(),
+        }
+    }
+
+    /// Returns the maximum value of the numeric range (used for profiling).
+    pub const fn range_max(&self) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => iter.range_max(),
+            Self::Filtered(iter) => iter.range_max(),
+            Self::Geo(iter) => iter.range_max(),
+        }
+    }
+}
+
+impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        match self {
+            Self::Unfiltered(iter) => iter.current(),
+            Self::Filtered(iter) => iter.current(),
+            Self::Geo(iter) => iter.current(),
+        }
+    }
+
+    #[inline(always)]
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        match self {
+            Self::Unfiltered(iter) => iter.read(),
+            Self::Filtered(iter) => iter.read(),
+            Self::Geo(iter) => iter.read(),
+        }
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        match self {
+            Self::Unfiltered(iter) => iter.skip_to(doc_id),
+            Self::Filtered(iter) => iter.skip_to(doc_id),
+            Self::Geo(iter) => iter.skip_to(doc_id),
+        }
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        match self {
+            Self::Unfiltered(iter) => iter.rewind(),
+            Self::Filtered(iter) => iter.rewind(),
+            Self::Geo(iter) => iter.rewind(),
+        }
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        match self {
+            Self::Unfiltered(iter) => iter.num_estimated(),
+            Self::Filtered(iter) => iter.num_estimated(),
+            Self::Geo(iter) => iter.num_estimated(),
+        }
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            Self::Unfiltered(iter) => iter.last_doc_id(),
+            Self::Filtered(iter) => iter.last_doc_id(),
+            Self::Geo(iter) => iter.last_doc_id(),
+        }
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        match self {
+            Self::Unfiltered(iter) => iter.at_eof(),
+            Self::Filtered(iter) => iter.at_eof(),
+            Self::Geo(iter) => iter.at_eof(),
+        }
+    }
+
+    #[inline(always)]
+    fn revalidate(&mut self) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        match self {
+            Self::Unfiltered(iter) => iter.revalidate(),
+            Self::Filtered(iter) => iter.revalidate(),
+            Self::Geo(iter) => iter.revalidate(),
+        }
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxNumeric
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
+}
+
+/// Creates a union iterator over all numeric sub-ranges matching `filter` in `tree`.
+///
+/// # Safety
+///
+/// 1. `sctx` and `sctx.spec` must remain valid for `'index`.
+/// 2. `field_ctx` must contain a field index (not a field mask).
+pub unsafe fn create_numeric_iterator<'index>(
+    sctx: NonNull<ffi::RedisSearchCtx>,
+    tree: &'index NumericRangeTree,
+    filter: &'index NumericFilter,
+    field_ctx: &FieldFilterContext,
+    min_union_iter_heap: usize,
+) -> NewUnionIterator<'index, NumericIteratorVariant<'index>> {
+    // SAFETY: 1–2.
+    let variants = unsafe { NumericIteratorVariant::from_tree(tree, sctx, filter, field_ctx) };
+    new_union_iterator(variants, true, min_union_iter_heap)
 }

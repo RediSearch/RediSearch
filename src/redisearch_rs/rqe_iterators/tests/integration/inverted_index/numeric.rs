@@ -412,6 +412,131 @@ fn numeric_no_range_tree_revalidate() {
     );
 }
 
+/// Tests for [`rqe_iterators::NumericIteratorVariant`] variant selection logic.
+///
+/// These tests verify that [`NumericIteratorVariant::new`] selects the correct
+/// concrete reader variant based on the provided filter:
+/// - `None` → [`NumericIteratorVariant::Unfiltered`]
+/// - `Some(f)` where `f.is_numeric_filter()` → [`NumericIteratorVariant::Filtered`]
+/// - `Some(f)` where `!f.is_numeric_filter()` → [`NumericIteratorVariant::Geo`]
+mod variant {
+    use std::ptr;
+
+    use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+    use inverted_index::{NumericFilter, RSIndexResult};
+    use numeric_range_tree::NumericIndex;
+    use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
+    use rqe_iterators_test_utils::MockContext;
+
+    fn make_expiration_checker(ctx: &MockContext) -> FieldExpirationChecker {
+        // SAFETY:
+        // - `ctx.sctx()` is a valid `RedisSearchCtx` pointer for the duration of this test.
+        // - `ctx.sctx().spec` is set to a valid `IndexSpec` pointer by `MockContext::new`.
+        // Both remain alive for the lifetime of the returned checker.
+        unsafe {
+            FieldExpirationChecker::new(
+                ctx.sctx(),
+                FieldFilterContext {
+                    field: FieldMaskOrIndex::Index(0),
+                    predicate: FieldExpirationPredicate::Default,
+                },
+                0,
+            )
+        }
+    }
+
+    /// Build a minimal `NumericIndex` with a single record so the reader is non-trivial.
+    fn make_index() -> NumericIndex {
+        let mut idx = NumericIndex::new(false);
+        idx.add_record(&RSIndexResult::build_numeric(1.0).doc_id(1).build());
+        idx
+    }
+
+    #[test]
+    /// `None` filter selects the `Unfiltered` variant.
+    fn variant_select_unfiltered() {
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index();
+        let reader = idx.reader();
+        let checker = make_expiration_checker(&ctx);
+
+        let variant = NumericIteratorVariant::new(
+            reader,
+            None,
+            checker,
+            None,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+        );
+
+        assert!(
+            matches!(variant, NumericIteratorVariant::Unfiltered(_)),
+            "expected Unfiltered variant for None filter"
+        );
+    }
+
+    #[test]
+    /// A numeric filter (null `geo_filter`) selects the `Filtered` variant.
+    fn variant_select_filtered_numeric() {
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index();
+        let reader = idx.reader();
+        let checker = make_expiration_checker(&ctx);
+        // Default NumericFilter has geo_filter = null, so is_numeric_filter() == true.
+        let filter = NumericFilter {
+            min: 0.0,
+            max: 10.0,
+            ..Default::default()
+        };
+
+        let variant = NumericIteratorVariant::new(reader, Some(&filter), checker, None, 0.0, 10.0);
+
+        assert!(
+            matches!(variant, NumericIteratorVariant::Filtered(_)),
+            "expected Filtered variant for numeric filter"
+        );
+    }
+
+    #[test]
+    /// A filter with a non-null `geo_filter` selects the `Geo` variant.
+    fn variant_select_geo() {
+        use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
+
+        let ctx = MockContext::new(0, 0);
+        let idx = make_index();
+        let reader = idx.reader();
+        let checker = make_expiration_checker(&ctx);
+
+        let geo_filter = GeoFilter {
+            fieldSpec: ptr::null(),
+            lat: 0.0,
+            lon: 0.0,
+            radius: 1.0,
+            unitType: GeoDistance_GEO_DISTANCE_M,
+            numericFilters: ptr::null_mut(),
+        };
+        // A non-null geo_filter pointer makes is_numeric_filter() return false.
+        let filter = NumericFilter {
+            geo_filter: &geo_filter as *const _ as *const _,
+            ..Default::default()
+        };
+
+        let variant = NumericIteratorVariant::new(
+            reader,
+            Some(&filter),
+            checker,
+            None,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+        );
+
+        assert!(
+            matches!(variant, NumericIteratorVariant::Geo(_)),
+            "expected Geo variant for geo filter"
+        );
+    }
+}
+
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
