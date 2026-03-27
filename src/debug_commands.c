@@ -1396,7 +1396,6 @@ DEBUG_COMMAND(DocInfo) {
     if (DocIdMeta_Get(ctx, argv[3], sctx->spec->specId, &docId) == REDISMODULE_OK) {
       dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
       dmd_disk->ref_count = 1;
-      // Pass NULL to skip expiration check - debug command should show all docs
       if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, &sctx->time.current)) {
         dmd = dmd_disk;
       } else {
