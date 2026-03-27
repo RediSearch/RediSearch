@@ -26,7 +26,7 @@ void Backup_Globals() {
   IndexAlias_InitGlobal();
 
   nextSpecId_g_bkup = GetNextSpecId();
-  SetNextSpecId(1);
+  SetNextSpecId(0);
 }
 
 void Restore_Globals(RedisModuleCtx *ctx) {

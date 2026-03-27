@@ -130,6 +130,8 @@ extern dict *specDict_g;
 // Accessors for the global monotonically increasing spec ID counter.
 uint64_t GetNextSpecId();
 void SetNextSpecId(uint64_t id);
+// Updates nextSpecId_g to max(nextSpecId_g, id + 1) - used during RDB load
+void UpdateNextSpecIdIfNeeded(uint64_t id);
 
 typedef enum {
     DEBUG_INDEX_SCANNER_CODE_NEW,
