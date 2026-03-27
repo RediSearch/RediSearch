@@ -28,7 +28,6 @@
 #include "tag_index.h"
 #include "err.h"
 #include "concurrent_ctx.h"
-#include "numeric_index.h"
 #include "numeric_filter.h"
 #include "util/strconv.h"
 #include "util/arr.h"

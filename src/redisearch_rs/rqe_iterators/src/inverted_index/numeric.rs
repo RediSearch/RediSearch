@@ -9,7 +9,7 @@
 
 use std::{f64, ptr::NonNull};
 
-use ffi::{IndexFlags, t_docId};
+use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, t_docId};
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, RSIndexResult,
 };
@@ -200,6 +200,55 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+/// Opens the numeric or geo index for a field, optionally creating it if missing.
+///
+/// # Arguments
+///
+/// - `spec`: The index spec that owns the field. Updated with memory usage when a new tree is
+///   created.
+/// - `fs`: The field spec for the numeric or geo field whose tree is being opened. Must be of
+///   numeric or geo type.
+/// - `create_if_missing`: If `true` and the field has no tree yet, a new [`NumericRangeTree`] is
+///   allocated and attached to `fs`.
+/// - `numeric_compress`: Passed to [`NumericRangeTree::new`] when creating a fresh tree.
+///   Controls whether values in the inverted index are stored in compressed form.
+///
+/// # Returns
+///
+/// - `Some` if the tree exists (or was just created).
+/// - `None` if the tree is absent and `create_if_missing` is `false`.
+///
+/// # Safety
+///
+/// 1. `spec` and `fs` must be valid, properly initialised references.
+/// 2. `fs.tree`, if non-null, must point to a live [`NumericRangeTree`] whose ownership was
+///    transferred to `fs` (i.e. allocated with `Box::into_raw`).
+pub unsafe fn open_numeric_or_geo_index<'a>(
+    spec: &mut ffi::IndexSpec,
+    fs: &'a mut ffi::FieldSpec,
+    create_if_missing: bool,
+    numeric_compress: bool,
+) -> Option<&'a mut NumericRangeTree> {
+    debug_assert!(fs.types() & (FieldType_INDEXFLD_T_NUMERIC | FieldType_INDEXFLD_T_GEO) != 0);
+
+    if fs.tree.is_null() && create_if_missing {
+        let tree = NumericRangeTree::new(numeric_compress);
+        // Update the spec's inverted index size with the new tree's initial root range size.
+
+        let initial_size = tree.root().range().map_or(0, |r| r.memory_usage());
+        let tree = Box::into_raw(Box::new(tree));
+        fs.tree = tree.cast();
+        spec.stats.invertedSize += initial_size;
+    }
+
+    if fs.tree.is_null() {
+        None
+    } else {
+        // SAFETY: 2. fs.tree is non-null and points to a live NumericRangeTree.
+        Some(unsafe { &mut *fs.tree.cast::<NumericRangeTree>() })
     }
 }
 
@@ -476,13 +525,54 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 }
 
+/// Opens the numeric/geo index for `flt`'s field and creates a union iterator over all matching
+/// sub-ranges.
+///
+/// Returns `None` if the index hasn't been created yet (no documents indexed for this field).
+///
+/// # Arguments
+///
+/// - `sctx`: The Redis search context, used to access the index spec.
+/// - `flt`: The numeric filter describing the field and the range to match.
+/// - `field_ctx`: The field filter context; must contain a field index (not a field mask).
+/// - `min_union_iter_heap`: Minimum number of sub-iterators above which the union uses a heap
+///   instead of a linear scan for efficiency.
+/// - `numeric_compress`: Whether the underlying numeric entries are stored in compressed form.
+///
+/// # Safety
+///
+/// 1. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field is also valid,
+///    both remaining so for `'index`.
+/// 2. `flt.field_spec` must be a valid non-null pointer to a [`ffi::FieldSpec`] for a numeric or
+///    geo field, remaining valid for `'index`.
+/// 3. `field_ctx` must contain a field index (not a field mask).
+pub unsafe fn new_numeric_filter_iterator<'index>(
+    sctx: NonNull<ffi::RedisSearchCtx>,
+    flt: &'index NumericFilter,
+    field_ctx: &FieldFilterContext,
+    min_union_iter_heap: usize,
+    numeric_compress: bool,
+) -> Option<NewUnionIterator<'index, NumericIteratorVariant<'index>>> {
+    // SAFETY: 1. guarantees sctx.spec is valid and non-null.
+    // `as_ref` is unsafe because `sctx` is a raw pointer.
+    let spec_ptr = unsafe { sctx.as_ref() }.spec;
+    // SAFETY: 1. guarantees sctx.spec is valid and non-null.
+    let spec = unsafe { &mut *spec_ptr };
+    // SAFETY: 2. guarantees flt.field_spec is valid and non-null.
+    let fs = unsafe { &mut *(flt.field_spec as *mut ffi::FieldSpec) };
+    // SAFETY: 1–2.
+    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress)? };
+    // SAFETY: 1. and 3.
+    Some(unsafe { create_numeric_iterator(sctx, tree, flt, field_ctx, min_union_iter_heap) })
+}
+
 /// Creates a union iterator over all numeric sub-ranges matching `filter` in `tree`.
 ///
 /// # Safety
 ///
 /// 1. `sctx` and `sctx.spec` must remain valid for `'index`.
 /// 2. `field_ctx` must contain a field index (not a field mask).
-pub unsafe fn create_numeric_iterator<'index>(
+unsafe fn create_numeric_iterator<'index>(
     sctx: NonNull<ffi::RedisSearchCtx>,
     tree: &'index NumericRangeTree,
     filter: &'index NumericFilter,

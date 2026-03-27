@@ -9,7 +9,6 @@
 
 #include "query_optimizer.h"
 #include "iterators/optimizer_reader.h"
-#include "numeric_index.h"
 #include "ext/default.h"
 #include "iterators_rs.h"
 

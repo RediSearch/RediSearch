@@ -8,7 +8,6 @@
 */
 #include "indexer.h"
 #include "forward_index.h"
-#include "numeric_index.h"
 #include "inverted_index.h"
 #include "geo_index.h"
 #include "vector_index.h"

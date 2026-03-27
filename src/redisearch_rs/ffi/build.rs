@@ -69,7 +69,6 @@ fn main() {
         src.join("forward_index.h"),
         src.join("index_result").join("index_result.h"),
         src.join("json.h"),
-        src.join("numeric_index.h"),
         src.join("obfuscation").join("hidden.h"),
         src.join("obfuscation").join("obfuscation_api.h"),
         src.join("query.h"),

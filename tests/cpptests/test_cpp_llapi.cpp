@@ -14,7 +14,6 @@
 #include "redis_index.h"
 #include "info/indexes_info.h"
 #include "config.h"
-#include "numeric_index.h"
 #include "numeric_range_tree.h"
 
 #include <set>

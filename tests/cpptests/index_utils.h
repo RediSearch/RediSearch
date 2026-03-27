@@ -11,7 +11,6 @@
 
 #include "query_ctx.h"
 #include "inverted_index.h"
-#include "numeric_index.h"
 #include "ttl_table.h"
 #include <string>
 #include <vector>
