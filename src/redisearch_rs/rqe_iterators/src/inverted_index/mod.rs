@@ -18,7 +18,7 @@ mod wildcard;
 
 pub use core::InvIndIterator;
 pub use missing::Missing;
-pub use numeric::Numeric;
+pub use numeric::{Numeric, NumericIteratorVariant, create_numeric_iterator};
 pub use tag::Tag;
 pub use term::Term;
 pub use wildcard::Wildcard;

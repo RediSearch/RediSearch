@@ -1107,6 +1107,7 @@ dependencies = [
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
+ "query_node_type",
  "rqe_iterator_type",
  "rqe_iterators",
  "workspace_hack",

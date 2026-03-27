@@ -22,25 +22,6 @@ typedef enum MetricType {
 } MetricType;
 
 /**
- * Result of creating numeric range iterators for all matching ranges.
- *
- * The `iterators` array is allocated with `RedisModule_Calloc`, so it can be
- * passed directly to `NewUnionIterator` (which takes ownership and frees with
- * `rm_free`). For the 0-range or 1-range cases, the caller must `rm_free`
- * the array themselves.
- */
-typedef struct NumericRangeIteratorsResult {
-  /**
-   * Array of iterators. NULL when `len == 0`.
-   */
-  QueryIterator **iterators;
-  /**
-   * Number of iterators in the array.
-   */
-  size_t len;
-} NumericRangeIteratorsResult;
-
-/**
  * Profile counters collected during query execution.
  *
  * This struct is `#[repr(C)]` so that C code can access its fields directly.
@@ -165,7 +146,7 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
  * # Safety
  *
  * 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
- * 2. If `it` iterator type is [`IteratorType::InvIdxNumeric`], it has been created using `NewInvIndIterator_NumericQuery`.
+ * 2. If `it` iterator type is [`IteratorType::InvIdxNumeric`], it has been created using `CreateNumericIterator`.
  * 3. If `it` iterator type is [`IteratorType::InvIdxTerm`], it has been created using `NewInvIndIterator_TermQuery`.
  * 4. If `it` iterator type is [`IteratorType::InvIdxMissing`], it has been created using `NewInvIndIterator_MissingQuery`.
  * 5. If `it` iterator type is [`IteratorType::InvIdxTag`], it has been created using `NewInvIndIterator_TagQuery`.
@@ -223,53 +204,11 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx,
 const char *InvIndMissingIterator_GetFieldName(const QueryIterator *it, size_t *out_len);
 
 /**
- * Creates a new numeric inverted index iterator for querying numeric fields.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the inverted index to query.
- * * `sctx` - Pointer to the Redis search context for expiration checking.
- * * `field_ctx` - Pointer to the field filter context (field index and expiration predicate).
- * * `flt` - Optional pointer to a numeric filter for value filtering (can be NULL).
- * * `rt` - Optional pointer to the numeric range tree for revalidation (can be NULL).
- * * `range_min` - Minimum value of the numeric range.
- * * `range_max` - Maximum value of the numeric range.
- *
- * # Returns
- *
- * A pointer to a `QueryIterator` that can be used from C code.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to a numeric `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid for the lifetime of the returned iterator.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 5. `field_ctx` must be a valid pointer to a `FieldFilterContext` and cannot be NULL.
- * 6. `field_ctx.field` must be a field index (tag == FieldMaskOrIndex_Index), not a field mask.
- *    Numeric queries require a specific field index.
- * 7. If `flt` is not NULL, it must be a valid pointer to a `NumericFilter` and must
- *    remain valid for the lifetime of the returned iterator.
- * 8. If `rt` is not NULL, it must be a valid pointer to a `NumericRangeTree` and must
- *    remain valid for the lifetime of the returned iterator.
- * 9. `range_min` is smaller or equal to `range_max`.
- */
-QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndexNumeric *idx,
-                                              const RedisSearchCtx *sctx,
-                                              const FieldFilterContext *field_ctx,
-                                              const NumericFilter *flt,
-                                              const NumericRangeTree *rt,
-                                              double range_min,
-                                              double range_max);
-
-/**
  * Gets the numeric filter from a numeric inverted index iterator.
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
  *
  * # Returns
  *
@@ -282,7 +221,7 @@ const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator 
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
  *
  * # Returns
  *
@@ -295,7 +234,7 @@ double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
  *
  * # Safety
  *
- * 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
  *
  * # Returns
  *
@@ -304,33 +243,31 @@ double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
 
 /**
- * Creates numeric range iterators for all ranges in the tree matching the filter.
- *
- * This combines the tree lookup and per-range iterator creation into a single
- * call, eliminating the need for C-side loops over intermediate `Vector` results.
+ * Creates a union iterator from a numeric filter over all matching sub-ranges in the tree.
  *
  * # Returns
  *
- * A [`NumericRangeIteratorsResult`] containing the array of iterators and its length.
- * The array is allocated with `RedisModule_Calloc`. When `len == 0`, `iterators` is NULL.
+ * - `NULL` if no ranges match the filter, or if `f` is NULL.
+ * - The single matching iterator directly if exactly one range matches.
+ * - A union iterator over all matching ranges otherwise.
  *
  * # Safety
  *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`].
- * 2. `t` must remain valid for the lifetime of all returned iterators.
- * 3. `sctx` must be a valid non-NULL pointer to a `RedisSearchCtx`.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
- * 5. `f` must be a valid non-NULL pointer to a [`NumericFilter`].
- * 6. `f` must remain valid for the lifetime of all returned iterators.
- * 7. `field_ctx` must be a valid non-NULL pointer to a `FieldFilterContext`.
- * 8. `field_ctx.field` must be a field index (tag == FieldMaskOrIndex_Index), not a field mask.
+ * 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`], remaining valid for the
+ *    lifetime of all returned iterators.
+ * 2. `sctx` and `sctx.spec` must be valid non-NULL pointers, remaining valid for the lifetime of
+ *    all returned iterators.
+ * 3. `f` may be NULL. If non-NULL, it must be a valid pointer to a [`NumericFilter`], remaining
+ *    valid for the lifetime of all returned iterators.
+ * 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
+ * 5. `field_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field index
+ *    (not a field mask).
  */
-struct NumericRangeIteratorsResult CreateNumericRangeIterators(const NumericRangeTree *t,
-                                                               const RedisSearchCtx *sctx,
-                                                               const NumericFilter *f,
-                                                               const FieldFilterContext *field_ctx);
+QueryIterator *CreateNumericIterator(const RedisSearchCtx *sctx,
+                                     const NumericRangeTree *t,
+                                     const NumericFilter *f,
+                                     const IteratorsConfig *config,
+                                     const FieldFilterContext *field_ctx);
 
 /**
  * Creates a new tag inverted index iterator.

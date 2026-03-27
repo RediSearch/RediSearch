@@ -43,7 +43,7 @@ pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
-pub use inverted_index::{Missing, Numeric, Tag, Term};
+pub use inverted_index::{Missing, Numeric, NumericIteratorVariant, Tag, Term};
 pub use metric::Metric;
 pub use not::NotIterator;
 pub use optional::OptionalIterator;

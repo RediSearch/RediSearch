@@ -9,83 +9,49 @@
 
 use std::ptr::NonNull;
 
-use field::{FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter};
-use numeric_range_tree::{NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree};
-use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Numeric,
-};
+use field::FieldFilterContext;
+use inverted_index::NumericFilter;
+use numeric_range_tree::NumericRangeTree;
+use query_node_type::QueryNodeType;
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 
-/// Enum holding either a numeric or geo iterator variant.
-/// This allows all iterator types to share the same iterator wrapper structure.
-enum IteratorVariant<'index> {
-    /// Numeric iterator without a filter (uses the reader directly).
-    Numeric(Numeric<'index, NumericIndexReader<'index>, FieldExpirationChecker>),
-    /// Numeric iterator with a user filter applied.
-    NumericFiltered(
-        Numeric<
-            'index,
-            FilterNumericReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
-    ),
-    /// Geo iterator (always has a filter).
-    Geo(
-        Numeric<
-            'index,
-            FilterGeoReader<'index, NumericIndexReader<'index>>,
-            FieldExpirationChecker,
-        >,
-    ),
-}
-
-/// Wrapper around the actual Numeric iterator.
-/// Needed as we need to keep the `filter` pointer around so it can be returned in
+/// Wrapper around [`NumericIteratorVariant`].
+/// Needed to keep the `filter` pointer around so it can be returned in
 /// [`NumericInvIndIterator_GetNumericFilter`].
 pub(super) struct NumericIterator<'index> {
     /// The user numeric filter, or None if no filter was provided.
+    ///
+    /// C-Code: kept here (rather than in `rqe_iterators`) solely so that
+    /// `NumericInvIndIterator_GetNumericFilter` can hand the pointer back to C callers.
+    /// Once those callers are ported to Rust, this field and `NumericIterator` itself can be
+    /// removed — callers will use [`NumericIteratorVariant`] directly.
     filter: Option<NonNull<NumericFilter>>,
-    /// The iterator variant (numeric or geo).
-    iterator: IteratorVariant<'index>,
+    /// The iterator variant (unfiltered, filtered numeric, or geo).
+    iterator: NumericIteratorVariant<'index>,
 }
 
 impl<'index> NumericIterator<'index> {
     /// Get the flags from the underlying reader.
     pub(super) fn flags(&self) -> ffi::IndexFlags {
-        match &self.iterator {
-            IteratorVariant::Numeric(iter) => iter.reader().flags(),
-            IteratorVariant::NumericFiltered(iter) => iter.reader().flags(),
-            IteratorVariant::Geo(iter) => iter.reader().flags(),
-        }
+        self.iterator.flags()
     }
 
     /// Get the range minimum value for profiling.
     const fn range_min(&self) -> f64 {
-        match &self.iterator {
-            IteratorVariant::Numeric(iter) => iter.range_min(),
-            IteratorVariant::NumericFiltered(iter) => iter.range_min(),
-            IteratorVariant::Geo(iter) => iter.range_min(),
-        }
+        self.iterator.range_min()
     }
 
     /// Get the range maximum value for profiling.
     const fn range_max(&self) -> f64 {
-        match &self.iterator {
-            IteratorVariant::Numeric(iter) => iter.range_max(),
-            IteratorVariant::NumericFiltered(iter) => iter.range_max(),
-            IteratorVariant::Geo(iter) => iter.range_max(),
-        }
+        self.iterator.range_max()
     }
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
-        match &mut self.iterator {
-            IteratorVariant::Numeric(iter) => iter.current(),
-            IteratorVariant::NumericFiltered(iter) => iter.current(),
-            IteratorVariant::Geo(iter) => iter.current(),
-        }
+        self.iterator.current()
     }
 
     #[inline(always)]
@@ -93,11 +59,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
         &mut self,
     ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
     {
-        match &mut self.iterator {
-            IteratorVariant::Numeric(iter) => iter.read(),
-            IteratorVariant::NumericFiltered(iter) => iter.read(),
-            IteratorVariant::Geo(iter) => iter.read(),
-        }
+        self.iterator.read()
     }
 
     #[inline(always)]
@@ -106,58 +68,34 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
         doc_id: u64,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
-        match &mut self.iterator {
-            IteratorVariant::Numeric(iter) => iter.skip_to(doc_id),
-            IteratorVariant::NumericFiltered(iter) => iter.skip_to(doc_id),
-            IteratorVariant::Geo(iter) => iter.skip_to(doc_id),
-        }
+        self.iterator.skip_to(doc_id)
     }
 
     #[inline(always)]
     fn revalidate(
         &mut self,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        match &mut self.iterator {
-            IteratorVariant::Numeric(iter) => iter.revalidate(),
-            IteratorVariant::NumericFiltered(iter) => iter.revalidate(),
-            IteratorVariant::Geo(iter) => iter.revalidate(),
-        }
+        self.iterator.revalidate()
     }
 
     #[inline(always)]
     fn rewind(&mut self) {
-        match &mut self.iterator {
-            IteratorVariant::Numeric(iter) => iter.rewind(),
-            IteratorVariant::NumericFiltered(iter) => iter.rewind(),
-            IteratorVariant::Geo(iter) => iter.rewind(),
-        }
+        self.iterator.rewind()
     }
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        match &self.iterator {
-            IteratorVariant::Numeric(iter) => iter.num_estimated(),
-            IteratorVariant::NumericFiltered(iter) => iter.num_estimated(),
-            IteratorVariant::Geo(iter) => iter.num_estimated(),
-        }
+        self.iterator.num_estimated()
     }
 
     #[inline(always)]
     fn last_doc_id(&self) -> u64 {
-        match &self.iterator {
-            IteratorVariant::Numeric(iter) => iter.last_doc_id(),
-            IteratorVariant::NumericFiltered(iter) => iter.last_doc_id(),
-            IteratorVariant::Geo(iter) => iter.last_doc_id(),
-        }
+        self.iterator.last_doc_id()
     }
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        match &self.iterator {
-            IteratorVariant::Numeric(iter) => iter.at_eof(),
-            IteratorVariant::NumericFiltered(iter) => iter.at_eof(),
-            IteratorVariant::Geo(iter) => iter.at_eof(),
-        }
+        self.iterator.at_eof()
     }
 
     #[inline(always)]
@@ -170,156 +108,11 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     }
 }
 
-#[unsafe(no_mangle)]
-/// Creates a new numeric inverted index iterator for querying numeric fields.
-///
-/// # Parameters
-///
-/// * `idx` - Pointer to the inverted index to query.
-/// * `sctx` - Pointer to the Redis search context for expiration checking.
-/// * `field_ctx` - Pointer to the field filter context (field index and expiration predicate).
-/// * `flt` - Optional pointer to a numeric filter for value filtering (can be NULL).
-/// * `rt` - Optional pointer to the numeric range tree for revalidation (can be NULL).
-/// * `range_min` - Minimum value of the numeric range.
-/// * `range_max` - Maximum value of the numeric range.
-///
-/// # Returns
-///
-/// A pointer to a `QueryIterator` that can be used from C code.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-///
-/// 1. `idx` must be a valid pointer to a numeric `InvertedIndex` and cannot be NULL.
-/// 2. `idx` must remain valid for the lifetime of the returned iterator.
-/// 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
-/// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
-/// 5. `field_ctx` must be a valid pointer to a `FieldFilterContext` and cannot be NULL.
-/// 6. `field_ctx.field` must be a field index (tag == FieldMaskOrIndex_Index), not a field mask.
-///    Numeric queries require a specific field index.
-/// 7. If `flt` is not NULL, it must be a valid pointer to a `NumericFilter` and must
-///    remain valid for the lifetime of the returned iterator.
-/// 8. If `rt` is not NULL, it must be a valid pointer to a `NumericRangeTree` and must
-///    remain valid for the lifetime of the returned iterator.
-/// 9. `range_min` is smaller or equal to `range_max`.
-pub unsafe extern "C" fn NewInvIndIterator_NumericQuery(
-    idx: *const NumericIndex,
-    sctx: *const ffi::RedisSearchCtx,
-    field_ctx: *const FieldFilterContext,
-    flt: *const NumericFilter,
-    rt: *const NumericRangeTree,
-    range_min: f64,
-    range_max: f64,
-) -> *mut ffi::QueryIterator {
-    debug_assert!(!idx.is_null(), "idx must not be null");
-    debug_assert!(!sctx.is_null(), "sctx must not be null");
-    debug_assert!(!field_ctx.is_null(), "field_ctx must not be null");
-
-    // SAFETY: 1. guarantees idx is valid and non-null
-    let ii_ref = unsafe { &*idx };
-
-    // Get field index and predicate from field context
-    // SAFETY: 5. guarantees field_ctx is valid and non-null
-    let field_ctx = unsafe { &*field_ctx };
-
-    let field_index = match field_ctx.field {
-        field::FieldMaskOrIndex::Index(index) => index,
-        field::FieldMaskOrIndex::Mask(_) => {
-            // SAFETY: Guaranteed by safety requirement 6.
-            panic!("Numeric queries require a field index, not a field mask");
-        }
-    };
-
-    // SAFETY: 3.
-    let sctx = unsafe { NonNull::new_unchecked(sctx as *mut _) };
-    let filter = NonNull::new(flt as *mut NumericFilter);
-    let range_tree = NonNull::new(rt as *mut _).map(|t|
-            // SAFETY: 8.
-            unsafe { t.as_ref() });
-
-    let reader = ii_ref.reader();
-
-    // SAFETY: The caller guarantees `sctx` points to a valid `RedisSearchCtx`
-    // with a valid `spec`, both remaining valid for the iterator's lifetime.
-    let expiration_checker = unsafe {
-        FieldExpirationChecker::new(
-            sctx,
-            FieldFilterContext {
-                field: FieldMaskOrIndex::Index(field_index),
-                predicate: field_ctx.predicate,
-            },
-            reader.flags(),
-        )
-    };
-
-    let iterator = match filter {
-        Some(filter) => {
-            // SAFETY: 7.
-            let filter_ref = unsafe { filter.as_ref() };
-            if !filter_ref.geo_filter.is_null() {
-                // Geo filter
-                let filter_reader = FilterGeoReader::new(filter_ref, reader);
-                // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
-                let iter = unsafe {
-                    Numeric::new(
-                        filter_reader,
-                        expiration_checker,
-                        range_tree,
-                        Some(range_min),
-                        Some(range_max),
-                    )
-                };
-                NumericIterator {
-                    filter: Some(filter),
-                    iterator: IteratorVariant::Geo(iter),
-                }
-            } else {
-                // Numeric filter (no geo)
-                let filter_reader = FilterNumericReader::new(filter_ref, reader);
-                // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
-                let iter = unsafe {
-                    Numeric::new(
-                        filter_reader,
-                        expiration_checker,
-                        range_tree,
-                        Some(range_min),
-                        Some(range_max),
-                    )
-                };
-                NumericIterator {
-                    filter: Some(filter),
-                    iterator: IteratorVariant::NumericFiltered(iter),
-                }
-            }
-        }
-        None => {
-            // No filter - use the reader directly
-            // SAFETY: 8. guarantees `range_tree` validity for the iterator's lifetime.
-            let iter = unsafe {
-                Numeric::new(
-                    reader,
-                    expiration_checker,
-                    range_tree,
-                    Some(range_min),
-                    Some(range_max),
-                )
-            };
-            NumericIterator {
-                filter: None,
-                iterator: IteratorVariant::Numeric(iter),
-            }
-        }
-    };
-
-    RQEIteratorWrapper::boxed_new(iterator)
-}
-
 /// Gets the numeric filter from a numeric inverted index iterator.
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
+/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
 ///
 /// # Returns
 ///
@@ -350,7 +143,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
+/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
 ///
 /// # Returns
 ///
@@ -373,7 +166,7 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid pointer to a `QueryIterator` created by `NewInvIndIterator_NumericQuery`.
+/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
 ///
 /// # Returns
 ///
@@ -392,128 +185,83 @@ pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
     wrapper.inner.range_max()
 }
 
-/// Result of creating numeric range iterators for all matching ranges.
-///
-/// The `iterators` array is allocated with `RedisModule_Calloc`, so it can be
-/// passed directly to `NewUnionIterator` (which takes ownership and frees with
-/// `rm_free`). For the 0-range or 1-range cases, the caller must `rm_free`
-/// the array themselves.
-#[repr(C)]
-pub struct NumericRangeIteratorsResult {
-    /// Array of iterators. NULL when `len == 0`.
-    pub iterators: *mut *mut ffi::QueryIterator,
-    /// Number of iterators in the array.
-    pub len: usize,
-}
-
-/// Creates numeric range iterators for all ranges in the tree matching the filter.
-///
-/// This combines the tree lookup and per-range iterator creation into a single
-/// call, eliminating the need for C-side loops over intermediate `Vector` results.
+/// Creates a union iterator from a numeric filter over all matching sub-ranges in the tree.
 ///
 /// # Returns
 ///
-/// A [`NumericRangeIteratorsResult`] containing the array of iterators and its length.
-/// The array is allocated with `RedisModule_Calloc`. When `len == 0`, `iterators` is NULL.
+/// - `NULL` if no ranges match the filter, or if `f` is NULL.
+/// - The single matching iterator directly if exactly one range matches.
+/// - A union iterator over all matching ranges otherwise.
 ///
 /// # Safety
 ///
-/// The following invariants must be upheld when calling this function:
-///
-/// 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`].
-/// 2. `t` must remain valid for the lifetime of all returned iterators.
-/// 3. `sctx` must be a valid non-NULL pointer to a `RedisSearchCtx`.
-/// 4. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
-/// 5. `f` must be a valid non-NULL pointer to a [`NumericFilter`].
-/// 6. `f` must remain valid for the lifetime of all returned iterators.
-/// 7. `field_ctx` must be a valid non-NULL pointer to a `FieldFilterContext`.
-/// 8. `field_ctx.field` must be a field index (tag == FieldMaskOrIndex_Index), not a field mask.
+/// 1. `t` must be a valid non-NULL pointer to a [`NumericRangeTree`], remaining valid for the
+///    lifetime of all returned iterators.
+/// 2. `sctx` and `sctx.spec` must be valid non-NULL pointers, remaining valid for the lifetime of
+///    all returned iterators.
+/// 3. `f` may be NULL. If non-NULL, it must be a valid pointer to a [`NumericFilter`], remaining
+///    valid for the lifetime of all returned iterators.
+/// 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
+/// 5. `field_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field index
+///    (not a field mask).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn CreateNumericRangeIterators(
-    t: *const NumericRangeTree,
+pub unsafe extern "C" fn CreateNumericIterator(
     sctx: *const ffi::RedisSearchCtx,
+    t: *const NumericRangeTree,
     f: *const NumericFilter,
+    config: *const ffi::IteratorsConfig,
     field_ctx: *const FieldFilterContext,
-) -> NumericRangeIteratorsResult {
-    debug_assert!(!t.is_null(), "t must not be null");
-    debug_assert!(!sctx.is_null(), "sctx must not be null");
-    debug_assert!(!f.is_null(), "f must not be null");
-    debug_assert!(!field_ctx.is_null(), "field_ctx must not be null");
-
-    // SAFETY: 1. guarantees t is valid and non-null
+) -> *mut ffi::QueryIterator {
+    // SAFETY: 1. guarantees t is valid and non-null.
     let tree = unsafe { &*t };
-    // SAFETY: 5. guarantees f is valid and non-null
-    let filter = unsafe { &*f };
+    // SAFETY: 2. guarantees sctx is valid and non-null.
+    let sctx_nn = unsafe { NonNull::new_unchecked(sctx as *mut ffi::RedisSearchCtx) };
+    // SAFETY: 5. guarantees field_ctx is valid and non-null.
+    let field_ctx_ref = unsafe { &*field_ctx };
 
-    let ranges: Vec<&NumericRange> = tree.find(filter);
-
-    if ranges.is_empty() {
-        return NumericRangeIteratorsResult {
-            iterators: std::ptr::null_mut(),
-            len: 0,
-        };
-    }
-
-    // Allocate the output array with RedisModule_Calloc so C can free it with rm_free.
-    // SAFETY: RedisModule_Calloc is always initialized when the module is loaded.
-    let calloc = unsafe { ffi::RedisModule_Calloc.unwrap() };
-    // SAFETY: the length of the array is guaranteed to be non-zero, and
-    // the size of each element is guaranteed to be non-zero.
-    let iterators = unsafe {
-        calloc(ranges.len(), std::mem::size_of::<*mut ffi::QueryIterator>())
-            as *mut *mut ffi::QueryIterator
+    // SAFETY: 3. A NULL filter means there is nothing to search for.
+    let Some(filter) = (unsafe { f.as_ref() }) else {
+        return std::ptr::null_mut();
     };
 
-    // Pass the tree as the revalidation tree only when field_spec is non-null,
-    // matching the existing C behavior in NewNumericRangeIterator.
-    let rt: *const NumericRangeTree = if filter.field_spec.is_null() {
-        std::ptr::null()
+    // SAFETY: caller upholds requirements 1–3, 5.
+    let variants =
+        unsafe { NumericIteratorVariant::from_tree(tree, sctx_nn, filter, field_ctx_ref) };
+
+    if variants.is_empty() {
+        return std::ptr::null_mut();
+    }
+
+    let filter_nn = NonNull::from(filter);
+    // NULL `f` or a numeric filter → QN_NUMERIC; a geo filter → QN_GEO.
+    let node_type = if filter.is_numeric_filter() {
+        QueryNodeType::Numeric
     } else {
-        t
+        QueryNodeType::Geo
     };
+    // SAFETY: 4. guarantees config is valid and non-null.
+    let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
 
-    for (i, range) in ranges.iter().enumerate() {
-        let min_val = range.min_val();
-        let max_val = range.max_val();
+    let children: Vec<CRQEIterator> = variants
+        .into_iter()
+        .map(|iterator| {
+            let ptr = RQEIteratorWrapper::boxed_new(NumericIterator {
+                filter: Some(filter_nn),
+                iterator,
+            });
+            // SAFETY: `boxed_new` never returns null.
+            let ptr = unsafe { NonNull::new_unchecked(ptr) };
+            // SAFETY: `ptr` is a valid, boxed `RQEIteratorWrapper`.
+            unsafe { CRQEIterator::new(ptr) }
+        })
+        .collect();
 
-        // Determine if we can skip the filter: if the filter is numeric (not geo)
-        // and both the range min and max are within the filter bounds, the reader
-        // doesn't need to check the filter for each record.
-        let reader_filter: *const NumericFilter = if filter.is_numeric_filter()
-            && filter.value_in_range(min_val)
-            && filter.value_in_range(max_val)
-        {
-            std::ptr::null()
-        } else {
-            f
-        };
-
-        let entries: *const NumericIndex = range.entries();
-
-        // SAFETY: All pointer requirements are upheld by the caller's contract
-        // (safety requirements 1-8) and our own invariants above.
-        let it = unsafe {
-            NewInvIndIterator_NumericQuery(
-                entries,
-                sctx,
-                field_ctx,
-                reader_filter,
-                rt,
-                min_val,
-                max_val,
-            )
-        };
-
-        // SAFETY: iterators was allocated with enough space for ranges.len() elements,
-        // and i < ranges.len().
-        let ith_slot = unsafe { iterators.add(i) };
-        // SAFETY: ith_slot is a valid pointer to a slot in iterators, and we've exclusive
-        // access to it.
-        unsafe { ith_slot.write(it) };
-    }
-
-    NumericRangeIteratorsResult {
-        iterators,
-        len: ranges.len(),
-    }
+    crate::union::build_union_from_children(
+        children,
+        true,
+        min_union_iter_heap,
+        node_type,
+        std::ptr::null(),
+        1.0,
+    )
 }
