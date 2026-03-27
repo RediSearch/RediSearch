@@ -211,7 +211,7 @@ impl<'a> RLookupRow<'a> {
             //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
             self.sorting_vector()?
                 .get(key.svidx as usize)
-                .filter(|v| !v.is_null())
+                .filter(|v| !v.is_null_static())
         } else {
             None
         }

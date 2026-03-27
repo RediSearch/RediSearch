@@ -55,7 +55,7 @@ impl SharedRsValue {
     /// Uses a thread-local pool to recycle allocations when available.
     pub fn new(value: RsValue) -> Self {
         Self {
-            ptr: Arc::into_raw(crate::pool::pool_get(value)),
+            ptr: Arc::into_raw(crate::pool::pool_get(value).shareable()),
         }
     }
 
@@ -83,7 +83,7 @@ impl SharedRsValue {
 
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// rather than a heap-allocated [`Arc`].
-    fn is_null_static(&self) -> bool {
+    pub fn is_null_static(&self) -> bool {
         ptr::eq(self.ptr, &NULL_VALUE)
     }
 
@@ -165,22 +165,12 @@ impl Drop for SharedRsValue {
             // SAFETY: `self.ptr` was obtained from `Arc::into_raw` and is not static (checked above).
             // Reconstructing the `Arc` decrements the reference count.
             let arc = unsafe { Arc::from_raw(self.ptr) };
-            if Arc::strong_count(&arc) == 1 {
-                // Last reference — recycle the allocation instead of deallocating.
-                //
-                // No TOCTOU race: if `strong_count` returns 1, this `SharedRsValue`
-                // is the sole owner. No other thread holds a reference it could
-                // clone from, so the count cannot increase between this read and
-                // the `Arc::get_mut` call inside `pool_release`.
-                crate::pool::pool_release(arc);
-            } else {
-                // Other references exist — just decrement the refcount.
-                //
-                // In the concurrent drop case where two threads both read a count
-                // > 1, both take this branch. Arc's internal atomics handle this
-                // correctly — the last `drop` deallocates. We miss the pool
-                // optimization, but there is no unsoundness.
-                drop(arc);
+
+            // Convert this Arc into a UniqueArc if the Arc has exactly one strong reference,
+            // otherwise None is returned and the Arc is dropped reducing its reference count.
+            if let Some(unique_arc) = Arc::into_unique(arc) {
+                // Release the UniqueArc to the pool to be recycled.
+                crate::pool::pool_release(unique_arc);
             }
         }
     }
