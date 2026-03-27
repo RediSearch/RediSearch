@@ -9,21 +9,21 @@
 
 use std::cell::RefCell;
 
-use triomphe::Arc;
+use triomphe::UniqueArc;
 
 use crate::RsValue;
 
-/// Maximum number of `Arc<RsValue>` allocations to keep in the thread-local pool.
+/// Maximum number of `UniqueArc<RsValue>` allocations to keep in the thread-local pool.
 /// Matches the C `mempool_t` capacity used for RSValue recycling.
 const MAX_POOL_SIZE: usize = 1000;
 
 /// Thread-local pool of recycled `Arc<RsValue>` allocations.
 ///
 /// When a [`super::SharedRsValue`] is the last reference to its `Arc<RsValue>`,
-/// the Arc is returned to this pool instead of being deallocated. New
-/// [`super::SharedRsValue`] allocations pop from the pool first, avoiding
-/// malloc/free churn in hot loops (e.g. sort pipelines clearing thousands of
-/// search results).
+/// the Arc is converted to a UniqueArc and returned to this pool instead of
+/// being deallocated. New [`super::SharedRsValue`] allocations pop from the
+/// pool first, avoiding malloc/free churn in hot loops (e.g. sort pipelines
+/// clearing thousands of search results).
 ///
 /// # Concurrency
 ///
@@ -36,27 +36,21 @@ const MAX_POOL_SIZE: usize = 1000;
 /// Arcs stored in the pool always have `strong_count == 1` (the pool itself is
 /// the sole owner). No other thread can hold a reference to a pooled Arc, so
 /// `Arc::get_mut` on a pooled entry is guaranteed to succeed.
-struct Pool(Vec<Arc<RsValue>>);
+struct Pool(Vec<UniqueArc<RsValue>>);
 
 thread_local! {
     static POOL: RefCell<Pool> = const { RefCell::new(Pool(Vec::new())) };
 }
 
-/// Get a recycled `Arc<RsValue>` with the given value, or allocate a new one.
-pub(crate) fn pool_get(value: RsValue) -> Arc<RsValue> {
+/// Get a recycled `UniqueArc<RsValue>` with the given value, or allocate a new one.
+pub(crate) fn pool_get(value: RsValue) -> UniqueArc<RsValue> {
     // Use `try_with` to be thread-local destruction safe in the rare case
     // that `pool_get` is called during thread-local destruction.
-    if let Some(mut arc) = POOL
-        .try_with(|pool| pool.borrow_mut().0.pop())
-        .ok()
-        .flatten()
-    {
-        // `strong_count == 1` (pool held the only reference), so `get_mut`
-        // always succeeds.
-        *Arc::get_mut(&mut arc).unwrap() = value;
+    if let Ok(Some(mut arc)) = POOL.try_with(|pool| pool.borrow_mut().0.pop()) {
+        *arc = value;
         arc
     } else {
-        Arc::new(value)
+        UniqueArc::new(value)
     }
 }
 
@@ -65,10 +59,9 @@ pub(crate) fn pool_get(value: RsValue) -> Arc<RsValue> {
 /// # Panics
 ///
 /// Panics if `strong_count > 1` (i.e. the caller is not the sole owner).
-pub(crate) fn pool_release(mut arc: Arc<RsValue>) {
+pub(crate) fn pool_release(mut arc: UniqueArc<RsValue>) {
     // Clear the value to release any owned resources (strings, arrays, etc.)
-    // `get_mut` succeeds because the caller is the sole owner (see `Pool` docs).
-    *Arc::get_mut(&mut arc).unwrap() = RsValue::Undefined;
+    *arc = RsValue::Undefined;
 
     // This function is called from `SharedRsValue::drop`. During thread shutdown,
     // thread-local destruction order is unspecified, so the `POOL` TLS may already
